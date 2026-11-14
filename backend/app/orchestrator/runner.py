@@ -325,10 +325,21 @@ class ReActRunner:
                                 if isinstance(raw_payload, dict):
                                     sandbox_payload = raw_payload
                                     sandbox_payload["artifacts"] = result.pop(
-                                        "_sandbox_artifacts", []
+                                        "_sandbox_artifacts", sandbox_payload.get("artifacts", [])
                                     )
                                     sandbox_payload["artifact_truncated"] = result.pop(
-                                        "_sandbox_artifact_truncated", None
+                                        "_sandbox_artifact_truncated",
+                                        sandbox_payload.get("artifact_truncated"),
+                                    )
+                                    sandbox_payload["egress_accesses"] = result.pop(
+                                        "_sandbox_egress_accesses",
+                                        sandbox_payload.get("egress_accesses", []),
+                                    )
+                                    sandbox_payload["policy_denied"] = bool(
+                                        result.pop(
+                                            "_sandbox_policy_denied",
+                                            sandbox_payload.get("policy_denied", False),
+                                        )
                                     )
                             output = _jsonable(result)
                             if sandbox_payload is not None:

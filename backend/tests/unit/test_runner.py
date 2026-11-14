@@ -433,8 +433,10 @@ async def test_sandbox_lifecycle_callbacks_bracket_tool_execution():
                     "language": "python",
                     "code": arguments["code"],
                     "limits": {"timeout_s": 30},
-                    "artifacts": [],
-                    "artifact_truncated": None,
+                    "artifacts": [{"name": "out.txt", "size": 4, "data": b"data"}],
+                    "artifact_truncated": {"reason": "test"},
+                    "egress_accesses": [{"target_ip": "203.0.113.1", "port": 443}],
+                    "policy_denied": True,
                 },
             }
 
@@ -466,6 +468,14 @@ async def test_sandbox_lifecycle_callbacks_bracket_tool_execution():
     assert starts[0]["execution_id"] == finishes[0]["payload"]["execution_id"]
     assert starts[0]["step_id"] == finishes[0]["step_id"] == sink.steps[1]["id"]
     assert sink.steps[1]["output"] == {"ok": True, "status": "ok"}
+    assert finishes[0]["payload"]["artifacts"] == [
+        {"name": "out.txt", "size": 4, "data": b"data"}
+    ]
+    assert finishes[0]["payload"]["artifact_truncated"] == {"reason": "test"}
+    assert finishes[0]["payload"]["egress_accesses"] == [
+        {"target_ip": "203.0.113.1", "port": 443}
+    ]
+    assert finishes[0]["payload"]["policy_denied"] is True
 
 
 async def _return_false() -> bool:

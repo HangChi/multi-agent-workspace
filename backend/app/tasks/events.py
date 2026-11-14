@@ -62,6 +62,28 @@ def sandbox_finished(run_id: str, execution_id: str, status: str, exit_code: int
     _publish(run_id, {"type": "sandbox_finished", "execution_id": execution_id, "status": status, "exit_code": exit_code, "duration_ms": duration_ms, "artifacts": artifacts})
 
 
+def egress_denied(
+    run_id: str,
+    execution_id: str,
+    *,
+    target_ip: str,
+    target_domain: str,
+    port: int,
+    matched_rule_id: str | None,
+) -> None:
+    _publish(
+        run_id,
+        {
+            "type": "egress_denied",
+            "execution_id": execution_id,
+            "target_ip": target_ip,
+            "target_domain": target_domain,
+            "port": port,
+            "matched_rule_id": matched_rule_id,
+        },
+    )
+
+
 def _publish(run_id: str, payload: dict[str, Any]) -> None:
     """发布事件；Redis 抖动不抛出（Worker 不因事件失败中断执行）。"""
     try:

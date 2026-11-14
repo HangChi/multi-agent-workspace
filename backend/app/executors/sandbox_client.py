@@ -790,7 +790,7 @@ class SandboxRun:
         if self._egress is not None:
             try:
                 self._egress.cleanup()
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - cleanup must not mask execution result
                 logger.warning("清理执行 %s 出站策略失败：%s", self.execution_id, exc)
             self._egress = None
 

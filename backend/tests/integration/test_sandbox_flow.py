@@ -19,6 +19,7 @@ from app.executors.llm import LLMResponse, ToolCall
 from app.models.agent import Agent
 from app.models.artifact import Artifact
 from app.models.audit_log import AuditLog
+from app.models.egress import EgressAccess
 from app.models.run import Run
 from app.models.sandbox_execution import SandboxExecution
 from app.models.step import Step
@@ -94,7 +95,12 @@ def fake_docker(monkeypatch: pytest.MonkeyPatch) -> FakeDockerClient:
         if kwargs.get("detach"):
             return SimpleNamespace(
                 stop=lambda **kwargs: None,
-                logs=lambda **kwargs: b"",
+                logs=lambda **kwargs: (
+                    b"tcp 6 431999 ESTABLISHED src=172.30.0.3 dst=203.0.113.44 "
+                    b"sport=42222 dport=443 packets=2 bytes=128 "
+                    b"src=203.0.113.44 dst=172.30.0.3 sport=443 dport=42222 "
+                    b"packets=2 bytes=128\n"
+                ),
                 remove=lambda **kwargs: None,
             )
         return b""
@@ -149,9 +155,16 @@ async def test_real_execute_persists_stdout_audit_and_artifact(
             "model": "gpt-4o-mini",
             "tools": ["run_python"],
             "max_steps": 5,
+            "egress_mode": "restricted",
         },
     )
     assert agent_response.status_code == 201, agent_response.text
+    rule_response = await client.post(
+        f"/api/v1/agents/{agent_response.json()['id']}/egress-rules",
+        headers=headers,
+        json={"target_type": "cidr", "target": "203.0.113.0/24", "port_range": "443"},
+    )
+    assert rule_response.status_code == 201, rule_response.text
     request_response = await client.post(
         "/api/v1/requests",
         headers=headers,
@@ -220,6 +233,15 @@ async def test_real_execute_persists_stdout_audit_and_artifact(
     assert audit.user_id == run.owner_id
     assert audit.detail["status"] == "ok"
     assert audit.detail["exit_code"] == 0
+    access = (
+        await db_session.execute(
+            select(EgressAccess).where(EgressAccess.execution_id == execution.id)
+        )
+    ).scalar_one()
+    assert str(access.target_ip) == "203.0.113.44"
+    assert access.port == 443
+    assert access.action == "allow"
+    assert access.target_domain == "ip-direct"
     assert fake_docker.container.removed == [True]
     assert fake_docker.network.removed == 1
     assert all(volume.removed == 1 for volume in fake_docker.volumes.created)

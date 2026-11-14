@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -224,7 +225,15 @@ async def record_accesses(
             ipaddress.ip_address(target_ip)
         except ValueError:
             continue
-        domain = item.get("target_domain") or "ip-direct"
+        domain = item.get("target_domain") or item.get("domain") or "ip-direct"
+        occurred_at = item.get("occurred_at")
+        if isinstance(occurred_at, str):
+            try:
+                occurred_at = datetime.fromisoformat(occurred_at)
+            except ValueError:
+                occurred_at = None
+        if occurred_at is None:
+            occurred_at = datetime.now(UTC)
         row = EgressAccess(
             run_id=run_id,
             execution_id=execution_id,
@@ -237,7 +246,7 @@ async def record_accesses(
             action=str(item.get("action", "allow")),
             matched_rule_id=item.get("matched_rule_id"),
             bytes_out=item.get("bytes_out"),
-            occurred_at=item.get("occurred_at"),
+            occurred_at=occurred_at,
         )
         db.add(row)
         rows.append(row)

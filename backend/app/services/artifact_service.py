@@ -176,7 +176,10 @@ def put_bytes(
                 f"制品超过单文件上限 {settings.sbx_artifact_max_file_mb}MB: {filename}",
             )
         hasher.update(data)
-        body: bytes | io.IOBase = data
+        # MinIO's runtime implementation calls ``read`` on the body even though
+        # the type annotation is BinaryIO; wrap bytes instead of relying on the
+        # SDK accepting raw bytes.
+        body: BinaryIO = io.BytesIO(data)
         length = len(data)
     else:
         # 流式：先完整读一遍算指纹与长度，再 seek(0) 供上传。
@@ -193,7 +196,7 @@ def put_bytes(
         if total == 0:
             raise AppError("INVALID_INPUT", "制品内容为空")
         data.seek(0)
-        body = data
+        body = cast(BinaryIO, data)
         length = total
 
     key = build_artifact_key(run_id, execution_id, filename)
@@ -201,9 +204,7 @@ def put_bytes(
     _minio_client().put_object(
         settings.minio_bucket,
         key,
-        # MinIO SDK 的签名要求 BinaryIO；bytes 与 IOBase 在运行时都被接受，
-        # 但类型标注只声明了 BinaryIO，故此处显式放宽（已在 bytes 分支校验过类型）。
-        cast("BinaryIO", body),
+        body,
         length=length,
         content_type=mime or "application/octet-stream",
     )

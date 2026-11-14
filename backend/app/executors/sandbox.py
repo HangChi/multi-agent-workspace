@@ -28,6 +28,7 @@ _ERROR_MESSAGES = {
     "pids": "脚本创建的进程数超过限制，请减少并发子进程。",
     "disk": "脚本写入内容超过磁盘限额，请减少临时文件或产物大小。",
     "infra": "沙箱基础设施不可用，请稍后重试。",
+    "policy": "脚本访问了被出网策略禁止的目标，执行结果已标记。",
     "exit_code": "脚本以非零退出码结束，请检查 stderr 输出。",
 }
 
@@ -86,11 +87,13 @@ class SandboxExecutor(ToolExecutor):
         client: Any | None = None,
         abort_check: Any | None = None,
         timeout_cap: int | None = None,
+        egress_snapshot: dict[str, Any] | None = None,
     ) -> None:
         self.execution_id = execution_id or str(uuid.uuid4())
         self.client = client
         self.abort_check = abort_check
         self.timeout_cap = timeout_cap
+        self.egress_snapshot = egress_snapshot
         self.last_execution_id = self.execution_id
         self.last_code = ""
         self.last_limits: dict[str, Any] = {}
@@ -102,6 +105,10 @@ class SandboxExecutor(ToolExecutor):
     def set_timeout_cap(self, timeout_cap: int | None) -> None:
         """把单次工具超时限制在 Run 剩余预算内；0 表示预算已耗尽。"""
         self.timeout_cap = timeout_cap
+
+    def set_egress_snapshot(self, snapshot: dict[str, Any]) -> None:
+        """设置本次沙箱执行冻结的出网策略快照。"""
+        self.egress_snapshot = snapshot
 
     def prepare_execution(
         self, arguments: dict[str, Any] | None = None
@@ -271,11 +278,14 @@ class SandboxExecutor(ToolExecutor):
             timeout_s=timeout_s,
             abort_check=self.abort_check,
             client=self.client,
+            egress_snapshot=self.egress_snapshot,
         )
         try:
             with run:
                 outcome = run.execute()
                 status, category = classify_outcome(outcome)
+                if run.policy_denied and status == "ok":
+                    status, category = "policy", "policy"
                 result: dict[str, Any] = {
                     "ok": status == "ok",
                     "status": status,
@@ -292,6 +302,8 @@ class SandboxExecutor(ToolExecutor):
                     "mem_peak_bytes": outcome.mem_peak_bytes,
                     "limits": run.limits.as_dict(),
                     "message": _message(category, outcome),
+                    "_sandbox_egress_accesses": list(run.egress_accesses),
+                    "_sandbox_policy_denied": run.policy_denied,
                 }
                 files: list[dict[str, Any]] = []
                 artifact_truncated: dict[str, str] | None = None

@@ -14,17 +14,21 @@ restricted mode bypassable.
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 import re
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Iterable, Literal
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 from docker.errors import APIError, DockerException
 
 from app.core.config import settings
 from app.executors.egress import RuleView, evaluate
+
+logger = logging.getLogger(__name__)
 
 NET_IMAGE = os.environ.get("AW_SBX_NET_IMAGE", "aw-sbx-net:1")
 EGRESS_DNS_PROXY = settings.egress_dns_proxy
@@ -343,7 +347,7 @@ class NetworkCapture:
     started_at: int = 0
 
     @classmethod
-    def prepare(cls, client: Any, network: Any, execution_id: str, snapshot: dict[str, Any] | None) -> "NetworkCapture":
+    def prepare(cls, client: Any, network: Any, execution_id: str, snapshot: dict[str, Any] | None) -> NetworkCapture:
         validate_execution_id(execution_id)
         snapshot = snapshot or {}
         mode = snapshot.get("mode", "default")
@@ -390,8 +394,8 @@ class NetworkCapture:
             try:
                 if "dns_proxy" in locals():
                     network.disconnect(dns_proxy, force=True)
-            except Exception:
-                pass
+            except (APIError, DockerException, OSError, RuntimeError) as cleanup_exc:
+                logger.debug("network policy setup cleanup failed: %s", cleanup_exc)
             if isinstance(exc, NetworkPolicyError):
                 raise
             raise NetworkPolicyError("failed to install sandbox network policy") from exc
@@ -418,7 +422,7 @@ class NetworkCapture:
         self.source_ip = network_info.get("IPAddress")
         if not self.source_ip:
             raise NetworkPolicyError("sandbox container has no network address")
-        self.started_at = int(datetime.now(timezone.utc).timestamp())
+        self.started_at = int(datetime.now(UTC).timestamp())
         try:
             self.watcher = self.client.containers.run(
                 NET_IMAGE,
@@ -457,26 +461,26 @@ class NetworkCapture:
                 )
                 record["action"] = decision.action
                 record["matched_rule_id"] = decision.matched_rule_id
-                record["occurred_at"] = datetime.now(timezone.utc).isoformat()
+                record["occurred_at"] = datetime.now(UTC).isoformat()
             denied = any(record["action"] == "deny" for record in records)
             return records, denied
         finally:
             try:
                 self.watcher.remove(force=True)
-            except Exception:
-                pass
+            except (APIError, DockerException, OSError, RuntimeError) as cleanup_exc:
+                logger.debug("conntrack watcher cleanup failed: %s", cleanup_exc)
             self.watcher = None
 
     def cleanup(self) -> None:
         if self.watcher is not None:
             try:
                 self.watcher.stop(timeout=3)
-            except Exception:
-                pass
+            except (APIError, DockerException, OSError, RuntimeError) as cleanup_exc:
+                logger.debug("conntrack watcher stop failed: %s", cleanup_exc)
             try:
                 self.watcher.remove(force=True)
-            except Exception:
-                pass
+            except (APIError, DockerException, OSError, RuntimeError) as cleanup_exc:
+                logger.debug("conntrack watcher remove failed: %s", cleanup_exc)
             self.watcher = None
         for command in self.cleanup_commands:
             try:
@@ -486,5 +490,5 @@ class NetworkCapture:
                 pass
         try:
             self.network.disconnect(self.dns_proxy, force=True)
-        except Exception:
-            pass
+        except (APIError, DockerException, OSError, RuntimeError) as cleanup_exc:
+            logger.debug("DNS proxy detach failed: %s", cleanup_exc)
