@@ -121,19 +121,19 @@
 
 ### Tests for User Story 3（先写，先红后绿）⚠️
 
-- [ ] T041 [P] [US3] 需求集成测试 backend/tests/integration/test_requests.py：创建 201（status=created）/ 详情 200 / 分页与 `?status=&q=&priority=` 过滤 / 归属校验 403 / 404
-- [ ] T042 [P] [US3] 附件测试 backend/tests/integration/test_attachments.py：上传 201（预签名 URL 可 PUT）/ 超 20MB 拒绝 400 / 不支持类型拒绝 400 / 下载 302 预签名 / 附件元数据回填 requests.attachments
+- [x] T041 [P] [US3] 需求集成测试 backend/tests/integration/test_requests.py：创建 201（status=created）/ 详情 200 / 分页与 `?status=&q=&priority=` 过滤 / 归属校验 403 / 404
+- [x] T042 [P] [US3] 附件测试 backend/tests/integration/test_attachments.py：上传 201（预签名 URL 可 PUT）/ 超 20MB 拒绝 400 / 不支持类型拒绝 400 / 下载 302 预签名 / 附件元数据回填 requests.attachments
 
 ### Implementation for User Story 3
 
-- [ ] T043 [US3] 需求 schema：backend/app/schemas/request.py（RequestCreate/RequestUpdate/RequestOut，priority/status 枚举）
-- [ ] T044 [US3] 需求服务：backend/app/services/request_service.py（CRUD + 列表查询（状态/关键词/优先级/分页）+ 归属校验）
-- [ ] T045 [US3] 制品服务：backend/app/services/artifact_service.py（MinIO 客户端 + 预签名 PUT/GET URL + 大小/类型校验（≤20MB，白名单 mime））
-- [ ] T046 [US3] 需求端点：backend/app/api/v1/requests.py（GET/POST /requests、GET /requests/{id}、POST /requests/{id}/attachments）
-- [ ] T047 [US3] 前端看板：frontend/src/pages/BoardPage.tsx + frontend/src/components/board/Board.tsx + frontend/src/components/board/RequestCard.tsx（按状态分组列：待分配/执行中/已完成/失败/已取消 + 关键词搜索框）
-- [ ] T048 [US3] 前端需求交互：frontend/src/components/request/（创建需求表单 + 附件上传组件，调预签名 PUT）
-- [ ] T049 [US3] 审计挂接：在 backend/app/api/v1/requests.py 内调用 core/audit.py 的 write_audit（request_create）
-- [ ] T050 [US3] 集成验证：S3 场景全过（按 specs/001-core-workflow/quickstart.md S3 执行，结果记入验证记录表）
+- [x] T043 [US3] 需求 schema：backend/app/schemas/request.py（RequestCreate/RequestUpdate/RequestOut，priority/status 枚举）
+- [x] T044 [US3] 需求服务：backend/app/services/request_service.py（CRUD + 列表查询（状态/关键词/优先级/分页）+ 归属校验）
+- [x] T045 [US3] 制品服务：backend/app/services/artifact_service.py（MinIO 客户端 + 预签名 PUT/GET URL + 大小/类型校验（≤20MB，白名单 mime））
+- [x] T046 [US3] 需求端点：backend/app/api/v1/requests.py（GET/POST /requests、GET /requests/{id}、POST /requests/{id}/attachments）
+- [x] T047 [US3] 前端看板：frontend/src/pages/BoardPage.tsx + frontend/src/components/board/Board.tsx + frontend/src/components/board/RequestCard.tsx（按状态分组列：待分配/执行中/已完成/失败/已取消 + 关键词搜索框）
+- [x] T048 [US3] 前端需求交互：frontend/src/components/request/（创建需求表单 + 附件上传组件，调预签名 PUT）
+- [x] T049 [US3] 审计挂接：在 backend/app/api/v1/requests.py 内调用 core/audit.py 的 write_audit（request_create）
+- [x] T050 [US3] 集成验证：S3 场景全过（按 specs/001-core-workflow/quickstart.md S3 执行，结果记入验证记录表）
 
 **Checkpoint**: US1-3 独立可用——需求管理与看板交付
 

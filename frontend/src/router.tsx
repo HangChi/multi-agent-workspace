@@ -6,6 +6,7 @@ import { AppLayout } from './components/layout/AppLayout'
 import { useAuth } from './hooks/useAuth'
 import { AdminPage } from './pages/AdminPage'
 import { AgentPage } from './pages/AgentPage'
+import { BoardPage } from './pages/BoardPage'
 import { GroupPage } from './pages/GroupPage'
 import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
@@ -38,17 +39,9 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
-/** 工作台首页（Phase 5 替换为 BoardPage）。 */
+/** 工作台首页（Phase 6 起为拖拽看板交互入口）。 */
 function BoardHome() {
-  const { user } = useAuth()
-  return (
-    <div>
-      <h1 className="text-2xl font-bold text-slate-800">工作台</h1>
-      <p className="mt-2 text-slate-600">
-        欢迎，{user?.email}（{user?.role}）。从顶部导航管理 Agent 与 Agent 组。
-      </p>
-    </div>
-  )
+  return <BoardPage />
 }
 
 export function AppRouter() {

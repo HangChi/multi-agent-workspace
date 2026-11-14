@@ -23,6 +23,9 @@ export function AppLayout() {
               Agent 工作台
             </Link>
             <nav className="flex items-center gap-1">
+              <NavLink to="/" end className={navClass}>
+                看板
+              </NavLink>
               <NavLink to="/agents" className={navClass}>
                 Agent
               </NavLink>
