@@ -21,6 +21,9 @@ class Artifact(Base):
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     mime_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # 内容指纹（002-sandboxed-tools）：沙箱产出的制品在服务端直传时流式计算，
+    # 供去重与「上传后是否被篡改」核对。存量数据为 NULL（不回填）。
+    sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     run = relationship("Run", back_populates="artifacts")

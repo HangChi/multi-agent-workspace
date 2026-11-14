@@ -4,20 +4,16 @@
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-# 工具白名单（与执行器支持的工具集对齐，T031）
-ALLOWED_TOOLS = frozenset(
-    {
-        "web_search",  # 联网搜索
-        "web_fetch",   # 抓取网页
-        "shell",       # 执行 shell 命令（沙箱）
-        "http",        # HTTP 请求
-        "code_interpreter",  # 代码解释器
-    }
-)
+from app.executors.catalog import CATALOG
+
+# 工具白名单**从工具目录派生**，不再手写一份。
+# 001 时代这里是硬编码的 5 个旧名字（web_fetch/shell/http/code_interpreter），
+# 与执行器实际实现漂移——catalog 才是单一事实源。
+ALLOWED_TOOLS = frozenset(CATALOG)
 
 
 class AgentCreate(BaseModel):
@@ -32,6 +28,9 @@ class AgentCreate(BaseModel):
     max_run_seconds: int = Field(default=1800, ge=1, le=86400)
     tools: list[str] = Field(default_factory=list)
     cost_limit_cents: int = Field(default=10000, ge=1)
+    # 出站模式：default 只受全局黑名单约束；restricted 只放行 agent 级 allow 规则。
+    # 无论哪种，全局黑名单都不可放宽（FR-022）。
+    egress_mode: Literal["default", "restricted"] = "default"
 
     @field_validator("tools")
     @classmethod
@@ -56,6 +55,7 @@ class AgentUpdate(BaseModel):
     max_run_seconds: int | None = Field(default=None, ge=1, le=86400)
     tools: list[str] | None = None
     cost_limit_cents: int | None = Field(default=None, ge=1)
+    egress_mode: Literal["default", "restricted"] | None = None
 
     @field_validator("tools")
     @classmethod
@@ -84,6 +84,7 @@ class AgentOut(BaseModel):
     max_run_seconds: int
     tools: list[Any]
     cost_limit_cents: int
+    egress_mode: str
     status: str
     created_at: datetime
     updated_at: datetime

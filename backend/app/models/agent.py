@@ -35,6 +35,16 @@ class Agent(Base):
     max_steps: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     max_run_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=1800)
     tools: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # 出站模式（002-sandboxed-tools）：
+    # - `default`    放行并记录（有全局黑名单兜底）
+    # - `restricted` 仅允许 egress_rules 中该 Agent 的 allow 项
+    # 注意：无论哪种模式，全局黑名单都不可放宽（FR-022）。
+    egress_mode: Mapped[str] = mapped_column(
+        Enum("default", "restricted", name="agent_egress_mode"),
+        nullable=False,
+        default="default",
+        server_default="default",
+    )
     cost_limit_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=10000)
     status: Mapped[str] = mapped_column(
         Enum("active", "archived", name="agent_status"), nullable=False, default="active"

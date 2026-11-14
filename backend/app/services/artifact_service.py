@@ -1,13 +1,18 @@
-"""制品/附件服务（T045）：MinIO 客户端 + 预签名 PUT/GET URL + 大小/类型校验。
+"""制品/附件服务：MinIO 客户端 + 预签名 URL + 服务端直传。
 
-对齐 contracts/api.md 附件部分与 data-model.md 的 R-05 决策：
-- 附件元数据存 requests.attachments（jsonb），文件体在 MinIO
-- 预签名 PUT：客户端直传对象存储，不经应用服务器
-- 大小 ≤20MB，mime 在白名单内（config.allowed_attachment_types）
+两条上传路径，用途不同：
+- **预签名 PUT**（`presign_put`）：附件，客户端直传对象存储，不经应用服务器
+- **服务端直传**（`put_bytes`）：沙箱产出，Worker 侧读取容器归档后写入，
+  同时算 sha256——客户端不可信，指纹必须由服务端计算
+
+对齐 contracts/api.md 附件部分与 data-model.md 的 R-05 决策。
 """
 
+import hashlib
+import io
 import uuid
 from datetime import timedelta
+from typing import BinaryIO, cast
 from urllib.parse import unquote
 
 from minio import Minio
@@ -114,3 +119,98 @@ def download_url(request: Request, key: str) -> str:
     if not _object_exists(key):
         raise AppError("NOT_FOUND", "附件对象不存在")
     return presign_get(key)
+
+
+# ---------------------------------------------------------------------------
+# 沙箱产出（服务端直传）
+# ---------------------------------------------------------------------------
+
+# 单文件上限与 settings 里的一致，但这里单独取一次便于函数内早退，
+# 避免在流式循环里反复读配置对象。
+def build_artifact_key(run_id: str, execution_id: str, filename: str) -> str:
+    """沙箱制品对象键：`artifacts/{run_id}/{execution_id}/{filename}`。
+
+    不加随机前缀（与附件不同）：同一执行内同名文件由调用方追加序号去重，
+    保持键可预测，便于按执行前缀列出与批量清理。
+    """
+    # 去掉路径分隔符，防止文件名里的 `../` 逃出前缀
+    safe = filename.replace("\\", "/").split("/")[-1] or "unnamed"
+    return f"artifacts/{run_id}/{execution_id}/{safe}"
+
+
+def put_bytes(
+    run_id: str,
+    execution_id: str,
+    filename: str,
+    data: bytes | io.IOBase,
+    mime: str | None = None,
+) -> tuple[str, str]:
+    """服务端直传一个制品到对象存储，返回 `(object_key, sha256)`。
+
+    Args:
+        run_id: 所属 Run。
+        execution_id: 产生该制品的沙箱执行。
+        filename: 文件名（会去掉路径部分，防止 `../` 逃逸前缀）。
+        data: 文件内容；传 `bytes` 或可读流。流式传入时按块读取并同步算指纹，
+            避免把大文件整个读进内存（单文件上限 20MB，但并发时会放大）。
+        mime: MIME 类型，未知则留空。
+
+    Returns:
+        (object_key, sha256_hex)
+
+    Raises:
+        AppError: 内容为空或超过单文件上限 → `INVALID_INPUT`。
+
+    sha256 由**服务端**计算，不采信调用方传入的指纹：沙箱里的脚本不可信，
+    让它自报指纹等于把完整性校验交给被校验方。
+    """
+    max_bytes = settings.sbx_artifact_max_file_mb * 1024 * 1024
+
+    hasher = hashlib.sha256()
+    if isinstance(data, bytes):
+        if not data:
+            raise AppError("INVALID_INPUT", "制品内容为空")
+        if len(data) > max_bytes:
+            raise AppError(
+                "INVALID_INPUT",
+                f"制品超过单文件上限 {settings.sbx_artifact_max_file_mb}MB: {filename}",
+            )
+        hasher.update(data)
+        body: bytes | io.IOBase = data
+        length = len(data)
+    else:
+        # 流式：先完整读一遍算指纹与长度，再 seek(0) 供上传。
+        # 这样能精确拿到长度（MinIO put_object 需要 length），且不必二次缓冲整份内容。
+        total = 0
+        while chunk := data.read(1024 * 1024):
+            total += len(chunk)
+            if total > max_bytes:
+                raise AppError(
+                    "INVALID_INPUT",
+                    f"制品超过单文件上限 {settings.sbx_artifact_max_file_mb}MB: {filename}",
+                )
+            hasher.update(chunk)
+        if total == 0:
+            raise AppError("INVALID_INPUT", "制品内容为空")
+        data.seek(0)
+        body = data
+        length = total
+
+    key = build_artifact_key(run_id, execution_id, filename)
+    _ensure_bucket()
+    _minio_client().put_object(
+        settings.minio_bucket,
+        key,
+        # MinIO SDK 的签名要求 BinaryIO；bytes 与 IOBase 在运行时都被接受，
+        # 但类型标注只声明了 BinaryIO，故此处显式放宽（已在 bytes 分支校验过类型）。
+        cast("BinaryIO", body),
+        length=length,
+        content_type=mime or "application/octet-stream",
+    )
+    return key, hasher.hexdigest()
+
+
+def artifact_get_url(key: str) -> str:
+    """制品的预签名下载 URL。与附件走同一套 `presign_get`。"""
+    return presign_get(key)
+

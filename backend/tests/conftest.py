@@ -39,6 +39,11 @@ from app.core.db import Base
 from app.core.security import create_access_token, hash_password
 from app.models.user import User
 
+# 沙箱相关夹具（T017）：fake_docker / sbx_semaphore / sandbox_factory / fixed_clock。
+# 用 `pytest_plugins` 而不是 import：fixture 需要在 conftest 作用域内注册才能被
+# 所有测试目录看到。
+pytest_plugins = ["tests.sandbox_fixtures"]
+
 # 测试数据库 URL：环境变量已指向测试库（见文件头部），直接复用，避免二次 replace 出错
 TEST_DATABASE_URL = settings.database_url
 
