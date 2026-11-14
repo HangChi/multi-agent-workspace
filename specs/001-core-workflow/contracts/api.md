@@ -144,11 +144,13 @@
 ## 审计与统计
 
 ### GET /stats/overview
-仪表盘 → 200：
+仪表盘 → 200（字段与前端 `StatsOverview` 一致）：
 ```json
-{"running_count": 3, "queued_count": 2, "completed_today": 12, "failed_today": 1,
- "success_rate_7d": 0.92, "cost_today_cents": 345, "cost_trend_7d": [{"date": "...", "cost_cents": 100}]}
+{"running": 3, "queued": 2, "completed_today": 12, "failed_today": 1,
+ "success_rate_7d": 0.92, "cost_today_cents": 345, "cost_trend_7d": [0, 100, 0, 0, 40, 0, 345]}
 ```
+- `running` / `queued`：当前非终态计数，**不受 7 天窗口限制**（跑了很久的任务也必须可见）
+- `cost_trend_7d`：长度 7 的每日成本数组（索引 0 最早、6 为今日），无日期标签，前端按位置渲染
 
 ### GET /audit-logs
 管理后台审计（admin）。→ 200 `{"items": [AuditLog], "total": n}`。参数 `?user_id=&action=&page=`。
@@ -164,3 +166,4 @@
 | 409 | CONFLICT | 状态冲突（已在执行/终态/邮箱重复/组引用） |
 | 422 | VALIDATION_ERROR | schema 校验失败 |
 | 429 | RATE_LIMITED | 配额/频率限制 |
+| 500 | INTERNAL_ERROR | 未预期异常（统一 JSON 兜底，详情只进日志不回传） |

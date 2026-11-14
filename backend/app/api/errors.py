@@ -14,11 +14,14 @@
 输出统一为：{"error": {"code": "...", "message": "..."}}
 """
 
+import structlog
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+logger = structlog.get_logger(__name__)
 
 # 错误码 → HTTP 状态
 _ERROR_MAP: dict[str, int] = {
@@ -29,6 +32,7 @@ _ERROR_MAP: dict[str, int] = {
     "CONFLICT": 409,
     "VALIDATION_ERROR": 422,
     "RATE_LIMITED": 429,
+    "INTERNAL_ERROR": 500,
 }
 
 
@@ -104,4 +108,23 @@ def register_error_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=400,
             content=_error_body("INVALID_INPUT", "数据库操作失败"),
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+        """兜底：未预期异常也返回统一 JSON 结构。
+
+        否则 FastAPI 返回纯文本 "Internal Server Error"，前端 extractError
+        拿不到 message，只能显示「请求失败，请稍后重试」——排查时完全无线索。
+        详情只进日志（含堆栈），不回传给客户端（避免泄漏内部实现）。
+        """
+        logger.exception(
+            "unhandled_error",
+            path=request.url.path,
+            method=request.method,
+            error_type=type(exc).__name__,
+        )
+        return JSONResponse(
+            status_code=500,
+            content=_error_body("INTERNAL_ERROR", "服务器内部错误，请稍后重试"),
         )

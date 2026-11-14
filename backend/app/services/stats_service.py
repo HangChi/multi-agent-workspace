@@ -39,6 +39,19 @@ async def overview(db: AsyncSession, owner_id: str) -> dict:
     today_start = _day_start(now)
     week_ago = today_start - timedelta(days=6)  # 含今日共 7 天
 
+    # 非终态计数不受时间窗口限制：一个跑了十几天的任务依然是 running，
+    # 若按 7 天窗口过滤会从仪表盘「消失」（用户以为任务丢了）。
+    active_rows = (
+        await db.execute(
+            select(Run.status).where(
+                Run.owner_id == owner_id,
+                Run.status.in_(_NON_TERMINAL),
+            )
+        )
+    ).scalars().all()
+    running = sum(1 for s in active_rows if s == "running")
+    queued = sum(1 for s in active_rows if s == "queued")
+
     rows = (
         (
             await db.execute(
@@ -52,7 +65,7 @@ async def overview(db: AsyncSession, owner_id: str) -> dict:
         .all()
     )
 
-    running = queued = completed_today = failed_today = 0
+    completed_today = failed_today = 0
     cost_today = 0
     success_7d = fail_7d = 0
 
@@ -67,16 +80,11 @@ async def overview(db: AsyncSession, owner_id: str) -> dict:
         if created < week_ago:
             continue
 
-        if run.status in _NON_TERMINAL:
-            if run.status == "running":
-                running += 1
-            elif run.status == "queued":
-                queued += 1
-        elif run.status in _TERMINAL_SUCCESS:
+        if run.status in _TERMINAL_SUCCESS:
             success_7d += 1
         elif run.status in _TERMINAL_FAIL:
             fail_7d += 1
-        # cancelled / needs_input 不计入成功率与今日终态
+        # cancelled / needs_input / 非终态不计入成功率与今日终态
 
         if run.status != "cancelled":
             trend[created.date().isoformat()] += run.cost_cents

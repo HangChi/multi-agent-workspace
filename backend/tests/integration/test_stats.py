@@ -149,3 +149,20 @@ async def test_stats_isolated_per_user(client, db_session, auth_headers):
     data_b = resp_b.json()
     assert data_b["completed_today"] == 0
     assert data_b["cost_today_cents"] == 0
+
+
+async def test_active_counts_ignore_time_window(client, db_session, auth_headers):
+    """非终态计数不受 7 天窗口限制（跑了很久的任务不能从仪表盘消失）。"""
+    headers, user = await auth_headers()
+    old = datetime.now(UTC) - timedelta(days=20)
+
+    await _make_run(db_session, user.id, 0, status="running", created_at=old)
+    await _make_run(db_session, user.id, 0, status="queued", created_at=old)
+    await db_session.commit()
+
+    resp = await client.get(STATS_URL, headers=headers)
+    data = resp.json()
+    assert data["running"] == 1
+    assert data["queued"] == 1
+    # 成本趋势仍只统计近 7 天，20 天前的任务不进入趋势
+    assert sum(data["cost_trend_7d"]) == 0
