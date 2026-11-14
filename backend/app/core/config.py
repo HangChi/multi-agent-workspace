@@ -2,8 +2,14 @@
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# 代码内置的默认值：仅允许在开发环境使用
+_WEAK_DEFAULT_SECRETS = frozenset({"dev-only-change-me", "CHANGE-ME-ADMIN-CODE"})
+_PRODUCTION_ENVS = frozenset({"production", "prod"})
+_MIN_JWT_SECRET_LEN = 32
+_MIN_INVITE_CODE_LEN = 12
 
 
 class Settings(BaseSettings):
@@ -67,6 +73,31 @@ class Settings(BaseSettings):
     @property
     def allowed_attachment_type_list(self) -> list[str]:
         return [t.strip() for t in self.allowed_attachment_types.split(",") if t.strip()]
+
+    @property
+    def is_production(self) -> bool:
+        return self.app_env.lower() in _PRODUCTION_ENVS
+
+    @model_validator(mode="after")
+    def _guard_production_secrets(self) -> "Settings":
+        """生产环境拒绝弱默认密钥（T010「启动时校验必需项」）。
+
+        忘了配 JWT_SECRET 时用默认值跑生产 = 任何人可伪造 token（完全绕过鉴权），
+        因此这里直接启动失败，而不是降级运行。
+        """
+        if not self.is_production:
+            return self
+
+        problems: list[str] = []
+        if self.jwt_secret in _WEAK_DEFAULT_SECRETS or len(self.jwt_secret) < _MIN_JWT_SECRET_LEN:
+            problems.append(f"JWT_SECRET（需 ≥{_MIN_JWT_SECRET_LEN} 字符且非默认值）")
+        if self.invite_code in _WEAK_DEFAULT_SECRETS or len(self.invite_code) < _MIN_INVITE_CODE_LEN:
+            problems.append(f"INVITE_CODE（需 ≥{_MIN_INVITE_CODE_LEN} 字符且非默认值）")
+        if problems:
+            raise ValueError(
+                f"APP_ENV={self.app_env} 下必须显式配置安全项：" + "、".join(problems)
+            )
+        return self
 
 
 @lru_cache
