@@ -25,15 +25,27 @@
 
 **Purpose**: 让「能起一个隔离容器」这件事先成立，后续所有故事都依赖它
 
-- [ ] T001 后端新增依赖：backend/pyproject.toml 加 `docker>=7.1`（Docker SDK）；确认 `uv sync` 后 `import docker` 可用，不引入其他容器相关重依赖
-- [ ] T002 [P] 配置项：backend/app/core/config.py 增 `SBX_IMAGE/SBX_TIMEOUT_DEFAULT/SBX_TIMEOUT_MAX/SBX_CPU/SBX_MEM_MB/SBX_DISK_MB/SBX_PIDS/SBX_MAX_CONCURRENCY/SBX_STDOUT_MAX_BYTES/SBX_CODE_MAX_BYTES/SBX_ARTIFACT_MAX_FILES/SBX_ARTIFACT_MAX_FILE_MB/SBX_ARTIFACT_MAX_TOTAL_MB`、`EGRESS_DNS_PROXY/EGRESS_BUILTIN_BLACKLIST`、`TOOL_DENY_THRESHOLD`，并在 `deploy/.env.example` 同步（T007 一起提交）
-- [ ] T003 [P] 沙箱镜像：deploy/sandbox/Dockerfile（`python:3.12-slim` + numpy/pandas/matplotlib/requests/beautifulsoup4/openpyxl，非 root 用户 `sandbox` UID 10001，`WORKDIR /workspace` 并预建可写 `output/`，无 ENTRYPOINT）+ deploy/sandbox/README.md（镜像用途与重建命令）
-- [ ] T004 [P] 网络 init 镜像：deploy/sbx-net/Dockerfile（alpine + iptables + conntrack-tools，`ENTRYPOINT []`，只被以 `--net=host --cap-add=NET_ADMIN` 短命调用）
-- [ ] T005 [P] DNS 代理：deploy/dns-proxy/（Dockerfile + dnsmasq.conf，开启 `log-queries` 与 `log-facility=-`（stdout），黑名单域名走 `address=/<domain>/` 返回 NXDOMAIN，配置由 `/etc/hosts.d` 类挂载注入）
-- [ ] T006 部署接线：deploy/docker-compose.yml 增 `dns-proxy` 服务（内部网络、无外网暴露）+ `worker` 挂载 `/var/run/docker.sock` 与 `SBX_*` 环境变量 + 各服务的 `shm_size`/资源上限校验；确保 worker 仍能连 postgres/redis（不要给 worker 加 `network_mode: host`）
-- [ ] T007 [P] 环境模板：deploy/.env.example 补 T002 的全部变量（含注释说明默认值与上限），不写真实值
+- [x] T001 后端新增依赖：backend/pyproject.toml 加 `docker>=7.1`（Docker SDK）；确认 `uv sync` 后 `import docker` 可用，不引入其他容器相关重依赖
+- [x] T002 [P] 配置项：backend/app/core/config.py 增 `SBX_IMAGE/SBX_TIMEOUT_DEFAULT/SBX_TIMEOUT_MAX/SBX_CPU/SBX_MEM_MB/SBX_DISK_MB/SBX_PIDS/SBX_MAX_CONCURRENCY/SBX_STDOUT_MAX_BYTES/SBX_CODE_MAX_BYTES/SBX_ARTIFACT_MAX_FILES/SBX_ARTIFACT_MAX_FILE_MB/SBX_ARTIFACT_MAX_TOTAL_MB`、`EGRESS_DNS_PROXY/EGRESS_BUILTIN_BLACKLIST`、`TOOL_DENY_THRESHOLD`，并在 `deploy/.env.example` 同步（T007 一起提交）
+- [x] T003 [P] 沙箱镜像：deploy/sandbox/Dockerfile（`python:3.12-slim` + numpy/pandas/matplotlib/requests/beautifulsoup4/openpyxl，非 root 用户 `sandbox` UID 10001，`WORKDIR /workspace` 并预建可写 `output/`，无 ENTRYPOINT）+ deploy/sandbox/README.md（镜像用途与重建命令）
+- [x] T004 [P] 网络 init 镜像：deploy/sbx-net/Dockerfile（alpine + iptables + conntrack-tools，`ENTRYPOINT []`，只被以 `--net=host --cap-add=NET_ADMIN` 短命调用）
+- [x] T005 [P] DNS 代理：deploy/dns-proxy/（Dockerfile + dnsmasq.conf，开启 `log-queries` 与 `log-facility=-`（stdout），黑名单域名走 `address=/<domain>/` 返回 NXDOMAIN，配置由 `/etc/hosts.d` 类挂载注入）
+  - 实现修正：① 必须用 `log-queries=extra`——普通 `log-queries` 只记 forwarded/reply，**不带客户端 IP**，SC-009 的"谁访问了什么"就断了；② 黑名单改为**静态只读挂载** `blacklist.conf`（默认全注释模板），不做运行期按执行重写：dns-proxy 是全局共享服务，并发执行会互相覆盖；Agent 级限制模式下沉到每次执行的 iptables 规则；③ 无宿主端口，只被 Worker 接入每次执行的独立网络。
+- [x] T006 部署接线：deploy/docker-compose.yml 增 `dns-proxy` 服务（内部网络、无外网暴露）+ `worker` 挂载 `/var/run/docker.sock` 与 `SBX_*` 环境变量 + 各服务的 `shm_size`/资源上限校验；确保 worker 仍能连 postgres/redis（不要给 worker 加 `network_mode: host`）
+  - 实现修正：worker 必须加 `group_add: ['${DOCKER_SOCK_GID:-0}']`。worker 以非 root(10001) 运行，而 socket 是 `root:<组> 0660`，只挂载不加组会 `PermissionError: [Errno 13]`（Checkpoint 实测踩到）。只加补充组、不改 `USER`，进程身份仍是 10001。
+- [x] T007 [P] 环境模板：deploy/.env.example 补 T002 的全部变量（含注释说明默认值与上限），不写真实值
 
 **Checkpoint**: `docker build` 两个镜像成功；compose 起来后 `docker exec aw-worker docker version` 有输出；`dns-proxy` 可解析公网域名
+
+**Phase 1 完成记录（2026-11-14）**：
+- 三个镜像（sandbox / sbx-net / dns-proxy）build 成功，自检通过（sandbox 无 ENTRYPOINT 时 CMD 兜底 exit 2）。
+- Checkpoint 第 1 项**改写**为 `docker exec aw-worker python -c "import docker; docker.from_env().version()"`：worker 镜像**故意不装 docker CLI**（走 Python SDK，CLI 无用且增加攻击面），原命令必然 `executable file not found`。
+- 实测：worker 经 SDK 连通守护进程（v29.9.3 / API 1.56），可见三个沙箱相关镜像。
+- 端到端实测：起独立网络 `aw-sbx-*` → 接入 dns-proxy（IP 172.30.0.2）→ 起沙箱容器（user 10001:10001, mem 256m, nano_cpus 0.5, pids 64, `dns=[172.30.0.2]`）→ example.com / pypi.org 均解析成功 → 退出码 0 → 清理网络。
+- dns-proxy 日志确认记录 `query[A] pypi.org from 172.30.0.3`，SC-009 域名审计链路打通。
+- 质量门禁：`ruff check` 干净、`mypy app` 68 文件 0 问题、`pytest` 315 passed。
+- 提交 `af6f4c7`。
+- ⚠️ 未验证项：iptables / conntrack（本机 macOS Docker Desktop，无内核 netfilter），须在 Linux 云主机验 S5。
 
 ---
 
