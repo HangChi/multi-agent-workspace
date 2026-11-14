@@ -10,6 +10,7 @@
 run 对象满足 state_machine.RunLike 协议（ORM Run 或测试 dataclass）。
 """
 
+import asyncio
 import json
 import time
 from collections.abc import Awaitable, Callable
@@ -233,6 +234,37 @@ class ReActRunner:
                                     }
                                 )
                     else:
+                        # 沙箱执行在工作线程内轮询取消状态。通过线程安全桥接回当前
+                        # asyncio loop，确保运行中的容器也能响应 Run 取消，而非仅在
+                        # 下一轮 LLM 请求前取消。
+                        set_abort_check = getattr(executor, "set_abort_check", None)
+                        if callable(set_abort_check) and should_abort is not None:
+                            event_loop = asyncio.get_running_loop()
+
+                            async def cancellation_probe() -> bool:
+                                return await should_abort()
+
+                            def abort_from_worker(loop=event_loop) -> bool:
+                                try:
+                                    return bool(
+                                        asyncio.run_coroutine_threadsafe(
+                                            cancellation_probe(), loop
+                                        ).result(timeout=2)
+                                    )
+                                except (RuntimeError, TimeoutError):
+                                    # 取消状态检查失败时采取 fail-closed，避免孤儿容器。
+                                    return True
+
+                            set_abort_check(abort_from_worker)
+                        set_timeout_cap = getattr(executor, "set_timeout_cap", None)
+                        if callable(set_timeout_cap):
+                            remaining = max(
+                                1, int(self.timeout_seconds - (time.monotonic() - start))
+                            )
+                            set_timeout_cap(remaining)
+                        prepare_execution = getattr(executor, "prepare_execution", None)
+                        if callable(prepare_execution):
+                            prepare_execution()
                         try:
                             result = await executor.execute(tc.arguments)
                             output = _jsonable(result)

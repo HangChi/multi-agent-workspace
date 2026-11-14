@@ -80,10 +80,33 @@ class SandboxExecutor(ToolExecutor):
         execution_id: str | None = None,
         client: Any | None = None,
         abort_check: Any | None = None,
+        timeout_cap: int | None = None,
     ) -> None:
         self.execution_id = execution_id or str(uuid.uuid4())
         self.client = client
         self.abort_check = abort_check
+        self.timeout_cap = timeout_cap
+        self.last_execution_id = self.execution_id
+
+    def set_abort_check(self, abort_check: Any | None) -> None:
+        """更新执行中的取消探针（由 ReAct runner 在工具调用前注入）。"""
+        self.abort_check = abort_check
+
+    def set_timeout_cap(self, timeout_cap: int | None) -> None:
+        """把单次工具超时限制在 Run 剩余预算内。"""
+        self.timeout_cap = timeout_cap
+
+    def prepare_execution(self) -> tuple[str, dict[str, Any]]:
+        """为每次工具调用生成一次性执行 ID 和限额快照。"""
+        self.execution_id = str(uuid.uuid4())
+        self.last_execution_id = self.execution_id
+        return self.execution_id, {
+            "timeout_s": self.timeout_cap or settings.sbx_timeout_default,
+            "cpu": settings.sbx_cpu,
+            "mem_mb": settings.sbx_mem_mb,
+            "disk_mb": settings.sbx_disk_mb,
+            "pids": settings.sbx_pids,
+        }
 
     @property
     def spec(self) -> ToolSpec:
@@ -114,6 +137,8 @@ class SandboxExecutor(ToolExecutor):
             }
         requested_timeout = arguments.get("timeout_s")
         timeout_s = requested_timeout if isinstance(requested_timeout, int) else None
+        if self.timeout_cap is not None:
+            timeout_s = min(timeout_s or self.timeout_cap, self.timeout_cap)
         from app.services.sandbox_service import (
             acquire_concurrency_slot,
             release_concurrency_slot,

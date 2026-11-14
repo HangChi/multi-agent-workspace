@@ -362,3 +362,54 @@ async def test_llm_exception_becomes_readable_error():
     assert run.status == "failed"
     assert "连接被拒绝" in run.error
     assert "LLM 调用失败" in run.error or run.error is not None
+
+
+async def test_tool_receives_cancellation_probe_and_run_timeout_cap():
+    """Sandbox-capable executors receive a thread-safe cancel probe and remaining budget."""
+    import asyncio
+
+    class SandboxLikeExecutor(FakeExecutor):
+        def __init__(self):
+            super().__init__()
+            self.abort_check = None
+            self.timeout_cap = None
+            self.prepared = False
+
+        def set_abort_check(self, check):
+            self.abort_check = check
+
+        def set_timeout_cap(self, timeout):
+            self.timeout_cap = timeout
+
+        def prepare_execution(self):
+            self.prepared = True
+
+        async def execute(self, arguments):
+            return {"aborted": await asyncio.to_thread(self.abort_check)}
+
+    executor = SandboxLikeExecutor()
+    llm = FakeLLM(
+        [
+            FakeLLMResponse(tool_calls=[FakeToolCall("run_python", {"code": "print(1)"})]),
+            FakeLLMResponse(content="完成"),
+        ]
+    )
+    runner, run, sink = _make_runner(llm, executors={"run_python": executor})
+    status = await runner.run(
+        run=run,
+        request_text="test",
+        save_step=sink.save_step,
+        publish_event=sink.publish,
+        set_status=sink.set_status,
+        set_cost=sink.set_cost,
+        should_abort=lambda: _return_false(),
+    )
+
+    assert status == RunStatus.COMPLETED.value
+    assert executor.prepared
+    assert executor.timeout_cap is not None and 1 <= executor.timeout_cap <= runner.timeout_seconds
+    assert sink.steps[1]["output"] == {"aborted": False}
+
+
+async def _return_false() -> bool:
+    return False
