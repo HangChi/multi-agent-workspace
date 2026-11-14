@@ -20,6 +20,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from app.core.config import settings
+
 Action = Literal["allow", "deny"]
 EgressMode = Literal["default", "restricted"]
 TargetType = Literal["domain", "cidr", "ip"]
@@ -181,7 +183,11 @@ def evaluate(
     """
     global_rules = global_rules or []
     agent_rules = agent_rules or []
-    builtin_blacklist = builtin_blacklist or []
+    builtin_blacklist = (
+        settings.egress_builtin_blacklist_list
+        if builtin_blacklist is None
+        else builtin_blacklist
+    )
     # `ip-direct` 是「未反查到域名」的标记，不是真域名，参与域名匹配无意义
     domain = None if target_domain in (None, "", "ip-direct") else target_domain
 
