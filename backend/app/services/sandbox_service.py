@@ -98,9 +98,11 @@ async def start_execution(
     language: str,
     code: str,
     limits: dict[str, Any],
+    execution_id: str | None = None,
 ) -> SandboxExecution:
     """落一条 running 执行记录，并保存代码指纹。"""
     execution = SandboxExecution(
+        id=execution_id,
         run_id=run_id,
         step_id=step_id,
         agent_id=agent_id,
@@ -167,6 +169,82 @@ def _unique_filename(name: str, used: set[str]) -> str:
         if candidate not in used:
             return candidate
     raise AppError("INVALID_INPUT", "制品重名数量超过上限")
+
+
+async def persist_sandbox_result(
+    db: AsyncSession,
+    *,
+    run_id: str,
+    step_id: str,
+    agent_id: str,
+    user_id: str,
+    payload: dict[str, Any],
+    result: dict[str, Any],
+) -> SandboxExecution:
+    """把沙箱工具返回的事实写入执行表并回收内存中的产物。
+
+    工具在工作线程中运行，容器退出前已把 output/ 归档到 payload；这里在
+    Worker 的事务上下文中完成 FK 关联、MinIO 上传和审计，避免把大字段塞进
+    steps.output 或 LLM 消息。
+    """
+    normalized = dict(result)
+    status = normalized.get("status", "failed")
+    if status == "resource_busy":
+        normalized["status"] = "resource"
+    execution_id = str(payload.get("execution_id") or "")
+    execution = await db.get(SandboxExecution, execution_id) if execution_id else None
+    if execution is None:
+        execution = await start_execution(
+            db,
+            run_id=run_id,
+            step_id=step_id,
+            agent_id=agent_id,
+            language=str(payload.get("language", "python")),
+            code=str(payload.get("code", "")),
+            limits=dict(payload.get("limits") or {}),
+            execution_id=execution_id or None,
+        )
+    await finish_execution(db, execution, normalized, user_id=user_id)
+
+    used: set[str] = set()
+    for item in payload.get("artifacts") or []:
+        if not isinstance(item, dict) or not isinstance(item.get("data"), bytes):
+            continue
+        original = str(item.get("name") or "unnamed")
+        filename = _unique_filename(original, used)
+        used.add(filename)
+        mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        object_key, sha256 = artifact_service.put_bytes(
+            run_id,
+            execution.id,
+            filename,
+            item["data"],
+            mime=mime,
+        )
+        db.add(
+            Artifact(
+                run_id=run_id,
+                step_id=step_id,
+                object_key=object_key,
+                filename=filename,
+                size_bytes=int(item.get("size") or len(item["data"])),
+                mime_type=mime,
+                sha256=sha256,
+            )
+        )
+
+    truncated = payload.get("artifact_truncated")
+    if truncated:
+        await write_audit(
+            db,
+            user_id=user_id,
+            action="artifact_truncated",
+            target_type="sandbox_execution",
+            target_id=execution.id,
+            detail=truncated,
+        )
+    await db.flush()
+    return execution
 
 
 async def collect_artifacts(

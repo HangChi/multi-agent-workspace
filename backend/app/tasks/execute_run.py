@@ -37,6 +37,7 @@ from app.orchestrator.runner import (
     ReActRunner,
 )
 from app.orchestrator.state_machine import RunStatus, transition
+from app.services import sandbox_service
 from app.services.quota_service import QuotaExceeded, assert_user_quota
 from app.tasks import events as run_events
 from app.tasks.celery_app import celery_app
@@ -81,16 +82,23 @@ async def _load_context(db, run_id: str) -> tuple[Run, Agent | None, Request]:
     return run, agent, request
 
 
-def _build_runner(run: Run, agent: Agent | None) -> ReActRunner:
+def _build_runner(
+    run: Run,
+    agent: Agent | None,
+    *,
+    abort_check=None,
+    on_sandbox_result=None,
+) -> ReActRunner:
     """按 Agent 配置构造 runner；无 Agent（组父 Run）用默认配置。"""
     if agent is not None:
         return ReActRunner(
             llm=LiteLLMClient(model=agent.model),
-            executors=build_executors(list(agent.tools or [])),
+            executors=build_executors(list(agent.tools or []), abort_check=abort_check),
             max_steps=agent.max_steps,
             timeout_seconds=agent.max_run_seconds,
             cost_limit_cents=agent.cost_limit_cents,
             system_prompt=agent.system_prompt,
+            on_sandbox_result=on_sandbox_result,
         )
     # 组父 Run：仅做编排占位（fan_out 时子 Run 各自执行），直接完成不调 LLM
     return ReActRunner(
@@ -102,8 +110,11 @@ def _build_runner(run: Run, agent: Agent | None) -> ReActRunner:
 async def _persist_steps(db, run: Run, steps: list[dict]) -> None:
     """批量写 steps 表（seq 唯一约束 per run）。"""
     for step in steps:
+        if step.get("id") and await db.get(Step, step["id"]):
+            continue
         db.add(
             Step(
+                id=step.get("id"),
                 run_id=run.id,
                 seq=step["seq"],
                 kind=step["kind"],
@@ -351,6 +362,92 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
         """FR-018 取消检查：每轮循环前查 DB 最新状态，外部 cancel 则终止执行。"""
         fresh = await db.get(Run, run.id)
         return fresh is not None and fresh.status == "cancelled"
+
+    async def persist_sandbox_result(detail: dict) -> None:
+        """执行完成时写入沙箱事实、制品和审计，并发布运行详情事件。"""
+        if agent is None:
+            raise RuntimeError("沙箱执行缺少 Agent 归属")
+        step = detail["step"]
+        step_id = str(detail["step_id"])
+        persisted_step = await db.get(Step, step_id)
+        if persisted_step is None:
+            raise RuntimeError(f"沙箱步骤 {step_id} 未初始化")
+        persisted_step.output = step.get("output")
+        persisted_step.duration_ms = step.get("duration_ms", 0)
+        persisted_step.status = "failed" if not detail["result"].get("ok", False) else "completed"
+        await db.flush()
+        payload = detail["payload"]
+        result = detail["result"]
+        execution = await sandbox_service.persist_sandbox_result(
+            db,
+            run_id=run.id,
+            step_id=step_id,
+            agent_id=agent.id,
+            user_id=run.owner_id,
+            payload=payload,
+            result=result,
+        )
+        await db.commit()
+        run_events.sandbox_started(
+            run.id,
+            execution.id,
+            int(detail["step_seq"]),
+            execution.language,
+            execution.limits,
+        )
+        for stream_name in ("stdout", "stderr"):
+            text = str(result.get(stream_name) or "")
+            for offset in range(0, len(text), 4096):
+                run_events.sandbox_output(
+                    run.id, execution.id, stream_name, text[offset : offset + 4096]
+                )
+        run_events.sandbox_finished(
+            run.id,
+            execution.id,
+            execution.status,
+            execution.exit_code,
+            execution.duration_ms,
+            artifacts=len(payload.get("artifacts") or []),
+        )
+
+    async def publish_sandbox_started(detail: dict) -> None:
+        if agent is None:
+            raise RuntimeError("沙箱执行缺少 Agent 归属")
+        step_id = str(detail["step_id"])
+        db.add(
+            Step(
+                id=step_id,
+                run_id=run.id,
+                seq=int(detail["step_seq"]),
+                kind="tool",
+                input={"tool_name": detail["tool_name"]},
+                output=None,
+                tool_name=str(detail["tool_name"]),
+                status="running",
+            )
+        )
+        await db.flush()
+        await sandbox_service.start_execution(
+            db,
+            run_id=run.id,
+            step_id=step_id,
+            agent_id=agent.id,
+            language=str(detail["language"]),
+            code=str(detail["code"]),
+            limits=dict(detail["limits"]),
+            execution_id=str(detail["execution_id"]),
+        )
+        await db.commit()
+        run_events.sandbox_started(
+            run.id,
+            str(detail["execution_id"]),
+            int(detail["step_seq"]),
+            str(detail["language"]),
+            dict(detail["limits"]),
+        )
+
+    runner.on_sandbox_started = publish_sandbox_started
+    runner.on_sandbox_result = persist_sandbox_result
 
     # pipeline：非首阶段的输入 = 原始需求 + 上一阶段产出
     request_text = _request_text(request)

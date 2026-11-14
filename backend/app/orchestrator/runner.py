@@ -13,6 +13,7 @@ run 对象满足 state_machine.RunLike 协议（ORM Run 或测试 dataclass）�
 import asyncio
 import json
 import time
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, is_dataclass
 from typing import Any
@@ -71,6 +72,8 @@ class ReActRunner:
         cost_limit_cents: int = 10000,
         system_prompt: str | None = None,
         audit_denied: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
+        on_sandbox_started: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
+        on_sandbox_result: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
     ) -> None:
         self.llm = llm
         self.executors = executors
@@ -78,6 +81,8 @@ class ReActRunner:
         self.timeout_seconds = timeout_seconds
         self.cost_limit_cents = cost_limit_cents
         self.audit_denied = audit_denied
+        self.on_sandbox_started = on_sandbox_started
+        self.on_sandbox_result = on_sandbox_result
         self.system_prompt = system_prompt or (
             "你是一个任务执行助手。你需要：1) 理解用户需求；2) 必要时调用工具获取信息；"
             "3) 最终用『最终答案』格式给出结果。如果缺少关键信息，回复 __NEEDS_INPUT__ 加补充要求。"
@@ -105,6 +110,7 @@ class ReActRunner:
             MaxStepsExceeded / ExecutionTimeout / CostLimitExceeded / NeedsInput:
                 控制流终止（run 状态已设置，异常上抛由调用方捕获）
         """
+        run_id = str(getattr(run, "id", ""))
         # 进入 running
         transition(run, RunStatus.RUNNING)
         await set_status(run.status)
@@ -209,6 +215,8 @@ class ReActRunner:
                     seq += 1
                     tool_started = time.monotonic()
                     executor = self.executors.get(tc.name)
+                    sandbox_payload: dict[str, Any] | None = None
+                    sandbox_step_id: str | None = None
                     denied = executor is None and tc.name in CATALOG
                     if executor is None:
                         if denied:
@@ -264,9 +272,37 @@ class ReActRunner:
                             set_timeout_cap(remaining)
                         prepare_execution = getattr(executor, "prepare_execution", None)
                         if callable(prepare_execution):
-                            prepare_execution()
+                            prepared = prepare_execution()
+                            if isinstance(prepared, tuple) and len(prepared) == 2:
+                                execution_id, limits = prepared
+                                sandbox_step_id = str(uuid.uuid4())
+                                if self.on_sandbox_started is not None:
+                                    await self.on_sandbox_started(
+                                        {
+                                            "run_id": run_id,
+                                            "execution_id": execution_id,
+                                            "step_seq": seq,
+                                            "step_id": sandbox_step_id,
+                                            "language": getattr(executor, "language", "python"),
+                                            "limits": limits,
+                                            "code": tc.arguments.get(
+                                                getattr(executor, "argument_name", "code"), ""
+                                            ),
+                                            "tool_name": tc.name,
+                                        }
+                                    )
                         try:
                             result = await executor.execute(tc.arguments)
+                            if isinstance(result, dict):
+                                raw_payload = result.pop("_sandbox_payload", None)
+                                if isinstance(raw_payload, dict):
+                                    sandbox_payload = raw_payload
+                                    sandbox_payload["artifacts"] = result.pop(
+                                        "_sandbox_artifacts", []
+                                    )
+                                    sandbox_payload["artifact_truncated"] = result.pop(
+                                        "_sandbox_artifact_truncated", None
+                                    )
                             output = _jsonable(result)
                         except Exception as exc:  # noqa: BLE001 - 工具异常转为可读 output.error
                             output = {"error": f"工具 {tc.name} 执行失败: {exc}"}
@@ -274,6 +310,7 @@ class ReActRunner:
 
                     tool_duration_ms = int((time.monotonic() - tool_started) * 1000)
                     tool_step: dict[str, Any] = {
+                        "id": sandbox_step_id or (str(uuid.uuid4()) if sandbox_payload is not None else None),
                         "seq": seq,
                         "kind": "tool",
                         "status": "completed",
@@ -290,6 +327,19 @@ class ReActRunner:
                         }
                     )
                     await save_step(tool_step)
+                    if sandbox_payload is not None and self.on_sandbox_result is not None:
+                        await self.on_sandbox_result(
+                            {
+                                "run_id": run_id,
+                                "step_seq": seq,
+                                "tool_name": tc.name,
+                                "step_id": tool_step["id"],
+                                "step": tool_step,
+                                "payload": sandbox_payload,
+                                "result": output,
+                                "duration_ms": tool_duration_ms,
+                            }
+                        )
                     await publish_event({"type": "step_update", "step": tool_step})
 
                     if not denied:

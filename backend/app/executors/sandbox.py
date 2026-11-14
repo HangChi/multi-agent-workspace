@@ -12,7 +12,11 @@ import redis
 from app.core.config import settings
 from app.executors.base import ToolExecutor
 from app.executors.catalog import CATALOG, ToolSpec
-from app.executors.sandbox_client import SandboxInfraError, SandboxRun
+from app.executors.sandbox_client import (
+    SandboxInfraError,
+    SandboxOutputLimit,
+    SandboxRun,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +91,8 @@ class SandboxExecutor(ToolExecutor):
         self.abort_check = abort_check
         self.timeout_cap = timeout_cap
         self.last_execution_id = self.execution_id
+        self.last_code = ""
+        self.last_limits: dict[str, Any] = {}
 
     def set_abort_check(self, abort_check: Any | None) -> None:
         """更新执行中的取消探针（由 ReAct runner 在工具调用前注入）。"""
@@ -100,13 +106,14 @@ class SandboxExecutor(ToolExecutor):
         """为每次工具调用生成一次性执行 ID 和限额快照。"""
         self.execution_id = str(uuid.uuid4())
         self.last_execution_id = self.execution_id
-        return self.execution_id, {
+        self.last_limits = {
             "timeout_s": self.timeout_cap or settings.sbx_timeout_default,
             "cpu": settings.sbx_cpu,
             "mem_mb": settings.sbx_mem_mb,
             "disk_mb": settings.sbx_disk_mb,
             "pids": settings.sbx_pids,
         }
+        return self.execution_id, dict(self.last_limits)
 
     @property
     def spec(self) -> ToolSpec:
@@ -139,6 +146,15 @@ class SandboxExecutor(ToolExecutor):
         timeout_s = requested_timeout if isinstance(requested_timeout, int) else None
         if self.timeout_cap is not None:
             timeout_s = min(timeout_s or self.timeout_cap, self.timeout_cap)
+        self.last_code = raw
+        payload: dict[str, Any] = {
+            "execution_id": self.execution_id,
+            "language": self.language,
+            "code": raw,
+            "limits": dict(self.last_limits),
+            "artifacts": [],
+            "artifact_truncated": None,
+        }
         from app.services.sandbox_service import (
             acquire_concurrency_slot,
             release_concurrency_slot,
@@ -167,24 +183,30 @@ class SandboxExecutor(ToolExecutor):
                 "message": "沙箱并发已满，请稍后重试。",
             }
         try:
-            return await asyncio.to_thread(self._execute_sync, raw, timeout_s)
-        except Exception as exc:  # noqa: BLE001 - 工具边界必须返回结构化失败
-            status, category = classify_error(exc)
-            return {
-                "ok": False,
-                "status": status,
-                "error_category": category,
-                "exit_code": None,
-                "stdout": "",
-                "stderr": "",
-                "message": f"{_ERROR_MESSAGES.get(category, _ERROR_MESSAGES['infra'])}（{exc}）",
-            }
+            try:
+                result = await asyncio.to_thread(self._execute_sync, raw, timeout_s)
+            except Exception as exc:  # noqa: BLE001 - 工具边界必须返回结构化失败
+                status, category = classify_error(exc)
+                result = {
+                    "ok": False,
+                    "status": status,
+                    "error_category": category,
+                    "exit_code": None,
+                    "stdout": "",
+                    "stderr": "",
+                    "message": f"{_ERROR_MESSAGES.get(category, _ERROR_MESSAGES['infra'])}（{exc}）",
+                }
+            payload["artifacts"] = result.pop("_sandbox_artifacts", [])
+            payload["artifact_truncated"] = result.pop("_sandbox_artifact_truncated", None)
+            result["_sandbox_payload"] = payload
+            return result
         finally:
             try:
                 await asyncio.to_thread(release_concurrency_slot, slot)
             except (redis.RedisError, OSError) as exc:
                 # 释放失败由 TTL 自愈，不能覆盖原始执行结果
                 logger.warning("sandbox_slot_release_failed: %s", exc)
+
     def _execute_sync(self, code: str, timeout_s: int | None) -> dict[str, Any]:
         if len(code.encode("utf-8")) > settings.sbx_code_max_bytes:
             return {
@@ -225,6 +247,19 @@ class SandboxExecutor(ToolExecutor):
                     "limits": run.limits.as_dict(),
                     "message": _message(category, outcome),
                 }
+                files: list[dict[str, Any]] = []
+                artifact_truncated: dict[str, str] | None = None
+                try:
+                    for item in run.iter_output_files(
+                        max_files=settings.sbx_artifact_max_files,
+                        max_file_bytes=settings.sbx_artifact_max_file_mb * 1024 * 1024,
+                        max_total_bytes=settings.sbx_artifact_max_total_mb * 1024 * 1024,
+                    ):
+                        files.append({"name": item.name, "size": item.size, "data": item.data})
+                except SandboxOutputLimit as exc:
+                    artifact_truncated = {"reason": exc.reason, "message": str(exc)}
+                result["_sandbox_artifacts"] = files
+                result["_sandbox_artifact_truncated"] = artifact_truncated
                 return result
         except SandboxInfraError as exc:
             return {
