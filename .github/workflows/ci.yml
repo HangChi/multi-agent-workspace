@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: [master, 'feat/**']
+  pull_request:
+  workflow_dispatch:
+
+# 同一分支的重复推送只保留最新一次，省机器也在意等待时间
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: 后端（lint + 类型 + 测试）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aw
+          POSTGRES_PASSWORD: ci-password
+          POSTGRES_DB: agent_workbench_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aw -d agent_workbench_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # 测试必须指向 *_test 库，否则 conftest 会回落到代码内默认口令
+      DATABASE_URL: postgresql+asyncpg://aw:ci-password@127.0.0.1:5432/agent_workbench_test
+      REDIS_URL: redis://127.0.0.1:6379/0
+      CELERY_BROKER_URL: redis://127.0.0.1:6379/1
+      CELERY_RESULT_BACKEND: redis://127.0.0.1:6379/2
+      MINIO_ENDPOINT: localhost:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: agent-workbench
+      MINIO_SECURE: 'false'
+      # CI 用开发语义：跳过生产密钥强校验
+      APP_ENV: development
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: 安装依赖
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # services 的 minio 镜像默认命令无法直接当服务跑，单独拉起
+      - name: 启动 MinIO（附件测试需要真实预签名 PUT/GET）
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:RELEASE.2023-03-20T20-16-18Z server /data
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:9000/minio/health/live > /dev/null; then
+              echo "minio ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "minio 启动超时"; docker logs minio; exit 1
+
+      - name: 迁移可达性（Alembic 能在空库上跑通）
+        working-directory: backend
+        run: alembic upgrade head
+
+      - name: ruff
+        working-directory: backend
+        run: ruff check app tests
+
+      - name: mypy
+        working-directory: backend
+        run: mypy app
+
+      - name: pytest
+        working-directory: backend
+        run: pytest -q
+
+  frontend:
+    name: 前端（lint + 类型 + 单测 + 构建）
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装依赖
+        working-directory: frontend
+        run: npm ci
+
+      - name: eslint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: 类型检查
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: 单元测试
+        working-directory: frontend
+        run: npm test
+
+      - name: 构建（产物可用性 + Tailwind 生效）
+        working-directory: frontend
+        run: |
+          npm run build
+          # 零样式事故复现：CSS 必须远大于裸 @tailwind 指令（~60 字节）
+          css_file=$(ls -S dist/assets/*.css | head -1)
+          css_size=$(wc -c < "$css_file" | tr -d ' ')
+          echo "CSS 产物 ${css_file} = ${css_size} 字节"
+          if [ "$css_size" -lt 5000 ]; then
+            echo "::error::CSS 产物过小，Tailwind 可能未生效（postcss 配置缺失）"
+            exit 1
+          fi
