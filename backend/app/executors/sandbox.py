@@ -16,6 +16,7 @@ from app.executors.sandbox_client import (
     SandboxInfraError,
     SandboxOutputLimit,
     SandboxRun,
+    clamp_timeout,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,15 +100,25 @@ class SandboxExecutor(ToolExecutor):
         self.abort_check = abort_check
 
     def set_timeout_cap(self, timeout_cap: int | None) -> None:
-        """把单次工具超时限制在 Run 剩余预算内。"""
+        """把单次工具超时限制在 Run 剩余预算内；0 表示预算已耗尽。"""
         self.timeout_cap = timeout_cap
 
-    def prepare_execution(self) -> tuple[str, dict[str, Any]]:
-        """为每次工具调用生成一次性执行 ID 和限额快照。"""
+    def prepare_execution(
+        self, arguments: dict[str, Any] | None = None
+    ) -> tuple[str, dict[str, Any]] | None:
+        """为有效工具调用生成一次性执行 ID 和限额快照。"""
+        if arguments is not None:
+            code = arguments.get(self.argument_name)
+            if not isinstance(code, str) or not code.strip():
+                return None
         self.execution_id = str(uuid.uuid4())
         self.last_execution_id = self.execution_id
+        requested = arguments.get("timeout_s") if arguments is not None else None
+        effective_timeout = clamp_timeout(requested if isinstance(requested, int) else None)
+        if self.timeout_cap is not None:
+            effective_timeout = min(effective_timeout, self.timeout_cap)
         self.last_limits = {
-            "timeout_s": self.timeout_cap or settings.sbx_timeout_default,
+            "timeout_s": effective_timeout,
             "cpu": settings.sbx_cpu,
             "mem_mb": settings.sbx_mem_mb,
             "disk_mb": settings.sbx_disk_mb,
@@ -143,9 +154,16 @@ class SandboxExecutor(ToolExecutor):
                 "message": f"缺少 {self.argument_name} 参数。",
             }
         requested_timeout = arguments.get("timeout_s")
-        timeout_s = requested_timeout if isinstance(requested_timeout, int) else None
+        requested = requested_timeout if isinstance(requested_timeout, int) else None
+        timeout_s = clamp_timeout(requested)
         if self.timeout_cap is not None:
-            timeout_s = min(timeout_s or self.timeout_cap, self.timeout_cap)
+            if self.timeout_cap <= 0:
+                return self._with_payload(
+                    {"ok": False, "status": "timeout", "error_category": "timeout",
+                     "exit_code": None, "stdout": "", "stderr": "",
+                     "message": _ERROR_MESSAGES["timeout"]}, raw
+                )
+            timeout_s = min(timeout_s, self.timeout_cap)
         self.last_code = raw
         payload: dict[str, Any] = {
             "execution_id": self.execution_id,
@@ -160,52 +178,80 @@ class SandboxExecutor(ToolExecutor):
             release_concurrency_slot,
         )
 
-        try:
-            slot = await asyncio.to_thread(acquire_concurrency_slot)
-        except Exception as exc:  # noqa: BLE001 - Redis 不可用时视为基础设施故障
-            return {
-                "ok": False,
-                "status": "infra",
-                "error_category": "infra",
-                "exit_code": None,
-                "stdout": "",
-                "stderr": "",
-                "message": f"{_ERROR_MESSAGES['infra']}（无法获取并发槽位：{exc}）",
-            }
-        if slot is None:
-            return {
-                "ok": False,
-                "status": "resource",
-                "error_category": "resource_busy",
-                "exit_code": None,
-                "stdout": "",
-                "stderr": "",
-                "message": "沙箱并发已满，请稍后重试。",
-            }
-        try:
+        slots: list[str] = []
+        result: dict[str, Any] | None = None
+        backoff = (5, 15, 25)
+        started = asyncio.get_running_loop().time()
+        for attempt in range(len(backoff) + 1):
             try:
-                result = await asyncio.to_thread(self._execute_sync, raw, timeout_s)
-            except Exception as exc:  # noqa: BLE001 - 工具边界必须返回结构化失败
-                status, category = classify_error(exc)
+                slot = await asyncio.to_thread(acquire_concurrency_slot)
+            except Exception as exc:  # noqa: BLE001 - Redis 不可用时视为基础设施故障
                 result = {
-                    "ok": False,
-                    "status": status,
-                    "error_category": category,
-                    "exit_code": None,
-                    "stdout": "",
-                    "stderr": "",
-                    "message": f"{_ERROR_MESSAGES.get(category, _ERROR_MESSAGES['infra'])}（{exc}）",
+                    "ok": False, "status": "infra", "error_category": "infra",
+                    "exit_code": None, "stdout": "", "stderr": "",
+                    "message": f"{_ERROR_MESSAGES['infra']}（无法获取并发槽位：{exc}）",
+                }
+                break
+            if slot is not None:
+                slots.append(slot)
+                try:
+                    result = await asyncio.to_thread(self._execute_sync, raw, timeout_s)
+                except Exception as exc:  # noqa: BLE001 - 工具边界必须返回结构化失败
+                    status, category = classify_error(exc)
+                    result = {
+                        "ok": False, "status": status, "error_category": category,
+                        "exit_code": None, "stdout": "", "stderr": "",
+                        "message": f"{_ERROR_MESSAGES.get(category, _ERROR_MESSAGES['infra'])}（{exc}）",
+                    }
+                break
+            if attempt == len(backoff):
+                break
+            if self.abort_check is not None and await asyncio.to_thread(self.abort_check):
+                result = {
+                    "ok": False, "status": "failed", "error_category": "cancelled",
+                    "exit_code": None, "stdout": "", "stderr": "",
+                    "message": _ERROR_MESSAGES["cancelled"],
+                }
+                break
+            remaining = timeout_s - (asyncio.get_running_loop().time() - started)
+            if remaining <= 0:
+                result = {
+                    "ok": False, "status": "timeout", "error_category": "timeout",
+                    "exit_code": None, "stdout": "", "stderr": "",
+                    "message": _ERROR_MESSAGES["timeout"],
+                }
+                break
+            await asyncio.sleep(min(backoff[attempt], remaining))
+
+        try:
+            if result is None:
+                result = {
+                    "ok": False, "status": "resource", "error_category": "resource_busy",
+                    "exit_code": None, "stdout": "", "stderr": "",
+                    "message": "沙箱繁忙：等待资源超时，请稍后重试。",
                 }
             payload["artifacts"] = result.pop("_sandbox_artifacts", [])
             payload["artifact_truncated"] = result.pop("_sandbox_artifact_truncated", None)
             result["_sandbox_payload"] = payload
             return result
         finally:
-            try:
-                await asyncio.to_thread(release_concurrency_slot, slot)
-            except (redis.RedisError, OSError) as exc:
-                # 释放失败由 TTL 自愈，不能覆盖原始执行结果
-                logger.warning("sandbox_slot_release_failed: %s", exc)
+            for slot in slots:
+                try:
+                    await asyncio.to_thread(release_concurrency_slot, slot)
+                except (redis.RedisError, OSError) as exc:
+                    # 释放失败由 TTL 自愈，不能覆盖原始执行结果
+                    logger.warning("sandbox_slot_release_failed: %s", exc)
+
+    def _with_payload(self, result: dict[str, Any], code: str) -> dict[str, Any]:
+        result["_sandbox_payload"] = {
+            "execution_id": self.execution_id,
+            "language": self.language,
+            "code": code,
+            "limits": dict(self.last_limits),
+            "artifacts": [],
+            "artifact_truncated": None,
+        }
+        return result
 
     def _execute_sync(self, code: str, timeout_s: int | None) -> dict[str, Any]:
         if len(code.encode("utf-8")) > settings.sbx_code_max_bytes:

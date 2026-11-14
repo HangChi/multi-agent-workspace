@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
 from app.core.config import settings
+from app.executors.egress import RuleView, rule_view_from_row
 from app.models.egress import EgressAccess, EgressRule
 from app.schemas.egress import BlacklistIn, EgressRuleIn
 
@@ -178,6 +179,94 @@ async def delete_global_rule(db: AsyncSession, *, rule_id: str) -> None:
         raise AppError("INVALID_INPUT", "内置黑名单项不可删除")
     await db.delete(rule)
     await db.flush()
+
+
+async def snapshot_for_execution(
+    db: AsyncSession, *, agent_id: str
+) -> tuple[str, list[RuleView], list[RuleView]]:
+    """在执行开始时一次性快照 Agent 模式、全局规则和 Agent 规则。"""
+    from app.models.agent import Agent
+
+    agent = await db.get(Agent, agent_id)
+    if agent is None:
+        raise AppError("NOT_FOUND", "Agent 不存在")
+    global_rows = await db.execute(
+        select(EgressRule).where(EgressRule.scope == "global", EgressRule.enabled.is_(True))
+    )
+    agent_rows = await db.execute(
+        select(EgressRule).where(
+            EgressRule.scope == "agent",
+            EgressRule.agent_id == agent_id,
+            EgressRule.enabled.is_(True),
+        )
+    )
+    return (
+        str(agent.egress_mode or "default"),
+        [rule_view_from_row(row) for row in global_rows.scalars().all()],
+        [rule_view_from_row(row) for row in agent_rows.scalars().all()],
+    )
+
+
+async def record_accesses(
+    db: AsyncSession,
+    *,
+    run_id: str,
+    agent_id: str,
+    user_id: str,
+    accesses: list[dict[str, Any]],
+    execution_id: str | None = None,
+) -> list[EgressAccess]:
+    """批量写入已求值的连接事实；非法目标按 ip-direct 记录但不抛异常。"""
+    rows: list[EgressAccess] = []
+    for item in accesses:
+        target_ip = str(item.get("target_ip", ""))
+        try:
+            ipaddress.ip_address(target_ip)
+        except ValueError:
+            continue
+        domain = item.get("target_domain") or "ip-direct"
+        row = EgressAccess(
+            run_id=run_id,
+            execution_id=execution_id,
+            agent_id=agent_id,
+            user_id=user_id,
+            target_ip=target_ip,
+            target_domain=str(domain),
+            port=int(item.get("port", 0)),
+            protocol=str(item.get("protocol", "tcp")),
+            action=str(item.get("action", "allow")),
+            matched_rule_id=item.get("matched_rule_id"),
+            bytes_out=item.get("bytes_out"),
+            occurred_at=item.get("occurred_at"),
+        )
+        db.add(row)
+        rows.append(row)
+    await db.flush()
+    return rows
+
+
+def merge_connection_records(
+    dns_queries: list[dict[str, Any]],
+    connections: list[dict[str, Any]],
+    *,
+    window_seconds: float = 5.0,
+) -> list[dict[str, Any]]:
+    """将 DNS 查询与 conntrack 快照按 IP/时间窗归并为可持久化记录。"""
+    merged: list[dict[str, Any]] = []
+    for connection in connections:
+        ip = str(connection.get("target_ip", ""))
+        at = float(connection.get("timestamp", 0.0))
+        candidates = [
+            query
+            for query in dns_queries
+            if str(query.get("resolved_ip", "")) == ip
+            and abs(float(query.get("timestamp", 0.0)) - at) <= window_seconds
+        ]
+        nearest = min(candidates, key=lambda q: abs(float(q.get("timestamp", 0.0)) - at), default=None)
+        item = dict(connection)
+        item["target_domain"] = str(nearest.get("domain")) if nearest else "ip-direct"
+        merged.append(item)
+    return merged
 
 
 async def list_accesses(

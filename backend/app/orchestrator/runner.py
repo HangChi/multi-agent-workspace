@@ -40,6 +40,30 @@ class NeedsInput(Exception):
     """需要补充信息：挂起等待用户回复（FR-021）。"""
 
 
+def _redact_tool_calls(value: Any) -> Any:
+    """Redact sandbox source code from persisted LLM step payloads."""
+    calls = _jsonable(value)
+    if not isinstance(calls, list):
+        return calls
+    for call in calls:
+        if not isinstance(call, dict) or call.get("name") not in {"run_python", "run_shell"}:
+            continue
+        call["arguments"] = {"source": "[stored in sandbox execution detail]"}
+    return calls
+
+
+def _step_input(message: Any) -> Any:
+    """Keep verbose sandbox tool results out of generic step rows."""
+    if not isinstance(message, dict):
+        return message
+    sanitized = dict(message)
+    if sanitized.get("role") == "tool" and sanitized.get("name") in {"run_python", "run_shell"}:
+        sanitized["content"] = "[sandbox output is available in execution detail]"
+    if sanitized.get("role") == "assistant" and isinstance(sanitized.get("tool_calls"), list):
+        sanitized["tool_calls"] = _redact_tool_calls(sanitized["tool_calls"])
+    return sanitized
+
+
 def _jsonable(value: Any) -> Any:
     """把执行器返回值规范化为可 JSON 序列化结构。"""
     if value is None:
@@ -187,8 +211,8 @@ class ReActRunner:
                 "seq": seq,
                 "kind": "llm",
                 "status": "completed",
-                "input": messages[-1],
-                "output": {"content": resp.content, "tool_calls": _jsonable(resp.tool_calls)},
+                "input": _step_input(messages[-1]),
+                "output": {"content": resp.content, "tool_calls": _redact_tool_calls(resp.tool_calls)},
                 "cost_cents": resp.cost_cents,
                 "duration_ms": duration_ms,
             }
@@ -267,12 +291,15 @@ class ReActRunner:
                         set_timeout_cap = getattr(executor, "set_timeout_cap", None)
                         if callable(set_timeout_cap):
                             remaining = max(
-                                1, int(self.timeout_seconds - (time.monotonic() - start))
+                                0, int(self.timeout_seconds - (time.monotonic() - start))
                             )
                             set_timeout_cap(remaining)
                         prepare_execution = getattr(executor, "prepare_execution", None)
                         if callable(prepare_execution):
-                            prepared = prepare_execution()
+                            try:
+                                prepared = prepare_execution(tc.arguments)
+                            except TypeError:
+                                prepared = prepare_execution()
                             if isinstance(prepared, tuple) and len(prepared) == 2:
                                 execution_id, limits = prepared
                                 sandbox_step_id = str(uuid.uuid4())
@@ -304,18 +331,32 @@ class ReActRunner:
                                         "_sandbox_artifact_truncated", None
                                     )
                             output = _jsonable(result)
+                            if sandbox_payload is not None:
+                                sandbox_payload["_result"] = output
                         except Exception as exc:  # noqa: BLE001 - 工具异常转为可读 output.error
                             output = {"error": f"工具 {tc.name} 执行失败: {exc}"}
                         tool_name = tc.name
 
                     tool_duration_ms = int((time.monotonic() - tool_started) * 1000)
+                    sandbox_step_summary = {
+                        key: output[key]
+                        for key in (
+                            "ok", "status", "error_category", "exit_code", "message",
+                            "duration_ms", "stdout_truncated", "stdout_full_bytes",
+                        )
+                        if sandbox_payload is not None and key in output
+                    }
                     tool_step: dict[str, Any] = {
                         "id": sandbox_step_id or (str(uuid.uuid4()) if sandbox_payload is not None else None),
                         "seq": seq,
                         "kind": "tool",
                         "status": "completed",
-                        "input": tc.arguments,
-                        "output": output,
+                        "input": (
+                            {"execution_id": sandbox_payload["execution_id"]}
+                            if sandbox_payload is not None
+                            else tc.arguments
+                        ),
+                        "output": sandbox_step_summary if sandbox_payload is not None else output,
                         "tool_name": tool_name,
                         "cost_cents": 0,
                         "duration_ms": tool_duration_ms,
@@ -336,7 +377,7 @@ class ReActRunner:
                                 "step_id": tool_step["id"],
                                 "step": tool_step,
                                 "payload": sandbox_payload,
-                                "result": output,
+                                "result": sandbox_payload.get("_result", output),
                                 "duration_ms": tool_duration_ms,
                             }
                         )

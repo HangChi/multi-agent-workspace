@@ -43,6 +43,7 @@ async def _create_agent(client, headers: dict, *, cost_limit_cents: int = 10000)
             "model": "gpt-4o-mini",
             "cost_limit_cents": cost_limit_cents,
             "max_steps": 10,
+            "tools": ["web_search"],
         },
     )
     assert resp.status_code == 201

@@ -411,5 +411,62 @@ async def test_tool_receives_cancellation_probe_and_run_timeout_cap():
     assert sink.steps[1]["output"] == {"aborted": False}
 
 
+async def test_sandbox_lifecycle_callbacks_bracket_tool_execution():
+    """Persisted sandbox identifiers and callbacks bracket execution in order."""
+
+    class SandboxExecutor(FakeExecutor):
+        language = "python"
+        argument_name = "code"
+
+        def prepare_execution(self, arguments):
+            assert arguments == {"code": "print(1)"}
+            return "execution-1", {"timeout_s": 30}
+
+        async def execute(self, arguments):
+            order.append("execute")
+            return {
+                "ok": True,
+                "status": "ok",
+                "stdout": "1",
+                "_sandbox_payload": {
+                    "execution_id": "execution-1",
+                    "language": "python",
+                    "code": arguments["code"],
+                    "limits": {"timeout_s": 30},
+                    "artifacts": [],
+                    "artifact_truncated": None,
+                },
+            }
+
+    order = []
+    starts = []
+    finishes = []
+    executor = SandboxExecutor()
+    llm = FakeLLM(
+        [
+            FakeLLMResponse(tool_calls=[FakeToolCall("run_python", {"code": "print(1)"})]),
+            FakeLLMResponse(content="done"),
+        ]
+    )
+    runner, run, sink = _make_runner(llm, executors={"run_python": executor})
+
+    async def started(detail):
+        order.append("started")
+        starts.append(detail)
+
+    async def finished(detail):
+        order.append("finished")
+        finishes.append(detail)
+
+    runner.on_sandbox_started = started
+    runner.on_sandbox_result = finished
+    await _run(runner, run, sink)
+
+    assert order == ["started", "execute", "finished"]
+    assert starts[0]["execution_id"] == finishes[0]["payload"]["execution_id"]
+    assert starts[0]["step_id"] == finishes[0]["step_id"] == sink.steps[1]["id"]
+    assert sink.steps[1]["output"] == {"ok": True, "status": "ok"}
+
+
 async def _return_false() -> bool:
     return False
