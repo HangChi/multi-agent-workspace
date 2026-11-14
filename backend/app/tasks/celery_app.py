@@ -4,6 +4,10 @@ from celery import Celery
 from celery.schedules import crontab
 
 from app.core.config import settings
+from app.core.log_setup import configure_logging
+
+# Worker/Beat 进程不加载 main.py，需自行初始化 structlog（脱敏 + JSON + 上下文）
+configure_logging()
 
 celery_app = Celery(
     "agent-workbench",

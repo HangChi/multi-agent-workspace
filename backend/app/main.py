@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.api import errors
+from app.api.middleware import RequestContextMiddleware
 from app.api.v1.admin import router as admin_router
 from app.api.v1.agents import router as agents_router
 from app.api.v1.auth import router as auth_router
@@ -20,6 +21,9 @@ from app.api.v1.ws import router as ws_router
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.events import redis_ping
+from app.core.log_setup import configure_logging
+
+configure_logging()
 
 
 def create_app() -> FastAPI:
@@ -38,7 +42,10 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Request-ID"],
     )
+    # 后添加的更外层：request_id 需覆盖 CORS 预检等所有请求
+    app.add_middleware(RequestContextMiddleware)
 
     errors.register_error_handlers(app)
 

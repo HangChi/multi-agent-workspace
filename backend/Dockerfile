@@ -46,4 +46,6 @@ COPY alembic ./alembic
 USER app
 
 # 默认启动 API（compose 中 worker/beat 用 command 覆盖）
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+# --no-access-log：访问日志由 RequestContextMiddleware 输出（带 request_id/耗时），
+# 关掉 uvicorn 自带的重复行
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--no-access-log"]
