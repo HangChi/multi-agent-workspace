@@ -74,7 +74,7 @@ def decode_token(token: str) -> dict[str, Any]:
 def create_token_pair(user_id: str, role: str) -> dict[str, str]:
     """签发 access + refresh 对。"""
     return {
-        "access_token": create_access_token(user_id, role),
-        "refresh_token": create_refresh_token(user_id, role),
+        "access": create_access_token(user_id, role),
+        "refresh": create_refresh_token(user_id, role),
         "token_type": "bearer",
     }

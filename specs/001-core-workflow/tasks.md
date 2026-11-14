@@ -67,19 +67,19 @@
 
 ### Tests for User Story 1（先写，先红后绿）⚠️
 
-- [ ] T019 [P] [US1] 认证集成测试 backend/tests/integration/test_auth.py：有效邀请码注册 201 / 无效/过期/用尽码 400 / 邮箱重复 409 / 登录成功 200 / 密码错误与禁用账号 403 / refresh 换发 / me 返回当前用户
-- [ ] T020 [P] [US1] 权限集成测试 backend/tests/integration/test_permissions.py：viewer 创建 Agent 403、member 访问 admin 接口 403、未认证 401、非 owner 访问他人资源 403
+- [x] T019 [P] [US1] 认证集成测试 backend/tests/integration/test_auth.py：有效邀请码注册 201 / 无效/过期/用尽码 400 / 邮箱重复 409 / 登录成功 200 / 密码错误与禁用账号 403 / refresh 换发 / me 返回当前用户
+- [x] T020 [P] [US1] 权限集成测试 backend/tests/integration/test_permissions.py：viewer 创建 Agent 403、member 访问 admin 接口 403、未认证 401、非 owner 访问他人资源 403
 
 ### Implementation for User Story 1
 
-- [ ] T021 [US1] 认证 schema：backend/app/schemas/auth.py（RegisterRequest/LoginRequest/TokenResponse/UserOut，Pydantic v2 校验邮箱与密码强度）
-- [ ] T022 [US1] 认证服务：backend/app/services/auth_service.py（注册：校验邀请码 used_count<max_uses 且未过期、事务内消耗邀请码、密码哈希；登录；refresh 轮换；me）
-- [ ] T023 [US1] 认证端点：backend/app/api/v1/auth.py（POST /auth/register、POST /auth/login、POST /auth/refresh、GET /auth/me）
-- [ ] T024 [US1] 引导脚本：backend/scripts/bootstrap.py（CLI：创建首个 admin 用户 + 生成管理员邀请码，输出到 stdout，供 quickstart S1 使用）
-- [ ] T025 [US1] 前端认证态：frontend/src/stores/authStore.ts + frontend/src/hooks/useAuth.ts + frontend/src/api/endpoints.ts（auth 部分）+ frontend/src/pages/LoginPage.tsx + frontend/src/pages/RegisterPage.tsx
-- [ ] T026 [US1] 前端路由与守卫：frontend/src/router.tsx（登录态守卫 + 角色守卫：admin 可进 AdminPage，member/viewer 403 提示）+ frontend/src/pages/AdminPage.tsx（权限占位页）
-- [ ] T027 [US1] 审计挂接：login/register 写 audit_logs（backend/app/api/v1/auth.py 内调用 core/audit.py）
-- [ ] T028 [US1] 集成验证：S1 场景全过（注册→登录→me→viewer 403→member 403），SC-001/SC-005 达标（按 specs/001-core-workflow/quickstart.md S1 执行，结果记入验证记录表）
+- [x] T021 [US1] 认证 schema：backend/app/schemas/auth.py（RegisterRequest/LoginRequest/TokenResponse/UserOut，Pydantic v2 校验邮箱与密码强度）
+- [x] T022 [US1] 认证服务：backend/app/services/auth_service.py（注册：校验邀请码 used_count<max_uses 且未过期、事务内消耗邀请码、密码哈希；登录；refresh 轮换；me）
+- [x] T023 [US1] 认证端点：backend/app/api/v1/auth.py（POST /auth/register、POST /auth/login、POST /auth/refresh、GET /auth/me）
+- [x] T024 [US1] 引导脚本：backend/scripts/bootstrap.py（CLI：创建首个 admin 用户 + 生成管理员邀请码，输出到 stdout，供 quickstart S1 使用）
+- [x] T025 [US1] 前端认证态：frontend/src/stores/authStore.ts + frontend/src/hooks/useAuth.ts + frontend/src/api/endpoints.ts（auth 部分）+ frontend/src/pages/LoginPage.tsx + frontend/src/pages/RegisterPage.tsx
+- [x] T026 [US1] 前端路由与守卫：frontend/src/router.tsx（登录态守卫 + 角色守卫：admin 可进 AdminPage，member/viewer 403 提示）+ frontend/src/pages/AdminPage.tsx（权限占位页）
+- [x] T027 [US1] 审计挂接：login/register 写 audit_logs（backend/app/api/v1/auth.py 内调用 core/audit.py）
+- [x] T028 [US1] 集成验证：S1 场景全过（注册→登录→me→viewer 403→member 403），SC-001/SC-005 达标（按 specs/001-core-workflow/quickstart.md S1 执行，结果记入验证记录表）
 
 **Checkpoint**: US1 独立可用——安全的用户身份与权限体系交付
 

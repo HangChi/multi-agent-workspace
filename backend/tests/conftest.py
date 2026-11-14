@@ -4,7 +4,25 @@
 - 集成测试导入 `client`（httpx AsyncClient，走真实 FastAPI 应用）与 `db_session`。
 - `make_user()` 工厂快速创建用户并返回 (user, password)。
 - `make_headers(user)` 生成带 Bearer access token 的请求头。
+
+⚠️ 环境变量必须在导入 app 模块之前设置：`app.core.db` 在模块加载时
+就创建 engine，若此时 DATABASE_URL 未指向测试库，client 请求会打到开发库。
 """
+
+import os
+import uuid
+
+# 测试标记 + 数据库 URL：先于任何 app 模块导入设置
+os.environ["TESTING"] = "1"
+_TEST_DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql+asyncpg://aw:aw-dev-password@localhost:5432/agent_workbench",
+)
+if "agent_workbench_test" not in _TEST_DATABASE_URL:
+    _TEST_DATABASE_URL = _TEST_DATABASE_URL.replace(
+        "agent_workbench", "agent_workbench_test"
+    )
+os.environ["DATABASE_URL"] = _TEST_DATABASE_URL
 
 from collections.abc import AsyncGenerator, Callable
 from typing import Any
@@ -21,10 +39,8 @@ from app.core.db import Base
 from app.core.security import create_access_token, hash_password
 from app.models.user import User
 
-# 测试数据库 URL：独立库，避免污染开发库
-TEST_DATABASE_URL = settings.database_url.replace(
-    "agent_workbench", "agent_workbench_test"
-)
+# 测试数据库 URL：环境变量已指向测试库（见文件头部），直接复用，避免二次 replace 出错
+TEST_DATABASE_URL = settings.database_url
 
 # NullPool：每个连接独立创建/关闭，避免跨 event loop 复用连接
 engine = create_async_engine(TEST_DATABASE_URL, echo=False, poolclass=NullPool)
@@ -66,14 +82,18 @@ async def client() -> AsyncGenerator[httpx.AsyncClient, None]:
 def make_user(db_session: AsyncSession) -> Callable[..., Any]:
     """用户工厂：创建用户返回 (user, plain_password)。"""
 
+    counter: int = 0
+
     async def _make_user(
         email: str | None = None,
         password: str = "TestPass123!",
         role: str = "member",
         status: str = "active",
     ) -> tuple[User, str]:
+        nonlocal counter
+        counter += 1
         user = User(
-            email=email or f"u{hash(email) & 0xFFFF}@test.com",
+            email=email or f"u{counter}-{uuid.uuid4().hex[:8]}@test.com",
             password_hash=hash_password(password),
             role=role,
             status=status,
@@ -101,7 +121,9 @@ def make_headers(make_user: Callable[..., Any]) -> Callable[..., dict[str, str]]
 
 
 @pytest.fixture
-def auth_headers(make_headers: Callable[..., Any]) -> Callable[..., dict[str, str]]:
+def auth_headers(
+    make_user: Callable[..., Any], make_headers: Callable[..., Any]
+) -> Callable[..., Any]:
     """别名：直接返回 (headers, user) 便于测试断言归属。"""
 
     async def _auth_headers(role: str = "member") -> tuple[dict[str, str], User]:
