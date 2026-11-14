@@ -3,6 +3,10 @@
 import { useState } from 'react'
 
 import { Agent } from '../../api/endpoints'
+import { Button } from '../ui/Button'
+import { Icon } from '../ui/Icons'
+import { Input, NumberInput, Slider, Select, Textarea } from '../ui/Field'
+import { cn } from '../ui/cn'
 
 import { ALLOWED_TOOLS } from './constants'
 
@@ -34,6 +38,15 @@ const MODELS = [
   'deepseek-r1',
 ]
 
+/** 工具的短说明，降低「猜字段」成本 */
+const TOOL_HINTS: Record<string, string> = {
+  web_search: '联网搜索',
+  web_fetch: '抓取网页',
+  shell: '执行命令',
+  http: '调用接口',
+  code_interpreter: '运行代码',
+}
+
 export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
   const [values, setValues] = useState<AgentFormValues>({
     name: initial?.name ?? '',
@@ -46,6 +59,7 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
     tools: initial?.tools ?? ['web_search', 'web_fetch'],
     cost_limit_cents: initial?.cost_limit_cents ?? 500,
   })
+  const [touched, setTouched] = useState(false)
 
   const set = <K extends keyof AgentFormValues>(key: K, value: AgentFormValues[K]) => {
     setValues((v) => ({ ...v, [key]: value }))
@@ -60,11 +74,16 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
     )
   }
 
+  const nameError = touched && !values.name.trim() ? '请填写 Agent 名称' : null
+  const promptError = touched && !values.system_prompt.trim() ? '请填写系统提示词' : null
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!values.name.trim()) return
+    setTouched(true)
+    if (!values.name.trim() || !values.system_prompt.trim()) return
     onSubmit({
       ...values,
+      name: values.name.trim(),
       description: (values.description ?? '').trim() || null,
       temperature: Number(values.temperature),
       max_steps: Number(values.max_steps),
@@ -74,147 +93,150 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form onSubmit={handleSubmit} className="space-y-5" noValidate>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">
-            名称 <span className="text-red-500">*</span>
-          </label>
-          <input
-            value={values.name}
-            onChange={(e) => set('name', e.target.value)}
-            required
-            placeholder="例如：代码审查 Agent"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">模型</label>
-          <select
-            value={values.model}
-            onChange={(e) => set('model', e.target.value)}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-          >
-            {MODELS.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div>
-        <label className="mb-1 block text-sm font-medium text-slate-700">描述</label>
-        <input
-          value={values.description ?? ''}
-          onChange={(e) => set('description', e.target.value)}
-          placeholder="这个 Agent 负责什么？"
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-        />
-      </div>
-
-      <div>
-        <label className="mb-1 block text-sm font-medium text-slate-700">
-          系统提示词 <span className="text-red-500">*</span>
-        </label>
-        <textarea
-          value={values.system_prompt}
-          onChange={(e) => set('system_prompt', e.target.value)}
+        <Input
+          label="名称"
           required
-          rows={5}
-          placeholder="你是一个专业的代码审查助手……"
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm focus:border-blue-500 focus:outline-none"
+          value={values.name}
+          onChange={(e) => set('name', e.target.value)}
+          onBlur={() => setTouched(true)}
+          error={nameError}
+          placeholder="例如：代码审查 Agent"
+          maxLength={60}
         />
+        <Select
+          label="模型"
+          value={values.model}
+          onChange={(e) => set('model', e.target.value)}
+          hint="模型决定能力上限与成本单价"
+        >
+          {MODELS.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </Select>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">温度</label>
-          <input
-            type="number"
-            min={0}
-            max={2}
-            step={0.1}
-            value={values.temperature}
-            onChange={(e) => set('temperature', Number(e.target.value))}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">最大步数</label>
-          <input
-            type="number"
+      <Input
+        label="描述"
+        value={values.description ?? ''}
+        onChange={(e) => set('description', e.target.value)}
+        placeholder="一句话说明这个 Agent 负责什么"
+        maxLength={200}
+      />
+
+      <Textarea
+        label="系统提示词"
+        required
+        value={values.system_prompt}
+        onChange={(e) => set('system_prompt', e.target.value)}
+        onBlur={() => setTouched(true)}
+        error={promptError}
+        rows={6}
+        showCount
+        maxLength={8000}
+        placeholder={'你是一个专业的代码审查助手。\n请从可读性、边界条件、安全隐患三个角度审查代码…'}
+        hint="提示词里写清角色、输入输出格式与禁止事项，执行稳定性会明显提升"
+        className="font-mono text-[13px] leading-relaxed"
+      />
+
+      <fieldset className="rounded-xl border border-line bg-surface-muted/60 p-4">
+        <legend className="px-1.5 text-[13px] font-medium text-ink-soft">运行参数</legend>
+
+        <Slider
+          label="温度"
+          value={values.temperature}
+          onValueChange={(v) => set('temperature', v)}
+          min={0}
+          max={2}
+          step={0.1}
+          displayValue={values.temperature.toFixed(1)}
+          hint="越低越稳定保守，越高越发散；结构化任务建议 0.2~0.5"
+          wrapperClassName="mb-4"
+        />
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <NumberInput
+            label="最大步数"
+            value={values.max_steps}
+            onValueChange={(v) => set('max_steps', v)}
             min={1}
             max={100}
-            value={values.max_steps}
-            onChange={(e) => set('max_steps', Number(e.target.value))}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            suffix="步"
+            hint="单次运行最多调用轮数"
           />
-        </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">
-            超时（秒）
-          </label>
-          <input
-            type="number"
+          <NumberInput
+            label="超时"
+            value={values.max_run_seconds}
+            onValueChange={(v) => set('max_run_seconds', v)}
             min={10}
             max={3600}
-            value={values.max_run_seconds}
-            onChange={(e) => set('max_run_seconds', Number(e.target.value))}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            step={10}
+            suffix="秒"
+            hint="超时后任务标记为 timeout"
           />
-        </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">
-            成本上限（分）
-          </label>
-          <input
-            type="number"
+          <NumberInput
+            label="成本上限"
+            value={values.cost_limit_cents}
+            onValueChange={(v) => set('cost_limit_cents', v)}
             min={0}
             max={1000000}
-            value={values.cost_limit_cents}
-            onChange={(e) => set('cost_limit_cents', Number(e.target.value))}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            step={100}
+            suffix="分"
+            hint={`约 ¥${(values.cost_limit_cents / 100).toFixed(2)}，超出即中止`}
           />
         </div>
-      </div>
+      </fieldset>
 
       <div>
-        <label className="mb-2 block text-sm font-medium text-slate-700">工具白名单</label>
-        <div className="flex flex-wrap gap-2">
-          {ALLOWED_TOOLS.map((tool) => (
-            <button
-              key={tool}
-              type="button"
-              onClick={() => toggleTool(tool)}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                values.tools.includes(tool)
-                  ? 'border-blue-500 bg-blue-50 text-blue-700'
-                  : 'border-slate-300 text-slate-500 hover:border-slate-400'
-              }`}
-            >
-              {tool}
-            </button>
-          ))}
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-[13px] font-medium text-ink-soft">工具白名单</span>
+          <span className="text-xs text-ink-faint">已选 {values.tools.length} 个</span>
         </div>
+        <div className="flex flex-wrap gap-2">
+          {ALLOWED_TOOLS.map((tool) => {
+            const active = values.tools.includes(tool)
+            return (
+              <button
+                key={tool}
+                type="button"
+                aria-pressed={active}
+                onClick={() => toggleTool(tool)}
+                title={TOOL_HINTS[tool]}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all duration-150',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:ring-offset-1',
+                  active
+                    ? 'border-brand-300 bg-brand-50 text-accent shadow-sm'
+                    : 'border-line bg-surface text-ink-muted hover:border-line-strong hover:bg-surface-muted hover:text-ink-soft',
+                )}
+              >
+                <Icon name={active ? 'check' : 'plus'} className="h-3 w-3" />
+                <span className="font-mono">{tool}</span>
+                <span className={cn('font-sans text-2xs', active ? 'text-brand-400' : 'text-ink-faint')}>
+                  {TOOL_HINTS[tool]}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+        {values.tools.length === 0 && (
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-600">
+            <Icon name="alert-triangle" className="h-3.5 w-3.5" />
+            未选择工具时，Agent 只能用模型自身知识作答
+          </p>
+        )}
       </div>
 
-      <div className="flex justify-end gap-2 pt-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
-        >
+      <div className="flex items-center justify-end gap-2 border-t border-line-subtle pt-4">
+        <Button type="button" variant="secondary" onClick={onCancel}>
           取消
-        </button>
-        <button
-          type="submit"
-          disabled={submitting || !values.name.trim()}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {submitting ? '提交中...' : initial ? '保存修改' : '创建'}
-        </button>
+        </Button>
+        <Button type="submit" variant="primary" loading={submitting} leftIcon="check">
+          {submitting ? '保存中…' : initial ? '保存修改' : '创建 Agent'}
+        </Button>
       </div>
     </form>
   )

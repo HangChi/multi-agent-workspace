@@ -2,18 +2,46 @@
 
 import { useState } from 'react'
 
-import {
-  Agent,
-  Group,
-  RoutingStrategy,
-  WorkRequest,
-} from '../../api/endpoints'
+import { Agent, Group, RoutingStrategy, WorkRequest } from '../../api/endpoints'
+import { Badge } from '../ui/Badge'
+import { Button } from '../ui/Button'
+import { IconTile } from '../ui/Card'
+import { ErrorBanner } from '../ui/ErrorBanner'
+import { Icon } from '../ui/Icons'
+import type { IconName } from '../ui/Icons'
+import { Modal } from '../ui/Modal'
+import { OptionCards } from '../ui/Segmented'
 
-const STRATEGY_OPTIONS: { value: RoutingStrategy; label: string; desc: string }[] = [
-  { value: 'direct', label: '直接路由', desc: '请求直接交给该 Agent' },
-  { value: 'fan_out', label: '广播', desc: '同时发给所有成员，汇总结果' },
-  { value: 'pipeline', label: '流水线', desc: '按成员顺序串联，前一步产出作为下一步输入' },
-  { value: 'router', label: '路由器', desc: '由模型按需求内容挑选最合适的成员' },
+const STRATEGY_OPTIONS: {
+  value: RoutingStrategy
+  label: string
+  description: string
+  icon: IconName
+}[] = [
+  {
+    value: 'direct',
+    label: '直接路由',
+    description: '请求直接交给该 Agent 执行',
+    icon: 'target',
+  },
+  {
+    value: 'fan_out',
+    label: '广播',
+    description: '同时发给所有成员，汇总结果',
+    icon: 'users',
+  },
+  {
+    value: 'pipeline',
+    label: '流水线',
+    description: '按成员顺序串联，前一步产出作为下一步输入',
+    icon: 'arrow-right',
+  },
+  {
+    value: 'router',
+    label: '路由器',
+    description: '由模型按需求内容挑选最合适的成员',
+    icon: 'sparkles',
+  },
 ]
 
 const STRATEGY_LABELS: Record<RoutingStrategy, string> = {
@@ -21,6 +49,12 @@ const STRATEGY_LABELS: Record<RoutingStrategy, string> = {
   fan_out: '广播',
   pipeline: '流水线',
   router: '路由器',
+}
+
+const PRIORITY_LABEL: Record<string, string> = {
+  high: '高',
+  normal: '中',
+  low: '低',
 }
 
 export type AssignTarget =
@@ -50,106 +84,85 @@ export function AssignModal({
   onCancel,
 }: Props) {
   // 拖到组时默认取组配置的路由策略
-  const [strategy, setStrategy] = useState<RoutingStrategy>(
-    group?.routing_strategy ?? 'direct',
-  )
+  const [strategy, setStrategy] = useState<RoutingStrategy>(group?.routing_strategy ?? 'direct')
 
   const isAgent = target.kind === 'agent'
-  const targetName = isAgent ? agent?.name ?? '该 Agent' : group?.name ?? '该组'
-  const targetBadge = isAgent
-    ? '直接分配'
-    : `策略：${STRATEGY_LABELS[strategy]}`
+  const targetName = isAgent ? (agent?.name ?? '该 Agent') : (group?.name ?? '该组')
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
-      onClick={onCancel}
-    >
-      <div
-        className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-semibold text-slate-800">确认分配</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          将需求「{request.title}」分配给
-          <span className="mx-1 font-medium text-slate-700">{targetName}</span>
-        </p>
-
-        <div className="mt-3 flex flex-wrap gap-2 text-xs">
-          <span className="rounded-full bg-blue-50 px-2 py-0.5 font-medium text-blue-700">
-            优先级 {request.priority}
-          </span>
-          <span
-            className={`rounded-full px-2 py-0.5 font-medium ${
-              isAgent
-                ? 'bg-emerald-50 text-emerald-700'
-                : 'bg-violet-50 text-violet-700'
-            }`}
+    <Modal
+      open
+      onClose={onCancel}
+      size="lg"
+      title="确认分配"
+      description={
+        <>
+          将需求「{request.title}」分配给{' '}
+          <span className="font-medium text-ink-soft">{targetName}</span>
+        </>
+      }
+      icon={
+        <IconTile tone={isAgent ? 'brand' : 'sky'}>
+          <Icon name={isAgent ? 'bot' : 'users'} className="h-[18px] w-[18px]" />
+        </IconTile>
+      }
+      footer={
+        <>
+          <Button variant="secondary" onClick={onCancel}>
+            取消
+          </Button>
+          <Button
+            variant="primary"
+            leftIcon="play"
+            loading={submitting}
+            onClick={() => onConfirm({ strategy })}
           >
-            {targetBadge}
-          </span>
+            {submitting ? '分配中…' : '确认分配'}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface-muted/80 px-3 py-2.5">
+          <span className="text-xs text-ink-muted">优先级</span>
+          <Badge tone={request.priority === 'high' ? 'rose' : request.priority === 'low' ? 'slate' : 'brand'}>
+            {PRIORITY_LABEL[request.priority] ?? request.priority}
+          </Badge>
+          <span className="ml-1 text-xs text-ink-muted">执行方式</span>
+          <Badge tone={isAgent ? 'emerald' : 'sky'} dot>
+            {isAgent ? '直接分配' : STRATEGY_LABELS[strategy]}
+          </Badge>
+          {isAgent && agent && (
+            <span className="ml-auto text-xs text-ink-faint">
+              模型 {agent.model} · 上限 ¥{(agent.cost_limit_cents / 100).toFixed(2)}
+            </span>
+          )}
         </div>
 
         {!isAgent && group && (
-          <div className="mt-4">
-            <p className="mb-2 text-sm font-medium text-slate-700">路由策略</p>
-            <div className="space-y-2">
-              {STRATEGY_OPTIONS.map((opt) => (
-                <label
-                  key={opt.value}
-                  className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
-                    strategy === opt.value
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="strategy"
-                    value={opt.value}
-                    checked={strategy === opt.value}
-                    onChange={() => setStrategy(opt.value)}
-                    className="mt-0.5"
-                  />
-                  <span>
-                    <span className="block text-sm font-medium text-slate-800">
-                      {opt.label}
-                    </span>
-                    <span className="block text-xs text-slate-500">{opt.desc}</span>
-                  </span>
-                </label>
-              ))}
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-[13px] font-medium text-ink-soft">路由策略</p>
+              <span className="text-xs text-ink-faint">{group.members.length} 个成员</span>
             </div>
+            <OptionCards
+              options={STRATEGY_OPTIONS}
+              value={strategy}
+              onChange={setStrategy}
+              columns={2}
+              name="路由策略"
+            />
             {group.members.length === 0 && (
-              <p className="mt-2 text-xs text-amber-600">
-                该组暂无成员，广播策略将无法执行
+              <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-2 text-xs text-amber-700 ring-1 ring-inset ring-amber-200/70 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/25">
+                <Icon name="alert-triangle" className="mt-px h-3.5 w-3.5 shrink-0" />
+                该组暂无成员，广播等策略将无法执行，请先到「Agent 组」页添加成员。
               </p>
             )}
           </div>
         )}
 
-        {error && (
-          <div className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-            {error}
-          </div>
-        )}
-
-        <div className="mt-6 flex justify-end gap-2">
-          <button
-            onClick={onCancel}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
-          >
-            取消
-          </button>
-          <button
-            onClick={() => onConfirm({ strategy })}
-            disabled={submitting}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {submitting ? '分配中...' : '确认分配'}
-          </button>
-        </div>
+        {error && <ErrorBanner error={error} className="mt-0" />}
       </div>
-    </div>
+    </Modal>
   )
 }

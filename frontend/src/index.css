@@ -1,3 +1,287 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ==========================================================================
+   主题令牌：浅色 = 蓝白；深色 = 深海军蓝。
+   组件一律引用这些语义令牌（surface / line / ink / brand），
+   所以切主题只需要给 <html> 加 .dark，不需要逐个元素写 dark: 变体。
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* 表面层级 */
+  --canvas: 248 250 252; /* 页面底 */
+  --surface: 255 255 255; /* 卡片 / 弹层 / 输入框 */
+  --surface-muted: 248 250 252; /* 次级块（卡片内浅底、hover） */
+  --surface-subtle: 241 245 249; /* 三级块（看板列、分段控件槽） */
+  --surface-inset: 255 255 255;
+
+  /* 描边 */
+  --line: 226 232 240;
+  --line-strong: 203 213 225;
+  --line-subtle: 241 245 249;
+
+  /* 文字 */
+  --ink: 15 23 42;
+  --ink-soft: 51 65 85;
+  --ink-muted: 100 116 139;
+  --ink-faint: 148 163 184;
+
+  /* 品牌蓝（Tailwind blue 色阶） */
+  --brand-50: 239 246 255;
+  --brand-100: 219 234 254;
+  --brand-200: 191 219 254;
+  --brand-300: 147 197 253;
+  --brand-400: 96 165 250;
+  --brand-500: 59 130 246;
+  --brand-600: 37 99 235;
+  --brand-700: 29 78 216;
+  --brand-800: 30 64 175;
+  --brand-900: 30 58 138;
+  --brand-950: 23 37 84;
+  /* 强调文字：浅色下用深蓝，保证正文对比度 */
+  --accent: 29 78 216;
+
+  --shadow: 15 23 42;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --canvas: 8 13 23;
+  --surface: 16 24 38;
+  --surface-muted: 20 29 45;
+  --surface-subtle: 26 37 56;
+  --surface-inset: 12 19 31;
+
+  --line: 34 46 66;
+  --line-strong: 51 66 90;
+  --line-subtle: 26 36 52;
+
+  --ink: 226 232 240;
+  --ink-soft: 203 213 225;
+  --ink-muted: 148 163 184;
+  --ink-faint: 100 116 139;
+
+  /* 深色下：浅色调翻成深蓝底，实心按钮保持可读的饱和蓝 */
+  --brand-50: 15 30 58;
+  --brand-100: 17 38 74;
+  --brand-200: 23 51 98;
+  --brand-300: 43 85 150;
+  --brand-400: 96 165 250;
+  --brand-500: 59 130 246;
+  --brand-600: 37 99 235;
+  --brand-700: 29 78 216;
+  --brand-800: 30 64 175;
+  --brand-900: 30 58 138;
+  --brand-950: 23 37 84;
+  /* 深色下强调文字要提亮，否则深蓝字压在深底上看不清 */
+  --accent: 147 197 253;
+
+  --shadow: 0 0 0;
+}
+
+/* ==========================================================================
+   全局基线：字体渲染、焦点可见性、滚动条、表单控件原生外观清理
+   ========================================================================== */
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-canvas font-sans text-[15px] leading-normal text-ink antialiased;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply tracking-tight text-ink;
+  }
+
+  ::selection {
+    background-color: rgb(var(--brand-500) / 0.22);
+    color: rgb(var(--ink));
+  }
+
+  /* 链接等「非自绘控件」的兜底焦点样式；按钮/输入框各自带 ring，不重复 */
+  a[href]:focus-visible {
+    outline: 2px solid rgb(var(--brand-500) / 0.65);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* 细滚动条（Firefox + WebKit），跟随主题 */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--line-strong)) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--line-strong));
+    border: 3px solid transparent;
+    border-radius: 9999px;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(var(--ink-faint));
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* 数字输入框去掉原生上下箭头（统一用 NumberInput 的自绘步进器） */
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+
+  /* 搜索框的原生清除按钮 */
+  input[type='search']::-webkit-search-decoration,
+  input[type='search']::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+  }
+
+  /* 自动填充时不要变成刺眼的浅黄 / 深色下不要变白块 */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: rgb(var(--ink));
+    box-shadow: inset 0 0 0 1000px rgb(var(--surface));
+    transition: background-color 9999s ease-out 0s;
+  }
+
+  :disabled {
+    cursor: not-allowed;
+  }
+
+  /* 尊重系统「减少动态效果」 */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  /* 横向滚动容器隐藏滚动条（看板窄屏滑动） */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 单行/多行截断的语义化别名 */
+  .truncate-1 {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .truncate-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* 弹层背后的轻微染色，避免纯黑遮罩显得脏 */
+  .backdrop-tint {
+    background-color: rgb(var(--shadow) / 0.36);
+  }
+
+  /* 看板列的纵向渐隐边，暗示可滚动 */
+  .fade-b {
+    mask-image: linear-gradient(to bottom, black calc(100% - 16px), transparent);
+  }
+}
+
+@layer components {
+  /**
+   * 滑杆：原生 input[type=range] 在 WebKit / Firefox 下差异极大，
+   * 这里统一轨道高度与拖柄尺寸（进度填充由组件内联渐变控制）。
+   */
+  .range-brand {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    border-radius: 9999px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .range-brand::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 9999px;
+    background: transparent;
+  }
+
+  .range-brand::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    margin-top: -5px;
+    border-radius: 9999px;
+    border: 2px solid rgb(var(--brand-600));
+    background: rgb(var(--surface));
+    box-shadow: 0 1px 3px rgb(var(--shadow) / 0.28);
+    transition: transform 0.12s ease-out;
+  }
+
+  .range-brand:active::-webkit-slider-thumb {
+    transform: scale(1.12);
+  }
+
+  .range-brand::-moz-range-track {
+    height: 6px;
+    border-radius: 9999px;
+    background: transparent;
+  }
+
+  .range-brand::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 9999px;
+    border: 2px solid rgb(var(--brand-600));
+    background: rgb(var(--surface));
+    box-shadow: 0 1px 3px rgb(var(--shadow) / 0.28);
+  }
+
+  .range-brand:focus-visible {
+    box-shadow: 0 0 0 4px rgb(var(--brand-500) / 0.24);
+  }
+}

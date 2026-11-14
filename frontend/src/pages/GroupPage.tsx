@@ -16,23 +16,69 @@ import {
   RoutingStrategy,
   updateGroup,
 } from '../api/endpoints'
+import { Badge } from '../components/ui/Badge'
+import { Button, IconButton } from '../components/ui/Button'
+import { Card, IconTile } from '../components/ui/Card'
+import { useConfirm } from '../components/ui/ConfirmDialog'
+import { EmptyState } from '../components/ui/EmptyState'
+import { ErrorBanner } from '../components/ui/ErrorBanner'
+import { Input, Select } from '../components/ui/Field'
+import { Icon } from '../components/ui/Icons'
+import type { IconName } from '../components/ui/Icons'
+import { Page } from '../components/ui/Page'
+import { PageHeader } from '../components/ui/PageHeader'
+import { OptionCards } from '../components/ui/Segmented'
+import { CardSkeleton } from '../components/ui/Skeleton'
+import { useToast } from '../components/ui/Toast'
+import { cn } from '../components/ui/cn'
 
-const STRATEGY_LABELS: Record<RoutingStrategy, string> = {
-  direct: '直接路由',
-  fan_out: '广播',
-  pipeline: '流水线',
-  router: '路由器',
+const STRATEGY_META: Record<
+  RoutingStrategy,
+  { label: string; desc: string; short: string; icon: IconName }
+> = {
+  direct: {
+    label: '直接路由',
+    short: '直接',
+    desc: '请求直接交给该 Agent，不做额外分派',
+    icon: 'target',
+  },
+  fan_out: {
+    label: '广播',
+    short: '广播',
+    desc: '同时发给所有成员，汇总各自的输出',
+    icon: 'users',
+  },
+  pipeline: {
+    label: '流水线',
+    short: '流水线',
+    desc: '按成员顺序串联执行，前序输出作为后序输入',
+    icon: 'arrow-right',
+  },
+  router: {
+    label: '路由器',
+    short: '路由器',
+    desc: '由模型阅读需求后挑选最合适的一个成员',
+    icon: 'sparkles',
+  },
 }
 
-const STRATEGY_DESC: Record<RoutingStrategy, string> = {
-  direct: '请求直接交给该 Agent',
-  fan_out: '同时发给所有成员，汇总结果',
-  pipeline: '按顺序串联执行，前序输出作为后序输入',
-  router: '根据内容智能分发给最合适的成员',
+const STRATEGY_OPTIONS = (Object.keys(STRATEGY_META) as RoutingStrategy[]).map((value) => ({
+  value,
+  label: STRATEGY_META[value].label,
+  description: STRATEGY_META[value].desc,
+  icon: STRATEGY_META[value].icon,
+}))
+
+interface GroupPayload {
+  name: string
+  description: string | null
+  routing_strategy: RoutingStrategy
 }
 
 export function GroupPage() {
   const qc = useQueryClient()
+  const confirm = useConfirm()
+  const toast = useToast()
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Group | null>(null)
@@ -59,16 +105,18 @@ export function GroupPage() {
     onSuccess: () => {
       invalidate()
       setShowForm(false)
+      toast.success('组已创建')
     },
     onError: (err) => setError(extractError(err)),
   })
 
   const updateMut = useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: { name?: string; description?: string | null; routing_strategy?: RoutingStrategy } }) =>
+    mutationFn: ({ id, payload }: { id: string; payload: GroupPayload }) =>
       updateGroup(id, payload),
     onSuccess: () => {
       invalidate()
       setEditing(null)
+      toast.success('组信息已更新')
     },
     onError: (err) => setError(extractError(err)),
   })
@@ -78,6 +126,7 @@ export function GroupPage() {
     onSuccess: () => {
       invalidate()
       setExpanded(null)
+      toast.success('组已删除')
     },
     onError: (err) => setError(extractError(err)),
   })
@@ -88,7 +137,10 @@ export function GroupPage() {
         agent_id: agentId,
         position: 999, // 追加到末尾，后端会处理
       }),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate()
+      toast.success('成员已加入')
+    },
     onError: (err) => setError(extractError(err)),
   })
 
@@ -100,8 +152,13 @@ export function GroupPage() {
   })
 
   const reorderMut = useMutation({
-    mutationFn: ({ groupId, positions }: { groupId: string; positions: { agent_id: string; position: number }[] }) =>
-      reorderGroupMembers(groupId, positions),
+    mutationFn: ({
+      groupId,
+      positions,
+    }: {
+      groupId: string
+      positions: { agent_id: string; position: number }[]
+    }) => reorderGroupMembers(groupId, positions),
     onSuccess: invalidate,
     onError: (err) => setError(extractError(err)),
   })
@@ -117,45 +174,57 @@ export function GroupPage() {
     reorderMut.mutate({ groupId: group.id, positions })
   }
 
-  const onSubmitCreate = (values: { name: string; description: string; routing_strategy: RoutingStrategy }) => {
-    createMut.mutate({
-      name: values.name,
-      description: values.description.trim() ? values.description.trim() : null,
-      routing_strategy: values.routing_strategy,
+  const onSubmitCreate = (values: GroupPayload) => createMut.mutate(values)
+
+  const onDelete = async (group: Group) => {
+    const ok = await confirm({
+      title: `删除组「${group.name}」？`,
+      description: '仅删除组本身，组内的 Agent 不会被删除，历史运行记录保留。',
+      confirmText: '删除',
+      tone: 'danger',
     })
+    if (ok) deleteMut.mutate(group.id)
+  }
+
+  const onRemoveMember = async (group: Group, agentId: string, name: string) => {
+    const ok = await confirm({
+      title: `从组中移除「${name}」？`,
+      description: '移除后该成员不再参与此组的编排，Agent 本身不受影响。',
+      confirmText: '移除',
+      tone: 'warning',
+    })
+    if (ok) removeMemberMut.mutate({ groupId: group.id, agentId })
   }
 
   return (
-    <div>
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Agent 组管理</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            将多个 Agent 编组，按路由策略协调执行
-          </p>
-        </div>
-        <button
-          onClick={() => {
-            setEditing(null)
-            setShowForm((v) => !v)
-          }}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          {showForm ? '取消' : '+ 新建组'}
-        </button>
-      </div>
+    <Page>
+      <PageHeader
+        title="Agent 组管理"
+        description="把多个 Agent 编成一组，按路由策略协调执行。"
+        icon={
+          <IconTile tone="sky" size="lg">
+            <Icon name="users" className="h-5 w-5" />
+          </IconTile>
+        }
+        actions={
+          <Button
+            variant={showForm ? 'secondary' : 'primary'}
+            leftIcon={showForm ? 'chevron-up' : 'plus'}
+            onClick={() => {
+              setEditing(null)
+              setShowForm((v) => !v)
+              setError(null)
+            }}
+          >
+            {showForm ? '收起' : '新建组'}
+          </Button>
+        }
+      />
 
-      {error && (
-        <div className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
-          {error}
-          <button onClick={() => setError(null)} className="ml-2 font-medium underline">
-            关闭
-          </button>
-        </div>
-      )}
+      {error && <ErrorBanner error={error} onDismiss={() => setError(null)} />}
 
       {showForm && (
-        <GroupForm
+        <GroupEditor
           onSubmit={onSubmitCreate}
           onCancel={() => setShowForm(false)}
           submitting={createMut.isPending}
@@ -163,7 +232,7 @@ export function GroupPage() {
       )}
 
       {editing && (
-        <EditGroupForm
+        <GroupEditor
           group={editing}
           onSubmit={(payload) => updateMut.mutate({ id: editing.id, payload })}
           onCancel={() => setEditing(null)}
@@ -171,12 +240,29 @@ export function GroupPage() {
         />
       )}
 
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-ink-faint">
+          共 <span className="font-medium text-ink-soft">{groups?.items.length ?? 0}</span> 个组
+        </p>
+        <p className="text-xs text-ink-faint">展开「管理成员」可调整顺序与路由策略</p>
+      </div>
+
       {isLoading ? (
-        <div className="py-12 text-center text-slate-500">加载中...</div>
-      ) : groups?.items.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white py-12 text-center text-slate-500">
-          还没有 Agent 组，点击右上角「新建组」开始
+        <div className="space-y-3">
+          <CardSkeleton />
+          <CardSkeleton />
         </div>
+      ) : groups?.items.length === 0 ? (
+        <EmptyState
+          icon="users"
+          title="还没有 Agent 组"
+          description="组适合多 Agent 协作：广播让多人各做一版、流水线让上游产出喂给下游、路由器按内容挑人。"
+          action={
+            <Button variant="primary" leftIcon="plus" onClick={() => setShowForm(true)}>
+              新建第一个组
+            </Button>
+          }
+        />
       ) : (
         <div className="space-y-3">
           {groups?.items.map((group) => {
@@ -185,268 +271,195 @@ export function GroupPage() {
             const availableAgents = activeAgents.filter(
               (a) => !group.members.some((m) => m.agent_id === a.id),
             )
+            const meta = STRATEGY_META[group.routing_strategy]
+
             return (
-              <div
-                key={group.id}
-                className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="truncate font-semibold text-slate-800">{group.name}</h3>
-                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
-                        {STRATEGY_LABELS[group.routing_strategy]}
-                      </span>
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
-                        {group.members.length} 个成员
-                      </span>
-                    </div>
-                    {group.description && (
-                      <p className="mt-1 line-clamp-2 text-sm text-slate-500">
-                        {group.description}
+              <Card key={group.id} padding="none" className="overflow-hidden">
+                <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <IconTile tone="sky">
+                      <Icon name="users" className="h-[18px] w-[18px]" />
+                    </IconTile>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="truncate text-[15px] font-semibold text-ink">
+                          {group.name}
+                        </h3>
+                        <Badge tone="sky" dot>
+                          {meta.label}
+                        </Badge>
+                        <Badge tone="slate">{group.members.length} 个成员</Badge>
+                      </div>
+                      <p
+                        className={cn(
+                          'mt-1 line-clamp-2 text-[13px] leading-relaxed',
+                          group.description ? 'text-ink-muted' : 'text-ink-faint',
+                        )}
+                      >
+                        {group.description || '暂无描述'}
                       </p>
-                    )}
+                    </div>
                   </div>
-                  <div className="flex shrink-0 gap-2">
-                    <button
+
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant={isExpanded ? 'outline' : 'secondary'}
+                      leftIcon="users"
                       onClick={() => setExpanded(isExpanded ? null : group.id)}
-                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                     >
                       {isExpanded ? '收起' : '管理成员'}
-                    </button>
-                    <button
-                      onClick={() => setEditing(group)}
-                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                    >
+                    </Button>
+                    <Button size="sm" variant="ghost" leftIcon="edit" onClick={() => setEditing(group)}>
                       编辑
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (window.confirm(`删除组「${group.name}」？成员不会被删除。`)) {
-                          deleteMut.mutate(group.id)
-                        }
-                      }}
-                      className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      leftIcon="trash"
+                      onClick={() => void onDelete(group)}
+                      className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-300 dark:hover:bg-rose-500/15"
                     >
                       删除
-                    </button>
+                    </Button>
                   </div>
                 </div>
 
                 {isExpanded && (
-                  <div className="mt-4 border-t border-slate-100 pt-4">
-                    <div className="mb-3">
-                      <p className="text-sm font-medium text-slate-700">
-                        路由策略：{STRATEGY_LABELS[group.routing_strategy]}
-                      </p>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        {STRATEGY_DESC[group.routing_strategy]}
-                      </p>
+                  <div className="border-t border-line-subtle bg-surface-muted/60 p-4 animate-fade-in">
+                    <div className="mb-3 flex items-start gap-2.5 rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2.5 dark:border-sky-500/25 dark:bg-sky-500/10">
+                      <Icon name={meta.icon} className="mt-0.5 h-4 w-4 shrink-0 text-sky-500" />
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-medium text-sky-900 dark:text-sky-200">
+                          {meta.label}
+                          <span className="ml-1.5 font-normal text-sky-600/80 dark:text-sky-300/80">
+                            {group.members.length} 个成员
+                          </span>
+                        </p>
+                        <p className="mt-0.5 text-xs leading-relaxed text-sky-700/80 dark:text-sky-300/80">
+                          {meta.desc}
+                        </p>
+                      </div>
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        className="ml-auto shrink-0 text-sky-700 hover:bg-sky-100"
+                        onClick={() => setEditing(group)}
+                      >
+                        修改策略
+                      </Button>
                     </div>
 
                     {sortedMembers.length === 0 ? (
-                      <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-400">
-                        暂无成员，从下方添加
-                      </p>
+                      <div className="mb-3 rounded-lg border border-dashed border-line-strong bg-surface/60 py-4 text-center text-xs text-ink-faint">
+                        暂无成员，从下方选择 Agent 加入
+                      </div>
                     ) : (
                       <div className="mb-3 space-y-1.5">
                         {sortedMembers.map((m, i) => (
                           <div
                             key={m.agent_id}
-                            className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                            className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 transition-colors hover:border-line-strong"
                           >
-                            <div className="flex items-center gap-3">
-                              <span className="w-5 text-center text-xs font-medium text-slate-400">
-                                {i + 1}
-                              </span>
-                              <span className="text-sm font-medium text-slate-700">
-                                {m.name}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => moveMember(group, m.agent_id, -1)}
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-surface-subtle text-2xs font-medium tabular-nums text-ink-muted">
+                              {i + 1}
+                            </span>
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-sky-500 to-brand-600 text-2xs font-semibold text-white">
+                              {m.name.slice(0, 1)}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-soft">
+                              {m.name}
+                            </span>
+                            <div className="flex shrink-0 items-center">
+                              <IconButton
+                                icon="arrow-up"
+                                label={`上移 ${m.name}`}
+                                size="xs"
                                 disabled={i === 0}
-                                className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-500 hover:bg-white disabled:opacity-30"
-                                title="上移"
-                              >
-                                ↑
-                              </button>
-                              <button
-                                onClick={() => moveMember(group, m.agent_id, 1)}
+                                onClick={() => moveMember(group, m.agent_id, -1)}
+                              />
+                              <IconButton
+                                icon="arrow-down"
+                                label={`下移 ${m.name}`}
+                                size="xs"
                                 disabled={i === sortedMembers.length - 1}
-                                className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-500 hover:bg-white disabled:opacity-30"
-                                title="下移"
-                              >
-                                ↓
-                              </button>
-                              <button
-                                onClick={() => {
-                                  if (window.confirm(`从组中移除「${m.name}」？`)) {
-                                    removeMemberMut.mutate({
-                                      groupId: group.id,
-                                      agentId: m.agent_id,
-                                    })
-                                  }
-                                }}
-                                className="ml-1 rounded border border-red-200 px-2 py-0.5 text-xs text-red-500 hover:bg-red-50"
-                              >
-                                移除
-                              </button>
+                                onClick={() => moveMember(group, m.agent_id, 1)}
+                              />
+                              <IconButton
+                                icon="x"
+                                label={`移除 ${m.name}`}
+                                size="xs"
+                                variant="danger"
+                                onClick={() => void onRemoveMember(group, m.agent_id, m.name)}
+                              />
                             </div>
                           </div>
                         ))}
                       </div>
                     )}
 
-                    <div className="flex items-center gap-2">
-                      <select
-                        className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <Select
                         value=""
                         onChange={(e) => {
                           const agentId = e.target.value
-                          if (agentId) {
-                            addMemberMut.mutate({ groupId: group.id, agentId })
-                          }
+                          if (agentId) addMemberMut.mutate({ groupId: group.id, agentId })
                         }}
+                        controlSize="sm"
+                        placeholder={
+                          availableAgents.length === 0
+                            ? '没有可加入的活跃 Agent'
+                            : '选择 Agent 加入此组…'
+                        }
+                        disabled={availableAgents.length === 0 || addMemberMut.isPending}
+                        aria-label="添加成员"
+                        wrapperClassName="flex-1"
                       >
-                        <option value="">选择 Agent 加入此组...</option>
                         {availableAgents.map((a) => (
                           <option key={a.id} value={a.id}>
                             {a.name}（{a.model}）
                           </option>
                         ))}
-                        {availableAgents.length === 0 && (
-                          <option value="" disabled>
-                            没有可加入的活跃 Agent
-                          </option>
-                        )}
-                      </select>
+                      </Select>
+                      <p className="shrink-0 text-2xs text-ink-faint">
+                        顺序 = 流水线执行顺序
+                      </p>
                     </div>
                   </div>
                 )}
-              </div>
+              </Card>
             )
           })}
         </div>
       )}
-    </div>
+    </Page>
   )
 }
 
-/** 新建组表单。 */
-function GroupForm({
-  onSubmit,
-  onCancel,
-  submitting,
-}: {
-  onSubmit: (values: { name: string; description: string; routing_strategy: RoutingStrategy }) => void
-  onCancel: () => void
-  submitting?: boolean
-}) {
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [strategy, setStrategy] = useState<RoutingStrategy>('direct')
-
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault()
-        if (!name.trim()) return
-        onSubmit({ name: name.trim(), description, routing_strategy: strategy })
-      }}
-      className="mb-6 rounded-xl border border-slate-200 bg-white p-6"
-    >
-      <h2 className="mb-4 text-lg font-semibold text-slate-800">新建 Agent 组</h2>
-      <div className="space-y-4">
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">
-            组名称 <span className="text-red-500">*</span>
-          </label>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            placeholder="例如：客户支持组"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">描述</label>
-          <input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="这个组负责什么？"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-          />
-        </div>
-        <div>
-          <label className="mb-2 block text-sm font-medium text-slate-700">路由策略</label>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {(Object.keys(STRATEGY_LABELS) as RoutingStrategy[]).map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setStrategy(s)}
-                className={`rounded-lg border p-3 text-left transition-colors ${
-                  strategy === s
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                <span className="block text-sm font-medium text-slate-800">
-                  {STRATEGY_LABELS[s]}
-                </span>
-                <span className="mt-1 block text-xs text-slate-500">{STRATEGY_DESC[s]}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
-          >
-            取消
-          </button>
-          <button
-            type="submit"
-            disabled={submitting || !name.trim()}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {submitting ? '提交中...' : '创建'}
-          </button>
-        </div>
-      </div>
-    </form>
-  )
-}
-
-/** 编辑组表单（只改名称/描述/策略）。 */
-function EditGroupForm({
+/** 新建/编辑组表单（两者字段完全一致，合并为一个组件）。 */
+function GroupEditor({
   group,
   onSubmit,
   onCancel,
   submitting,
 }: {
-  group: Group
-  onSubmit: (payload: {
-    name?: string
-    description?: string | null
-    routing_strategy?: RoutingStrategy
-  }) => void
+  group?: Group
+  onSubmit: (payload: GroupPayload) => void
   onCancel: () => void
   submitting?: boolean
 }) {
-  const [name, setName] = useState(group.name)
-  const [description, setDescription] = useState(group.description ?? '')
-  const [strategy, setStrategy] = useState<RoutingStrategy>(group.routing_strategy)
+  const [name, setName] = useState(group?.name ?? '')
+  const [description, setDescription] = useState(group?.description ?? '')
+  const [strategy, setStrategy] = useState<RoutingStrategy>(group?.routing_strategy ?? 'direct')
+  const [touched, setTouched] = useState(false)
+
+  const nameError = touched && !name.trim() ? '请填写组名称' : null
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault()
+        setTouched(true)
         if (!name.trim()) return
         onSubmit({
           name: name.trim(),
@@ -454,69 +467,61 @@ function EditGroupForm({
           routing_strategy: strategy,
         })
       }}
-      className="mb-6 rounded-xl border border-slate-200 bg-white p-6"
+      className="rounded-xl border border-line/90 bg-surface shadow-card animate-fade-in-up"
+      noValidate
     >
-      <h2 className="mb-4 text-lg font-semibold text-slate-800">
-        编辑组「{group.name}」
-      </h2>
-      <div className="space-y-4">
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">
-            组名称 <span className="text-red-500">*</span>
-          </label>
-          <input
+      <div className="flex items-center gap-2.5 border-b border-line-subtle px-5 py-3.5">
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-50 text-sky-600 ring-1 ring-inset ring-sky-100">
+          <Icon name={group ? 'edit' : 'plus'} className="h-4 w-4" />
+        </span>
+        <h2 className="text-sm font-semibold text-ink">
+          {group ? `编辑组「${group.name}」` : '新建 Agent 组'}
+        </h2>
+      </div>
+
+      <div className="space-y-4 p-5">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Input
+            label="组名称"
+            required
             value={name}
             onChange={(e) => setName(e.target.value)}
-            required
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            onBlur={() => setTouched(true)}
+            error={nameError}
+            placeholder="例如：客户支持组"
+            maxLength={60}
           />
-        </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">描述</label>
-          <input
+          <Input
+            label="描述"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            placeholder="这个组负责什么？"
+            maxLength={200}
           />
         </div>
+
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-700">路由策略</label>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {(Object.keys(STRATEGY_LABELS) as RoutingStrategy[]).map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setStrategy(s)}
-                className={`rounded-lg border p-3 text-left transition-colors ${
-                  strategy === s
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                <span className="block text-sm font-medium text-slate-800">
-                  {STRATEGY_LABELS[s]}
-                </span>
-                <span className="mt-1 block text-xs text-slate-500">{STRATEGY_DESC[s]}</span>
-              </button>
-            ))}
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[13px] font-medium text-ink-soft">路由策略</span>
+            <span className="text-xs text-ink-faint">决定组成员如何协作</span>
           </div>
+          <OptionCards
+            options={STRATEGY_OPTIONS}
+            value={strategy}
+            onChange={setStrategy}
+            columns={4}
+            name="路由策略"
+          />
         </div>
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
-          >
-            取消
-          </button>
-          <button
-            type="submit"
-            disabled={submitting || !name.trim()}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {submitting ? '提交中...' : '保存'}
-          </button>
-        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-2 rounded-b-xl border-t border-line-subtle bg-surface-muted/70 px-5 py-3">
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          取消
+        </Button>
+        <Button type="submit" variant="primary" loading={submitting} leftIcon="check">
+          {submitting ? '提交中…' : group ? '保存修改' : '创建组'}
+        </Button>
       </div>
     </form>
   )

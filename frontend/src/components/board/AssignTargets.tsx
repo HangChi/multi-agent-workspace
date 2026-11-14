@@ -3,6 +3,9 @@
 import { useDroppable } from '@dnd-kit/core'
 
 import { Agent, Group, RoutingStrategy } from '../../api/endpoints'
+import { Badge } from '../ui/Badge'
+import { Icon } from '../ui/Icons'
+import { cn } from '../ui/cn'
 
 const STRATEGY_LABELS: Record<RoutingStrategy, string> = {
   direct: '直接',
@@ -20,28 +23,31 @@ function AgentDropCard({ agent }: { agent: Agent }) {
   return (
     <div
       ref={setNodeRef}
-      className={`rounded-xl border p-3 transition-all ${
+      className={cn(
+        'rounded-lg border p-2.5 transition-all duration-150',
         isOver
-          ? 'border-blue-500 bg-blue-50 shadow-md ring-2 ring-blue-200'
-          : 'border-slate-200 bg-white shadow-sm'
-      }`}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <h4 className="truncate text-sm font-semibold text-slate-800">{agent.name}</h4>
-        <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-          活跃
-        </span>
-      </div>
-      {agent.description && (
-        <p className="mt-1 line-clamp-1 text-xs text-slate-500">{agent.description}</p>
+          ? 'border-brand-400 bg-brand-50 shadow-md ring-2 ring-brand-200'
+          : 'border-line bg-surface hover:border-line-strong hover:bg-surface-muted/70',
       )}
-      <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-400">
-        <span>{agent.model}</span>
-        <span>{agent.tools.length} 工具</span>
+    >
+      <div className="flex items-center gap-2">
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-sky-500 to-brand-600 text-2xs font-semibold text-white">
+          {agent.name.slice(0, 1)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-medium text-ink">{agent.name}</p>
+          <p className="truncate text-2xs text-ink-faint">
+            {agent.model} · {agent.tools.length} 个工具
+          </p>
+        </div>
+        <Icon
+          name={isOver ? 'arrow-down' : 'target'}
+          className={cn('h-3.5 w-3.5 shrink-0', isOver ? 'text-brand-500' : 'text-ink-faint')}
+        />
       </div>
       {isOver && (
-        <div className="mt-2 rounded bg-blue-600 px-2 py-1 text-center text-xs font-medium text-white">
-          松开分配给此 Agent
+        <div className="mt-1.5 rounded-md bg-brand-600 py-1 text-center text-2xs font-medium text-white animate-fade-in">
+          松开即分配给此 Agent
         </div>
       )}
     </div>
@@ -57,25 +63,31 @@ function GroupDropCard({ group }: { group: Group }) {
   return (
     <div
       ref={setNodeRef}
-      className={`rounded-xl border p-3 transition-all ${
+      className={cn(
+        'rounded-lg border p-2.5 transition-all duration-150',
         isOver
-          ? 'border-violet-500 bg-violet-50 shadow-md ring-2 ring-violet-200'
-          : 'border-slate-200 bg-white shadow-sm'
-      }`}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <h4 className="truncate text-sm font-semibold text-slate-800">{group.name}</h4>
-        <span className="shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700">
-          {STRATEGY_LABELS[group.routing_strategy]}
-        </span>
-      </div>
-      {group.description && (
-        <p className="mt-1 line-clamp-1 text-xs text-slate-500">{group.description}</p>
+          ? 'border-sky-400 bg-sky-50 shadow-md ring-2 ring-sky-200'
+          : 'border-line bg-surface hover:border-line-strong hover:bg-surface-muted/70',
       )}
-      <div className="mt-1.5 text-xs text-slate-400">{group.members.length} 个成员</div>
+    >
+      <div className="flex items-center gap-2">
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-sky-50 text-sky-600 ring-1 ring-inset ring-sky-100">
+          <Icon name="users" className="h-3.5 w-3.5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-medium text-ink">{group.name}</p>
+          <p className="truncate text-2xs text-ink-faint">
+            {STRATEGY_LABELS[group.routing_strategy]} · {group.members.length} 个成员
+          </p>
+        </div>
+        <Icon
+          name={isOver ? 'arrow-down' : 'target'}
+          className={cn('h-3.5 w-3.5 shrink-0', isOver ? 'text-sky-500' : 'text-ink-faint')}
+        />
+      </div>
       {isOver && (
-        <div className="mt-2 rounded bg-violet-600 px-2 py-1 text-center text-xs font-medium text-white">
-          松开选择策略分配
+        <div className="mt-1.5 rounded-md bg-sky-600 py-1 text-center text-2xs font-medium text-white animate-fade-in">
+          松开后选择路由策略
         </div>
       )}
     </div>
@@ -89,46 +101,60 @@ interface Props {
 
 export function AssignTargets({ agents, groups }: Props) {
   return (
-    <aside className="w-72 shrink-0 space-y-4">
-      <div className="rounded-xl bg-slate-50 p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-semibold text-slate-700">拖放目标</span>
-          <span className="text-xs text-slate-400">把需求卡拖到这里</span>
+    <aside className="w-full shrink-0 xl:sticky xl:top-[72px] xl:w-[292px]">
+      <div className="rounded-xl border border-line/90 bg-surface shadow-card">
+        <div className="flex items-start gap-2.5 border-b border-line-subtle px-3.5 py-3">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-50 text-accent ring-1 ring-inset ring-brand-100">
+            <Icon name="target" className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-ink">分配目标</p>
+            <p className="mt-0.5 text-2xs leading-relaxed text-ink-faint">
+              拖到这里 → Agent 直接分配 / 组选择策略
+            </p>
+          </div>
         </div>
-        <p className="mb-3 text-xs leading-relaxed text-slate-400">
-          从「待分配」列拖拽需求卡片到 Agent（直接分配）或组（选择策略）上。
-        </p>
-      </div>
 
-      <div>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Agent（{agents.length}）
-        </h3>
-        <div className="space-y-2">
-          {agents.map((a) => (
-            <AgentDropCard key={a.id} agent={a} />
-          ))}
-          {agents.length === 0 && (
-            <div className="rounded-lg border border-dashed border-slate-200 py-4 text-center text-xs text-slate-400">
-              暂无活跃 Agent
+        <div className="max-h-[calc(100vh-260px)] space-y-3 overflow-y-auto p-3 xl:max-h-[calc(100vh-300px)]">
+          <div>
+            <div className="mb-1.5 flex items-center justify-between px-0.5">
+              <span className="text-2xs font-semibold uppercase tracking-wide text-ink-faint">
+                Agent
+              </span>
+              <Badge tone="emerald" dot>
+                {agents.length} 活跃
+              </Badge>
             </div>
-          )}
-        </div>
-      </div>
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 xl:grid-cols-1">
+              {agents.map((a) => (
+                <AgentDropCard key={a.id} agent={a} />
+              ))}
+              {agents.length === 0 && (
+                <p className="rounded-lg border border-dashed border-line py-3 text-center text-2xs text-ink-faint">
+                  暂无活跃 Agent
+                </p>
+              )}
+            </div>
+          </div>
 
-      <div>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          组（{groups.length}）
-        </h3>
-        <div className="space-y-2">
-          {groups.map((g) => (
-            <GroupDropCard key={g.id} group={g} />
-          ))}
-          {groups.length === 0 && (
-            <div className="rounded-lg border border-dashed border-slate-200 py-4 text-center text-xs text-slate-400">
-              暂无组
+          <div>
+            <div className="mb-1.5 flex items-center justify-between px-0.5">
+              <span className="text-2xs font-semibold uppercase tracking-wide text-ink-faint">
+                组
+              </span>
+              <Badge tone="sky">{groups.length} 个</Badge>
             </div>
-          )}
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 xl:grid-cols-1">
+              {groups.map((g) => (
+                <GroupDropCard key={g.id} group={g} />
+              ))}
+              {groups.length === 0 && (
+                <p className="rounded-lg border border-dashed border-line py-3 text-center text-2xs text-ink-faint">
+                  暂无 Agent 组
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </aside>
