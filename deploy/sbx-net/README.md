@@ -1,6 +1,6 @@
 # 网络规则 init 镜像 `aw-sbx-net:1`
 
-被 Worker 以**短命容器**方式调用（跑完即退，不常驻），只做网络规则的增删与连接快照。
+被 Worker 以短命容器方式调用，执行规则安装/清理命令；另有同镜像的 conntrack event watcher 覆盖用户进程生命周期。安装失败会阻止沙箱容器创建或启动。
 
 ## 为什么需要它
 
@@ -10,7 +10,7 @@ Worker 自己**不能**拿 `NET_ADMIN`。一旦 Worker 进 host 网络命名空�
 
 ```
 Worker (无特权, compose 网络)
-   │  docker run --rm --net=host --cap-add=NET_ADMIN aw-sbx-net:1 sh -c '<固定模板>'
+   │  Docker SDK argv command + --network host + --cap-add NET_ADMIN
    ▼
 init 容器 (host netns, 有 NET_ADMIN, 生命周期 = 一条命令)
    │  iptables -I FORWARD ...
@@ -34,7 +34,7 @@ iptables -A FORWARD -i aw-sbx-<exec_id> -p udp --dport 53 -j DROP
 iptables -A FORWARD -i aw-sbx-<exec_id> -p tcp --dport 53 -j DROP
 ```
 
-规则按网络名打标签（`-i aw-sbx-<exec_id>`），所以**并发执行之间天然隔离**——删规则时按网络名匹配，不会误删别人的。
+规则按执行 UUID 生成私有链名，并按 Docker bridge interface 匹配。FORWARD 同时安装 IPv4/IPv6 policy；INPUT 对该 bridge 一律 DROP，避免容器直接访问宿主机服务。清理只删除当前执行的链和 jump，不清空全局 host 规则。命令通过 argv 传递，无 shell 拼接。
 
 ### 2. 限制模式（`egress_mode='restricted'`）额外装一组
 

@@ -64,6 +64,7 @@ import requests
 from docker.errors import APIError, DockerException, ImageNotFound
 
 from app.core.config import settings
+from app.executors.egress_network import NetworkCapture, NetworkPolicyError
 
 logger = logging.getLogger(__name__)
 
@@ -289,6 +290,7 @@ class SandboxRun:
         code: str,
         timeout_s: int | None = None,
         abort_check: Callable[[], bool] | None = None,
+        egress_snapshot: dict[str, Any] | None = None,
         client: docker.DockerClient | None = None,
     ) -> None:
         if language not in _LANG_SPEC:
@@ -308,11 +310,17 @@ class SandboxRun:
             pids=settings.sbx_pids,
         )
         self._abort_check = abort_check
+        self.egress_snapshot = egress_snapshot
         self._client = client
         self._network: Any = None
+        self._egress: NetworkCapture | None = None
         self._volumes: list[Any] = []
         self._container: Any = None
         self._executed = False
+        # Filled after the process exits. These are facts for the caller to persist,
+        # not a substitute for the kernel policy decision.
+        self.egress_accesses: list[dict[str, Any]] = []
+        self.policy_denied = False
 
     # ---------------- 资源命名 ----------------
 
@@ -360,13 +368,28 @@ class SandboxRun:
         self._executed = True
 
         client = self._ensure_client()
-        self._assert_image_allowed(client)
-        self._network = self._create_network(client)
-        self._create_volumes(client)
-        container = self._create_container(client)
-        self._container = container
-        self._put_script(container)
-        return self._start_and_wait(container)
+        try:
+            self._assert_image_allowed(client)
+            self._network = self._create_network(client)
+            # Policy installation happens before container creation/start. A failed
+            # rule install is an infrastructure error, never a reason to run open.
+            self._prepare_egress(client)
+            if self._egress is None and hasattr(client.containers, "get"):
+                raise SandboxInfraError("出站网络策略未就绪，拒绝启动沙箱")
+            self._create_volumes(client)
+            container = self._create_container(client)
+            self._container = container
+            self._put_script(container)
+            if self._egress is not None:
+                self._egress.start_capture(container)
+            try:
+                return self._start_and_wait(container)
+            finally:
+                self._collect_egress()
+        except Exception:
+            # setup failures must not strand a bridge, proxy attachment, or volume
+            self.cleanup()
+            raise
 
     def iter_output_files(
         self,
@@ -502,13 +525,41 @@ class SandboxRun:
             return client.networks.create(
                 self.network_name,
                 driver="bridge",
-                # internal=False：默认放行出网（spec 修订版）。拦截靠 iptables 层，
-                # 不靠 Docker 的 internal（那会连 DNS 都断掉）。
+                # Keep the bridge externally routable only through the policy below.
+                # `internal=True` would also break the controlled DNS path.
                 internal=False,
+                enable_ipv6=True,
                 labels=self._labels(),
             )
         except (APIError, DockerException) as exc:
             raise SandboxInfraError(f"创建沙箱网络失败：{exc}") from exc
+
+    def _prepare_egress(self, client: docker.DockerClient) -> None:
+        """Attach the controlled DNS proxy and install v4/v6 kernel policy.
+
+        The lightweight unit Docker fake has no container lookup API and is an
+        explicit test injection; real Docker SDK clients always have it. Production
+        clients therefore cannot reach the fallback path.
+        """
+        if not hasattr(client.containers, "get"):
+            return
+        try:
+            self._egress = NetworkCapture.prepare(
+                client, self._network, self.execution_id, self.egress_snapshot
+            )
+        except NetworkPolicyError as exc:
+            raise SandboxInfraError(f"安装沙箱出站策略失败，拒绝启动：{exc}") from exc
+
+    def _collect_egress(self) -> None:
+        if self._egress is None:
+            return
+        try:
+            self.egress_accesses, self.policy_denied = self._egress.collect()
+        except NetworkPolicyError as exc:
+            # Recording loss must not turn a completed user process into a false
+            # success; retain a conservative denied marker for the caller.
+            logger.error("执行 %s 出站记录失败：%s", self.execution_id, exc)
+            self.policy_denied = True
 
     def _create_volumes(self, client: docker.DockerClient) -> None:
         """建两个命名卷：`/code`（脚本）与 `/workspace/output`（产物）。
@@ -530,6 +581,9 @@ class SandboxRun:
     def _container_kwargs(self) -> dict[str, Any]:
         """从配置推导容器参数。**唯一的参数来源**，不接受外部覆盖。"""
         disk = self.limits.disk_mb
+        if self._egress is None:
+            raise SandboxInfraError("出站网络策略未就绪，拒绝创建沙箱容器")
+        egress = self._egress
         return {
             "image": settings.sbx_image,
             "command": list(_LANG_SPEC[self.language][1]),
@@ -539,6 +593,7 @@ class SandboxRun:
             # 销毁统一放在 cleanup（R-01 一次性语义）
             "remove": False,
             "network": self.network_name,
+            "dns": [egress.dns_proxy_ip],
             "working_dir": WORKSPACE_DIR,
             "user": SANDBOX_UID,
             # 根文件系统只读：脚本只能写显式挂载的目录，避免篡改镜像内工具链
@@ -739,6 +794,13 @@ class SandboxRun:
             except (APIError, DockerException) as exc:
                 logger.warning("清理容器 %s 失败：%s", self.execution_id, exc)
             self._container = None
+
+        if self._egress is not None:
+            try:
+                self._egress.cleanup()
+            except Exception as exc:
+                logger.warning("清理执行 %s 出站策略失败：%s", self.execution_id, exc)
+            self._egress = None
 
         for volume in self._volumes:
             try:
