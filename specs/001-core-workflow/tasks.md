@@ -25,13 +25,13 @@
 
 **Purpose**: 项目初始化与基础工程结构
 
-- [ ] T001 创建 monorepo 目录骨架：backend/app/{api,core,models,schemas,services,orchestrator,executors,tasks}、backend/tests/{unit,integration}、backend/scripts、frontend/src/{api,components,hooks,stores,pages}、deploy、docs（mkdir -p 逐层创建并放置 .gitkeep）
-- [ ] T002 后端工程初始化：backend/pyproject.toml（FastAPI、SQLAlchemy 2.0 async、Alembic、Celery 5、Redis、LiteLLM、Pydantic v2、structlog、pytest、pytest-asyncio、pytest-cov、httpx）+ backend/pytest.ini
-- [ ] T003 [P] 前端工程初始化：frontend/package.json（React 18、TypeScript 5、Vite、TailwindCSS、dnd-kit、TanStack Query、Zustand、axios）+ frontend/vite.config.ts + frontend/tsconfig.json + frontend/tailwind.config.js + frontend/index.html
-- [ ] T004 [P] 后端代码质量工具：pyproject.toml 配置 ruff（lint）+ mypy（类型检查），backend/.ruff.toml
-- [ ] T005 [P] 前端代码质量工具：frontend/.eslintrc.cjs + frontend/.prettierrc（eslint + prettier）
-- [ ] T006 [P] 基础设施编排：deploy/docker-compose.yml（postgres:16 / redis:7 / minio）+ deploy/.env.example（DATABASE_URL/REDIS_URL/MINIO_*/JWT_SECRET/LLM_API_KEY/INVITE_CODE，不含真实密钥）+ deploy/README.md
-- [ ] T007 [P] 仓库文档：docs/README.md（项目简介、目录结构、本地启动方式）
+- [x] T001 创建 monorepo 目录骨架：backend/app/{api,core,models,schemas,services,orchestrator,executors,tasks}、backend/tests/{unit,integration}、backend/scripts、frontend/src/{api,components,hooks,stores,pages}、deploy、docs（mkdir -p 逐层创建并放置 .gitkeep）
+- [x] T002 后端工程初始化：backend/pyproject.toml（FastAPI、SQLAlchemy 2.0 async、Alembic、Celery 5、Redis、LiteLLM、Pydantic v2、structlog、pytest、pytest-asyncio、pytest-cov、httpx）+ backend/pytest.ini
+- [x] T003 [P] 前端工程初始化：frontend/package.json（React 18、TypeScript 5、Vite、TailwindCSS、dnd-kit、TanStack Query、Zustand、axios）+ frontend/vite.config.ts + frontend/tsconfig.json + frontend/tailwind.config.js + frontend/index.html
+- [x] T004 [P] 后端代码质量工具：pyproject.toml 配置 ruff（lint）+ mypy（类型检查），backend/.ruff.toml
+- [x] T005 [P] 前端代码质量工具：frontend/.eslintrc.cjs + frontend/.prettierrc（eslint + prettier）
+- [x] T006 [P] 基础设施编排：deploy/docker-compose.yml（postgres:16 / redis:7 / minio）+ deploy/.env.example（DATABASE_URL/REDIS_URL/MINIO_*/JWT_SECRET/LLM_API_KEY/INVITE_CODE，不含真实密钥）+ deploy/README.md
+- [x] T007 [P] 仓库文档：docs/README.md（项目简介、目录结构、本地启动方式）
 
 **Checkpoint**: 工程骨架可构建，lint 工具可运行
 
