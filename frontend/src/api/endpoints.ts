@@ -419,6 +419,42 @@ export interface RunExecution {
   artifacts: number
 }
 
+export interface ExecutionArtifactBrief {
+  id: string
+  filename: string
+  size_bytes: number
+}
+
+export interface ExecutionDetail {
+  id: string
+  run_id: string
+  step_seq: number
+  language: string
+  status: string
+  error_category: string | null
+  error_message: string | null
+  exit_code: number | null
+  code: string
+  code_sha256: string
+  stdout: string | null
+  stderr: string | null
+  stdout_truncated: boolean
+  stdout_full_bytes: number
+  duration_ms: number
+  cpu_ms: number | null
+  mem_peak_bytes: number | null
+  image: string
+  limits: Record<string, unknown>
+  artifacts: ExecutionArtifactBrief[]
+  created_at: string
+  finished_at: string | null
+}
+
+export async function fetchExecution(runId: string, executionId: string): Promise<ExecutionDetail> {
+  const { data } = await apiClient.get<ExecutionDetail>(`/runs/${runId}/executions/${executionId}`)
+  return data
+}
+
 export interface RunDetail {
   id: string
   request_id: string

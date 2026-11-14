@@ -499,7 +499,7 @@ export function RunDetailPage() {
       {(run.executions ?? []).length > 0 && (
         <div className="space-y-2">
           {(run.executions ?? []).map((execution) => (
-            <ExecutionCard key={execution.id} execution={execution} />
+            <ExecutionCard key={execution.id} runId={run.id} execution={execution} />
           ))}
         </div>
       )}
