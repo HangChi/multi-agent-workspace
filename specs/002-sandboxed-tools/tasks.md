@@ -87,14 +87,14 @@
 
 - [x] T022 [US1] 沙箱执行器：backend/app/executors/sandbox.py（`RunPythonExecutor` / `RunShellExecutor`，实现 ToolExecutor 协议，schema 取自 catalog）
 - [x] T023 [US1] 脚本注入方式：脚本经 `put_archive` 写入 `/workspace/main.py` 或 `/workspace/run.sh`，容器 `command` 为常量（`["python","-u","/workspace/main.py"]` / `["bash","/workspace/run.sh"]`）；`run_shell` 的命令串额外记入审计摘要（截断 4KB）。**禁止**把用户内容拼进任何命令行（R-07） （backend/app/executors/sandbox.py）
-- [ ] T024 [US1] 资源限额映射：`nano_cpus`/`mem_limit`/`pids_limit`/`read_only=True` + `tmpfs` 写盘配额/`security_opt` 基础项；`limits` 快照写入 DB （backend/app/executors/sandbox_client.py）
-- [ ] T025 [US1] 超时与取消：分段等待（1s）轮询 `abort_check`（接既有 `should_abort`）；命中即 `kill` 并置 `status=failed/error_category=cancelled`；`timeout_s` 夹取在 `[1, SBX_TIMEOUT_MAX]` 且不超过所属 Run 剩余预算 （backend/app/executors/sandbox_client.py + backend/app/executors/sandbox.py）
-- [ ] T026 [US1] 执行服务：backend/app/services/sandbox_service.py（`start_execution()` 落 running 记录 → `finish_execution()` 落终态/耗时/退出码/stdout/stderr；失败分类映射表集中在此）
-- [ ] T027 [US1] Worker 接线：backend/app/tasks/execute_run.py 把 `executors=default_executors()` 改为 `build_executors(agent.tools)`（build_executors 读 catalog + 注册沙箱执行器），并把 `should_abort` 传进执行器上下文
-- [ ] T028 [US1] 事件：backend/app/tasks/events.py 增 `sandbox_started/sandbox_output/sandbox_finished`；backend/app/api/v1/ws.py 透传（`sandbox_output` 增量 ≤4KB/条）
-- [ ] T029 [US1] 前端执行卡片：frontend/src/components/run/ExecutionCard.tsx（代码折叠默认收起、stdout/stderr 分栏、退出码/耗时/资源徽标、失败分类标签）+ frontend/src/pages/RunDetailPage.tsx 接入 + frontend/src/hooks/useRunSocket.ts 处理 3 类新事件
-- [ ] T030 [US1] 审计挂接：沙箱执行结束时写 `audit_logs(action='sandbox_exec')`（含 language/status/exit_code/duration 摘要，不含脚本全文） （backend/app/services/sandbox_service.py）
-- [ ] T031 [US1] US1 闭环集成测试 backend/tests/integration/test_sandbox_flow.py：mock LLM 发 `run_python` tool_call → fake_docker 执行 → step output 含 stdout → 运行 completed（SC-001 的时序断言用 fake 时钟）
+- [x] T024 [US1] 资源限额映射：`nano_cpus`/`mem_limit`/`pids_limit`/`read_only=True` + `tmpfs` 写盘配额/`security_opt` 基础项；`limits` 快照写入 DB （backend/app/executors/sandbox_client.py）
+- [x] T025 [US1] 超时与取消：分段等待（1s）轮询 `abort_check`（接既有 `should_abort`）；命中即 `kill` 并置 `status=failed/error_category=cancelled`；`timeout_s` 夹取在 `[1, SBX_TIMEOUT_MAX]` 且不超过所属 Run 剩余预算 （backend/app/executors/sandbox_client.py + backend/app/executors/sandbox.py）
+- [x] T026 [US1] 执行服务：backend/app/services/sandbox_service.py（`start_execution()` 落 running 记录 → `finish_execution()` 落终态/耗时/退出码/stdout/stderr；失败分类映射表集中在此）
+- [x] T027 [US1] Worker 接线：backend/app/tasks/execute_run.py 把 `executors=default_executors()` 改为 `build_executors(agent.tools)`（build_executors 读 catalog + 注册沙箱执行器），并把 `should_abort` 传进执行器上下文
+- [x] T028 [US1] 事件：backend/app/tasks/events.py 增 `sandbox_started/sandbox_output/sandbox_finished`；backend/app/api/v1/ws.py 透传（`sandbox_output` 增量 ≤4KB/条）
+- [x] T029 [US1] 前端执行卡片：frontend/src/components/run/ExecutionCard.tsx（代码折叠默认收起、stdout/stderr 分栏、退出码/耗时/资源徽标、失败分类标签）+ frontend/src/pages/RunDetailPage.tsx 接入 + frontend/src/hooks/useRunSocket.ts 处理 3 类新事件
+- [x] T030 [US1] 审计挂接：沙箱执行结束时写 `audit_logs(action='sandbox_exec')`（含 language/status/exit_code/duration 摘要，不含脚本全文） （backend/app/services/sandbox_service.py）
+- [x] T031 [US1] US1 闭环集成测试 backend/tests/integration/test_sandbox_flow.py：mock LLM 发 `run_python` tool_call → fake_docker 执行 → step output 含 stdout → 运行 completed（SC-001 的时序断言用 fake 时钟）
 
 **Checkpoint**: US1 独立可用——「Agent 能跑脚本并看到结果」
 
@@ -108,19 +108,19 @@
 
 ### Tests for User Story 2（先写，先红后绿）⚠️
 
-- [ ] T032 [P] [US2] 目录一致性测试 backend/tests/unit/test_catalog.py：5 个工具齐全；**每个工具名在运行时都能解析到一个真实执行器**（反向验证：删掉一个执行器注册，此测试必须红）；`enabled=false` 的工具不进 `enabled_tools()`
-- [ ] T033 [P] [US2] 授权注入测试 backend/tests/unit/test_tool_grant.py：勾 A → registry 只有 A；`tools=[]` → registry 为空且 loop 不产生任何 tool 调用；勾了目录里已下线工具 → 该工具被跳过且记 warning
-- [ ] T034 [P] [US2] 越权拒绝测试 backend/tests/unit/test_tool_denied.py：模型调未授权工具 → step output 为 `denied` 结构且 `message` 列出可用工具；写 `audit_logs(action='tool_denied')`；同一 run 连续越权达 `TOOL_DENY_THRESHOLD` → 该步中止（反向验证：去掉阈值判断，测试必须红）
-- [ ] T035 [P] [US2] 目录 API 集成测试 backend/tests/integration/test_tools_api.py：`GET /tools` 字段与 catalog 一致；`POST/PATCH /agents` 传非法工具名 → 400 且 `detail` 含可选清单；传已下线工具同样 400
+- [x] T032 [P] [US2] 目录一致性测试 backend/tests/unit/test_catalog.py：5 个工具齐全；**每个工具名在运行时都能解析到一个真实执行器**（反向验证：删掉一个执行器注册，此测试必须红）；`enabled=false` 的工具不进 `enabled_tools()`
+- [x] T033 [P] [US2] 授权注入测试 backend/tests/unit/test_tool_grant.py：勾 A → registry 只有 A；`tools=[]` → registry 为空且 loop 不产生任何 tool 调用；勾了目录里已下线工具 → 该工具被跳过且记 warning
+- [x] T034 [P] [US2] 越权拒绝测试 backend/tests/unit/test_tool_denied.py：模型调未授权工具 → step output 为 `denied` 结构且 `message` 列出可用工具；写 `audit_logs(action='tool_denied')`；同一 run 连续越权达 `TOOL_DENY_THRESHOLD` → 该步中止（反向验证：去掉阈值判断，测试必须红）
+- [x] T035 [P] [US2] 目录 API 集成测试 backend/tests/integration/test_tools_api.py：`GET /tools` 字段与 catalog 一致；`POST/PATCH /agents` 传非法工具名 → 400 且 `detail` 含可选清单；传已下线工具同样 400
 
 ### Implementation for User Story 2
 
-- [ ] T036 [US2] 目录端点：backend/app/api/v1/tools.py（`GET /tools`，登录可读，只返回启用项）+ backend/app/main.py 注册路由
-- [ ] T037 [US2] Agent 校验改造：backend/app/schemas/agent.py 的 `ALLOWED_TOOLS` 硬编码删除，改读 catalog 的启用集合；错误信息带可选清单
-- [ ] T038 [US2] 运行时注入：backend/app/orchestrator/runner.py 的 `self.executors` 改为由 `build_executors(agent.tools)` 提供；`executor is None` 分支改为「未授权」语义（不再叫「未知工具」），生成 `denied` 结果并推 `tool_denied` 事件
-- [ ] T039 [US2] 越权审计：`tool_denied` 的 `write_audit` 挂接（含 tool_name、run、agent、可用工具列表摘要） （backend/app/orchestrator/runner.py）
-- [ ] T040 [US2] 前端工具来源：frontend/src/components/agent/AgentForm.tsx 改从 `GET /tools` 渲染；删除 frontend/src/components/agent/constants.ts 的硬编码清单（`TOOL_HINTS` 改用 `display_name`/`description`）；空集提示文案与后端语义对齐
-- [ ] T041 [US2] 迁移验证：backend/tests/integration/test_tool_migration.py 断言迁移后无旧名残留、可映射项已改名、历史 `steps.tool_name` 未变（FR-005）
+- [x] T036 [US2] 目录端点：backend/app/api/v1/tools.py（`GET /tools`，登录可读，只返回启用项）+ backend/app/main.py 注册路由
+- [x] T037 [US2] Agent 校验改造：backend/app/schemas/agent.py 的 `ALLOWED_TOOLS` 硬编码删除，改读 catalog 的启用集合；错误信息带可选清单
+- [x] T038 [US2] 运行时注入：backend/app/orchestrator/runner.py 的 `self.executors` 改为由 `build_executors(agent.tools)` 提供；`executor is None` 分支改为「未授权」语义（不再叫「未知工具」），生成 `denied` 结果并推 `tool_denied` 事件
+- [x] T039 [US2] 越权审计：`tool_denied` 的 `write_audit` 挂接（含 tool_name、run、agent、可用工具列表摘要） （backend/app/orchestrator/runner.py）
+- [x] T040 [US2] 前端工具来源：frontend/src/components/agent/AgentForm.tsx 改从 `GET /tools` 渲染；删除 frontend/src/components/agent/constants.ts 的硬编码清单（`TOOL_HINTS` 改用 `display_name`/`description`）；空集提示文案与后端语义对齐
+- [x] T041 [US2] 迁移验证：backend/tests/integration/test_tool_migration.py 断言迁移后无旧名残留、可映射项已改名、历史 `steps.tool_name` 未变（FR-005）
 
 **Checkpoint**: US1+US2 = 「能力有了，且按 Agent 粒度开关」——本轮缺陷修复完成
 
@@ -134,15 +134,15 @@
 
 ### Tests for User Story 3（先写，先红后绿）⚠️
 
-- [ ] T042 [P] [US3] 回收与上限单元测试 backend/tests/unit/test_artifact_collect.py（fake_docker 的 tar 流）：只收 `output/` 内文件；60 个文件 → 只留 50 且标记截断；单文件 30MB → 拒绝并提示；总量超 50MB → 截断；**同名文件不覆盖**（追加序号）；sha256 与内容一致
-- [ ] T043 [P] [US3] 制品归属集成测试 backend/tests/integration/test_artifact_access.py：owner 可下载（302）；他人 403；制品列表出现在 `GET /runs/{id}` 且含 `sha256`
+- [x] T042 [P] [US3] 回收与上限单元测试 backend/tests/unit/test_artifact_collect.py（fake_docker 的 tar 流）：只收 `output/` 内文件；60 个文件 → 只留 50 且标记截断；单文件 30MB → 拒绝并提示；总量超 50MB → 截断；**同名文件不覆盖**（追加序号）；sha256 与内容一致
+- [x] T043 [P] [US3] 制品归属集成测试 backend/tests/integration/test_artifact_access.py：owner 可下载（302）；他人 403；制品列表出现在 `GET /runs/{id}` 且含 `sha256`
 
 ### Implementation for User Story 3
 
-- [ ] T044 [US3] 制品回收：backend/app/services/sandbox_service.py 接 `get_archive('/workspace/output')` 的流式 tar 解析（边解边判上限），逐文件走 `artifact_service.put_bytes`
-- [ ] T045 [US3] 制品种子与命名：`artifacts` 落库（run_id/step_id/filename/size/mime/sha256/object_key），同名冲突追加 `-2`/`-3`；单次执行超限时写 `audit_logs(action='artifact_truncated')` （backend/app/services/sandbox_service.py）
-- [ ] T046 [US3] 前端制品区：frontend/src/components/run/ExecutionCard.tsx 内展示产物列表（文件名/大小/下载），复用既有下载链
-- [ ] T047 [US3] 二进制与编码兜底：非文本产物不做编码转换、mime 按扩展名推断，未知类型 `application/octet-stream` （backend/app/services/sandbox_service.py）
+- [x] T044 [US3] 制品回收：backend/app/services/sandbox_service.py 接 `get_archive('/workspace/output')` 的流式 tar 解析（边解边判上限），逐文件走 `artifact_service.put_bytes`
+- [x] T045 [US3] 制品种子与命名：`artifacts` 落库（run_id/step_id/filename/size/mime/sha256/object_key），同名冲突追加 `-2`/`-3`；单次执行超限时写 `audit_logs(action='artifact_truncated')` （backend/app/services/sandbox_service.py）
+- [x] T046 [US3] 前端制品区：frontend/src/components/run/ExecutionCard.tsx 内展示产物列表（文件名/大小/下载），复用既有下载链
+- [x] T047 [US3] 二进制与编码兜底：非文本产物不做编码转换、mime 按扩展名推断，未知类型 `application/octet-stream` （backend/app/services/sandbox_service.py）
 
 **Checkpoint**: 脚本能交付真实工作物（csv/图/报告）
 
@@ -156,18 +156,18 @@
 
 ### Tests for User Story 4（先写，先红后绿）⚠️
 
-- [ ] T048 [P] [US4] 指标落库测试 backend/tests/unit/test_execution_metrics.py：`duration_ms/cpu_ms/mem_peak_bytes/exit_code/error_category` 五类失败均有值；cgroup 读不到时字段为 NULL 而非报错
-- [ ] T049 [P] [US4] 并发配额测试 backend/tests/unit/test_sandbox_quota.py（真实 Redis）：信号量满 → `retry(countdown)` 且最多 3 次；3 次后 `status=failed/error_category=resource` 且 `error_message` 含「沙箱繁忙」；信号量在异常路径必须释放（反向验证：删掉 finally 释放，测试必须红）
-- [ ] T050 [P] [US4] 详情与统计集成测试 backend/tests/integration/test_execution_detail.py：`GET /runs/{id}/executions/{eid}` 字段完整；`GET /runs/{id}` 的 `executions` 摘要不含 code/stdout（体积约束）；越权 403
+- [x] T048 [P] [US4] 指标落库测试 backend/tests/unit/test_execution_metrics.py：`duration_ms/cpu_ms/mem_peak_bytes/exit_code/error_category` 五类失败均有值；cgroup 读不到时字段为 NULL 而非报错
+- [x] T049 [P] [US4] 并发配额测试 backend/tests/unit/test_sandbox_quota.py（真实 Redis）：信号量满 → `retry(countdown)` 且最多 3 次；3 次后 `status=failed/error_category=resource` 且 `error_message` 含「沙箱繁忙」；信号量在异常路径必须释放（反向验证：删掉 finally 释放，测试必须红）
+- [x] T050 [P] [US4] 详情与统计集成测试 backend/tests/integration/test_execution_detail.py：`GET /runs/{id}/executions/{eid}` 字段完整；`GET /runs/{id}` 的 `executions` 摘要不含 code/stdout（体积约束）；越权 403
 
 ### Implementation for User Story 4
 
-- [ ] T051 [US4] 资源峰值采集：从容器 `stats(stream=False)` 取 `memory_stats.peak`/`cpu_stats.cpu_usage.total_usage`，在 `kill` 前采样一次；异常吞掉并置 NULL （backend/app/executors/sandbox_client.py）
-- [ ] T052 [US4] 失败分类与文案：backend/app/services/sandbox_service.py 增 `ERROR_MESSAGES` 映射（timeout/oom/pids/disk/policy/infra/exit_code/cancelled 各一条中文可读原因，含「怎么办」的提示）
-- [ ] T053 [US4] 并发信号量：backend/app/services/sandbox_service.py 用 Redis `INCR/DECR` + TTL 自愈（防进程崩溃不释放）实现计数；Celery 侧 `self.retry(countdown=backoff)` 退避 5/15/25s
-- [ ] T054 [US4] 执行详情端点：backend/app/api/v1/runs.py 增 `GET /runs/{id}/executions/{eid}`（含 `artifacts`），`GET /runs/{id}` 增 `executions` 摘要（不含大字段）
-- [ ] T055 [US4] 统计扩展：backend/app/api/v1/stats.py 增 `sandbox_runs_today` / `sandbox_minutes_today`（复用 7 天窗口口径）
-- [ ] T056 [US4] 前端详情：ExecutionCard 展示资源峰值与失败分类徽标；「沙箱繁忙」用既有 Toast/Badge 呈现 （frontend/src/components/run/ExecutionCard.tsx）
+- [x] T051 [US4] 资源峰值采集：从容器 `stats(stream=False)` 取 `memory_stats.peak`/`cpu_stats.cpu_usage.total_usage`，在 `kill` 前采样一次；异常吞掉并置 NULL （backend/app/executors/sandbox_client.py）
+- [x] T052 [US4] 失败分类与文案：backend/app/services/sandbox_service.py 增 `ERROR_MESSAGES` 映射（timeout/oom/pids/disk/policy/infra/exit_code/cancelled 各一条中文可读原因，含「怎么办」的提示）
+- [x] T053 [US4] 并发信号量：backend/app/services/sandbox_service.py 用 Redis 租约槽位 + TTL 自愈（防进程崩溃不释放）实现计数；执行器侧退避 5/15/25s，最多 4 次尝试（与原 Celery retry 语义等价）
+- [x] T054 [US4] 执行详情端点：backend/app/api/v1/runs.py 增 `GET /runs/{id}/executions/{eid}`（含 `artifacts`），`GET /runs/{id}` 增 `executions` 摘要（不含大字段）
+- [x] T055 [US4] 统计扩展：backend/app/api/v1/stats.py 增 `sandbox_runs_today` / `sandbox_minutes_today`（复用 7 天窗口口径）
+- [x] T056 [US4] 前端详情：ExecutionCard 展示资源峰值与失败分类徽标；「沙箱繁忙」用既有 Toast/Badge 呈现 （frontend/src/components/run/ExecutionCard.tsx）
 
 **Checkpoint**: 出问题能定位到「哪次执行、什么原因」，并发不拖垮全站
 
@@ -181,20 +181,20 @@
 
 ### Tests for User Story 5（先写，先红后绿）⚠️
 
-- [ ] T057 [P] [US5] 策略求值单元测试 backend/tests/unit/test_egress_eval.py：内置黑名单命中→deny；全局 deny 优先于 agent allow（同一目标同时命中时）；`restricted` 无规则→全 deny；`default` 无规则→allow；cidr/域名通配/端口区间各自命中；`ip-direct` 未命中任何规则→allow 但记 `ip-direct`
-- [ ] T058 [P] [US5] 记录归并单元测试 backend/tests/unit/test_egress_record.py：DNS 查询表 + conntrack 快照 → 归并出 `target_domain`；同 IP 多域名按时间窗取最近；反查失败标 `ip-direct`；批量写入条数与快照条数一致
-- [ ] T059 [P] [US5] 出站 API 集成测试 backend/tests/integration/test_egress_api.py：agent rules CRUD（owner/admin、重复 409、被黑名单覆盖 400）；admin 黑名单 CRUD（内置项删除 400、成员调用 403）；`GET /admin/egress-accesses` 筛选与 `summary` 计数正确
+- [x] T057 [P] [US5] 策略求值单元测试 backend/tests/unit/test_egress_eval.py：内置黑名单命中→deny；全局 deny 优先于 agent allow（同一目标同时命中时）；`restricted` 无规则→全 deny；`default` 无规则→allow；cidr/域名通配/端口区间各自命中；`ip-direct` 未命中任何规则→allow 但记 `ip-direct`
+- [x] T058 [US5] 记录归并/连接事实单元测试 backend/tests/unit/test_egress_record.py、backend/tests/unit/test_egress_network.py：DNS 查询表 + conntrack 事件 → 归并出 `target_domain`；同 IP 多域名按时间窗取最近；反查失败标 `ip-direct`；批量写入条数与快照条数一致
+- [x] T059 [P] [US5] 出站 API 集成测试 backend/tests/integration/test_egress_api.py：agent rules CRUD（owner/admin、重复 409、被黑名单覆盖 400）；admin 黑名单 CRUD（内置项删除 400、成员调用 403）；`GET /admin/egress-accesses` 筛选与 `summary` 计数正确
 
 ### Implementation for User Story 5
 
-- [ ] T060 [US5] 规则编排：backend/app/executors/egress.py 增 `apply_rules(network_name, rules)`（调用 init 容器执行 iptables 插入/清理，按网络名打标签；`dump_connections(container_ip)` 调 `conntrack -L` 并解析）
-- [ ] T061 [US5] DNS 接线：`sandbox_client.py` 给容器传 `dns=[EGRESS_DNS_PROXY]`；iptables 规则里 53 只放行到代理 IP；执行结束从 dns-proxy 拉该执行时间窗的查询记录（stdout 解析或代理侧落 Redis list） （backend/app/executors/sandbox_client.py）
-- [ ] T062 [US5] 出站服务：backend/app/services/egress_service.py（规则 CRUD + `snapshot_for_execution()` 求值快照 + `record_accesses()` 批量写入 + `builtin` 项保护）
-- [ ] T063 [US5] Agent 出网字段：`agents.egress_mode` 端点接线（执行开始时快照 mode 与 agent 规则，执行中改配置不影响进行中的执行） （backend/app/api/v1/agents.py）
-- [ ] T064 [US5] 管理端点：backend/app/api/v1/admin.py 增黑名单 CRUD 与 `GET /admin/egress-accesses`（含 `summary.ip_direct`）
-- [ ] T065 [US5] Agent 出站端点：backend/app/api/v1/agent_egress.py（GET/POST/DELETE `/agents/{id}/egress-rules`，校验被黑名单覆盖时 400）
-- [ ] T066 [US5] 事件与审计：WS `egress_denied`；`audit_logs(action='egress_denied')`（含 target/port/rule） （backend/app/tasks/events.py + backend/app/services/egress_service.py）
-- [ ] T067 [US5] 前端出网配置：frontend/src/components/agent/EgressRules.tsx（模式切换 + 域名清单编辑）+ AgentForm 接入；AdminPage 增黑名单维护与访问记录两张表（含 `ip-direct` 高亮）
+- [x] T060 [US5] 规则编排：backend/app/executors/egress_network.py（替代原计划 egress.py 的 init 容器编排；argv-only iptables/ip6tables 链安装/清理、conntrack 采集与解析）
+- [x] T061 [US5] DNS 接线：`sandbox_client.py` 给容器传受控 DNS 代理；iptables 规则里 53 只放行到代理 IP；执行结束从 dns-proxy 拉该执行时间窗的查询记录并与 conntrack 归并 （backend/app/executors/sandbox_client.py）
+- [x] T062 [US5] 出站服务：backend/app/services/egress_service.py（规则 CRUD + `snapshot_for_execution()` 求值快照 + `record_accesses()` 批量写入 + `builtin` 项保护）
+- [x] T063 [US5] Agent 出网字段：`agents.egress_mode` 端点接线（每次沙箱执行开始前冻结 mode 与规则快照） （backend/app/api/v1/agents.py）
+- [x] T064 [US5] 管理端点：backend/app/api/v1/admin_egress.py 增黑名单 CRUD 与 `GET /admin/egress-accesses`（含 `summary.ip_direct`）
+- [x] T065 [US5] Agent 出站端点：backend/app/api/v1/agent_egress.py（GET/POST/DELETE `/agents/{id}/egress-rules`，校验被黑名单覆盖时 400）
+- [x] T066 [US5] 事件与审计：WS `egress_denied`；`audit_logs(action='egress_denied')`（含 target/port/rule） （backend/app/tasks/events.py + backend/app/tasks/execute_run.py）
+- [x] T067 [US5] 前端出网配置：frontend/src/components/agent/EgressRules.tsx（模式切换 + 域名清单编辑）+ AgentForm 接入；AdminPage 增黑名单维护与访问记录两张表（含 `ip-direct` 高亮）
 
 **Checkpoint**: 装包调接口可用，同时有黑名单底线与完整留痕
 
@@ -207,11 +207,11 @@
 - [ ] T068 [P] 真实栈断言（沙箱）：deploy/verify/s3_sandbox_scenarios.py（S1/S2/S3/S4）
 - [ ] T069 [P] 真实栈断言（出站）：deploy/verify/s5_egress_scenarios.py（S5：默认放行/元数据拦截/直连 IP/内网拦截/限制模式/内置项保护）
 - [ ] T070 [P] 越权矩阵自动化：deploy/verify/sbx_escape_matrix.py（quickstart 的 10 项，逐项断言「失败且不可见」，输出表格化结果）
-- [ ] T071 数据保留任务：backend/app/tasks/maintenance.py 增 `purge_sandbox_payloads`（90 天后清空 code/stdout/stderr，保留元数据与指纹）+ beat 每日一次
-- [ ] T072 [P] 前端单测：frontend/src/components/agent/__tests__/EgressRules.test.tsx、frontend/src/components/run/__tests__/ExecutionCard.test.tsx、tools 目录渲染用例（vitest）
-- [ ] T073 [P] 运维文档：deploy/README.md 增「沙箱设施」章节（镜像重建、dns-proxy 排障、socket 风险声明、**已知缺口：不做 TLS 解密、CDN 共享 IP 可能 ip-direct**）
-- [ ] T074 契约同步复核：逐条比对 contracts/api.md 与实现（端点/字段/事件/错误码），有偏差则改上游文档并写进提交信息 （specs/002-sandboxed-tools/contracts/api.md）
-- [ ] T075 全量质量门禁：`ruff check` + `mypy` + `pytest`（含集成）+ `eslint` + `tsc` + `vitest` + `vite build` 全绿；CI 增沙箱镜像构建步骤 （backend/pyproject.toml + frontend/package.json）
+- [x] T071 数据保留任务：backend/app/tasks/maintenance.py 增 `purge_sandbox_payloads`（90 天后清空 code/stdout/stderr，保留元数据与指纹）+ beat 每日一次
+- [x] T072 [P] 前端单测：frontend/src/components/agent/__tests__/EgressRules.test.tsx、frontend/src/components/run/__tests__/ExecutionCard.test.tsx、tools 目录渲染用例（vitest）
+- [x] T073 [P] 运维文档：deploy/README.md 增「沙箱设施」章节（镜像重建、dns-proxy 排障、socket 风险声明、**已知缺口：不做 TLS 解密、CDN 共享 IP 可能 ip-direct**）
+- [x] T074 契约同步复核：已按实际实现同步路由 DTO、事件与安全偏差（见 contracts/api.md、tasks.md 实现偏差记录）
+- [x] T075 全量质量门禁：后端 `ruff check app`、`mypy app`、`pytest` 514 项通过；前端 `eslint`（2 个既有 Fast Refresh warning、0 errors）、`tsc`、`vitest` 32 项、`vite build` 全部通过；CI 已加入沙箱镜像构建步骤 （backend/pyproject.toml + frontend/package.json）
 - [ ] T076 quickstart 验证：在 Linux 宿主真实栈执行 S1~S6 + 越权矩阵，如实更新 quickstart.md 的 SC 对照与验证记录表（通过才 ✅，未过保持 ⏳） （specs/002-sandboxed-tools/quickstart.md）
 
 **Checkpoint**: P2「跑脚本」验收口径达成，可独立上线
