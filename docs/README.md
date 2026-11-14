@@ -1,5 +1,7 @@
 # Agent 工作台系统
 
+[![CI](https://github.com/HangChi/multi-agent-workspace/actions/workflows/ci.yml/badge.svg)](https://github.com/HangChi/multi-agent-workspace/actions/workflows/ci.yml)
+
 「拖拽式任务分发 + 多角色 Agent 执行」的工作台系统：用户创建带角色/提示词/工具集的 Agent，
 自由组合成 Agent 组，把需求拖到 Agent/组上即触发编排执行，全过程实时可见。
 
@@ -51,6 +53,10 @@ cd frontend && npm install && npm run dev
 
 ## 测试与质量门禁
 
+CI（`.github/workflows/ci.yml`）在每次 push/PR 跑：后端 ruff + mypy + pytest，
+前端 eslint + tsc + vitest + build（并断言 CSS 产物 >5KB，防 Tailwind 配置丢失）。
+本地等价命令：
+
 ```bash
 # 后端（测试库需先建：createdb agent_workbench_test）
 cd backend
@@ -58,7 +64,7 @@ DATABASE_URL="postgresql+asyncpg://aw:<密码>@127.0.0.1:5432/agent_workbench_te
 python -m ruff check app tests && python -m mypy app
 
 # 前端
-cd frontend && npm run lint && npx tsc --noEmit && npm test
+cd frontend && npm run lint && npm run typecheck && npm test
 ```
 
 > pytest 必须显式传 `DATABASE_URL` 指向 `_test` 库，否则 conftest 会回落到代码内默认口令。

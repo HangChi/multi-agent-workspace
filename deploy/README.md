@@ -53,6 +53,29 @@ docker compose -p aw -f deploy/docker-compose.yml --profile mock up -d --build
 `FRONTEND_PORT` 关掉、由 Caddy 直接反代 `api:8000` 与 `frontend:80`。
 默认部署走 frontend 内置 nginx，**不需要** Caddy。
 
+## 日志与排查
+
+生产（`APP_ENV=production`）输出结构化 JSON，每行一条：
+
+```json
+{"status":401,"duration_ms":11.8,"client_ip":"203.0.113.7","event":"request",
+ "method":"GET","path":"/api/v1/agents","request_id":"a1b2c3d4e5f6a7b8",
+ "level":"info","timestamp":"2026-11-14T10:54:22.177625Z"}
+```
+
+- **request_id**：每个请求唯一，同一请求内所有日志都带它。客户端可传
+  `X-Request-ID` 复用（响应头也会回传），前端报错时带上即可精确定位。
+- **脱敏**：`password` / `token` / `authorization` / `secret` / `api-key`
+  等字段自动替换为 `***`（含嵌套结构）；query string 不落日志（WS 握手 token 在 query）。
+- **降噪**：`/api/v1/health*` 与静态资源不写访问日志。
+- uvicorn 自带 access log 已关闭（`--no-access-log`），避免与上面重复。
+
+按请求聚合日志：
+
+```bash
+docker logs aw-api 2>&1 | grep '"request_id": "a1b2c3d4e5f6a7b8"'
+```
+
 ## 数据备份
 
 只用命名卷，目录在 `/var/lib/docker/volumes/aw_{pgdata,miniodata,redisdata}`。
