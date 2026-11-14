@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     # 配额
     monthly_quota_cents: int = 1_000_000  # 用户月配额（分）
 
+    # 僵尸 Run 回收阈值（Beat 周期任务）
+    # queued 超过该分钟数仍未被执行 → 判定 Worker 未消费（消息丢失/Worker 未起）
+    stale_queued_minutes: int = 30
+    # running 超过该分钟数仍无进展 → 判定 Worker 执行中被杀（默认 max_run_seconds 1800，留余量）
+    stale_running_minutes: int = 90
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

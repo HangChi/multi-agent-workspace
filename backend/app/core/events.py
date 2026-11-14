@@ -47,12 +47,24 @@ async def redis_ping() -> bool:
 EventHandler = Callable[[dict[str, Any]], Awaitable[None]]
 
 
-async def subscribe_run_events(run_id: str, handler: EventHandler) -> None:
-    """订阅 run:{run_id} 频道，逐条回调 handler（长连接，由调用方控制生命周期）。"""
+async def subscribe_run_events(
+    run_id: str,
+    handler: EventHandler,
+    *,
+    on_ready: Callable[[], Awaitable[None]] | None = None,
+) -> None:
+    """订阅 run:{run_id} 频道，逐条回调 handler（长连接，由调用方控制生命周期）。
+
+    Args:
+        on_ready: 订阅真正生效后的回调。调用方据此告知客户端「可以信任事件流」，
+            避免订阅就绪前发布的事件丢失（WS 握手是异步的）。
+    """
     client = _redis_client()
     pubsub = client.pubsub()
     try:
         await pubsub.subscribe(channel_for_run(run_id))
+        if on_ready is not None:
+            await on_ready()
         async for message in pubsub.listen():
             if message["type"] != "message":
                 continue

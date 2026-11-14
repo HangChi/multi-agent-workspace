@@ -95,7 +95,8 @@ def test_ws_handshake_succeeds_for_owner():
     with client.websocket_connect(
         f"{WS_URL}/{run_id}", params={"token": _token(user_id)}
     ) as ws:
-        assert ws is not None
+        # 订阅就绪后才发 ready：此后发布的事件不会丢
+        assert ws.receive_json() == {"type": "ready"}
 
 
 # ---------- 归属校验（IDOR 防护）----------
@@ -134,7 +135,7 @@ def test_ws_admin_can_subscribe_any_run():
     with client.websocket_connect(
         f"{WS_URL}/{run_id}", params={"token": _token(admin_id, role="admin")}
     ) as ws:
-        assert ws is not None
+        assert ws.receive_json() == {"type": "ready"}
 
 
 # ---------- 事件按序到达 ----------
@@ -154,6 +155,7 @@ def test_ws_events_arrive_in_order():
     with client.websocket_connect(
         f"{WS_URL}/{run_id}", params={"token": _token(user_id)}
     ) as ws:
+        assert ws.receive_json() == {"type": "ready"}
         events = [
             {"type": "status_change", "status": "running", "ts": "t1"},
             {"type": "step_new", "step": {"seq": 1, "kind": "llm", "status": "running"}},
@@ -192,6 +194,7 @@ def test_ws_events_isolated_per_run():
     ) as ws_a, client.websocket_connect(
         f"{WS_URL}/{run_b}", params={"token": token}
     ):
+        assert ws_a.receive_json() == {"type": "ready"}
         asyncio.run(publish_run_event(run_a, {"type": "status_change", "status": "running"}))
         # run A 收到
         assert ws_a.receive_json()["type"] == "status_change"
@@ -216,6 +219,7 @@ def test_ws_ping_pong():
     with client.websocket_connect(
         f"{WS_URL}/{run_id}", params={"token": _token(user_id)}
     ) as ws:
+        assert ws.receive_json() == {"type": "ready"}
         ws.send_json({"type": "ping"})
         resp = ws.receive_json()
         assert resp == {"type": "pong"}

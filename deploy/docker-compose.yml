@@ -246,7 +246,10 @@ services:
     container_name: aw-beat
     restart: unless-stopped
     command: celery -A app.tasks.celery_app:celery_app beat --loglevel=${LOG_LEVEL:-info}
-    environment: *app_env
+    # beat 也会执行 DB 任务（僵尸 Run 回收），同样需要 NullPool（与 worker 同理）
+    environment:
+      <<: *app_env
+      DB_POOL: 'null'
     logging: *default-logging
     deploy:
       resources:

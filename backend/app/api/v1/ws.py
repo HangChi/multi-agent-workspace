@@ -93,20 +93,36 @@ async def ws_run_events(websocket: WebSocket, run_id: str) -> None:
 
     await websocket.accept()
 
-    async def forward(payload: dict[str, Any]) -> None:
-        await websocket.send_json(payload)
+    # 发送串行化：转发事件与 ready/pong 可能并发（同一 WebSocket 不能并发 send）
+    send_lock = asyncio.Lock()
+
+    async def send(payload: dict[str, Any]) -> None:
+        async with send_lock:
+            await websocket.send_json(payload)
+
+    ready = asyncio.Event()
 
     async def _subscribe() -> None:
         """在独立任务中订阅（Redis pubsub listen 是阻塞式长循环）。"""
-        await subscribe_run_events(run_id, forward)
+        await subscribe_run_events(run_id, send, on_ready=_mark_ready)
+
+    async def _mark_ready() -> None:
+        ready.set()
 
     sub_task = asyncio.create_task(_subscribe())
+
+    # 订阅真正生效后才通知客户端：此前的发布不会丢，事件流可信
+    try:
+        await asyncio.wait_for(ready.wait(), timeout=5)
+        await send({"type": "ready"})
+    except TimeoutError:  # 3.11+ asyncio.TimeoutError 即内置 TimeoutError
+        logger.warning("ws_subscribe_slow", run_id=run_id[:8])
 
     try:
         while True:
             message = await websocket.receive_json()
             if message.get("type") == "ping":
-                await websocket.send_json({"type": "pong"})
+                await send({"type": "pong"})
             # 其他客户端消息暂不处理（预留：用户回复等）
     except WebSocketDisconnect:
         pass
