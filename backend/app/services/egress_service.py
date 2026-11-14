@@ -169,6 +169,8 @@ async def create_global_rule(
 
 
 async def delete_global_rule(db: AsyncSession, *, rule_id: str) -> None:
+    if rule_id.startswith("builtin:"):
+        raise AppError("INVALID_INPUT", "内置黑名单项不可删除")
     rule = await db.get(EgressRule, rule_id)
     if rule is None or rule.scope != "global":
         raise AppError("NOT_FOUND", "全局黑名单规则不存在")
