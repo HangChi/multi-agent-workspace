@@ -28,6 +28,9 @@ const STATUS_STYLE: Record<api.RunStatus, string> = {
   timeout: 'bg-orange-100 text-orange-700',
 }
 
+/** 终态：WS 连接已主动关闭，展示「已结束」而非「未连接」（后者看起来像故障） */
+const TERMINAL_STATUSES = new Set<api.RunStatus>(['completed', 'failed', 'cancelled', 'timeout'])
+
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>()
   const [run, setRun] = useState<api.RunDetail | null>(null)
@@ -241,6 +244,8 @@ export function RunDetailPage() {
             <dd className="text-slate-700">
               {connected ? (
                 <span className="text-emerald-600">已连接</span>
+              ) : TERMINAL_STATUSES.has(run.status) ? (
+                <span className="text-slate-400">已结束</span>
               ) : (
                 <span className="text-slate-400">未连接</span>
               )}
