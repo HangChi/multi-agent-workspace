@@ -11,6 +11,8 @@ from sqlalchemy import text
 from app.api import errors
 from app.api.middleware import RequestContextMiddleware
 from app.api.v1.admin import router as admin_router
+from app.api.v1.admin_egress import router as admin_egress_router
+from app.api.v1.agent_egress import router as agent_egress_router
 from app.api.v1.agents import router as agents_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.groups import router as groups_router
@@ -53,12 +55,14 @@ def create_app() -> FastAPI:
     api_v1 = APIRouter(prefix="/api/v1")
     api_v1.include_router(auth_router)
     api_v1.include_router(agents_router)
+    api_v1.include_router(agent_egress_router)
     api_v1.include_router(groups_router)
     api_v1.include_router(requests_router)
     api_v1.include_router(runs_router)
     api_v1.include_router(stats_router)
     api_v1.include_router(tools_router)
     api_v1.include_router(admin_router)
+    api_v1.include_router(admin_egress_router)
     app.include_router(api_v1)
     app.include_router(ws_router)
 
