@@ -147,3 +147,59 @@ async def test_me_success(client, db_session, make_user, make_headers):
 async def test_me_unauthorized(client):
     resp = await client.get(ME_URL)
     assert resp.status_code == 401
+
+
+# ---------- refresh 轮换（一次性消费）----------
+
+
+async def test_refresh_token_is_single_use(client, make_user):
+    """refresh token 用后立即失效：同一 token 第二次刷新 → 401。"""
+    _, password = await make_user(email="rotate@test.com")
+    login = await client.post(
+        LOGIN_URL, json={"email": "rotate@test.com", "password": password}
+    )
+    rt = login.json()["tokens"]["refresh"]
+
+    first = await client.post(REFRESH_URL, json={"refresh_token": rt})
+    assert first.status_code == 200
+
+    replay = await client.post(REFRESH_URL, json={"refresh_token": rt})
+    assert replay.status_code == 401, "旧 refresh token 应已被消费而失效"
+
+    # 轮换出来的新 token 仍可正常刷新
+    new_rt = first.json()["tokens"]["refresh"]
+    assert new_rt != rt
+    third = await client.post(REFRESH_URL, json={"refresh_token": new_rt})
+    assert third.status_code == 200
+
+
+async def test_refresh_token_without_jti_rejected(client, make_user):
+    """无 jti 的 token（旧格式/伪造）→ 401，不能绕过轮换校验。"""
+    from jose import jwt
+
+    from app.core.config import settings
+
+    user, _ = await make_user(email="nojit@test.com")
+    legacy = jwt.encode(
+        {
+            "user_id": user.id,
+            "role": user.role,
+            "type": "refresh",
+            "exp": 9999999999,
+        },
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+    resp = await client.post(REFRESH_URL, json={"refresh_token": legacy})
+    assert resp.status_code == 401
+
+
+async def test_access_token_not_usable_as_refresh(client, make_user):
+    """access token 冒充 refresh → 401（类型校验）。"""
+    _, password = await make_user(email="typecast@test.com")
+    login = await client.post(
+        LOGIN_URL, json={"email": "typecast@test.com", "password": password}
+    )
+    access = login.json()["tokens"]["access"]
+    resp = await client.post(REFRESH_URL, json={"refresh_token": access})
+    assert resp.status_code == 401

@@ -7,14 +7,35 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.core.config import settings
 from app.core.security import (
     create_token_pair,
     decode_token,
     hash_password,
     verify_password,
 )
+from app.core.token_store import consume_refresh_token, register_refresh_token
 from app.models.invite_code import InviteCode
 from app.models.user import User
+
+_REFRESH_TTL_SECONDS = settings.jwt_refresh_ttl_days * 24 * 3600
+
+
+def _refresh_jti(token: str) -> str | None:
+    """从 refresh token 解出 jti（签发后立即登记用）。"""
+    try:
+        return decode_token(token).get("jti")
+    except JWTError:  # 刚签发的 token 不应解码失败
+        return None
+
+
+async def _issue_tokens(user: User) -> dict[str, str]:
+    """签发 token 对，并登记 refresh jti（轮换用）。"""
+    tokens = create_token_pair(user.id, user.role)
+    jti = _refresh_jti(tokens["refresh"])
+    if jti:
+        await register_refresh_token(jti, user.id, _REFRESH_TTL_SECONDS)
+    return tokens
 
 
 async def register(
@@ -51,7 +72,7 @@ async def register(
     await db.commit()
     await db.refresh(user)
 
-    tokens = create_token_pair(user.id, user.role)
+    tokens = await _issue_tokens(user)
     return user, tokens
 
 
@@ -62,20 +83,32 @@ async def login(db: AsyncSession, *, email: str, password: str) -> tuple[User, d
         raise AppError("FORBIDDEN", "邮箱或密码错误")
     if user.status != "active":
         raise AppError("FORBIDDEN", "账号已被禁用")
-    tokens = create_token_pair(user.id, user.role)
+    tokens = await _issue_tokens(user)
     return user, tokens
 
 
 async def refresh(db: AsyncSession, *, refresh_token: str) -> dict[str, str]:
-    """刷新：校验 refresh token → 重新签发 access + refresh（轮换）。"""
+    """刷新：消费旧 refresh（一次性）→ 签发新对（轮换）。
+
+    旧 token 用后立即失效：泄露的 refresh token 只能被使用一次，
+    攻击者与合法客户端会互相踢掉，异常刷新可被及时发现。
+    """
     try:
         payload = decode_token(refresh_token)
     except JWTError:
         raise AppError("UNAUTHORIZED", "refresh token 无效或已过期")
     if payload.get("type") != "refresh":
         raise AppError("UNAUTHORIZED", "token 类型错误")
+
+    jti = payload.get("jti")
+    if not jti:
+        raise AppError("UNAUTHORIZED", "refresh token 缺少标识，请重新登录")
+    if not await consume_refresh_token(jti):
+        # 已使用/已撤销：可能是重放，也可能是多标签页并发刷新
+        raise AppError("UNAUTHORIZED", "refresh token 已失效，请重新登录")
+
     user_id = payload.get("user_id")
     user = await db.get(User, user_id)
     if user is None or user.status != "active":
         raise AppError("UNAUTHORIZED", "用户不存在或已禁用")
-    return create_token_pair(user.id, user.role)
+    return await _issue_tokens(user)

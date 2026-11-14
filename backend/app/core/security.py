@@ -6,6 +6,7 @@ token 载荷含 user_id / role / type / exp，对齐 contracts/api.md 的 Bearer
 
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
+from uuid import uuid4
 
 import bcrypt
 from jose import jwt
@@ -35,11 +36,14 @@ def _create_token(
     ttl: timedelta,
 ) -> str:
     now = datetime.now(UTC)
+    token_id = uuid4().hex
     payload: dict[str, Any] = {
         "sub": user_id,
         "user_id": user_id,
         "role": role,
         "type": token_type,
+        # jti：refresh token 的轮换标识（服务端一次性消费，用后失效）
+        "jti": token_id,
         "iat": now,
         "exp": now + ttl,
     }
