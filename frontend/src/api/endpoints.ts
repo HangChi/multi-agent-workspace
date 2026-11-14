@@ -455,6 +455,108 @@ export async function fetchExecution(runId: string, executionId: string): Promis
   return data
 }
 
+export interface EgressAccess {
+  target_ip: string
+  target_domain: string | null
+  port: number
+  action: 'allow' | 'deny'
+  matched_rule_id?: string | null
+  bytes_out?: number | null
+  occurred_at: string
+}
+
+export interface EgressAccessList {
+  items: EgressAccess[]
+  total?: number
+  summary?: Record<string, number>
+}
+
+export async function fetchExecutionEgress(runId: string, executionId: string): Promise<EgressAccessList> {
+  const { data } = await apiClient.get<EgressAccessList>(`/runs/${runId}/executions/${executionId}/egress`)
+  return data
+}
+
+export interface EgressRule {
+  id: string
+  scope?: string
+  agent_id?: string | null
+  action?: string
+  target_type: 'domain' | 'cidr' | 'ip'
+  target: string
+  port_range: string | null
+  note: string | null
+  enabled?: boolean
+  builtin?: boolean
+  created_by?: string | null
+  created_at?: string | null
+}
+
+export interface EgressRuleList {
+  items: EgressRule[]
+  egress_mode?: 'default' | 'restricted'
+}
+
+export interface EgressRuleInput {
+  target_type: 'domain' | 'cidr' | 'ip'
+  target: string
+  port_range?: string | null
+  note?: string | null
+}
+
+export async function fetchAgentEgressRules(agentId: string): Promise<EgressRuleList> {
+  const { data } = await apiClient.get<EgressRuleList>(`/agents/${agentId}/egress-rules`)
+  return data
+}
+
+export async function createAgentEgressRule(agentId: string, payload: EgressRuleInput): Promise<EgressRule> {
+  const { data } = await apiClient.post<EgressRule>(`/agents/${agentId}/egress-rules`, payload)
+  return data
+}
+
+export async function deleteAgentEgressRule(agentId: string, ruleId: string): Promise<void> {
+  await apiClient.delete(`/agents/${agentId}/egress-rules/${ruleId}`)
+}
+
+export interface BlacklistRule {
+  id: string
+  target_type: 'domain' | 'cidr' | 'ip'
+  target: string
+  port_range: string | null
+  note: string | null
+  enabled: boolean
+  builtin: boolean
+  created_by?: string | null
+  created_at?: string | null
+}
+
+export interface BlacklistList { items: BlacklistRule[] }
+export interface EgressAccessQuery {
+  run_id?: string
+  agent_id?: string
+  action?: 'allow' | 'deny'
+  page?: number
+  page_size?: number
+}
+
+export async function fetchBlacklist(): Promise<BlacklistList> {
+  const { data } = await apiClient.get<BlacklistList>('/admin/egress-blacklist')
+  return data
+}
+
+export async function createBlacklist(payload: EgressRuleInput): Promise<BlacklistRule> {
+  const { data } = await apiClient.post<BlacklistRule>('/admin/egress-blacklist', payload)
+  return data
+}
+
+export async function deleteBlacklist(ruleId: string): Promise<void> {
+  await apiClient.delete(`/admin/egress-blacklist/${ruleId}`)
+}
+
+export async function fetchEgressAccesses(query: EgressAccessQuery = {}): Promise<EgressAccessList> {
+  const { data } = await apiClient.get<EgressAccessList>('/admin/egress-accesses', { params: query })
+  return data
+}
+
 export interface RunDetail {
   id: string
   request_id: string

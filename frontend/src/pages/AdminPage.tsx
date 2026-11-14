@@ -2,7 +2,16 @@
 
 import { useEffect, useState } from 'react'
 
-import { AuditLogItem, fetchAuditLogs } from '../api/endpoints'
+import {
+  type AuditLogItem,
+  type BlacklistRule,
+  type EgressAccess,
+  createBlacklist,
+  deleteBlacklist,
+  fetchAuditLogs,
+  fetchBlacklist,
+  fetchEgressAccesses,
+} from '../api/endpoints'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Card, IconTile } from '../components/ui/Card'
@@ -50,6 +59,12 @@ export function AdminPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [blacklist, setBlacklist] = useState<BlacklistRule[]>([])
+  const [accesses, setAccesses] = useState<EgressAccess[]>([])
+  const [accessSummary, setAccessSummary] = useState<Record<string, number>>({})
+  const [egressTarget, setEgressTarget] = useState('')
+  const [egressBusy, setEgressBusy] = useState(false)
+  const [egressError, setEgressError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -77,6 +92,40 @@ export function AdminPage() {
       cancelled = true
     }
   }, [page, actionFilter, userFilter, reloadKey])
+
+  const loadEgress = async () => {
+    setEgressError(null)
+    try {
+      const [blacklistData, accessData] = await Promise.all([fetchBlacklist(), fetchEgressAccesses({ page: 1, page_size: 50 })])
+      setBlacklist(blacklistData.items)
+      setAccesses(accessData.items)
+      setAccessSummary(accessData.summary ?? {})
+    } catch (e: unknown) {
+      setEgressError(e instanceof Error ? e.message : '加载出站配置失败')
+    }
+  }
+
+  useEffect(() => { void loadEgress() }, [])
+
+  const addBlacklist = async () => {
+    const target = egressTarget.trim().toLowerCase()
+    if (!target) return
+    setEgressBusy(true)
+    setEgressError(null)
+    try {
+      await createBlacklist({ target_type: target.includes('/') ? 'cidr' : 'domain', target, port_range: null })
+      setEgressTarget('')
+      await loadEgress()
+    } catch (e: unknown) {
+      setEgressError(e instanceof Error ? e.message : '黑名单保存失败')
+    } finally { setEgressBusy(false) }
+  }
+
+  const removeBlacklist = async (rule: BlacklistRule) => {
+    if (rule.builtin) return
+    setEgressBusy(true)
+    try { await deleteBlacklist(rule.id); await loadEgress() } catch { setEgressError('黑名单删除失败') } finally { setEgressBusy(false) }
+  }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const hasFilter = Boolean(userFilter || actionFilter)
@@ -311,6 +360,24 @@ export function AdminPage() {
           </div>
         </div>
       </Card>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <div className="flex items-start justify-between gap-3">
+            <div><h2 className="text-sm font-semibold text-ink">全局出站黑名单</h2><p className="mt-1 text-xs text-ink-muted">内置内网与云元数据规则不可删除，自定义规则会覆盖所有 Agent。</p></div>
+            <Button size="sm" variant="secondary" loading={egressBusy} onClick={() => void loadEgress()}>刷新</Button>
+          </div>
+          <div className="mt-3 flex gap-2"><Input aria-label="黑名单目标" value={egressTarget} onChange={(e) => setEgressTarget(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void addBlacklist() }} placeholder="例如 10.0.0.0/8 或 blocked.example.com" wrapperClassName="min-w-0 flex-1" /><Button size="sm" variant="primary" loading={egressBusy} onClick={() => void addBlacklist()}>添加</Button></div>
+          {egressError && <p role="alert" className="mt-2 text-xs text-rose-600">{egressError}</p>}
+          <ul className="mt-3 divide-y divide-line rounded-lg border border-line">{blacklist.length === 0 ? <li className="px-3 py-4 text-xs text-ink-faint">暂无黑名单规则。</li> : blacklist.map((rule) => <li key={rule.id} className="flex items-center gap-2 px-3 py-2 text-xs"><span className="min-w-0 flex-1 truncate font-mono text-ink" title={rule.target}>{rule.target}</span>{rule.builtin && <Badge tone="slate">内置</Badge>}<button type="button" disabled={rule.builtin || egressBusy} onClick={() => void removeBlacklist(rule)} className="min-h-11 px-2 text-rose-600 disabled:cursor-not-allowed disabled:opacity-40">删除</button></li>)}</ul>
+        </Card>
+
+        <Card>
+          <div className="flex items-start justify-between gap-3"><div><h2 className="text-sm font-semibold text-ink">出站访问记录</h2><p className="mt-1 text-xs text-ink-muted">查看沙箱访问目标与策略结果，直连 IP 需要重点核查。</p></div><Button size="sm" variant="secondary" loading={egressBusy} onClick={() => void loadEgress()}>刷新</Button></div>
+          <div className="mt-3 flex flex-wrap gap-2"><Badge tone="emerald">放行 {accessSummary.allow ?? 0}</Badge><Badge tone="rose">拦截 {accessSummary.deny ?? 0}</Badge><Badge tone="amber">ip-direct {accessSummary.ip_direct ?? 0}</Badge></div>
+          <div className="mt-3 overflow-x-auto"><table className="min-w-full text-xs"><thead><tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-ink-muted"><th className="px-2 py-2">目标</th><th className="px-2 py-2">端口</th><th className="px-2 py-2">动作</th><th className="px-2 py-2">流量</th></tr></thead><tbody className="divide-y divide-line-subtle">{accesses.length === 0 ? <tr><td colSpan={4} className="px-2 py-4 text-center text-ink-faint">暂无出站访问记录。</td></tr> : accesses.map((access, index) => <tr key={`${access.occurred_at}-${index}`} className={access.target_domain == null ? 'bg-amber-50/60 dark:bg-amber-500/10' : ''}><td className="px-2 py-2 font-mono text-ink">{access.target_domain ?? `ip-direct · ${access.target_ip}`}</td><td className="px-2 py-2 tabular-nums text-ink-muted">{access.port}</td><td className="px-2 py-2"><Badge tone={access.action === 'deny' ? 'rose' : 'emerald'}>{access.action === 'deny' ? '拦截' : '放行'}</Badge></td><td className="px-2 py-2 text-ink-muted">{access.bytes_out == null ? '—' : `${access.bytes_out} B`}</td></tr>)}</tbody></table></div>
+        </Card>
+      </div>
     </Page>
   )
 }

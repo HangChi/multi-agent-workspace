@@ -144,6 +144,22 @@ describe('useRunSocket 终态关闭', () => {
   })
 })
 
+describe('useRunSocket 沙箱与出网事件', () => {
+  it.each([
+    { type: 'sandbox_started', execution_id: 'exec-1', language: 'python' },
+    { type: 'sandbox_output', execution_id: 'exec-1', stream: 'stdout', chunk: 'ready' },
+    { type: 'sandbox_finished', execution_id: 'exec-1', status: 'ok', exit_code: 0 },
+    { type: 'egress_denied', execution_id: 'exec-1', target_ip: '169.254.169.254', port: 80 },
+  ])('透传 $type 事件', (event) => {
+    const { onEvent } = setup()
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    act(() => ws.emit(event))
+    expect(onEvent).toHaveBeenCalledWith(event)
+    expect(ws.closed).toBe(false)
+  })
+})
+
 describe('useRunSocket 重连', () => {
   it('异常断开后按退避重连', () => {
     vi.useFakeTimers()
