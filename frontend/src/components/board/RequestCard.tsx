@@ -1,4 +1,7 @@
-/** 需求卡片（T047）：看板上的最小单元。 */
+/** 需求卡片（T047 + T056）：看板上的最小单元，可拖拽分配给 Agent/组。 */
+
+import { useDraggable } from '@dnd-kit/core'
+import { CSS } from '@dnd-kit/utilities'
 
 import { WorkRequest, attachmentDownloadUrl } from '../../api/endpoints'
 
@@ -25,11 +28,33 @@ const STATUS_LABEL: Record<string, string> = {
 
 interface Props {
   request: WorkRequest
+  /** 是否可拖拽（仅待分配/已分配可分配）。 */
+  draggable?: boolean
 }
 
-export function RequestCard({ request }: Props) {
+export function RequestCard({ request, draggable = true }: Props) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `request:${request.id}`,
+    data: { kind: 'request', id: request.id, title: request.title },
+    disabled: !draggable,
+  })
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 50 : undefined,
+  }
+
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition-shadow hover:shadow">
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={`rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition-shadow hover:shadow ${
+        isDragging ? 'cursor-grabbing shadow-lg' : draggable ? 'cursor-grab' : ''
+      }`}
+    >
       <div className="mb-1.5 flex items-center justify-between gap-2">
         <span
           className={`rounded-full border px-2 py-0.5 text-xs font-medium ${PRIORITY_STYLE[request.priority]}`}
@@ -51,6 +76,9 @@ export function RequestCard({ request }: Props) {
           </span>
         )}
         <span className="text-xs text-slate-400">{STATUS_LABEL[request.status]}</span>
+        {draggable && (
+          <span className="ml-auto text-[10px] text-slate-300">拖拽分配</span>
+        )}
       </div>
       {request.attachments.length > 0 && (
         <div className="mt-2 space-y-1">
@@ -59,6 +87,7 @@ export function RequestCard({ request }: Props) {
               key={att.key}
               href={attachmentDownloadUrl(request.id, att.key)}
               download={att.name}
+              onClick={(e) => e.stopPropagation()}
               className="block truncate rounded bg-slate-50 px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
             >
               {att.name}（{(att.size / 1024).toFixed(1)} KB）

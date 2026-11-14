@@ -1,13 +1,23 @@
-/** 看板页（T047/T048）：需求列表 + 创建 + 附件上传。 */
+/** 看板页（T047/T048 + T056-T058）：需求列表 + 创建 + 附件上传 + 拖拽分配。 */
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { extractError } from '../api/client'
-import { createRequest, fetchRequests, WorkRequest } from '../api/endpoints'
+import {
+  createRequest,
+  fetchAgents,
+  fetchGroups,
+  fetchRequests,
+  RoutingStrategy,
+  WorkRequest,
+} from '../api/endpoints'
 import { Board } from '../components/board/Board'
+import { AssignModal } from '../components/board/AssignModal'
 import { AttachmentUploader } from '../components/request/AttachmentUploader'
 import { RequestForm, RequestFormValues } from '../components/request/RequestForm'
+import { useAssignRequest } from '../hooks/useRequests'
+import { useBoardStore } from '../stores/boardStore'
 
 export function BoardPage() {
   const qc = useQueryClient()
@@ -15,9 +25,23 @@ export function BoardPage() {
   const [error, setError] = useState<string | null>(null)
   const [detail, setDetail] = useState<WorkRequest | null>(null)
 
+  const pending = useBoardStore((s) => s.pending)
+  const openAssign = useBoardStore((s) => s.openAssign)
+  const closeAssign = useBoardStore((s) => s.closeAssign)
+
   const { data, isLoading } = useQuery({
     queryKey: ['requests'],
     queryFn: () => fetchRequests(),
+  })
+
+  // 分配目标：活跃 Agent + 全部组
+  const { data: agents } = useQuery({
+    queryKey: ['agents', 'active'],
+    queryFn: () => fetchAgents({ status: 'active' }),
+  })
+  const { data: groups } = useQuery({
+    queryKey: ['groups'],
+    queryFn: () => fetchGroups(),
   })
 
   const createMut = useMutation({
@@ -29,7 +53,14 @@ export function BoardPage() {
     onError: (err) => setError(extractError(err)),
   })
 
+  const { assign, isPending: assigning } = useAssignRequest((err) => {
+    if (err) setError(err)
+    else closeAssign()
+  })
+
   const requests = data?.items ?? []
+  const activeAgents = agents?.items ?? []
+  const allGroups = groups?.items ?? []
 
   return (
     <div>
@@ -37,7 +68,7 @@ export function BoardPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-800">需求看板</h1>
           <p className="mt-1 text-sm text-slate-500">
-            创建需求卡片，按状态分组查看；后续可拖拽分配给 Agent 执行
+            创建需求卡片，拖拽到右侧 Agent/组即可分配执行
           </p>
         </div>
         <button
@@ -72,7 +103,45 @@ export function BoardPage() {
         />
       )}
 
-      <Board requests={requests} isLoading={isLoading} />
+      <Board
+        requests={requests}
+        agents={activeAgents}
+        groups={allGroups}
+        isLoading={isLoading}
+        onAssignStart={openAssign}
+      />
+
+      {/* 分配确认弹窗 */}
+      {pending && (
+        <AssignModal
+          request={pending.request}
+          target={pending.target}
+          agent={
+            pending.target.kind === 'agent'
+              ? activeAgents.find((a) => a.id === pending.target.id)
+              : undefined
+          }
+          group={
+            pending.target.kind === 'group'
+              ? allGroups.find((g) => g.id === pending.target.id)
+              : undefined
+          }
+          submitting={assigning}
+          error={error}
+          onConfirm={({ strategy }: { strategy: RoutingStrategy }) => {
+            setError(null)
+            assign({
+              requestId: pending.request.id,
+              payload: {
+                assignee_type: pending.target.kind,
+                assignee_id: pending.target.id,
+                strategy,
+              },
+            })
+          }}
+          onCancel={closeAssign}
+        />
+      )}
 
       {/* 详情/附件弹层 */}
       {detail && (

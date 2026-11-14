@@ -99,3 +99,25 @@ class RequestOut(BaseModel):
 class RequestList(BaseModel):
     items: list[RequestOut]
     total: int
+
+
+class AssigneeType(str, Enum):
+    agent = "agent"
+    group = "group"
+
+
+class AssignRequest(BaseModel):
+    """分配请求（T055）：assignee_type + assignee_id + 可选 strategy。"""
+
+    assignee_type: AssigneeType
+    assignee_id: str = Field(min_length=1)
+    strategy: str | None = Field(
+        default=None, pattern="^(direct|fan_out|pipeline|router)$"
+    )
+
+
+class AssignOut(BaseModel):
+    """分配响应（202）：父 Run id + 受理状态。"""
+
+    run_id: str
+    status: str = "queued"

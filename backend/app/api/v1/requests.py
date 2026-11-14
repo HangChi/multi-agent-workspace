@@ -1,4 +1,4 @@
-"""需求端点（T046）：看板列表 + 创建 + 详情 + 附件上传/下载。
+"""需求端点（T046/T055）：看板列表 + 创建 + 详情 + 附件 + 分配。
 
 对齐 contracts/api.md 需求部分：
 - GET /requests（?status=&q=&priority=&page=&page_size=）→ 200 RequestList
@@ -6,8 +6,9 @@
 - GET /requests/{id} → 200 Request（含 attachments）
 - POST /requests/{id}/attachments → 201（预签名 PUT URL + 元数据回填）
 - GET /requests/{id}/attachments/{key} → 302 预签名 GET URL
+- POST /requests/{id}/assign → 202（仅校验+入队，RT<100ms）
 
-T049：request_create 审计挂接。
+T049：request_create 审计挂接。T059：assign 审计挂接。
 """
 
 from typing import Annotated
@@ -18,13 +19,15 @@ from fastapi.responses import RedirectResponse
 from app.api.deps import DB, CurrentUser, require_role
 from app.core.audit import write_audit
 from app.schemas.request import (
+    AssignOut,
+    AssignRequest,
     AttachmentListOut,
     AttachmentMeta,
     RequestCreate,
     RequestList,
     RequestOut,
 )
-from app.services import artifact_service, request_service
+from app.services import artifact_service, assignment_service, request_service
 
 router = APIRouter(prefix="/requests", tags=["requests"])
 
@@ -133,3 +136,46 @@ async def download_attachment(
     normalized = artifact_service.normalize_key(key)
     url = artifact_service.download_url(request, normalized)
     return RedirectResponse(url, status_code=302)
+
+
+@router.post("/{request_id}/assign", response_model=AssignOut, status_code=202)
+async def assign_request(
+    request_id: str,
+    payload: AssignRequest,
+    _m: MemberUser,
+    user: CurrentUser,
+    db: DB,
+):
+    """分配（T055）：拖到 Agent/组，校验 + 建 Run 入队，需求变执行中。
+
+    - 拖单 Agent：strategy 可省（默认 direct）
+    - 拖组：strategy 可省（默认取组配置）
+    - 202 {"run_id","status":"queued"}；409 已在执行；400 归档目标/未实现策略；
+      404 目标不存在/无权限
+    """
+    parent_run_id, run_ids = await assignment_service.assign(
+        db,
+        request_id=request_id,
+        user_id=user.id,
+        assignee_type=payload.assignee_type.value,
+        assignee_id=payload.assignee_id,
+        strategy=payload.strategy,
+    )
+
+    # T059 审计：assign（detail 含 assignee_type/assignee_id/strategy）
+    await write_audit(
+        db,
+        user_id=user.id,
+        action="assign",
+        target_type="request",
+        target_id=request_id,
+        detail={
+            "assignee_type": payload.assignee_type.value,
+            "assignee_id": payload.assignee_id,
+            "strategy": payload.strategy or "auto",
+            "run_ids": run_ids,
+        },
+    )
+    await db.commit()
+
+    return AssignOut(run_id=parent_run_id, status="queued")

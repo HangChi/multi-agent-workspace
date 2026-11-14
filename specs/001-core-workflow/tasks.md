@@ -147,19 +147,19 @@
 
 ### Tests for User Story 4（先写，先红后绿）⚠️
 
-- [ ] T051 [P] [US4] 分配集成测试 backend/tests/integration/test_assign.py：拖单 Agent 202（strategy=direct）/ 拖组 fan_out 202 生成 N 个 Run（含 parent_run_id）/ 需求已在执行 409 / 目标已归档 400 / 目标不存在或无权限 404 / 入队后需求 status=running
-- [ ] T052 [P] [US4] 策略单元测试 backend/tests/unit/test_strategies.py：direct 展开 1 个执行目标 / fan_out 展开组内全部 active Agent（按 position 排序）/ pipeline、router 策略显式抛「未实现」错误（Phase 1 保留入口）
+- [x] T051 [P] [US4] 分配集成测试 backend/tests/integration/test_assign.py：拖单 Agent 202（strategy=direct）/ 拖组 fan_out 202 生成 N 个 Run（含 parent_run_id）/ 需求已在执行 409 / 目标已归档 400 / 目标不存在或无权限 404 / 入队后需求 status=running
+- [x] T052 [P] [US4] 策略单元测试 backend/tests/unit/test_strategies.py：direct 展开 1 个执行目标 / fan_out 展开组内全部 active Agent（按 position 排序）/ pipeline、router 策略显式抛「未实现」错误（Phase 1 保留入口）
 
 ### Implementation for User Story 4
 
-- [ ] T053 [US4] 路由策略：backend/app/orchestrator/strategies.py（StrategyResolver：direct/fan_out 展开执行目标列表，pipeline/router 抛 NotImplemented）
-- [ ] T054 [US4] 分配服务：backend/app/services/assignment_service.py（幂等校验（需求状态非 created/assigned 则 409）、目标存在与归属校验、按策略建 Run（direct 1 个 / fan_out 每组员 1 个子 Run + parent_run_id）、事务提交 + Redis 事件发布 + Celery 入队）
-- [ ] T055 [US4] 分配端点：backend/app/api/v1/requests.py 增加 POST /requests/{id}/assign（202 `{"run_id","status":"queued"}`，仅校验+入队，RT<100ms）
-- [ ] T056 [US4] 前端拖拽：frontend/src/components/board/Board.tsx 集成 dnd-kit（RequestCard useDraggable + AgentCard/GroupCard useDroppable），拖拽目标高亮
-- [ ] T057 [US4] 前端确认弹窗：frontend/src/components/board/AssignModal.tsx（拖到 Agent 直接确认 / 拖到组显示策略选择，默认组配置，确认后调 assign API）
-- [ ] T058 [US4] 前端状态管理：frontend/src/stores/boardStore.ts + frontend/src/hooks/useRequests.ts（assign 乐观更新卡片状态 + 失败回滚 + 错误提示）
-- [ ] T059 [US4] 审计挂接：在 backend/app/api/v1/requests.py 的 assign 端点内调用 core/audit.py 的 write_audit（assign，detail 含 assignee_type/assignee_id/strategy）
-- [ ] T060 [US4] 集成验证：S4 场景全过（含 SC-002 受理 <3s，重复分配 409，归档目标拒绝）（按 specs/001-core-workflow/quickstart.md S4 执行，结果记入验证记录表）
+- [x] T053 [US4] 路由策略：backend/app/orchestrator/strategies.py（StrategyResolver：direct/fan_out 展开执行目标列表，pipeline/router 抛 NotImplemented）
+- [x] T054 [US4] 分配服务：backend/app/services/assignment_service.py（幂等校验（需求状态非 created/assigned 则 409）、目标存在与归属校验、按策略建 Run（direct 1 个 / fan_out 每组员 1 个子 Run + parent_run_id）、事务提交 + Redis 事件发布 + Celery 入队）
+- [x] T055 [US4] 分配端点：backend/app/api/v1/requests.py 增加 POST /requests/{id}/assign（202 `{"run_id","status":"queued"}`，仅校验+入队，RT<100ms）
+- [x] T056 [US4] 前端拖拽：frontend/src/components/board/Board.tsx 集成 dnd-kit（RequestCard useDraggable + AgentCard/GroupCard useDroppable），拖拽目标高亮
+- [x] T057 [US4] 前端确认弹窗：frontend/src/components/board/AssignModal.tsx（拖到 Agent 直接确认 / 拖到组显示策略选择，默认组配置，确认后调 assign API）
+- [x] T058 [US4] 前端状态管理：frontend/src/stores/boardStore.ts + frontend/src/hooks/useRequests.ts（assign 乐观更新卡片状态 + 失败回滚 + 错误提示）
+- [x] T059 [US4] 审计挂接：在 backend/app/api/v1/requests.py 的 assign 端点内调用 core/audit.py 的 write_audit（assign，detail 含 assignee_type/assignee_id/strategy）
+- [x] T060 [US4] 集成验证：S4 场景全过（含 SC-002 受理 <3s，重复分配 409，归档目标拒绝）（按 specs/001-core-workflow/quickstart.md S4 执行，结果记入验证记录表）
 
 **Checkpoint**: US1-4 独立可用——「需求到执行的分发闭环」交付
 

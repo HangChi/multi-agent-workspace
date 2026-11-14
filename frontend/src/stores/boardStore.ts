@@ -1,0 +1,21 @@
+/** 看板分配弹窗状态（T058）：当前待分配需求 + 目标，由拖拽触发。 */
+
+import { create } from 'zustand'
+
+import { WorkRequest } from '../api/endpoints'
+import { AssignTarget } from '../components/board/AssignModal'
+
+interface BoardState {
+  /** 待确认分配的需求 + 目标；null 表示弹窗关闭。 */
+  pending: { request: WorkRequest; target: AssignTarget } | null
+  openAssign: (request: WorkRequest, target: AssignTarget) => void
+  closeAssign: () => void
+}
+
+export const useBoardStore = create<BoardState>((set) => ({
+  pending: null,
+
+  openAssign: (request, target) => set({ pending: { request, target } }),
+
+  closeAssign: () => set({ pending: null }),
+}))
