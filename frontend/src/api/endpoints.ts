@@ -55,3 +55,180 @@ export async function fetchMe(): Promise<UserOut> {
   const { data } = await apiClient.get<UserOut>('/auth/me')
   return data
 }
+
+// ---------- Agent（T037）----------
+
+export interface Agent {
+  id: string
+  owner_id: string
+  name: string
+  description: string | null
+  system_prompt: string
+  model: string
+  temperature: number
+  max_steps: number
+  max_run_seconds: number
+  tools: string[]
+  cost_limit_cents: number
+  status: 'active' | 'archived'
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentCreateRequest {
+  name: string
+  description?: string | null
+  system_prompt: string
+  model?: string
+  temperature?: number
+  max_steps?: number
+  max_run_seconds?: number
+  tools?: string[]
+  cost_limit_cents?: number
+}
+
+export type AgentUpdateRequest = Partial<Omit<AgentCreateRequest, 'name'>> & {
+  name?: string
+}
+
+export interface AgentList {
+  items: Agent[]
+  total: number
+}
+
+/** Agent 列表（?status=&q=）。 */
+export async function fetchAgents(params?: {
+  status?: 'active' | 'archived'
+  q?: string
+}): Promise<AgentList> {
+  const { data } = await apiClient.get<AgentList>('/agents', { params })
+  return data
+}
+
+/** 创建 Agent。 */
+export async function createAgent(payload: AgentCreateRequest): Promise<Agent> {
+  const { data } = await apiClient.post<Agent>('/agents', payload)
+  return data
+}
+
+/** 编辑 Agent。 */
+export async function updateAgent(
+  id: string,
+  payload: AgentUpdateRequest,
+): Promise<Agent> {
+  const { data } = await apiClient.patch<Agent>(`/agents/${id}`, payload)
+  return data
+}
+
+/** 归档 Agent。 */
+export async function archiveAgent(id: string): Promise<Agent> {
+  const { data } = await apiClient.post<Agent>(`/agents/${id}/archive`)
+  return data
+}
+
+/** 删除 Agent。 */
+export async function deleteAgent(id: string): Promise<void> {
+  await apiClient.delete(`/agents/${id}`)
+}
+
+// ---------- Agent 组（T038）----------
+
+export type RoutingStrategy = 'direct' | 'fan_out' | 'pipeline' | 'router'
+
+export interface GroupMember {
+  agent_id: string
+  name: string
+  position: number
+}
+
+export interface Group {
+  id: string
+  owner_id: string
+  name: string
+  description: string | null
+  routing_strategy: RoutingStrategy
+  status: 'active' | 'archived'
+  created_at: string
+  updated_at: string
+  members: GroupMember[]
+}
+
+export interface GroupCreateRequest {
+  name: string
+  description?: string | null
+  routing_strategy?: RoutingStrategy
+}
+
+export interface GroupList {
+  items: Group[]
+  total: number
+}
+
+export interface AddMemberRequest {
+  agent_id: string
+  position: number
+}
+
+/** 组列表。 */
+export async function fetchGroups(): Promise<GroupList> {
+  const { data } = await apiClient.get<GroupList>('/groups')
+  return data
+}
+
+/** 组详情。 */
+export async function fetchGroup(id: string): Promise<Group> {
+  const { data } = await apiClient.get<Group>(`/groups/${id}`)
+  return data
+}
+
+/** 创建组。 */
+export async function createGroup(payload: GroupCreateRequest): Promise<Group> {
+  const { data } = await apiClient.post<Group>('/groups', payload)
+  return data
+}
+
+/** 编辑组。 */
+export async function updateGroup(
+  id: string,
+  payload: Partial<GroupCreateRequest>,
+): Promise<Group> {
+  const { data } = await apiClient.patch<Group>(`/groups/${id}`, payload)
+  return data
+}
+
+/** 添加组成员。 */
+export async function addGroupMember(
+  groupId: string,
+  payload: AddMemberRequest,
+): Promise<GroupMember> {
+  const { data } = await apiClient.post<GroupMember>(
+    `/groups/${groupId}/members`,
+    payload,
+  )
+  return data
+}
+
+/** 移除组成员。 */
+export async function removeGroupMember(
+  groupId: string,
+  agentId: string,
+): Promise<void> {
+  await apiClient.delete(`/groups/${groupId}/members/${agentId}`)
+}
+
+/** 保存成员排序。 */
+export async function reorderGroupMembers(
+  groupId: string,
+  positions: { agent_id: string; position: number }[],
+): Promise<Group> {
+  const { data } = await apiClient.patch<Group>(
+    `/groups/${groupId}/members`,
+    { positions },
+  )
+  return data
+}
+
+/** 删除组。 */
+export async function deleteGroup(id: string): Promise<void> {
+  await apiClient.delete(`/groups/${id}`)
+}

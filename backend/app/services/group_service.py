@@ -1,0 +1,201 @@
+"""Agent 组服务（T034）：CRUD + 成员增删（position 唯一处理）+ 级联清理 + 归属校验。
+
+对齐 contracts/api.md Agent 组部分：
+- 添加成员：重复 agent → 409，position 冲突 → 409，归档 Agent → 400
+- 排序：positions 数组整体替换
+- 删除组：级联清空成员
+- 归属校验：组与成员的双向校验（自己的 Agent 不能加入他人组）
+"""
+
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.api.errors import AppError
+from app.models.agent import Agent
+from app.models.group import AgentGroup
+from app.models.group_member import GroupMember
+from app.schemas.group import GroupCreate, GroupUpdate
+
+
+def _check_owner(group: AgentGroup, user_id: str) -> None:
+    if group.owner_id != user_id:
+        raise AppError("FORBIDDEN", "无权操作他人组")
+
+
+def _with_members() -> Any:
+    """预加载 members.agent，避免 async 懒加载 MissingGreenlet。"""
+    return selectinload(AgentGroup.members).selectinload(GroupMember.agent)
+
+
+async def create_group(
+    db: AsyncSession, *, user_id: str, payload: GroupCreate
+) -> AgentGroup:
+    """创建组（routing_strategy 默认 fan_out）。"""
+    group = AgentGroup(
+        owner_id=user_id,
+        name=payload.name,
+        description=payload.description,
+        routing_strategy=payload.routing_strategy.value,
+    )
+    db.add(group)
+    await db.flush()
+    return group
+
+
+async def get_group(db: AsyncSession, group_id: str, user_id: str) -> AgentGroup:
+    """取单个组（归属校验，预加载成员）。"""
+    stmt = (
+        select(AgentGroup)
+        .options(_with_members())
+        .where(AgentGroup.id == group_id)
+    )
+    group = (await db.execute(stmt)).scalars().first()
+    if group is None:
+        raise AppError("NOT_FOUND", "组不存在")
+    _check_owner(group, user_id)
+    return group
+
+
+async def list_groups(
+    db: AsyncSession, *, user_id: str, include_archived: bool = False
+) -> list[AgentGroup]:
+    """列表：仅自己的（默认 active），预加载成员。"""
+    stmt = (
+        select(AgentGroup)
+        .options(_with_members())
+        .where(AgentGroup.owner_id == user_id)
+    )
+    if not include_archived:
+        stmt = stmt.where(AgentGroup.status == "active")
+    stmt = stmt.order_by(AgentGroup.created_at.desc())
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def update_group(
+    db: AsyncSession, *, group_id: str, user_id: str, payload: GroupUpdate
+) -> AgentGroup:
+    """编辑组（归属校验）。"""
+    group = await get_group(db, group_id, user_id)
+    data = payload.model_dump(exclude_unset=True)
+    if "routing_strategy" in data and data["routing_strategy"] is not None:
+        data["routing_strategy"] = data["routing_strategy"].value
+    for field, value in data.items():
+        setattr(group, field, value)
+    await db.flush()
+    return group
+
+
+async def add_member(
+    db: AsyncSession, *, group_id: str, user_id: str, agent_id: str, position: int
+) -> GroupMember:
+    """添加成员：agent 必须存在、归属当前用户、active 状态；position 不冲突。"""
+    await get_group(db, group_id, user_id)
+
+    agent = await db.get(Agent, agent_id)
+    if agent is None:
+        raise AppError("NOT_FOUND", "Agent 不存在")
+    if agent.owner_id != user_id:
+        raise AppError("FORBIDDEN", "无权将他人 Agent 加入自己的组")
+    if agent.status != "active":
+        raise AppError("INVALID_INPUT", "归档 Agent 不可加入组")
+
+    # 重复成员 / position 冲突
+    existing = (
+        await db.execute(
+            select(GroupMember).where(
+                GroupMember.group_id == group_id,
+                GroupMember.agent_id == agent_id,
+            )
+        )
+    ).scalars().first()
+    if existing is not None:
+        raise AppError("CONFLICT", "该 Agent 已在组中")
+
+    pos_taken = (
+        await db.execute(
+            select(GroupMember).where(
+                GroupMember.group_id == group_id,
+                GroupMember.position == position,
+            )
+        )
+    ).scalars().first()
+    if pos_taken is not None:
+        raise AppError("CONFLICT", "该位置已被占用")
+
+    member = GroupMember(group_id=group_id, agent_id=agent_id, position=position)
+    db.add(member)
+    await db.flush()
+    return member
+
+
+async def remove_member(
+    db: AsyncSession, *, group_id: str, user_id: str, agent_id: str
+) -> None:
+    """移除成员（归属校验）。"""
+    group = await get_group(db, group_id, user_id)
+    member = (
+        await db.execute(
+            select(GroupMember).where(
+                GroupMember.group_id == group.id,
+                GroupMember.agent_id == agent_id,
+            )
+        )
+    ).scalars().first()
+    if member is None:
+        raise AppError("NOT_FOUND", "组内不存在该成员")
+    await db.delete(member)
+    await db.flush()
+
+
+async def reorder_members(
+    db: AsyncSession,
+    *,
+    group_id: str,
+    user_id: str,
+    positions: list[tuple[str, int]],
+) -> list[GroupMember]:
+    """排序保存：positions 整体替换（agent_id → position）。
+
+    先清空（临时负 position）再赋值，规避 uq_group_position 唯一约束在
+    成员互换场景下的瞬时冲突。
+    """
+    group = await get_group(db, group_id, user_id)
+    members = list(
+        (
+            await db.execute(
+                select(GroupMember).where(GroupMember.group_id == group.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    by_id = {m.agent_id: m for m in members}
+
+    pos_map: dict[int, str] = {}
+    for agent_id, position in positions:
+        if agent_id not in by_id:
+            raise AppError("NOT_FOUND", f"组内不存在 Agent {agent_id}")
+        if position in pos_map:
+            raise AppError("CONFLICT", "排序中存在重复 position")
+        pos_map[position] = agent_id
+
+    # 第一步：全部置为临时负值，释放唯一约束
+    for i, member in enumerate(members):
+        member.position = -(i + 1)
+    await db.flush()
+
+    # 第二步：按目标位置赋值
+    for member in members:
+        member.position = next(p for p, a in pos_map.items() if a == member.agent_id)
+    await db.flush()
+    return members
+
+
+async def delete_group(db: AsyncSession, *, group_id: str, user_id: str) -> None:
+    """删除组：cascade 清空成员（relationship cascade all, delete-orphan）。"""
+    group = await get_group(db, group_id, user_id)
+    await db.delete(group)
+    await db.flush()

@@ -1,9 +1,12 @@
-/** 路由与守卫（T026）：登录守卫 + 角色守卫。 */
+/** 路由与守卫（T026）：登录守卫 + 角色守卫 + 工作台路由（T037/T038）。 */
 
 import { Navigate, Route, Routes } from 'react-router-dom'
 
+import { AppLayout } from './components/layout/AppLayout'
 import { useAuth } from './hooks/useAuth'
 import { AdminPage } from './pages/AdminPage'
+import { AgentPage } from './pages/AgentPage'
+import { GroupPage } from './pages/GroupPage'
 import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
 
@@ -35,13 +38,15 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
-/** 工作台占位（后续 Phase 替换为 BoardPage）。 */
-function BoardPlaceholder() {
+/** 工作台首页（Phase 5 替换为 BoardPage）。 */
+function BoardHome() {
   const { user } = useAuth()
   return (
-    <div className="p-8">
+    <div>
       <h1 className="text-2xl font-bold text-slate-800">工作台</h1>
-      <p className="mt-2 text-slate-600">欢迎，{user?.email}（{user?.role}）</p>
+      <p className="mt-2 text-slate-600">
+        欢迎，{user?.email}（{user?.role}）。从顶部导航管理 Agent 与 Agent 组。
+      </p>
     </div>
   )
 }
@@ -55,20 +60,22 @@ export function AppRouter() {
         path="/"
         element={
           <RequireAuth>
-            <BoardPlaceholder />
+            <AppLayout />
           </RequireAuth>
         }
-      />
-      <Route
-        path="/admin"
-        element={
-          <RequireAuth>
+      >
+        <Route index element={<BoardHome />} />
+        <Route path="agents" element={<AgentPage />} />
+        <Route path="groups" element={<GroupPage />} />
+        <Route
+          path="admin"
+          element={
             <RequireAdmin>
               <AdminPage />
             </RequireAdmin>
-          </RequireAuth>
-        }
-      />
+          }
+        />
+      </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

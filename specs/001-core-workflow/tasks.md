@@ -93,21 +93,21 @@
 
 ### Tests for User Story 2（先写，先红后绿）⚠️
 
-- [ ] T029 [P] [US2] Agent 集成测试 backend/tests/integration/test_agents.py：创建 201 / 编辑 200 / 归档 200 / 删除 204 / 被组引用删除 409（仅可归档）/ 非 owner 编辑 403 / 归档 Agent 不可出现在可分配列表
-- [ ] T030 [P] [US2] 组集成测试 backend/tests/integration/test_groups.py：创建 201（含 routing_strategy 默认 fan_out）/ 添加成员 201 / 重复成员 409 / 位置冲突 409 / 移除成员 204 / 排序保存 / 删除组级联清空成员 204 / 非 owner 操作 403
+- [x] T029 [P] [US2] Agent 集成测试 backend/tests/integration/test_agents.py：创建 201 / 编辑 200 / 归档 200 / 删除 204 / 被组引用删除 409（仅可归档）/ 非 owner 编辑 403 / 归档 Agent 不可出现在可分配列表
+- [x] T030 [P] [US2] 组集成测试 backend/tests/integration/test_groups.py：创建 201（含 routing_strategy 默认 fan_out）/ 添加成员 201 / 重复成员 409 / 位置冲突 409 / 移除成员 204 / 排序保存 / 删除组级联清空成员 204 / 非 owner 操作 403
 
 ### Implementation for User Story 2
 
-- [ ] T031 [US2] Agent schema：backend/app/schemas/agent.py（AgentCreate/AgentUpdate/AgentOut，校验 tools 白名单、cost_limit_cents>0、max_steps 范围）
-- [ ] T032 [US2] 组 schema：backend/app/schemas/group.py（GroupCreate/GroupUpdate/GroupWithMembers，routing_strategy 枚举校验）
-- [ ] T033 [US2] Agent 服务：backend/app/services/agent_service.py（CRUD + archive + 删除前检查组引用 + 归属校验）
-- [ ] T034 [US2] 组服务：backend/app/services/group_service.py（CRUD + 成员增删（position 唯一处理）+ 级联清理 + 归属校验）
-- [ ] T035 [US2] Agent 端点：backend/app/api/v1/agents.py（GET/POST /agents、PATCH /agents/{id}、POST /agents/{id}/archive、DELETE /agents/{id}，含 `?status=&q=` 过滤）
-- [ ] T036 [US2] 组端点：backend/app/api/v1/groups.py（GET/POST /groups、PATCH /groups/{id}、POST /groups/{id}/members、DELETE /groups/{id}/members/{agent_id}、DELETE /groups/{id}）
-- [ ] T037 [US2] 前端 Agent 管理：frontend/src/pages/AgentPage.tsx + frontend/src/components/agent/（列表/创建表单/编辑/归档/删除，TanStack Query 缓存）
-- [ ] T038 [US2] 前端组管理：frontend/src/pages/GroupPage.tsx + frontend/src/components/group/（列表/创建/成员管理/排序/策略选择）
-- [ ] T039 [US2] 审计挂接：在 backend/app/api/v1/agents.py 与 backend/app/api/v1/groups.py 内调用 core/audit.py 的 write_audit（agent_create/agent_update/agent_archive/agent_delete/group_create/group_member_change）
-- [ ] T040 [US2] 集成验证：S2 场景全过（含非 owner 403）（按 specs/001-core-workflow/quickstart.md S2 执行，结果记入验证记录表）
+- [x] T031 [US2] Agent schema：backend/app/schemas/agent.py（AgentCreate/AgentUpdate/AgentOut，校验 tools 白名单、cost_limit_cents>0、max_steps 范围）
+- [x] T032 [US2] 组 schema：backend/app/schemas/group.py（GroupCreate/GroupUpdate/GroupWithMembers，routing_strategy 枚举校验）
+- [x] T033 [US2] Agent 服务：backend/app/services/agent_service.py（CRUD + archive + 删除前检查组引用 + 归属校验）
+- [x] T034 [US2] 组服务：backend/app/services/group_service.py（CRUD + 成员增删（position 唯一处理）+ 级联清理 + 归属校验）
+- [x] T035 [US2] Agent 端点：backend/app/api/v1/agents.py（GET/POST /agents、PATCH /agents/{id}、POST /agents/{id}/archive、DELETE /agents/{id}，含 `?status=&q=` 过滤）
+- [x] T036 [US2] 组端点：backend/app/api/v1/groups.py（GET/POST /groups、PATCH /groups/{id}、POST /groups/{id}/members、DELETE /groups/{id}/members/{agent_id}、DELETE /groups/{id}）
+- [x] T037 [US2] 前端 Agent 管理：frontend/src/pages/AgentPage.tsx + frontend/src/components/agent/（列表/创建表单/编辑/归档/删除，TanStack Query 缓存）
+- [x] T038 [US2] 前端组管理：frontend/src/pages/GroupPage.tsx + frontend/src/components/group/（列表/创建/成员管理/排序/策略选择）
+- [x] T039 [US2] 审计挂接：在 backend/app/api/v1/agents.py 与 backend/app/api/v1/groups.py 内调用 core/audit.py 的 write_audit（agent_create/agent_update/agent_archive/agent_delete/group_create/group_member_change）
+- [x] T040 [US2] 集成验证：S2 场景全过（含非 owner 403）（按 specs/001-core-workflow/quickstart.md S2 执行，结果记入验证记录表）
 
 **Checkpoint**: US1 + US2 独立可用——执行单元与组合管理交付
 

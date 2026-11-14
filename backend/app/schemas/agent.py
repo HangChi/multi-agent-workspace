@@ -6,7 +6,18 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# 工具白名单（与执行器支持的工具集对齐，T031）
+ALLOWED_TOOLS = frozenset(
+    {
+        "web_search",  # 联网搜索
+        "web_fetch",   # 抓取网页
+        "shell",       # 执行 shell 命令（沙箱）
+        "http",        # HTTP 请求
+        "code_interpreter",  # 代码解释器
+    }
+)
 
 
 class AgentCreate(BaseModel):
@@ -22,6 +33,16 @@ class AgentCreate(BaseModel):
     tools: list[str] = Field(default_factory=list)
     cost_limit_cents: int = Field(default=10000, ge=1)
 
+    @field_validator("tools")
+    @classmethod
+    def _check_tools(cls, v: list[str]) -> list[str]:
+        bad = [t for t in v if t not in ALLOWED_TOOLS]
+        if bad:
+            raise ValueError(
+                f"工具不在白名单: {bad}（允许: {sorted(ALLOWED_TOOLS)}）"
+            )
+        return v
+
 
 class AgentUpdate(BaseModel):
     """编辑 Agent 请求（部分字段）。"""
@@ -35,6 +56,18 @@ class AgentUpdate(BaseModel):
     max_run_seconds: int | None = Field(default=None, ge=1, le=86400)
     tools: list[str] | None = None
     cost_limit_cents: int | None = Field(default=None, ge=1)
+
+    @field_validator("tools")
+    @classmethod
+    def _check_tools(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        bad = [t for t in v if t not in ALLOWED_TOOLS]
+        if bad:
+            raise ValueError(
+                f"工具不在白名单: {bad}（允许: {sorted(ALLOWED_TOOLS)}）"
+            )
+        return v
 
 
 class AgentOut(BaseModel):

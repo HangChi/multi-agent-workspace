@@ -11,6 +11,7 @@ from app.api import errors
 from app.api.v1.admin import router as admin_router
 from app.api.v1.agents import router as agents_router
 from app.api.v1.auth import router as auth_router
+from app.api.v1.groups import router as groups_router
 from app.core.config import settings
 
 
@@ -35,6 +36,7 @@ def create_app() -> FastAPI:
     api_v1 = APIRouter(prefix="/api/v1")
     api_v1.include_router(auth_router)
     api_v1.include_router(agents_router)
+    api_v1.include_router(groups_router)
     api_v1.include_router(admin_router)
     app.include_router(api_v1)
 
