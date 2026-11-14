@@ -8,6 +8,8 @@ import { Icon } from '../ui/Icons'
 import { Input, NumberInput, Slider, Select, Textarea } from '../ui/Field'
 import { cn } from '../ui/cn'
 
+import { EgressRules } from './EgressRules'
+
 
 export interface AgentFormValues {
   name: string
@@ -201,6 +203,22 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
           />
         </div>
       </fieldset>
+
+      <Select
+        label="出网模式"
+        value={values.egress_mode}
+        onChange={(e) => set('egress_mode', e.target.value as 'default' | 'restricted')}
+        hint={values.egress_mode === 'default'
+          ? '默认允许访问公网，同时拦截内网和云元数据地址。'
+          : '仅允许下方已配置的 Agent 出站域名清单；内置黑名单始终生效。'}
+      >
+        <option value="default">默认放行（内网黑名单强制拦截）</option>
+        <option value="restricted">限制模式（按 Agent 域名白名单放行）</option>
+      </Select>
+
+      {initial?.id && (
+        <EgressRules agentId={initial.id} mode={values.egress_mode} />
+      )}
 
       <div>
         <div className="mb-2 flex items-center justify-between">

@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from app.executors.sandbox import classify_outcome
+from app.executors.sandbox import classify_error, classify_outcome
 
 
 def outcome(**kwargs):
@@ -27,3 +27,10 @@ def test_timeout_cancel_and_oom_are_classified() -> None:
 
 def test_resource_exit_137_fallback_is_oom() -> None:
     assert classify_outcome(outcome(exit_code=137)) == ("resource", "oom")
+
+
+def test_boundary_exceptions_have_user_readable_categories() -> None:
+    assert classify_error(RuntimeError("Read timed out")) == ("timeout", "timeout")
+    assert classify_error(RuntimeError("ENOSPC: no space left on device")) == ("resource", "disk")
+    assert classify_error(RuntimeError("pids limit reached")) == ("resource", "pids")
+    assert classify_error(RuntimeError("docker unavailable")) == ("infra", "infra")
