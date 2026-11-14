@@ -35,6 +35,7 @@ from app.orchestrator.runner import (
     ReActRunner,
 )
 from app.orchestrator.state_machine import RunStatus, transition
+from app.services.quota_service import QuotaExceeded, assert_user_quota
 from app.tasks import events as run_events
 from app.tasks.celery_app import celery_app
 
@@ -221,6 +222,16 @@ def execute_run(self, run_id: str) -> str:
             run, agent, _ = await _load_context(db, run_id)
             if run.status == "cancelled":
                 return "cancelled"
+            # T077 配额兜底：Worker 消费前再校验一次（分配后配额可能已变化）。
+            # 已入队任务不因配额变化回滚（软约束），但防止越过配额执行。
+            try:
+                await assert_user_quota(db, run.owner_id)
+            except QuotaExceeded:
+                run.error = "月配额已用尽，任务被拒绝执行"
+                transition(run, RunStatus.FAILED)
+                await db.commit()
+                run_events.run_failed(run_id, run.error)
+                return "failed"
             await _execute(db, run, agent)
             await db.refresh(run)
             return run.status

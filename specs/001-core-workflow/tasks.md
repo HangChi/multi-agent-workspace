@@ -201,8 +201,8 @@
 
 **Purpose**: 跨用户故事的横切能力（配额/统计/审计查询/部署/质量门禁）与生产化收尾
 
-- [ ] T077 用户月配额：backend/app/services/quota_service.py（用户月成本累计 + 超月配额熔断，在执行入口校验——宪法「每个用户有月配额」）
-- [ ] T078 统计端点与仪表盘：backend/app/api/v1/stats.py（GET /stats/overview：running/queued/completed_today/failed_today/success_rate_7d/cost_today_cents/cost_trend_7d）+ frontend/src/pages/DashboardPage.tsx
+- [x] T077 用户月配额：backend/app/services/quota_service.py（用户月成本累计 + 超月配额熔断，在执行入口校验——宪法「每个用户有月配额」）
+- [x] T078 统计端点与仪表盘：backend/app/api/v1/stats.py（GET /stats/overview：running/queued/completed_today/failed_today/success_rate_7d/cost_today_cents/cost_trend_7d）+ frontend/src/pages/DashboardPage.tsx
 - [ ] T079 审计查询：backend/app/api/v1/audit.py（GET /audit-logs，admin 专属，`?user_id=&action=&page=`）+ frontend/src/pages/AdminPage.tsx 完整审计列表
 - [ ] T080 [P] 部署完整化：deploy/docker-compose.yml 增加 api/worker/beat/frontend 服务（服务间依赖与健康检查）+ deploy/Caddyfile（HTTPS 反向代理 + WS 支持）
 - [ ] T081 [P] 镜像构建：backend/Dockerfile + frontend/Dockerfile（多阶段构建、非 root 运行、密钥不落镜像）

@@ -7,6 +7,7 @@ import { useAuth } from './hooks/useAuth'
 import { AdminPage } from './pages/AdminPage'
 import { AgentPage } from './pages/AgentPage'
 import { BoardPage } from './pages/BoardPage'
+import { DashboardPage } from './pages/DashboardPage'
 import { GroupPage } from './pages/GroupPage'
 import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
@@ -59,6 +60,7 @@ export function AppRouter() {
         }
       >
         <Route index element={<BoardHome />} />
+        <Route path="dashboard" element={<DashboardPage />} />
         <Route path="agents" element={<AgentPage />} />
         <Route path="groups" element={<GroupPage />} />
         <Route path="runs/:runId" element={<RunDetailPage />} />

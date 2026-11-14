@@ -26,12 +26,20 @@ export function AppLayout() {
               <NavLink to="/" end className={navClass}>
                 看板
               </NavLink>
+              <NavLink to="/dashboard" className={navClass}>
+                仪表盘
+              </NavLink>
               <NavLink to="/agents" className={navClass}>
                 Agent
               </NavLink>
               <NavLink to="/groups" className={navClass}>
                 Agent 组
               </NavLink>
+              {user?.role === 'admin' && (
+                <NavLink to="/admin" className={navClass}>
+                  管理
+                </NavLink>
+              )}
             </nav>
           </div>
           <div className="flex items-center gap-3">

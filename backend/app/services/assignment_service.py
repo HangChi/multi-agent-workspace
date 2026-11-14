@@ -28,6 +28,7 @@ from app.orchestrator.strategies import (
     StrategyResolver,
     Target,
 )
+from app.services.quota_service import assert_user_quota
 from app.services.request_service import get_request
 
 logger = structlog.get_logger(__name__)
@@ -132,6 +133,10 @@ async def assign(
     """
     # 1. 需求归属 + 存在性
     request = await get_request(db, request_id, user_id)
+
+    # 1.5 配额熔断（T077）：月用量 >= 上限 → 429 RATE_LIMITED（宪法「每个用户有月配额」）
+    # 前置校验：不建 Run、需求状态保持不变（可重试）
+    await assert_user_quota(db, user_id)
 
     # 2. 幂等校验（FR-012）
     if request.status not in _ASSIGNABLE_STATUSES:

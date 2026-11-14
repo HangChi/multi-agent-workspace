@@ -433,3 +433,21 @@ export async function replyRun(id: string, message: string): Promise<{ status: s
 export function artifactDownloadUrl(runId: string, artifactId: string): string {
   return `/api/v1/runs/${runId}/artifacts/${artifactId}`
 }
+
+// ---------- 统计（T078，Phase 8）----------
+
+export interface StatsOverview {
+  running: number
+  queued: number
+  completed_today: number
+  failed_today: number
+  success_rate_7d: number
+  cost_today_cents: number
+  cost_trend_7d: number[]
+}
+
+/** 仪表盘总览统计。 */
+export async function fetchStatsOverview(): Promise<StatsOverview> {
+  const { data } = await apiClient.get<StatsOverview>('/stats/overview')
+  return data
+}
