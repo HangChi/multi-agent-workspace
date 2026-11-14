@@ -68,6 +68,51 @@ class Settings(BaseSettings):
     # 配额
     monthly_quota_cents: int = 1_000_000  # 用户月配额（分）
 
+    # ===== 代码沙箱（002-sandboxed-tools，research R-01/R-06/R-08）=====
+    # 镜像：只允许这里列出的 tag 被起容器（防止配置被改成任意镜像 = 绕过隔离）。
+    # 逗号分隔；`SBX_IMAGE` 必须属于该集合，否则启动失败。
+    sbx_image: str = "aw-sandbox-python:3.12"
+    sbx_allowed_images: str = "aw-sandbox-python:3.12"
+    # 单次执行时长上限（秒）：默认值与硬上限。请求超过硬上限直接拒绝，
+    # 不允许 LLM 传个 86400 把 Worker 占住。
+    sbx_timeout_default: int = 120
+    sbx_timeout_max: int = 600
+    # 资源配额：CPU 核数、内存、磁盘（/tmp 与 workspace 合计的 tmpfs/写盘上限）、进程数
+    sbx_cpu: float = 1.0
+    sbx_mem_mb: int = 512
+    sbx_disk_mb: int = 256
+    sbx_pids: int = 128
+    # 单机同时运行的沙箱数（Redis 信号量 sbx:sem:*）；超出的排队而非拒绝
+    sbx_max_concurrency: int = 4
+    # 输出与代码体积上限：stdout/stderr 各保留尾部该字节数；脚本源码超过则拒绝执行
+    sbx_stdout_max_bytes: int = 1_048_576
+    sbx_code_max_bytes: int = 262_144
+    # 制品回收上限：output/ 目录下的文件数量、单文件、总量
+    sbx_artifact_max_files: int = 50
+    sbx_artifact_max_file_mb: int = 20
+    sbx_artifact_max_total_mb: int = 50
+    # 每次执行独立 bridge 网络的**名字前缀**（research R-02）。
+    # 不能是「一个预建网络」：iptables 规则按网络接口名（`-i aw-sbx-<exec_id>`）
+    # 打标签，共用网络会让并发执行互相删规则、也无法按执行粒度做限制模式。
+    sbx_network_prefix: str = "aw-sbx"
+    # dns-proxy 的容器名：Worker 用 docker API 找到它，并把它接入每次执行的独立网络，
+    # 再把沙箱容器的 DNS 显式指向它（实测：不显式指 `dns=` 时会走 Docker 内嵌 DNS
+    # 127.0.0.11，代理侧看不到查询，SC-009 的域名记录就断了）。
+    egress_dns_proxy: str = "aw-dns-proxy"
+
+    # ===== 出站策略（spec 修订版：默认放行 + 全量记录 + 全局黑名单）=====
+    # 内置黑名单（逗号分隔 CIDR）：内网段、云元数据地址、回环。这层不可被成员绕过。
+    # 169.254.169.254 是云厂商元数据服务，能取到机器临时凭证，漏掉等于交出账号一部分。
+    egress_builtin_blacklist: str = (
+        "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,127.0.0.0/8"
+    )
+    # 是否记录出站访问（默认开）。关掉等于放弃 SC-009，仅用于排障时临时降噪。
+    egress_record_enabled: bool = True
+
+    # ===== 工具越权 =====
+    # 同一 Run 内连续越权调用达到该次数即中止该步（data-model D-6）
+    tool_deny_threshold: int = 5
+
     # 僵尸 Run 回收阈值（Beat 周期任务）
     # queued 超过该分钟数仍未被执行 → 判定 Worker 未消费（消息丢失/Worker 未起）
     stale_queued_minutes: int = 30
@@ -83,8 +128,66 @@ class Settings(BaseSettings):
         return [t.strip() for t in self.allowed_attachment_types.split(",") if t.strip()]
 
     @property
+    def sbx_allowed_image_list(self) -> list[str]:
+        return [i.strip() for i in self.sbx_allowed_images.split(",") if i.strip()]
+
+    @property
+    def egress_builtin_blacklist_list(self) -> list[str]:
+        return [c.strip() for c in self.egress_builtin_blacklist.split(",") if c.strip()]
+
+    @property
     def is_production(self) -> bool:
         return self.app_env.lower() in _PRODUCTION_ENVS
+
+    @model_validator(mode="after")
+    def _guard_sandbox_config(self) -> "Settings":
+        """沙箱配置自检：错配的配额比没有配额更危险。
+
+        - `SBX_IMAGE` 不在白名单 → 镜像校验形同虚设（改环境变量即可跑任意镜像）。
+        - 超时/资源/并发 ≤0 → docker SDK 会把它解释成"无限制"（0 表示不限制），
+          等于把宿主交给用户脚本。这些必须启动即失败。
+        """
+        problems: list[str] = []
+
+        if self.sbx_image not in self.sbx_allowed_image_list:
+            problems.append(
+                f"SBX_IMAGE={self.sbx_image} 不在 SBX_ALLOWED_IMAGES"
+                f"（{self.sbx_allowed_images}）内"
+            )
+
+        positive = {
+            "SBX_TIMEOUT_DEFAULT": self.sbx_timeout_default,
+            "SBX_TIMEOUT_MAX": self.sbx_timeout_max,
+            "SBX_CPU": self.sbx_cpu,
+            "SBX_MEM_MB": self.sbx_mem_mb,
+            "SBX_DISK_MB": self.sbx_disk_mb,
+            "SBX_PIDS": self.sbx_pids,
+            "SBX_MAX_CONCURRENCY": self.sbx_max_concurrency,
+            "SBX_STDOUT_MAX_BYTES": self.sbx_stdout_max_bytes,
+            "SBX_CODE_MAX_BYTES": self.sbx_code_max_bytes,
+            "SBX_ARTIFACT_MAX_FILES": self.sbx_artifact_max_files,
+            "SBX_ARTIFACT_MAX_FILE_MB": self.sbx_artifact_max_file_mb,
+            "SBX_ARTIFACT_MAX_TOTAL_MB": self.sbx_artifact_max_total_mb,
+            "TOOL_DENY_THRESHOLD": self.tool_deny_threshold,
+        }
+        for name, value in positive.items():
+            if value <= 0:
+                problems.append(f"{name} 必须 > 0（当前 {value}）")
+
+        if self.sbx_timeout_default > self.sbx_timeout_max:
+            problems.append(
+                f"SBX_TIMEOUT_DEFAULT（{self.sbx_timeout_default}）"
+                f"不得大于 SBX_TIMEOUT_MAX（{self.sbx_timeout_max}）"
+            )
+        if self.sbx_artifact_max_file_mb > self.sbx_artifact_max_total_mb:
+            problems.append(
+                f"SBX_ARTIFACT_MAX_FILE_MB（{self.sbx_artifact_max_file_mb}）"
+                f"不得大于 SBX_ARTIFACT_MAX_TOTAL_MB（{self.sbx_artifact_max_total_mb}）"
+            )
+
+        if problems:
+            raise ValueError("沙箱配置不合法：" + "；".join(problems))
+        return self
 
     @model_validator(mode="after")
     def _guard_production_secrets(self) -> "Settings":

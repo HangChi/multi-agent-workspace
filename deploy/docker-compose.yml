@@ -90,6 +90,34 @@ services:
       timeout: 5s
       retries: 10
 
+  # ---------- 沙箱 DNS 代理（002-sandboxed-tools，research R-02）----------
+  # 沙箱的唯一 DNS 出口：记录每次查询（含客户端 IP）+ 全局黑名单 NXDOMAIN。
+  # 不映射宿主端口：只被 Worker 接入每次执行的独立网络。
+  # ⚠️ 配置静态：改 dnsmasq.conf / blacklist.conf 后需 restart 本服务；
+  #    Agent 级限制模式不走这里（见 deploy/dns-proxy/README.md）。
+  dns-proxy:
+    build:
+      context: ./dns-proxy
+    image: aw-dns-proxy:1
+    container_name: aw-dns-proxy
+    restart: unless-stopped
+    volumes:
+      # 全局黑名单：运维维护，容器只读挂载
+      - ./dns-proxy/blacklist.conf:/etc/dnsmasq.d/blacklist.conf:ro
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 64m
+    healthcheck:
+      # dnsmasq 无内置健康端点：用 nslookup 查一个必然存在的外部域名
+      test: ['CMD-SHELL', 'nslookup example.com 127.0.0.1 > /dev/null 2>&1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # ---------- Mock LLM 网关（仅验证用，默认不启动）----------
   # OpenAI 兼容 /v1/chat/completions，用于无真实密钥时跑通执行链路。
   # ⚠️ 生产绝不可启用（会返回假结果，让人误以为系统正常）。
@@ -220,7 +248,43 @@ services:
     environment:
       <<: *app_env
       DB_POOL: 'null'
+      # ---- 沙箱（002-sandboxed-tools）----
+      # 镜像白名单：SBX_IMAGE 必须属于 SBX_ALLOWED_IMAGES，否则启动失败
+      SBX_IMAGE: ${SBX_IMAGE:-aw-sandbox-python:3.12}
+      SBX_ALLOWED_IMAGES: ${SBX_ALLOWED_IMAGES:-aw-sandbox-python:3.12}
+      SBX_TIMEOUT_DEFAULT: ${SBX_TIMEOUT_DEFAULT:-120}
+      SBX_TIMEOUT_MAX: ${SBX_TIMEOUT_MAX:-600}
+      SBX_CPU: ${SBX_CPU:-1.0}
+      SBX_MEM_MB: ${SBX_MEM_MB:-512}
+      SBX_DISK_MB: ${SBX_DISK_MB:-256}
+      SBX_PIDS: ${SBX_PIDS:-128}
+      SBX_MAX_CONCURRENCY: ${SBX_MAX_CONCURRENCY:-4}
+      SBX_STDOUT_MAX_BYTES: ${SBX_STDOUT_MAX_BYTES:-1048576}
+      SBX_CODE_MAX_BYTES: ${SBX_CODE_MAX_BYTES:-262144}
+      SBX_ARTIFACT_MAX_FILES: ${SBX_ARTIFACT_MAX_FILES:-50}
+      SBX_ARTIFACT_MAX_FILE_MB: ${SBX_ARTIFACT_MAX_FILE_MB:-20}
+      SBX_ARTIFACT_MAX_TOTAL_MB: ${SBX_ARTIFACT_MAX_TOTAL_MB:-50}
+      SBX_NETWORK_PREFIX: ${SBX_NETWORK_PREFIX:-aw-sbx}
+      EGRESS_DNS_PROXY: ${EGRESS_DNS_PROXY:-aw-dns-proxy}
+      EGRESS_BUILTIN_BLACKLIST: ${EGRESS_BUILTIN_BLACKLIST:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,127.0.0.0/8}
+      EGRESS_RECORD_ENABLED: ${EGRESS_RECORD_ENABLED:-true}
+      TOOL_DENY_THRESHOLD: ${TOOL_DENY_THRESHOLD:-5}
     logging: *default-logging
+    # 沙箱需要：① 通过宿主 docker 守护进程起一次性容器（挂 socket）；
+    # ② 与 dns-proxy 同网络以把它接入每次执行的独立网络。
+    # ⚠️ 绝不给 worker 加 network_mode: host —— 那会同时失去连 postgres/redis
+    #    的 compose 网络（research R-02 已论证）。特权操作走短命 init 容器。
+    # ⚠️ 挂 socket 等价于给 worker 宿主 root 权限，缓解措施见 research R-01，
+    #    该风险本身归 P3 安全复核。
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # worker 以非 root(10001) 运行，而 socket 是 `root:<socket组> 0660`，
+    # 必须把该组加进补充组才能连上（否则 PermissionError: [Errno 13]）。
+    # 只加组、不改 USER：进程本身仍是 10001，仅获得 socket 的访问权。
+    # 取值：Linux 上 `stat -c '%g' /var/run/docker.sock`（通常 999/998）；
+    #       Docker Desktop（macOS/Windows）呈现为 root:root，取 0。
+    group_add:
+      - '${DOCKER_SOCK_GID:-0}'
     deploy:
       resources:
         limits:
@@ -235,6 +299,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+      dns-proxy:
+        condition: service_healthy
     healthcheck:
       test: ['CMD-SHELL', 'celery -A app.tasks.celery_app:celery_app inspect ping 2>&1 | grep -q "pong"']
       interval: 30s
