@@ -11,6 +11,8 @@ from typing import Any
 import httpx
 
 from app.executors.base import ToolExecutor
+from app.executors.calc import CalculateExecutor
+from app.executors.read_url import ReadUrlExecutor
 
 
 class SearchToolError(Exception):
@@ -71,8 +73,12 @@ class WebSearchExecutor(ToolExecutor):
         }
 
 
-class NoopExecutor(ToolExecutor):
-    """占位工具：Phase 1 内置工具集仅注册名称（无副作用）。"""
+class NoopExecutor:
+    """已废弃：占位工具会让 LLM 把「占位」当结果写进交付物。
+
+    保留仅为兼容旧引用；builtin_tools 已改用真实实现（calculate / read_url）。
+    新代码不要使用。
+    """
 
     def __init__(self, name: str, description: str, params: dict[str, Any] | None = None) -> None:
         self.name = name
@@ -93,16 +99,17 @@ class NoopExecutor(ToolExecutor):
         }
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        # Phase 1 内置工具无副作用：返回原样输入，供后续 Phase 扩展
-        return {"received": arguments, "note": "内置占位工具，Phase 1 无副作用"}
+        raise NotImplementedError(
+            f"工具 {self.name} 无真实实现，不应注册给 LLM（会污染交付结果）"
+        )
 
 
 def builtin_tools() -> list[ToolExecutor]:
-    """Phase 1 内置工具集：web_search + 占位工具。"""
+    """Phase 1 内置工具集：web_search + calculate + read_url（均为真实实现）。"""
     return [
         WebSearchExecutor(),
-        NoopExecutor("calculate", "执行数值计算（占位）"),
-        NoopExecutor("read_url", "读取网页正文（占位）"),
+        CalculateExecutor(),
+        ReadUrlExecutor(),
     ]
 
 
