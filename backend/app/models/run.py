@@ -1,6 +1,6 @@
 """运行模型：一次具体执行。"""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     JSON,
@@ -73,14 +73,14 @@ class Run(Base):
     # ---- 状态机协议（state_machine.RunLike）----
 
     def mark_started(self) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        self.started_at = datetime.now(timezone.utc)
+        self.started_at = datetime.now(UTC)
 
     def mark_finished(self) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        self.finished_at = datetime.now(timezone.utc)
+        self.finished_at = datetime.now(UTC)
 
     def clear_execution(self) -> None:
         """failed/timeout → queued 重试时重置执行现场（FR-017）。"""

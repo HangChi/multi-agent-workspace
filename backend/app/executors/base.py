@@ -1,6 +1,5 @@
 """执行器基座（T066，US5）：ToolExecutor 协议与注册表（FR-014 工具调用）。"""
 
-from abc import ABC, abstractmethod
 from typing import Any, Protocol
 
 

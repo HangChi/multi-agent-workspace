@@ -13,10 +13,7 @@
 
 import uuid
 
-from sqlalchemy import select
-
 from app.models.artifact import Artifact
-from app.models.request import Request
 from app.models.run import Run
 from app.models.step import Step
 
@@ -279,4 +276,4 @@ async def test_artifact_download_redirects(client, make_headers, db_session):
     )
     assert resp.status_code == 302
     location = resp.headers.get("location", "")
-    assert location.startswith("http") or location.startswith("/")
+    assert location.startswith(("http", "/"))

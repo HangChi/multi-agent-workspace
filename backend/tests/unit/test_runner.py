@@ -13,7 +13,8 @@
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from datetime import UTC
+from typing import Any
 
 import pytest
 
@@ -25,7 +26,6 @@ from app.orchestrator.runner import (
     ReActRunner,
 )
 from app.orchestrator.state_machine import RunStatus
-
 
 # ---------- 假对象 ----------
 
@@ -100,14 +100,14 @@ class FakeRun:
     finished_at: Any = None
 
     def mark_started(self) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        self.started_at = datetime.now(timezone.utc)
+        self.started_at = datetime.now(UTC)
 
     def mark_finished(self) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        self.finished_at = datetime.now(timezone.utc)
+        self.finished_at = datetime.now(UTC)
 
     def clear_execution(self) -> None:
         self.current_step = 0

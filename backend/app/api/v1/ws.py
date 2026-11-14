@@ -16,7 +16,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from jose import JWTError
 
-from app.core.events import channel_for_run, subscribe_run_events
+from app.core.events import subscribe_run_events
 from app.core.security import decode_token
 
 router = APIRouter(tags=["ws"])
@@ -52,7 +52,6 @@ async def ws_run_events(websocket: WebSocket, run_id: str) -> None:
     await websocket.accept()
 
     stop = asyncio.Event()
-    channel = channel_for_run(run_id)
 
     async def forward(payload: dict[str, Any]) -> None:
         await websocket.send_json(payload)

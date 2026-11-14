@@ -33,19 +33,17 @@ def _token(user_id: str = "u-test-1", role: str = "member") -> str:
 def test_ws_rejects_invalid_token():
     """无效 token → 握手拒绝。"""
     client = TestClient(app)
-    with pytest.raises(Exception):
-        with client.websocket_connect(
-            f"{WS_URL}/{uuid.uuid4()}", params={"token": "invalid-token"}
-        ):
-            pass  # 不应走到这里
+    with pytest.raises(Exception), client.websocket_connect(
+        f"{WS_URL}/{uuid.uuid4()}", params={"token": "invalid-token"}
+    ):
+        pass  # 不应走到这里
 
 
 def test_ws_rejects_missing_token():
     """缺 token → 握手拒绝。"""
     client = TestClient(app)
-    with pytest.raises(Exception):
-        with client.websocket_connect(f"{WS_URL}/{uuid.uuid4()}"):
-            pass
+    with pytest.raises(Exception), client.websocket_connect(f"{WS_URL}/{uuid.uuid4()}"):
+        pass
 
 
 def test_ws_handshake_succeeds_with_valid_token():
@@ -108,7 +106,7 @@ def test_ws_events_isolated_per_run():
         f"{WS_URL}/{run_a}", params={"token": _token()}
     ) as ws_a, client.websocket_connect(
         f"{WS_URL}/{run_b}", params={"token": _token()}
-    ) as ws_b:
+    ):
         asyncio.run(publish_run_event(run_a, {"type": "status_change", "status": "running"}))
         # run A 收到
         assert ws_a.receive_json()["type"] == "status_change"

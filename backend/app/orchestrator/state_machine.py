@@ -11,7 +11,7 @@
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Protocol
 
@@ -88,10 +88,10 @@ class RunState:
     _events: list[str] = field(default_factory=list, repr=False)
 
     def mark_started(self) -> None:
-        self.started_at = datetime.now(timezone.utc)
+        self.started_at = datetime.now(UTC)
 
     def mark_finished(self) -> None:
-        self.finished_at = datetime.now(timezone.utc)
+        self.finished_at = datetime.now(UTC)
 
     def clear_execution(self) -> None:
         self.current_step = 0

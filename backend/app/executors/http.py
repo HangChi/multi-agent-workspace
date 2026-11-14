@@ -5,7 +5,6 @@ web_search：调用可配置的搜索 API 返回结果（默认走 Bing/Google �
 其余 Phase 1 内置工具仅注册名称与 schema（无副作用），为后续 Phase 扩展预留。
 """
 
-import json
 import os
 from typing import Any
 

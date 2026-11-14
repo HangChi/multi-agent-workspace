@@ -11,7 +11,7 @@
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -37,10 +37,10 @@ class FakeRun:
     _events: list[str] = field(default_factory=list)
 
     def mark_started(self) -> None:
-        self.started_at = datetime.now(timezone.utc)
+        self.started_at = datetime.now(UTC)
 
     def mark_finished(self) -> None:
-        self.finished_at = datetime.now(timezone.utc)
+        self.finished_at = datetime.now(UTC)
 
     def clear_execution(self) -> None:
         """failed → queued 重试时重置执行现场。"""
@@ -88,7 +88,7 @@ def test_queued_to_running_marks_started():
 
 def test_running_to_completed_marks_finished():
     """running → completed：标记 finished_at。"""
-    run = FakeRun(status="running", started_at=datetime.now(timezone.utc))
+    run = FakeRun(status="running", started_at=datetime.now(UTC))
     transition(run, RunStatus.COMPLETED)
     assert run.status == "completed"
     assert run.finished_at is not None
@@ -96,14 +96,14 @@ def test_running_to_completed_marks_finished():
 
 def test_running_to_failed():
     """running → failed。"""
-    run = FakeRun(status="running", started_at=datetime.now(timezone.utc))
+    run = FakeRun(status="running", started_at=datetime.now(UTC))
     transition(run, RunStatus.FAILED)
     assert run.status == "failed"
 
 
 def test_running_to_needs_input():
     """running → needs_input：挂起等待补充（FR-021）。"""
-    run = FakeRun(status="running", started_at=datetime.now(timezone.utc))
+    run = FakeRun(status="running", started_at=datetime.now(UTC))
     transition(run, RunStatus.NEEDS_INPUT)
     assert run.status == "needs_input"
 
@@ -117,7 +117,7 @@ def test_needs_input_to_running():
 
 def test_running_to_cancelled():
     """running → cancelled：用户取消（FR-018）。"""
-    run = FakeRun(status="running", started_at=datetime.now(timezone.utc))
+    run = FakeRun(status="running", started_at=datetime.now(UTC))
     transition(run, RunStatus.CANCELLED)
     assert run.status == "cancelled"
     assert run.finished_at is not None
@@ -132,7 +132,7 @@ def test_queued_to_cancelled():
 
 def test_running_to_timeout():
     """running → timeout：超时终止。"""
-    run = FakeRun(status="running", started_at=datetime.now(timezone.utc))
+    run = FakeRun(status="running", started_at=datetime.now(UTC))
     transition(run, RunStatus.TIMEOUT)
     assert run.status == "timeout"
     assert run.finished_at is not None
@@ -148,8 +148,8 @@ def test_failed_to_queued_resets_execution_state():
         current_step=5,
         cost_cents=123,
         error="LLM 调用失败",
-        started_at=datetime.now(timezone.utc),
-        finished_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
     )
     transition(run, RunStatus.QUEUED)
     assert run.status == "queued"
@@ -234,7 +234,7 @@ def test_needs_input_only_back_to_running(to: str):
 
 def test_transition_to_same_status_is_noop():
     """迁移到当前状态：幂等 no-op（不抛错、不更新时间戳）。"""
-    run = FakeRun(status="running", started_at=datetime.now(timezone.utc))
+    run = FakeRun(status="running", started_at=datetime.now(UTC))
     finished_before = run.finished_at
     transition(run, RunStatus.RUNNING)
     assert run.status == "running"
