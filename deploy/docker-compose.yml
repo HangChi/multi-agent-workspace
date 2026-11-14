@@ -106,6 +106,7 @@ services:
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       LLM_BASE_URL: ${LLM_BASE_URL}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      MONTHLY_QUOTA_CENTS: ${MONTHLY_QUOTA_CENTS:-1000000}
     depends_on:
       postgres:
         condition: service_healthy
@@ -139,6 +140,7 @@ services:
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       LLM_BASE_URL: ${LLM_BASE_URL}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      MONTHLY_QUOTA_CENTS: ${MONTHLY_QUOTA_CENTS:-1000000}
     depends_on:
       migrate:
         condition: service_completed_successfully

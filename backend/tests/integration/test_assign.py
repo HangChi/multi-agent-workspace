@@ -373,3 +373,29 @@ async def test_assign_acceptance_latency(client, make_headers):
 
     assert resp.status_code == 202
     assert elapsed < 3.0, f"分配受理耗时 {elapsed:.2f}s 超出 SC-002 阈值 3s"
+
+
+async def test_concurrent_assign_only_one_wins(client, make_headers, db_session):
+    """并发分配同一需求：行级锁保证只有一个受理，其余 409（不产生重复 Run）。
+
+    无 SELECT ... FOR UPDATE 时，两个请求会同时读到 status=created，
+    各自建一组 Run → 同一需求被执行两次、成本翻倍。
+    """
+    import asyncio
+
+    headers = await make_headers(role="member")
+    agent = await _create_agent(client, headers, name="concurrent-agent")
+    req = await _create_request(client, headers, title="concurrent-assign")
+
+    payload = {"assignee_type": "agent", "assignee_id": agent["id"]}
+    responses = await asyncio.gather(
+        *[_assign(client, headers, req["id"], payload) for _ in range(4)]
+    )
+    codes = sorted(r.status_code for r in responses)
+
+    assert codes.count(202) == 1, f"应只有 1 个受理，实际 {codes}"
+    assert codes.count(409) == 3, f"其余应为 409，实际 {codes}"
+
+    # 只落 1 个 Run，需求只被消耗一次
+    runs = await _runs_for(db_session, req["id"])
+    assert len(runs) == 1

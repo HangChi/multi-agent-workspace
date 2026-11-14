@@ -131,8 +131,8 @@ async def assign(
     流程：需求校验 → 幂等校验 → 目标校验 → 策略展开 → 建 Run →
     事务提交 → 事件发布 + Celery 入队。
     """
-    # 1. 需求归属 + 存在性
-    request = await get_request(db, request_id, user_id)
+    # 1. 需求归属 + 存在性（行级锁：状态检查与迁移必须原子，防并发重复分配）
+    request = await get_request(db, request_id, user_id, for_update=True)
 
     # 1.5 配额熔断（T077）：月用量 >= 上限 → 429 RATE_LIMITED（宪法「每个用户有月配额」）
     # 前置校验：不建 Run、需求状态保持不变（可重试）

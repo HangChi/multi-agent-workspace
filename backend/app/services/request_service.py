@@ -35,9 +35,21 @@ async def create_request(
     return request
 
 
-async def get_request(db: AsyncSession, request_id: str, user_id: str) -> Request:
-    """取单个需求（归属校验）。"""
-    request = await db.get(Request, request_id)
+async def get_request(
+    db: AsyncSession, request_id: str, user_id: str, *, for_update: bool = False
+) -> Request:
+    """取单个需求（归属校验）。
+
+    Args:
+        for_update: 加行级写锁（SELECT ... FOR UPDATE）。用于「读状态 → 改状态」
+            必须原子的场景：分配时若不加锁，两个并发请求会同时读到 created，
+            各自建一组 Run（同一需求被执行两次、成本翻倍）。
+    """
+    if for_update:
+        stmt = select(Request).where(Request.id == request_id).with_for_update()
+        request = (await db.execute(stmt)).scalars().first()
+    else:
+        request = await db.get(Request, request_id)
     if request is None:
         raise AppError("NOT_FOUND", "需求不存在")
     _check_owner(request, user_id)

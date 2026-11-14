@@ -18,12 +18,14 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.core.config import settings
 from app.models.run import Run
 
 logger = structlog.get_logger(__name__)
 
-# 默认月配额（分）：与 config.monthly_quota_cents 对齐；测试通过 monkeypatch 调整
-MONTHLY_QUOTA_CENTS = 1_000_000
+# 月配额上限（分）：取自配置（MONTHLY_QUOTA_CENTS 可经 env 覆盖）。
+# 保留模块级常量作为注入点——测试通过 monkeypatch 覆盖它来构造小额配额。
+MONTHLY_QUOTA_CENTS = settings.monthly_quota_cents
 
 
 def _month_start_utc() -> datetime:
