@@ -2,8 +2,8 @@
 
 import { useQuery } from '@tanstack/react-query'
 
-import { extractError } from '../api/client'
 import { fetchStatsOverview } from '../api/endpoints'
+import { ErrorBanner } from '../components/ui/ErrorBanner'
 
 function formatCents(cents: number): string {
   return `¥${(cents / 100).toFixed(2)}`
@@ -74,7 +74,7 @@ function CostTrend({ data }: { data: number[] }) {
 }
 
 export function DashboardPage() {
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['stats', 'overview'],
     queryFn: fetchStatsOverview,
     refetchInterval: 15_000, // 15s 轮询，成本/状态实时性
@@ -85,9 +85,10 @@ export function DashboardPage() {
   }
   if (error || !data) {
     return (
-      <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
-        统计加载失败：{extractError(error)}
-      </div>
+      <ErrorBanner
+        error={error ?? '统计加载失败'}
+        retry={() => refetch()}
+      />
     )
   }
 

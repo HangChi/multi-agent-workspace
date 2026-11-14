@@ -206,7 +206,7 @@
 - [x] T079 审计查询：backend/app/api/v1/admin.py（GET /audit-logs，admin 专属，`?user_id=&action=&page=` 筛选分页）+ frontend/src/pages/AdminPage.tsx 完整审计列表
 - [x] T080 [P] 部署完整化：deploy/docker-compose.yml 增加 api/worker/beat/frontend 服务（服务间依赖与健康检查）+ deploy/Caddyfile（HTTPS 反向代理 + WS 支持）
 - [x] T081 [P] 镜像构建：backend/Dockerfile + frontend/Dockerfile（多阶段构建、非 root 运行、密钥不落镜像）
-- [ ] T082 [P] 安全收尾：全局日志脱敏复核（Authorization/密钥字段不打印）+ 前端统一错误提示组件（frontend/src/components/ui/）
+- [x] T082 [P] 安全收尾：全局日志脱敏复核（Authorization/密钥字段不打印）+ 前端统一错误提示组件（frontend/src/components/ui/）
 - [ ] T083 全量质量门禁：ruff check + mypy + pytest 全绿（backend/pyproject.toml 配置的 ruff/mypy，backend/tests/ 全量 pytest）+ eslint + tsc + vitest 全绿（frontend/package.json 脚本），修复全部告警
 - [ ] T084 quickstart 验证：按 specs/001-core-workflow/quickstart.md 执行 S1~S5 全部场景（deploy/docker-compose.yml 起全套服务），如实更新 SC 对照表与验证记录表（通过才勾选，未过保持 ⏳）
 
