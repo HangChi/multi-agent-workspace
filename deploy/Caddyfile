@@ -1,0 +1,36 @@
+# Caddy 反向代理（T080）：HTTPS + WebSocket 支持。
+#
+# 用法（与 docker compose 同网络，或在宿主机运行 Caddy）：
+#   域名替换 <your-domain.com>；本地测试可注释 HTTPS 改用 :8080 明文。
+#
+# 路由：
+#   /api/*  → 后端 api:8000（REST）
+#   /ws/*   → 后端 api:8000（WebSocket，需 Upgrade 头透传）
+#   /*      → 前端 nginx（SPA 静态资源）
+
+# 生产：自动 HTTPS（Let's Encrypt）
+your-domain.com {
+    reverse_proxy /api/* api:8000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    reverse_proxy /ws/* api:8000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up Upgrade {http.request.header.Upgrade}
+        header_up Connection {http.request.header.Connection}
+    }
+
+    reverse_proxy frontend:80
+}
+
+# 本地测试（明文 HTTP，注释上面域名块、启用本块）：
+# :8080 {
+#     reverse_proxy /api/* api:8000
+#     reverse_proxy /ws/* api:8000
+#     reverse_proxy frontend:80
+# }

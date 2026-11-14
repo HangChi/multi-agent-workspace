@@ -1,13 +1,25 @@
+# Agent Workbench 完整部署（T080）：基础设施 + api/worker/beat/frontend。
+#
+# 用法：
+#   cp deploy/.env.example .env   # 按需修改密钥
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#
+# 密钥策略：所有敏感配置经 ${VAR} 从 .env 注入，不落镜像。
+# 服务依赖：api/worker/beat 依赖 postgres/redis/minio（healthcheck）；
+# frontend 依赖 api（反代目标 api:8000）。
+
 services:
+  # ---------- 基础设施 ----------
   postgres:
     image: postgres:16-alpine
     container_name: aw-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-aw}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aw-dev-password}
       POSTGRES_DB: ${POSTGRES_DB:-agent_workbench}
     ports:
-      - '5432:5432'
+      - '127.0.0.1:5432:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -19,8 +31,9 @@ services:
   redis:
     image: redis:7-alpine
     container_name: aw-redis
+    restart: unless-stopped
     ports:
-      - '6379:6379'
+      - '127.0.0.1:6379:6379'
     volumes:
       - redisdata:/data
     healthcheck:
@@ -32,20 +45,157 @@ services:
   minio:
     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
     container_name: aw-minio
+    restart: unless-stopped
     command: server /data --console-address ':9001'
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     ports:
-      - '9000:9000'
-      - '9001:9001'
+      - '127.0.0.1:9000:9000'
+      - '127.0.0.1:9001:9001'
     volumes:
       - miniodata:/data
     healthcheck:
-      test: ['CMD', 'mc', 'ready', 'local']
-      interval: 5s
+      test: ['CMD', 'curl', '-f', 'http://127.0.0.1:9000/minio/health/live']
+      interval: 10s
       timeout: 5s
       retries: 10
+
+  # ---------- 应用服务 ----------
+  # 一次性迁移：建表（alembic upgrade head），api/worker/beat 依赖其完成
+  migrate:
+    build:
+      context: ../backend
+    container_name: aw-migrate
+    command: alembic upgrade head
+    environment: &app_env
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_TTL_MINUTES: ${JWT_ACCESS_TTL_MINUTES:-30}
+      JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:-7}
+      INVITE_CODE: ${INVITE_CODE}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_BASE_URL: ${LLM_BASE_URL}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+  api:
+    build:
+      context: ../backend
+    container_name: aw-api
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_TTL_MINUTES: ${JWT_ACCESS_TTL_MINUTES:-30}
+      JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:-7}
+      INVITE_CODE: ${INVITE_CODE}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_BASE_URL: ${LLM_BASE_URL}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    healthcheck:
+      test: ['CMD-SHELL', 'python -c "import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/api/v1/health\", timeout=3)"']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    # 不暴露 8000 到宿主机：仅经 frontend(nginx)/Caddy 反代访问
+    expose:
+      - '8000'
+
+  worker:
+    build:
+      context: ../backend
+    container_name: aw-worker
+    restart: unless-stopped
+    command: celery -A app.tasks.celery_app:celery_app worker --loglevel=info --concurrency=2
+    environment: *app_env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    healthcheck:
+      test: ['CMD-SHELL', 'celery -A app.tasks.celery_app:celery_app inspect ping 2>&1 | grep -q "pong"']
+      interval: 30s
+      timeout: 15s
+      retries: 3
+
+  beat:
+    build:
+      context: ../backend
+    container_name: aw-beat
+    restart: unless-stopped
+    command: celery -A app.tasks.celery_app:celery_app beat --loglevel=info
+    environment: *app_env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'python -c "import redis,os; r=redis.from_url(os.environ[\"REDIS_URL\"]); r.ping()"']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ../frontend
+    container_name: aw-frontend
+    restart: unless-stopped
+    ports:
+      - '${FRONTEND_PORT:-8080}:80'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O - http://127.0.0.1/ || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 volumes:
   pgdata:
