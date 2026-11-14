@@ -55,16 +55,16 @@
 
 **⚠️ CRITICAL**: 本 Phase 完成前不要开始任何用户故事
 
-- [ ] T008 新增模型：backend/app/models/tool.py、sandbox_execution.py、egress.py（egress_rules + egress_accesses），严格对齐 data-model.md 的字段/类型/约束/索引/唯一约束（含 `sandbox_executions.step_id` UNIQUE、`egress_rules` 的 6 元组唯一）
-- [ ] T009 既有模型变更：backend/app/models/agent.py 增 `egress_mode`（enum default/restricted）；backend/app/models/artifact.py 增 `sha256`（char(64), nullable）；同步 backend/app/models/__init__.py 导出
-- [ ] T010 迁移：backend/alembic/versions/0003_sandbox_tools.py（建 4 表 + 加 2 列 + `tools` 表 seed 5 条 + 存量 `agents.tools` 改名映射：`web_fetch→read_url`、`shell→run_shell`、`code_interpreter→run_python`、`http` 移除；迁移日志输出受影响 Agent 数）。**注意**：迁移用 `op.execute` 写数据，反向迁移可回滚列但不回滚数据改名
-- [ ] T011 [P] 工具目录单一事实源：backend/app/executors/catalog.py（`ToolSpec` dataclass：name/display_name/description/kind/param_schema/timeout_seconds；`CATALOG` 常量声明 5 个工具；`get_tool(name)`、`enabled_tools()`）
-- [ ] T012 [P] 执行器基座扩展：backend/app/executors/base.py 增 `ExecutorRegistry.from_names(names, catalog)`（缺工具的 name 静默跳过并记 warning）与 `DeniedToolResult` 类型（对齐 contracts/api.md 的 `{"ok":false,"denied":true,...}`）
-- [ ] T013 [P] DTO：backend/app/schemas/tool.py（ToolOut 列表）、sandbox.py（ExecutionSummary/ExecutionDetail/EgressAccessOut）、egress.py（EgressRuleIn/Out、BlacklistIn/Out）
-- [ ] T014 [P] 制品服务扩展：backend/app/services/artifact_service.py 增 `put_bytes(run_id, execution_id, filename, data, mime=None) -> (object_key, sha256)`（服务端直传 + 流式 sha256 + 键前缀 `artifacts/{run_id}/{execution_id}/`）
-- [ ] T015 容器生命周期封装：backend/app/executors/sandbox_client.py（`SandboxRun`：创建独立 bridge 网络 `aw-sbx-{exec_id}` → `containers.run(detach=True, remove=False)` → 分段 `wait(timeout=1s)` 循环 + `abort_check` 回调 → 超时/取消 `kill(SIGKILL)` → `logs()` → `get_archive()` → finally `remove(force=True)` + `networks.remove()`；参数全部来自配置，**不接受任何调用方传入的 docker 参数**）
-- [ ] T016 [P] 出站策略求值：backend/app/executors/egress.py（纯函数 `evaluate(target_ip, target_domain, port, *, mode, global_rules, agent_rules) -> Decision(action, matched_rule_id)`；顺序：内置黑名单 → 全局 deny → (restricted) agent allow → default allow；不含任何 IO，便于单测）
-- [ ] T017 测试基座扩展：backend/tests/conftest.py 增 `fake_docker` fixture（mock SDK：记录创建参数、可控 wait 超时/退出码/归档内容）、`sbx_semaphore` fixture（真实 Redis，测完清理）、`sandbox_factory`（造 sandbox_executions 记录）
+- [x] T008 新增模型：backend/app/models/tool.py、sandbox_execution.py、egress.py（egress_rules + egress_accesses），严格对齐 data-model.md 的字段/类型/约束/索引/唯一约束（含 `sandbox_executions.step_id` UNIQUE、`egress_rules` 的 6 元组唯一）
+- [x] T009 既有模型变更：backend/app/models/agent.py 增 `egress_mode`（enum default/restricted）；backend/app/models/artifact.py 增 `sha256`（char(64), nullable）；同步 backend/app/models/__init__.py 导出
+- [x] T010 迁移：backend/alembic/versions/0003_sandbox_tools.py（建 4 表 + 加 2 列 + `tools` 表 seed 5 条 + 存量 `agents.tools` 改名映射：`web_fetch→read_url`、`shell→run_shell`、`code_interpreter→run_python`、`http` 移除；迁移日志输出受影响 Agent 数）。**注意**：迁移用 `op.execute` 写数据，反向迁移可回滚列但不回滚数据改名
+- [x] T011 [P] 工具目录单一事实源：backend/app/executors/catalog.py（`ToolSpec` dataclass：name/display_name/description/kind/param_schema/timeout_seconds；`CATALOG` 常量声明 5 个工具；`get_tool(name)`、`enabled_tools()`）
+- [x] T012 [P] 执行器基座扩展：backend/app/executors/base.py 增 `ExecutorRegistry.from_names(names, catalog)`（缺工具的 name 静默跳过并记 warning）与 `DeniedToolResult` 类型（对齐 contracts/api.md 的 `{"ok":false,"denied":true,...}`）
+- [x] T013 [P] DTO：backend/app/schemas/tool.py（ToolOut 列表）、sandbox.py（ExecutionSummary/ExecutionDetail/EgressAccessOut）、egress.py（EgressRuleIn/Out、BlacklistIn/Out）
+- [x] T014 [P] 制品服务扩展：backend/app/services/artifact_service.py 增 `put_bytes(run_id, execution_id, filename, data, mime=None) -> (object_key, sha256)`（服务端直传 + 流式 sha256 + 键前缀 `artifacts/{run_id}/{execution_id}/`）
+- [x] T015 容器生命周期封装：backend/app/executors/sandbox_client.py（`SandboxRun`：创建独立 bridge 网络 `aw-sbx-{exec_id}` → `containers.run(detach=True, remove=False)` → 分段 `wait(timeout=1s)` 循环 + `abort_check` 回调 → 超时/取消 `kill(SIGKILL)` → `logs()` → `get_archive()` → finally `remove(force=True)` + `networks.remove()`；参数全部来自配置，**不接受任何调用方传入的 docker 参数**）
+- [x] T016 [P] 出站策略求值：backend/app/executors/egress.py（纯函数 `evaluate(target_ip, target_domain, port, *, mode, global_rules, agent_rules) -> Decision(action, matched_rule_id)`；顺序：内置黑名单 → 全局 deny → (restricted) agent allow → default allow；不含任何 IO，便于单测）
+- [x] T017 测试基座扩展：backend/tests/conftest.py 增 `fake_docker` fixture（mock SDK：记录创建参数、可控 wait 超时/退出码/归档内容）、`sbx_semaphore` fixture（真实 Redis，测完清理）、`sandbox_factory`（造 sandbox_executions 记录）
 
 **Checkpoint**: 迁移可执行（含 seed 与改名）；`evaluate()` 与 `from_names()` 可单测；fake_docker 能驱动 sandbox_client 全流程
 
@@ -79,7 +79,7 @@
 ### Tests for User Story 1（先写，先红后绿）⚠️
 
 - [ ] T018 [P] [US1] 限额与分类单元测试 backend/tests/unit/test_sandbox_limits.py：退出码 0→`ok`、非零→`failed(exit_code)`、wait 超时→`timeout`、OOM→`resource(oom)`、pids 超限→`resource(pids)`、磁盘超限→`resource(disk)`、守护不可达→`infra`；每类断言 `error_message` 中文可读且非「未知错误」
-- [ ] T019 [P] [US1] 生命周期契约测试 backend/tests/unit/test_sandbox_client.py（fake_docker）：断言网络以独立名字创建、容器参数含 `nano_cpus/mem_limit/pids_limit/read_only/tmpfs`、超时后调 `kill(SIGKILL)`、`finally` 必调 `remove(force=True)` 与 `networks.remove()`、异常路径也不残留
+- [x] T019 [P] [US1] 生命周期契约测试 backend/tests/unit/test_sandbox_client.py（fake_docker）：断言网络以独立名字创建、容器参数含 `nano_cpus/mem_limit/pids_limit/read_only/tmpfs`、超时后调 `kill(SIGKILL)`、`finally` 必调 `remove(force=True)` 与 `networks.remove()`、异常路径也不残留
 - [ ] T020 [P] [US1] 执行器单元测试 backend/tests/unit/test_sandbox_executor.py：`run_python`/`run_shell` 的 schema 形状；参数缺省用默认 timeout；**失败必须返回 `{"ok": false, "status": ..., "exit_code": ..., "stdout": ..., "stderr": ...}` 而非抛异常**（FR-013；反向验证：把实现改成抛异常，此测试必须红）
 - [ ] T021 [P] [US1] 输出截断单元测试 backend/tests/unit/test_sandbox_output.py：输出 3MB → 保留尾部 ≤1MB、`stdout_truncated=true`、`stdout_full_bytes=3145728`；二进制/乱码输出不抛异常、降级为可读替换
 
@@ -314,3 +314,29 @@ US1 是能力、US2 是这能力的正确开关。**两者必须同批交付**�
 - **环境限制**：iptables/conntrack 相关验证（T060/T069/T070）只能在 Linux 宿主跑；macOS 本地开发跳过并在提交信息里注明
 - 已知未覆盖：SC-004 的 P95 对比需压测（P3 才做全量压测），本特性用手工 20 并发观察并记录
 - 未决项（宪法 Follow-up）：gVisor/seccomp 加固归 P3；本特性只在 deploy/README 记录 socket 风险
+
+---
+
+## 实现偏差记录（T015 / T024 收口，2026-11-14）
+
+T015 原计划里有 5 处与真实 Docker 行为不符，**全部经真实容器探针实测确认**（19 个探针脚本，
+本机 Docker 29.9.3 / SDK 7.2.0），已按实测改写实现。逐条记录如下，便于 code review 与后续
+T023/T024 对齐：
+
+| # | 计划原文 | 实测结论 | 实际实现 |
+|---|---|---|---|
+| 1 | 脚本 `put_archive` 写入 `/workspace/main.py` | `read_only=True` 时 daemon **无条件**拒绝 `put_archive`（400 `container rootfs is marked read-only`），即使目标是 tmpfs 挂载点也不行——daemon 只看 rootfs 标记，不看目标路径 | 脚本写入**命名卷** `/code`（卷不受 rootfs 只读限制），路径改 `/code/main.py` / `/code/run.sh`。语义不变：`command` 仍是常量，用户内容仍是数据（R-07） |
+| 2 | `containers.run(detach=True, remove=False)` | `run()` 会**立刻启动**容器，而脚本必须先于启动写入，否则 tmpfs 挂载会遮蔽已写入的文件 | 改为 `create → put_archive → start` 三步。`fake_docker` 里把 `containers.run` 写成 `raise AssertionError`，从测试层锁死这个偏差 |
+| 3 | 产物从 `/workspace/output` 取 | tmpfs 上的产物随容器退出**卸载丢失**（`get_archive` 只剩空目录项 `[('output', 0, True)]`） | `/workspace/output` 单独挂**命名卷**，产物回收发生在容器退出之后仍可读 |
+| 4 | `storage_opt={"size": "256m"}` 限制磁盘 | **不生效**：写满 400MB 全部成功（底层 overlay2 未开 project quota） | 磁盘限额只能靠 **tmpfs `size=`**（实测写 400MB 时返回 `ENOSPC: 28`）。`storage_opt` 不写进实现 |
+| 5 | `wait(timeout=1)` 抛 `ReadTimeout` | 实际抛 `requests.exceptions.ConnectionError`（"Read timed out" 被 urllib3 包了一层），**不在** `docker.errors` 里 | 超时轮询统一捕获 `requests.exceptions.RequestException` |
+
+**遗留缺口（转 T044 收口）**：`output/` 命名卷没有内核级大小上限（`storage_opt` 不可用）。
+当前靠「采集侧硬上限（`_ARCHIVE_READ_CEILING = 512MB` 边读边判）+ 采集后立即删卷」兜底，
+即最坏情况下容器可在卷里写满宿主磁盘。彻底方案需宿主开启 overlay2 project quota 或改用
+单独的小分区挂载，属部署侧改造。
+
+**内置出站黑名单的实现位置**：契约 `contracts/` 写的是 DB 里 `builtin=true` 的行，实际实现
+用的是配置常量 `EGRESS_BUILTIN_BLACKLIST`（`app/core/config.py`）。理由：内置项属于代码资产
+（改它要发版），放 DB 会让「谁能改内置黑名单」变成权限问题。DB 表只存用户/全局自定义规则。
+后续如需要运营侧可调，再迁到 DB 并加 `builtin` 列。
