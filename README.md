@@ -327,10 +327,9 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 
 ## 已知限制
 
-- `Agent.tools` 字段会做白名单校验并持久化，但**尚未用于过滤实际注入 LLM 的工具集**——
-  当前所有 Run 都会拿到全部内置工具。
-- Agent 工具白名单里的 `shell` / `http` / `code_interpreter` 尚无执行器实现，仅有名称占位。
-- 代码沙箱（Docker 一次性容器）是设计目标，尚未接入；当前不执行用户任意代码。
+- `Agent.tools` 已按工具目录过滤实际注入 LLM 的工具集；未授权目录工具会返回 `denied` 结构并写入审计日志。
+- `run_python` / `run_shell` 已接入 Docker 一次性容器，支持超时、取消、资源限制、输出截断与制品回收；真实 Linux 宿主的 iptables/conntrack 出网验证仍待完成。
+- 出网规则管理、Agent 限制模式和访问查询端点已接入；TLS 解密、URL 路径/请求体级记录仍不在范围内。
 - 定时调度（`schedules`）、MCP 服务器接入、Prometheus 指标尚未实现。
 - 前端单测较薄（仅 `useRunSocket`、`client`、`ErrorBanner`），页面层依赖 Playwright 端到端验证。
 - 未指定开源许可证；仓库为私有自用。
