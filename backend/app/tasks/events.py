@@ -50,6 +50,18 @@ def needs_input(run_id: str, message: str) -> None:
     _publish(run_id, {"type": "needs_input", "message": message})
 
 
+def sandbox_started(run_id: str, execution_id: str, step_seq: int, language: str, limits: dict[str, Any]) -> None:
+    _publish(run_id, {"type": "sandbox_started", "execution_id": execution_id, "step_seq": step_seq, "language": language, "limits": limits})
+
+
+def sandbox_output(run_id: str, execution_id: str, stream: str, chunk: str) -> None:
+    _publish(run_id, {"type": "sandbox_output", "execution_id": execution_id, "stream": stream, "chunk": chunk[:4096]})
+
+
+def sandbox_finished(run_id: str, execution_id: str, status: str, exit_code: int | None, duration_ms: int, artifacts: int = 0) -> None:
+    _publish(run_id, {"type": "sandbox_finished", "execution_id": execution_id, "status": status, "exit_code": exit_code, "duration_ms": duration_ms, "artifacts": artifacts})
+
+
 def _publish(run_id: str, payload: dict[str, Any]) -> None:
     """发布事件；Redis 抖动不抛出（Worker 不因事件失败中断执行）。"""
     try:

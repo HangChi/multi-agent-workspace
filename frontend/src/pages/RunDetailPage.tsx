@@ -6,6 +6,7 @@ import { Link, useParams } from 'react-router-dom'
 import * as api from '../api/endpoints'
 import { extractError } from '../api/client'
 import { StepList } from '../components/run/StepList'
+import { ExecutionCard } from '../components/run/ExecutionCard'
 import { Badge } from '../components/ui/Badge'
 import type { BadgeTone } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
@@ -141,6 +142,36 @@ export function RunDetailPage() {
           ...prev.slice(-199),
           { line: event.line as string, level: (event.level as string) ?? 'info' },
         ])
+        break
+      case 'sandbox_started':
+        setRun((prev) => {
+          if (!prev) return prev
+          const execution: api.RunExecution = {
+            id: event.execution_id as string,
+            step_seq: event.step_seq as number,
+            language: event.language as string,
+            status: 'running',
+            exit_code: null,
+            duration_ms: 0,
+            stdout_truncated: false,
+            artifacts: 0,
+          }
+          return { ...prev, executions: [...(prev.executions ?? []).filter((item) => item.id !== execution.id), execution] }
+        })
+        break
+      case 'sandbox_finished':
+        setRun((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            executions: (prev.executions ?? []).map((item) => item.id === event.execution_id
+              ? { ...item, status: event.status as string, exit_code: event.exit_code as number | null, duration_ms: event.duration_ms as number, artifacts: event.artifacts as number }
+              : item),
+          }
+        })
+        break
+      case 'sandbox_output':
+        setLogs((prev) => [...prev.slice(-199), { line: event.chunk as string, level: event.stream === 'stderr' ? 'error' : 'info' }])
         break
       case 'needs_input':
         setRun((prev) => (prev ? { ...prev, status: 'needs_input' } : prev))
@@ -464,6 +495,14 @@ export function RunDetailPage() {
         />
         <StepList steps={run.steps} />
       </Card>
+
+      {(run.executions ?? []).length > 0 && (
+        <div className="space-y-2">
+          {(run.executions ?? []).map((execution) => (
+            <ExecutionCard key={execution.id} execution={execution} />
+          ))}
+        </div>
+      )}
 
       {/* 制品 */}
       {run.artifacts.length > 0 && (

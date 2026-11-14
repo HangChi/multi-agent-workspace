@@ -56,6 +56,28 @@ export async function fetchMe(): Promise<UserOut> {
   return data
 }
 
+// ---------- 工具目录（002 US2）----------
+
+export interface ToolSpec {
+  name: string
+  display_name: string
+  description: string
+  kind: 'builtin' | 'sandbox'
+  enabled: boolean
+  param_schema: Record<string, unknown>
+  timeout_seconds: number
+}
+
+export interface ToolList {
+  items: ToolSpec[]
+  total: number
+}
+
+export async function fetchTools(): Promise<ToolList> {
+  const { data } = await apiClient.get<ToolList>('/tools')
+  return data
+}
+
 // ---------- Agent（T037）----------
 
 export interface Agent {
@@ -70,6 +92,7 @@ export interface Agent {
   max_run_seconds: number
   tools: string[]
   cost_limit_cents: number
+  egress_mode: 'default' | 'restricted'
   status: 'active' | 'archived'
   created_at: string
   updated_at: string
@@ -85,6 +108,7 @@ export interface AgentCreateRequest {
   max_run_seconds?: number
   tools?: string[]
   cost_limit_cents?: number
+  egress_mode?: 'default' | 'restricted'
 }
 
 export type AgentUpdateRequest = Partial<Omit<AgentCreateRequest, 'name'>> & {
@@ -380,7 +404,19 @@ export interface RunArtifact {
   filename: string
   size_bytes: number
   mime_type: string | null
+  sha256?: string | null
   created_at: string
+}
+
+export interface RunExecution {
+  id: string
+  step_seq: number
+  language: string
+  status: string
+  exit_code: number | null
+  duration_ms: number
+  stdout_truncated: boolean
+  artifacts: number
 }
 
 export interface RunDetail {
@@ -401,6 +437,7 @@ export interface RunDetail {
   updated_at: string
   steps: RunStep[]
   artifacts: RunArtifact[]
+  executions?: RunExecution[]
 }
 
 /** 运行详情。 */

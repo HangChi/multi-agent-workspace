@@ -17,6 +17,7 @@ from app.api.v1.groups import router as groups_router
 from app.api.v1.requests import router as requests_router
 from app.api.v1.runs import router as runs_router
 from app.api.v1.stats import router as stats_router
+from app.api.v1.tools import router as tools_router
 from app.api.v1.ws import router as ws_router
 from app.core.config import settings
 from app.core.db import SessionLocal
@@ -56,6 +57,7 @@ def create_app() -> FastAPI:
     api_v1.include_router(requests_router)
     api_v1.include_router(runs_router)
     api_v1.include_router(stats_router)
+    api_v1.include_router(tools_router)
     api_v1.include_router(admin_router)
     app.include_router(api_v1)
     app.include_router(ws_router)

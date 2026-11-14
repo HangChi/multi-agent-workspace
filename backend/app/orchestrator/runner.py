@@ -16,6 +16,9 @@ from collections.abc import Awaitable, Callable
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
+from app.core.config import settings
+from app.executors.base import DeniedToolResult
+from app.executors.catalog import CATALOG
 from app.orchestrator.state_machine import RunLike, RunStatus, transition
 
 
@@ -66,12 +69,14 @@ class ReActRunner:
         timeout_seconds: int = 1800,
         cost_limit_cents: int = 10000,
         system_prompt: str | None = None,
+        audit_denied: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
     ) -> None:
         self.llm = llm
         self.executors = executors
         self.max_steps = max_steps
         self.timeout_seconds = timeout_seconds
         self.cost_limit_cents = cost_limit_cents
+        self.audit_denied = audit_denied
         self.system_prompt = system_prompt or (
             "你是一个任务执行助手。你需要：1) 理解用户需求；2) 必要时调用工具获取信息；"
             "3) 最终用『最终答案』格式给出结果。如果缺少关键信息，回复 __NEEDS_INPUT__ 加补充要求。"
@@ -114,6 +119,7 @@ class ReActRunner:
 
         step_count = 0
         seq = 0  # 全局单调步骤序号（LLM/tool/final 共用，避免跨轮重复）
+        denied_count = 0
         run_cost = 0
         start = time.monotonic()
         tools = [executor.schema() for executor in self.executors.values()]
@@ -202,11 +208,30 @@ class ReActRunner:
                     seq += 1
                     tool_started = time.monotonic()
                     executor = self.executors.get(tc.name)
+                    denied = executor is None and tc.name in CATALOG
                     if executor is None:
-                        output: dict[str, Any] = {
-                            "error": f"未知工具 {tc.name}：执行器未注册"
-                        }
+                        if denied:
+                            denied_count += 1
+                            output = DeniedToolResult.build(tc.name, sorted(self.executors))
+                        else:
+                            # 完全未知的工具名不是「越权」，保留旧的可读错误语义。
+                            output = {"error": f"未知工具 {tc.name}：执行器未注册"}
                         tool_name = tc.name
+                        if denied:
+                            await publish_event(
+                                {
+                                    "type": "tool_denied",
+                                    "tool": tc.name,
+                                    "message": output["message"],
+                                }
+                            )
+                            if self.audit_denied is not None:
+                                await self.audit_denied(
+                                    {
+                                        "tool_name": tc.name,
+                                        "available_tools": sorted(self.executors),
+                                    }
+                                )
                     else:
                         try:
                             result = await executor.execute(tc.arguments)
@@ -234,6 +259,18 @@ class ReActRunner:
                     )
                     await save_step(tool_step)
                     await publish_event({"type": "step_update", "step": tool_step})
+
+                    if not denied:
+                        denied_count = 0
+                    if denied and denied_count >= settings.tool_deny_threshold:
+                        transition(run, RunStatus.FAILED)
+                        run.error = (
+                            f"工具越权调用连续达到 {settings.tool_deny_threshold} 次，"
+                            "为安全起见已中止当前运行"
+                        )
+                        await set_status(run.status)
+                        await publish_event({"type": "run_failed", "error": run.error})
+                        return run.status
 
                     # 回填给 LLM（assistant tool_call + tool 结果）
                     messages.append(

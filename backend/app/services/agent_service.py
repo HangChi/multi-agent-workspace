@@ -30,6 +30,7 @@ async def create_agent(db: AsyncSession, *, user_id: str, payload: AgentCreate) 
         max_steps=payload.max_steps,
         max_run_seconds=payload.max_run_seconds,
         tools=payload.tools,
+        egress_mode=payload.egress_mode,
         cost_limit_cents=payload.cost_limit_cents,
     )
     db.add(agent)

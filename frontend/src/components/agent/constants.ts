@@ -1,10 +1,3 @@
-/** Agent 相关常量（T037）。 */
+/** Agent 表单的稳定常量。工具清单由 GET /tools 提供，不在前端重复维护。 */
 
-/** 工具白名单（与后端 app/schemas/agent.py ALLOWED_TOOLS 保持一致）。 */
-export const ALLOWED_TOOLS = [
-  'web_search',
-  'web_fetch',
-  'shell',
-  'http',
-  'code_interpreter',
-] as const
+export const DEFAULT_AGENT_TOOLS: string[] = []

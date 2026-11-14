@@ -21,9 +21,11 @@ from app.api.errors import AppError
 from app.core.audit import write_audit
 from app.models.artifact import Artifact
 from app.models.run import Run
+from app.models.sandbox_execution import SandboxExecution
 from app.models.step import Step
 from app.orchestrator.state_machine import RunStatus, transition
 from app.schemas.run import RunOut
+from app.schemas.sandbox import ExecutionDetail, ExecutionSummary
 from app.services import artifact_service
 from app.services.assignment_service import _enqueue
 
@@ -59,10 +61,50 @@ async def get_run(run_id: str, user: CurrentUser, db: DB):
         .scalars()
         .all()
     )
+    executions = (
+        (await db.execute(select(SandboxExecution).where(SandboxExecution.run_id == run.id)))
+        .scalars()
+        .all()
+    )
+    step_seq = {step.id: step.seq for step in steps}
+    execution_summaries = [
+        ExecutionSummary(
+            id=execution.id,
+            step_seq=step_seq.get(execution.step_id, 0),
+            language=execution.language,
+            status=execution.status,
+            exit_code=execution.exit_code,
+            duration_ms=execution.duration_ms,
+            stdout_truncated=execution.stdout_truncated,
+            artifacts=sum(1 for artifact in artifacts if artifact.step_id == execution.step_id),
+        )
+        for execution in executions
+    ]
     return RunOut.model_validate(
         {
             **run.__dict__,
             "steps": steps,
+            "artifacts": artifacts,
+            "executions": execution_summaries,
+        }
+    )
+
+
+@router.get("/{run_id}/executions/{execution_id}", response_model=ExecutionDetail)
+async def get_execution(run_id: str, execution_id: str, user: CurrentUser, db: DB):
+    """查看一次沙箱执行的完整详情（代码/输出仅在此接口返回）。"""
+    run = await _get_owned_run(db, run_id, user)
+    execution = await db.get(SandboxExecution, execution_id)
+    if execution is None or execution.run_id != run.id:
+        raise AppError("NOT_FOUND", "沙箱执行不存在")
+    step = await db.get(Step, execution.step_id)
+    artifacts = (
+        await db.execute(select(Artifact).where(Artifact.step_id == execution.step_id))
+    ).scalars().all()
+    return ExecutionDetail.model_validate(
+        {
+            **execution.__dict__,
+            "step_seq": step.seq if step else 0,
             "artifacts": artifacts,
         }
     )

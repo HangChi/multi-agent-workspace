@@ -1,14 +1,13 @@
 /** Agent 创建/编辑表单（T037）。 */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import { Agent } from '../../api/endpoints'
+import { Agent, fetchTools, ToolSpec } from '../../api/endpoints'
 import { Button } from '../ui/Button'
 import { Icon } from '../ui/Icons'
 import { Input, NumberInput, Slider, Select, Textarea } from '../ui/Field'
 import { cn } from '../ui/cn'
 
-import { ALLOWED_TOOLS } from './constants'
 
 export interface AgentFormValues {
   name: string
@@ -20,6 +19,7 @@ export interface AgentFormValues {
   max_run_seconds: number
   tools: string[]
   cost_limit_cents: number
+  egress_mode: 'default' | 'restricted'
 }
 
 interface Props {
@@ -38,16 +38,9 @@ const MODELS = [
   'deepseek-r1',
 ]
 
-/** 工具的短说明，降低「猜字段」成本 */
-const TOOL_HINTS: Record<string, string> = {
-  web_search: '联网搜索',
-  web_fetch: '抓取网页',
-  shell: '执行命令',
-  http: '调用接口',
-  code_interpreter: '运行代码',
-}
-
 export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
+  const [catalog, setCatalog] = useState<ToolSpec[]>([])
+  const [toolsLoading, setToolsLoading] = useState(true)
   const [values, setValues] = useState<AgentFormValues>({
     name: initial?.name ?? '',
     description: initial?.description ?? '',
@@ -56,10 +49,28 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
     temperature: initial?.temperature ?? 0.7,
     max_steps: initial?.max_steps ?? 10,
     max_run_seconds: initial?.max_run_seconds ?? 300,
-    tools: initial?.tools ?? ['web_search', 'web_fetch'],
+    tools: initial?.tools ?? [],
     cost_limit_cents: initial?.cost_limit_cents ?? 500,
+    egress_mode: initial?.egress_mode ?? 'default',
   })
   const [touched, setTouched] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    fetchTools()
+      .then((result) => {
+        if (active) setCatalog(result.items.filter((tool) => tool.enabled))
+      })
+      .catch(() => {
+        if (active) setCatalog([])
+      })
+      .finally(() => {
+        if (active) setToolsLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   const set = <K extends keyof AgentFormValues>(key: K, value: AgentFormValues[K]) => {
     setValues((v) => ({ ...v, [key]: value }))
@@ -89,6 +100,7 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
       max_steps: Number(values.max_steps),
       max_run_seconds: Number(values.max_run_seconds),
       cost_limit_cents: Number(values.cost_limit_cents),
+      egress_mode: values.egress_mode,
     })
   }
 
@@ -193,18 +205,20 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
       <div>
         <div className="mb-2 flex items-center justify-between">
           <span className="text-[13px] font-medium text-ink-soft">工具白名单</span>
-          <span className="text-xs text-ink-faint">已选 {values.tools.length} 个</span>
+          <span className="text-xs text-ink-faint">
+            {toolsLoading ? '加载中…' : `已选 ${values.tools.length} 个`}
+          </span>
         </div>
         <div className="flex flex-wrap gap-2">
-          {ALLOWED_TOOLS.map((tool) => {
-            const active = values.tools.includes(tool)
+          {catalog.map((tool) => {
+            const active = values.tools.includes(tool.name)
             return (
               <button
-                key={tool}
+                key={tool.name}
                 type="button"
                 aria-pressed={active}
-                onClick={() => toggleTool(tool)}
-                title={TOOL_HINTS[tool]}
+                onClick={() => toggleTool(tool.name)}
+                title={tool.description}
                 className={cn(
                   'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all duration-150',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:ring-offset-1',
@@ -214,9 +228,9 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
                 )}
               >
                 <Icon name={active ? 'check' : 'plus'} className="h-3 w-3" />
-                <span className="font-mono">{tool}</span>
+                <span className="font-mono">{tool.name}</span>
                 <span className={cn('font-sans text-2xs', active ? 'text-brand-400' : 'text-ink-faint')}>
-                  {TOOL_HINTS[tool]}
+                  {tool.display_name}
                 </span>
               </button>
             )

@@ -107,10 +107,12 @@ class ExecutorRegistry:
             只含成功匹配项的注册表。
         """
         from app.executors.http import builtin_tools
+        from app.executors.sandbox import sandbox_executors
 
         spec_catalog = CATALOG if catalog is None else catalog
         if available is None:
             available = {ex.name: ex for ex in builtin_tools()}
+            available.update(sandbox_executors())
 
         registry = cls()
         for name in names:

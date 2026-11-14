@@ -10,6 +10,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.schemas.sandbox import ExecutionSummary
+
 
 class StepOut(BaseModel):
     """步骤摘要（详情页展示用）。"""
@@ -33,6 +35,7 @@ class ArtifactOut(BaseModel):
     filename: str
     size_bytes: int
     mime_type: str | None = None
+    sha256: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -58,5 +61,6 @@ class RunOut(BaseModel):
     updated_at: datetime
     steps: list[StepOut] = []
     artifacts: list[ArtifactOut] = []
+    executions: list[ExecutionSummary] = []
 
     model_config = {"from_attributes": True}

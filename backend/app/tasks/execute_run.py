@@ -19,10 +19,11 @@ import structlog
 from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
+from app.core.audit import write_audit
 from app.core.config import settings
 from app.core.db import SessionLocal
-from app.executors.http import default_executors
 from app.executors.llm import LiteLLMClient, LLMClientError
+from app.executors.sandbox import build_executors
 from app.models.agent import Agent
 from app.models.request import Request
 from app.models.run import Run
@@ -85,7 +86,7 @@ def _build_runner(run: Run, agent: Agent | None) -> ReActRunner:
     if agent is not None:
         return ReActRunner(
             llm=LiteLLMClient(model=agent.model),
-            executors=default_executors(),
+            executors=build_executors(list(agent.tools or [])),
             max_steps=agent.max_steps,
             timeout_seconds=agent.max_run_seconds,
             cost_limit_cents=agent.cost_limit_cents,
@@ -94,7 +95,7 @@ def _build_runner(run: Run, agent: Agent | None) -> ReActRunner:
     # 组父 Run：仅做编排占位（fan_out 时子 Run 各自执行），直接完成不调 LLM
     return ReActRunner(
         llm=LiteLLMClient(),
-        executors=default_executors(),
+        executors=build_executors(),
     )
 
 
@@ -299,6 +300,19 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
             return
 
     runner = _build_runner(run, agent)
+
+    async def audit_denied(detail: dict) -> None:
+        await write_audit(
+            db,
+            user_id=run.owner_id,
+            action="tool_denied",
+            target_type="run",
+            target_id=run.id,
+            detail=detail,
+        )
+        await db.commit()
+
+    runner.audit_denied = audit_denied
     steps: list[dict] = []
 
     # FR-021 恢复执行（needs_input → running）：旧步骤已写库，重跑会撞 (run_id, seq) 唯一约束。
