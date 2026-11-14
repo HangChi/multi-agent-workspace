@@ -1,11 +1,12 @@
 """FastAPI 应用入口。
 
-当前注册：CORS、统一错误处理、/api/v1 健康检查。
-后续 Phase 按需挂载 auth / agents / groups / requests / runs 等路由。
+注册：CORS、统一错误处理、/api/v1 健康检查（存活 + 就绪）、业务路由。
 """
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from app.api import errors
 from app.api.v1.admin import router as admin_router
@@ -17,14 +18,18 @@ from app.api.v1.runs import router as runs_router
 from app.api.v1.stats import router as stats_router
 from app.api.v1.ws import router as ws_router
 from app.core.config import settings
+from app.core.db import SessionLocal
+from app.core.events import redis_ping
 
 
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version="0.1.0",
-        docs_url="/docs",
-        redoc_url="/redoc",
+        # 生产关闭交互式文档：避免对外暴露完整 API 结构
+        docs_url=None if settings.is_production else "/docs",
+        redoc_url=None if settings.is_production else "/redoc",
+        openapi_url=None if settings.is_production else "/openapi.json",
     )
 
     app.add_middleware(
@@ -50,7 +55,38 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/health")
     async def health() -> dict:
+        """存活检查（liveness）：进程能响应即可，供容器重启判定。"""
         return {"status": "ok", "app": settings.app_name}
+
+    @app.get("/api/v1/health/ready")
+    async def readiness() -> JSONResponse:
+        """就绪检查（readiness）：DB + Redis 均可达才算就绪。
+
+        此前只有 /health 只返回 ok：DB 挂了容器仍报 healthy，请求全 500，
+        编排层无法感知。这里逐个探测依赖并返回 503。
+        """
+        checks: dict[str, str] = {}
+        ok = True
+
+        try:
+            async with SessionLocal() as db:
+                await db.execute(text("SELECT 1"))
+            checks["database"] = "ok"
+        except Exception as exc:  # noqa: BLE001 - 就绪探测需捕获全部异常
+            checks["database"] = f"error: {type(exc).__name__}"
+            ok = False
+
+        try:
+            await redis_ping()
+            checks["redis"] = "ok"
+        except Exception as exc:  # noqa: BLE001
+            checks["redis"] = f"error: {type(exc).__name__}"
+            ok = False
+
+        return JSONResponse(
+            status_code=200 if ok else 503,
+            content={"status": "ok" if ok else "unavailable", "checks": checks},
+        )
 
     return app
 

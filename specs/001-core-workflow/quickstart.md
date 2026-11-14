@@ -5,8 +5,8 @@
 ## 前置条件
 
 - Docker + Docker Compose 已安装。
-- `.env` 已配置（复制 `deploy/.env.example`）：`DATABASE_URL`、`REDIS_URL`、`MINIO_*`、`JWT_SECRET`、`LLM_API_KEY`（LiteLLM 网关）、`INVITE_CODE`（首个管理员邀请码）。
-- 启动：`docker compose -f deploy/docker-compose.yml up -d --build`。
+- `.env` 已配置（`cp deploy/.env.example deploy/.env`）：`DATABASE_URL`、`REDIS_URL`、`MINIO_*`、`JWT_SECRET`、`LLM_API_KEY`（LiteLLM 网关）、`INVITE_CODE`（首个管理员邀请码）。
+- 启动：`docker compose -p aw -f deploy/docker-compose.yml --profile mock up -d --build`（`-p aw` 固定项目名；`--profile mock` 拉起 Mock 网关，生产部署去掉）。
 - 首个管理员创建：通过 admin CLI 或脚本生成邀请码并注册 admin（见实现阶段细节）。
 - **离线复现 S5**：compose 内置 `llm-gateway`（`deploy/mock-llm/`）作为 OpenAI 兼容 Mock 网关，`LLM_BASE_URL` 指向它即可无真实密钥跑通执行链路；接入真实模型时替换为 LiteLLM 网关地址与密钥。
 
@@ -106,8 +106,8 @@ wscat -c "ws://localhost/api/v1/ws/runs/{run_id}?token=$TOKEN"
 ## 复现方式（真实栈验证脚本）
 
 ```bash
-# 全套服务（含 mock LLM 网关，用于离线复现 S5）
-docker compose -f deploy/docker-compose.yml up -d --build
+# 全套服务（含 mock LLM 网关，用于离线复现 S5）；生产部署去掉 --profile mock
+docker compose -p aw -f deploy/docker-compose.yml --profile mock up -d --build
 
 # S1~S4：需要 member/viewer 邀请码（首次执行时插入）
 docker exec aw-postgres psql -U aw -d agent_workbench -c "

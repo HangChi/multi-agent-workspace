@@ -35,6 +35,15 @@ async def publish_run_event(run_id: str, payload: dict[str, Any]) -> None:
         await client.aclose()
 
 
+async def redis_ping() -> bool:
+    """Redis 连通性探测（就绪检查用）。"""
+    client = _redis_client()
+    try:
+        return bool(await client.ping())
+    finally:
+        await client.aclose()
+
+
 EventHandler = Callable[[dict[str, Any]], Awaitable[None]]
 
 

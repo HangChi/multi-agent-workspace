@@ -1,12 +1,23 @@
 # Agent Workbench 完整部署（T080）：基础设施 + api/worker/beat/frontend。
 #
 # 用法：
-#   cp deploy/.env.example .env   # 按需修改密钥
-#   docker compose -f deploy/docker-compose.yml up -d --build
+#   cp deploy/.env.example deploy/.env   # 按需修改密钥
+#   docker compose -p aw -f deploy/docker-compose.yml up -d --build
+#   本地离线验证（含 Mock LLM 网关）：追加 --profile mock
 #
 # 密钥策略：所有敏感配置经 ${VAR} 从 .env 注入，不落镜像。
 # 服务依赖：api/worker/beat 依赖 postgres/redis/minio（healthcheck）；
 # frontend 依赖 api（反代目标 api:8000）。
+#
+# 资源与日志：每个服务限制 CPU/内存（防止单个失控 Run 拖垮整机）+ 日志轮转
+# （json-file 无限增长会撑爆磁盘）。
+
+# 日志轮转（所有服务共用）：单文件 10MB × 3 份
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '3'
 
 services:
   # ---------- 基础设施 ----------
@@ -22,6 +33,12 @@ services:
       - '127.0.0.1:5432:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1g
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-aw} -d ${POSTGRES_DB:-agent_workbench}']
       interval: 5s
@@ -36,6 +53,12 @@ services:
       - '127.0.0.1:6379:6379'
     volumes:
       - redisdata:/data
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256m
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
@@ -55,24 +78,39 @@ services:
       - '127.0.0.1:9001:9001'
     volumes:
       - miniodata:/data
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512m
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://127.0.0.1:9000/minio/health/live']
       interval: 10s
       timeout: 5s
       retries: 10
 
-  # ---------- Mock LLM 网关（quickstart S5 验证用，非生产）----------
-  # OpenAI 兼容 /v1/chat/completions；生产环境请替换为真实 LiteLLM 网关。
+  # ---------- Mock LLM 网关（仅验证用，默认不启动）----------
+  # OpenAI 兼容 /v1/chat/completions，用于无真实密钥时跑通执行链路。
+  # ⚠️ 生产绝不可启用（会返回假结果，让人误以为系统正常）。
+  # 启动方式：docker compose --profile mock up -d
   llm-gateway:
     image: python:3.12-slim
     container_name: aw-llm-gateway
     restart: unless-stopped
+    profiles: ['mock']
     command: python /app/server.py
     environment:
       PORT: '4000'
       MOCK_LLM_MODE: ${MOCK_LLM_MODE:-auto}
     volumes:
       - ./mock-llm:/app:ro
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128m
     healthcheck:
       test: ['CMD', 'python', '-c', 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:4000/health", timeout=2)']
       interval: 5s
@@ -107,6 +145,7 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
       MONTHLY_QUOTA_CENTS: ${MONTHLY_QUOTA_CENTS:-1000000}
+    logging: *default-logging
     depends_on:
       postgres:
         condition: service_healthy
@@ -141,6 +180,12 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
       MONTHLY_QUOTA_CENTS: ${MONTHLY_QUOTA_CENTS:-1000000}
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1g
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -151,10 +196,12 @@ services:
       minio:
         condition: service_started
     healthcheck:
-      test: ['CMD-SHELL', 'python -c "import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/api/v1/health\", timeout=3)"']
+      # 就绪探针：DB + Redis 均可达才算健康（/health 只判进程存活）
+      test: ['CMD-SHELL', 'python -c "import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/api/v1/health/ready\", timeout=3)"']
       interval: 10s
       timeout: 5s
       retries: 3
+      start_period: 20s
     # 不暴露 8000 到宿主机：仅经 frontend(nginx)/Caddy 反代访问
     expose:
       - '8000'
@@ -164,12 +211,19 @@ services:
       context: ../backend
     container_name: aw-worker
     restart: unless-stopped
-    command: celery -A app.tasks.celery_app:celery_app worker --loglevel=info --concurrency=2
+    # 并发度可配：每个任务会调 LLM + 工具，过高会同时打满 API 限流与内存
+    command: celery -A app.tasks.celery_app:celery_app worker --loglevel=${LOG_LEVEL:-info} --concurrency=${WORKER_CONCURRENCY:-2}
     # Celery worker 用 asyncio.run 每次新建事件循环：DB 连接池会跨 loop 复用报错，
     # 因此强制 NullPool（每个连接独立，天然适配任意 loop）。
     environment:
       <<: *app_env
       DB_POOL: 'null'
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2g
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -184,14 +238,21 @@ services:
       interval: 30s
       timeout: 15s
       retries: 3
+      start_period: 30s
 
   beat:
     build:
       context: ../backend
     container_name: aw-beat
     restart: unless-stopped
-    command: celery -A app.tasks.celery_app:celery_app beat --loglevel=info
+    command: celery -A app.tasks.celery_app:celery_app beat --loglevel=${LOG_LEVEL:-info}
     environment: *app_env
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256m
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -212,6 +273,12 @@ services:
     restart: unless-stopped
     ports:
       - '${FRONTEND_PORT:-8080}:80'
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128m
     depends_on:
       api:
         condition: service_healthy
