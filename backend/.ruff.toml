@@ -1,0 +1,2 @@
+# ruff 配置见 pyproject.toml [tool.ruff]
+# 本文件用于局部覆盖（如需）
