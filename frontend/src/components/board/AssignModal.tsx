@@ -12,8 +12,8 @@ import {
 const STRATEGY_OPTIONS: { value: RoutingStrategy; label: string; desc: string }[] = [
   { value: 'direct', label: '直接路由', desc: '请求直接交给该 Agent' },
   { value: 'fan_out', label: '广播', desc: '同时发给所有成员，汇总结果' },
-  { value: 'pipeline', label: '流水线', desc: '按顺序串联执行（后续 Phase 支持）' },
-  { value: 'router', label: '路由器', desc: '按内容智能分发（后续 Phase 支持）' },
+  { value: 'pipeline', label: '流水线', desc: '按成员顺序串联，前一步产出作为下一步输入' },
+  { value: 'router', label: '路由器', desc: '由模型按需求内容挑选最合适的成员' },
 ]
 
 const STRATEGY_LABELS: Record<RoutingStrategy, string> = {

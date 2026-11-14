@@ -2,7 +2,8 @@
 
 - direct：展开 1 个执行目标
 - fan_out：展开组内全部 active Agent（按 position 排序）
-- pipeline / router：显式抛「未实现」错误（Phase 1 保留入口）
+- pipeline：展开全部成员（顺序由 assignment 的 sequence 表达）
+- router：不展开成员，父 Run 自执行（运行时用 LLM 选人）
 """
 
 from dataclasses import dataclass, field
@@ -10,7 +11,6 @@ from dataclasses import dataclass, field
 import pytest
 
 from app.orchestrator.strategies import (
-    NotImplementedStrategyError,
     StrategyResolver,
     Target,
 )
@@ -123,15 +123,45 @@ def test_fan_out_all_archived_raises():
         )
 
 
-# ---------- 未实现策略 ----------
+# ---------- pipeline / router ----------
 
 
-@pytest.mark.parametrize("strategy", ["pipeline", "router"])
-def test_unimplemented_strategies_raise(strategy: str):
-    """pipeline/router → 显式抛「未实现」（Phase 1 保留入口）。"""
-    with pytest.raises(NotImplementedStrategyError, match="未实现"):
+def test_pipeline_expands_members_by_position():
+    """pipeline → 按 position 升序展开（顺序就是执行顺序）。"""
+    group = FakeGroup(
+        id="g1",
+        members=[
+            FakeMember(agent=FakeAgent(id="c"), position=3),
+            FakeMember(agent=FakeAgent(id="a"), position=1),
+            FakeMember(agent=FakeAgent(id="b"), position=2),
+        ],
+    )
+    targets = StrategyResolver.expand(
+        strategy="pipeline", assignee_type="group", assignee_id="g1", group=group
+    )
+    assert [t.assignee_id for t in targets] == ["a", "b", "c"]
+
+
+def test_pipeline_requires_group():
+    with pytest.raises(ValueError, match="需分配给 Agent 组"):
         StrategyResolver.expand(
-            strategy=strategy, assignee_type="agent", assignee_id="a1", group=None
+            strategy="pipeline", assignee_type="agent", assignee_id="a1", group=None
+        )
+
+
+def test_router_returns_single_group_target():
+    """router → 只返回父目标（由父 Run 运行时选成员，不再展开）。"""
+    group = _group_with_archived(active_ids=["a", "b"], archived_ids=[])
+    targets = StrategyResolver.expand(
+        strategy="router", assignee_type="group", assignee_id="g1", group=group
+    )
+    assert targets == [Target(assignee_type="group", assignee_id="g1")]
+
+
+def test_router_requires_group():
+    with pytest.raises(ValueError, match="需分配给 Agent 组"):
+        StrategyResolver.expand(
+            strategy="router", assignee_type="agent", assignee_id="a1", group=None
         )
 
 

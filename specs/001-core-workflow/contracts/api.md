@@ -94,7 +94,18 @@
 - 拖到单个 Agent：`strategy` 可省（默认 direct）。
 - 拖到组：`strategy` 可省（默认取组配置）。
 - 202 → `{"run_id": "...", "status": "queued"}`（受理入队）。
-- 409 需求已在执行（FR-012）；404 目标不存在/无权限；400 目标已归档。
+- 409 需求已在执行（FR-012）；404 目标不存在/无权限；400 目标已归档 / 组内无可用成员 / 组类策略拖到单个 Agent。
+
+**四种策略的 Run 结构**
+
+| 策略 | 建 Run 数 | 执行方式 |
+|---|---|---|
+| direct | 1 | 直接交给该 Agent |
+| fan_out | 1 父 + N 子 | 子 Run 全部并发入队，父 Run 占位后即刻 completed |
+| pipeline | 1 父 + N 子（`sequence=1..N`） | **只入队第一阶段**，每段完成后触发下一段；最后一段完成时父 Run 收敛为 completed（`result.stages` 记录各段状态与成本）；任一段失败则取消剩余段并把父 Run 标 failed |
+| router | 1（父 Run 自执行） | 运行时用模型从组内选一个成员，再按该成员配置执行；决策写入 `result.routing`（`selected_agent_id/name`、`reason`、路由成本），路由调用成本计入该 Run |
+
+> pipeline 各段输入 = 原始需求 + 上一段的 `result.answer`；父 Run 不会被单独入队（避免像 fan_out 那样立刻结束）。
 
 ## 运行
 

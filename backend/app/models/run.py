@@ -27,6 +27,7 @@ class Run(Base):
         Index("ix_runs_status_created", "status", "created_at"),
         Index("ix_runs_request", "request_id"),
         Index("ix_runs_parent", "parent_run_id"),
+        Index("ix_runs_parent_sequence", "parent_run_id", "sequence"),
     )
 
     id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=new_uuid)
@@ -53,6 +54,10 @@ class Run(Base):
         default="queued",
     )
     current_step: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # pipeline 策略下的阶段序号（1..N，按组内 position 顺序）；其他策略为 0
+    sequence: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     # needs_input 挂起时的用户回复（FR-021）：reply 端点写入，恢复执行时注入对话上下文

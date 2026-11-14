@@ -119,6 +119,9 @@ ON CONFLICT (code) DO NOTHING;"
 backend/.venv/bin/python deploy/verify/s1_s4_scenarios.py --base http://localhost:8080
 backend/.venv/bin/python deploy/verify/s5_scenarios.py --base http://localhost:8080 \
   --invite TEST-ADMIN-CODE-123
+# 组策略（pipeline 顺序串联 / router 选成员）
+backend/.venv/bin/python deploy/verify/strategy_scenarios.py --base http://localhost:8080 \
+  --invite TEST-ADMIN-CODE-123
 
 # 前端交互（S4 拖拽 / S5 实时反馈）：真实 Chrome，截图落在 deploy/verify/artifacts/
 NODE_PATH=$HOME/.workbuddy/binaries/node/workspace/node_modules \

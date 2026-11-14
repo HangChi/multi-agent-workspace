@@ -299,25 +299,6 @@ async def test_assign_group_not_found(client, make_headers):
 # ---------- 策略限制 ----------
 
 
-async def test_assign_pipeline_not_implemented(client, make_headers):
-    """pipeline 策略未实现（Phase 1 保留入口）→ 400。"""
-    headers = await make_headers(role="member")
-    agent = await _create_agent(client, headers)
-    req = await _create_request(client, headers)
-    resp = await _assign(
-        client,
-        headers,
-        req["id"],
-        {
-            "assignee_type": "agent",
-            "assignee_id": agent["id"],
-            "strategy": "pipeline",
-        },
-    )
-    assert resp.status_code == 400
-    assert "未实现" in resp.json()["error"]["message"]
-
-
 async def test_assign_fan_out_empty_group(client, make_headers):
     """组内无可执行 Agent → 400。"""
     headers = await make_headers(role="member")
@@ -399,3 +380,74 @@ async def test_concurrent_assign_only_one_wins(client, make_headers, db_session)
     # 只落 1 个 Run，需求只被消耗一次
     runs = await _runs_for(db_session, req["id"])
     assert len(runs) == 1
+
+
+async def test_assign_group_pipeline_creates_ordered_chain(
+    client, make_headers, db_session, monkeypatch
+):
+    """pipeline → 父 Run + 按 position 排序的子 Run（sequence=1..N），只入队第一阶段。"""
+    from app.services import assignment_service
+
+    enqueued: list[str] = []
+    monkeypatch.setattr(assignment_service, "_enqueue", lambda ids: enqueued.extend(ids))
+
+    headers = await make_headers(role="member")
+    first = await _create_agent(client, headers, name="写手")
+    second = await _create_agent(client, headers, name="编辑")
+    group = await _create_group(client, headers, strategy="pipeline")
+    await _add_member(client, headers, group["id"], first["id"], position=1)
+    await _add_member(client, headers, group["id"], second["id"], position=2)
+    req = await _create_request(client, headers, title="pipeline-req")
+
+    resp = await _assign(
+        client, headers, req["id"], {"assignee_type": "group", "assignee_id": group["id"]}
+    )
+    assert resp.status_code == 202
+
+    runs = await _runs_for(db_session, req["id"])
+    parent = next(r for r in runs if r.parent_run_id is None)
+    children = sorted([r for r in runs if r.parent_run_id is not None], key=lambda r: r.sequence)
+
+    assert parent.assignee_type == "group"
+    assert parent.strategy == "pipeline"
+    assert [c.sequence for c in children] == [1, 2]
+    assert [c.assignee_id for c in children] == [first["id"], second["id"]]
+    assert all(c.status == "queued" for c in children)
+
+    # 只入队第一阶段；父 Run 不入队（由最后一阶段收敛）
+    assert enqueued == [children[0].id]
+
+
+async def test_assign_group_router_creates_single_run(client, make_headers, db_session):
+    """router → 只建一个父 Run（运行时选成员），不建子 Run。"""
+    headers = await make_headers(role="member")
+    a1 = await _create_agent(client, headers, name="通用助手")
+    group = await _create_group(client, headers, strategy="router")
+    await _add_member(client, headers, group["id"], a1["id"], position=1)
+    req = await _create_request(client, headers, title="router-req")
+
+    resp = await _assign(
+        client, headers, req["id"], {"assignee_type": "group", "assignee_id": group["id"]}
+    )
+    assert resp.status_code == 202
+
+    runs = await _runs_for(db_session, req["id"])
+    assert len(runs) == 1
+    assert runs[0].assignee_type == "group"
+    assert runs[0].strategy == "router"
+    assert runs[0].parent_run_id is None
+
+
+async def test_assign_group_strategy_with_agent_target_rejected(client, make_headers):
+    """组类策略拖到单个 Agent → 400（语义错误，早失败）。"""
+    headers = await make_headers(role="member")
+    agent = await _create_agent(client, headers, name="单兵")
+    req = await _create_request(client, headers, title="bad-target")
+
+    resp = await _assign(
+        client,
+        headers,
+        req["id"],
+        {"assignee_type": "agent", "assignee_id": agent["id"], "strategy": "pipeline"},
+    )
+    assert resp.status_code == 400

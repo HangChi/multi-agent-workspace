@@ -69,6 +69,7 @@ def _build_run(
     assignee_id: str,
     strategy: str,
     parent_run_id: str | None = None,
+    sequence: int = 0,
 ) -> Run:
     """构建 Run 对象（status=queued，owner 继承自需求）。"""
     return Run(
@@ -78,8 +79,21 @@ def _build_run(
         assignee_type=assignee_type,
         assignee_id=assignee_id,
         strategy=strategy,
+        sequence=sequence,
         status="queued",
     )
+
+
+def _enqueue_ids(strategy: str, runs: list[Run]) -> list[str]:
+    """决定入队的 Run。
+
+    pipeline 只入队第一阶段：后续阶段由前一段完成时链式触发，
+    父 Run 不入队（由最后一阶段收敛），否则会像 fan_out 一样立刻"完成"。
+    router 只建一个父 Run，由它自己在执行时选成员，正常入队。
+    """
+    if strategy == "pipeline":
+        return [run.id for run in runs if run.sequence == 1]
+    return [run.id for run in runs]
 
 
 def _enqueue(run_ids: list[str]) -> None:
@@ -172,7 +186,8 @@ async def assign(
     runs: list[Run] = []
     parent_run_id: str | None = None
 
-    if strategy == "direct":
+    if strategy in ("direct", "router"):
+        # direct：目标本身；router：父 Run 自执行（运行时选成员）
         target = targets[0]
         run = _build_run(
             request,
@@ -182,7 +197,7 @@ async def assign(
         )
         db.add(run)
         runs.append(run)
-    else:  # fan_out：父 Run + N 个子 Run
+    else:  # fan_out（并发）/ pipeline（顺序）：父 Run + N 个子 Run
         parent = _build_run(
             request,
             assignee_type="group",
@@ -193,13 +208,15 @@ async def assign(
         await db.flush()  # 取父 Run id
         parent_run_id = parent.id
         runs.append(parent)
-        for target in targets:
+        for index, target in enumerate(targets, start=1):
             child = _build_run(
                 request,
                 assignee_type=target.assignee_type,
                 assignee_id=target.assignee_id,
                 strategy=strategy,
                 parent_run_id=parent.id,
+                # pipeline 记录阶段序号（1..N）；fan_out 无序
+                sequence=index if strategy == "pipeline" else 0,
             )
             db.add(child)
             runs.append(child)
@@ -218,7 +235,7 @@ async def assign(
 
     # 8. 事件发布 + Celery 入队（失败不阻塞业务）
     await _publish_assigned(run_ids)
-    _enqueue(run_ids)
+    _enqueue(_enqueue_ids(strategy, runs))
 
     # 返回父 Run id（direct 即唯一 Run；fan_out 为父 Run）
     return parent_run_id or runs[0].id, run_ids

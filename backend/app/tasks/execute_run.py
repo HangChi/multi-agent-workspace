@@ -27,6 +27,7 @@ from app.models.agent import Agent
 from app.models.request import Request
 from app.models.run import Run
 from app.models.step import Step
+from app.orchestrator.router import route
 from app.orchestrator.runner import (
     CostLimitExceeded,
     ExecutionTimeout,
@@ -116,6 +117,107 @@ async def _persist_steps(db, run: Run, steps: list[dict]) -> None:
     await db.flush()
 
 
+def _enqueue(run_ids: list[str]) -> None:
+    """把 Run 入队（pipeline 链式推进用）。失败只告警，不影响当前执行结果。"""
+    for run_id in run_ids:
+        try:
+            celery_app.send_task("app.tasks.execute_run.execute_run", args=[run_id])
+        except (ConnectionError, OSError, ValueError) as exc:
+            logger.warning("celery_enqueue_failed", run_id=run_id, error=str(exc))
+
+
+async def _previous_stage_output(db, run: Run) -> str | None:
+    """pipeline：取上一阶段的产出文本（result.answer）。"""
+    prev = (
+        await db.execute(
+            select(Run).where(
+                Run.parent_run_id == run.parent_run_id, Run.sequence == run.sequence - 1
+            )
+        )
+    ).scalars().first()
+    if prev is None or not isinstance(prev.result, dict):
+        return None
+    answer = prev.result.get("answer")
+    return answer if isinstance(answer, str) and answer.strip() else None
+
+
+async def _finalize_parent(
+    db, parent_id: str, *, failed: bool, error: str | None, stages: list[Run]
+) -> None:
+    """收敛 pipeline 父 Run（幂等：仅在 queued 时处理）。"""
+    parent = await db.get(Run, parent_id)
+    if parent is None or parent.status != "queued":
+        return
+
+    transition(parent, RunStatus.RUNNING)
+    if failed:
+        parent.error = f"pipeline 中断：{error or '某阶段执行失败'}"
+        transition(parent, RunStatus.FAILED)
+        parent.result = {"strategy": "pipeline", "note": "链式中断"}
+        await db.commit()
+        run_events.run_failed(parent.id, parent.error)
+        return
+
+    transition(parent, RunStatus.COMPLETED)
+    parent.result = {
+        "strategy": "pipeline",
+        "stages": [
+            {
+                "sequence": stage.sequence,
+                "run_id": stage.id,
+                "status": stage.status,
+                "cost_cents": stage.cost_cents,
+            }
+            for stage in sorted(stages, key=lambda r: r.sequence)
+        ],
+        "note": "pipeline 各阶段依次完成",
+    }
+    await db.commit()
+    run_events.run_completed(parent.id, parent.result)
+
+
+async def _advance_pipeline(db, run: Run) -> None:
+    """pipeline 收尾：完成则触发下一阶段，失败则取消剩余阶段并收敛父 Run。"""
+    if run.status == "needs_input":
+        return  # 挂起等回复；恢复执行完成后会再次触发推进
+
+    parent_id = run.parent_run_id
+    if not parent_id:
+        return
+
+    siblings = list(
+        (await db.execute(select(Run).where(Run.parent_run_id == run.parent_run_id)))
+        .scalars()
+        .all()
+    )
+    next_stage = next((r for r in siblings if r.sequence == run.sequence + 1), None)
+
+    if run.status == "completed" and next_stage is not None:
+        if next_stage.status == "queued":
+            run_events.log_line(
+                run.id, f"第 {run.sequence} 阶段完成，触发第 {next_stage.sequence} 阶段"
+            )
+            _enqueue([next_stage.id])
+        return
+
+    if run.status != "completed":
+        cancelled = 0
+        for pending in siblings:
+            if pending.sequence > run.sequence and pending.status == "queued":
+                transition(pending, RunStatus.CANCELLED)
+                cancelled += 1
+        if cancelled:
+            await db.commit()
+            run_events.log_line(
+                run.id, f"第 {run.sequence} 阶段未成功，已取消剩余 {cancelled} 个阶段"
+            )
+        await _finalize_parent(db, parent_id, failed=True, error=run.error, stages=siblings)
+        return
+
+    # 最后一阶段完成：收敛父 Run
+    await _finalize_parent(db, parent_id, failed=False, error=None, stages=siblings)
+
+
 def _request_text(request: Request) -> str:
     """拼需求文本（标题 + 描述 + 期望产出）。"""
     parts = [request.title]
@@ -145,17 +247,56 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
         run_events.run_failed(run.id, run.error)
         return
 
-    # 组父 Run（fan_out）：仅占位完成（子 Run 各自执行）。
-    # 状态机要求 queued → running → completed：先迁移 running 再 completed。
+    # 组父 Run 处理：
+    # - router：父 Run 自己执行（先用 LLM 选成员，再按该成员配置跑）
+    # - fan_out：占位完成（子 Run 各自并发执行）
+    # - pipeline：父 Run 不入队（由最后一阶段收敛）；若被误入队则跳过不改状态
+    routing: dict | None = None
     if run.assignee_type == "group":
-        transition(run, RunStatus.RUNNING)
-        await db.commit()
-        run_events.status_change(run.id, run.status)
-        transition(run, RunStatus.COMPLETED)
-        run.result = {"note": "组父 Run：由子 Run 完成执行"}
-        await db.commit()
-        run_events.run_completed(run.id, run.result)
-        return
+        if run.strategy == "router":
+            decision = await route(
+                db, group_id=run.assignee_id, request_text=_request_text(request)
+            )
+            if decision is None:
+                run.error = "组内无可用成员，无法路由"
+                transition(run, RunStatus.RUNNING)
+                transition(run, RunStatus.FAILED)
+                await db.commit()
+                run_events.run_failed(run.id, run.error)
+                return
+            # 路由决策也是一次 LLM 调用，成本计入本 Run（不能消失在账外）
+            if decision.cost_cents:
+                run.cost_cents += decision.cost_cents
+                await db.commit()
+                run_events.cost_update(run.id, run.cost_cents)
+            agent = decision.agent
+            routing = {
+                "strategy": "router",
+                "selected_agent_id": agent.id,
+                "selected_agent_name": agent.name,
+                "reason": decision.reason,
+                "cost_cents": decision.cost_cents,
+            }
+            run_events.log_line(run.id, f"路由选择：{agent.name}（{decision.reason}）")
+            logger.info(
+                "router_selected", run_id=_run_id_for_log(run), agent_id=agent.id[:8]
+            )
+        elif run.strategy == "pipeline":
+            logger.warning(
+                "pipeline_parent_should_not_be_queued", run_id=_run_id_for_log(run)
+            )
+            return
+        else:
+            # fan_out 父 Run：仅做编排占位（子 Run 各自执行）。
+            # 状态机要求 queued → running → completed：先迁移 running 再 completed。
+            transition(run, RunStatus.RUNNING)
+            await db.commit()
+            run_events.status_change(run.id, run.status)
+            transition(run, RunStatus.COMPLETED)
+            run.result = {"note": "组父 Run：由子 Run 完成执行"}
+            await db.commit()
+            run_events.run_completed(run.id, run.result)
+            return
 
     runner = _build_runner(run, agent)
     steps: list[dict] = []
@@ -197,10 +338,21 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
         fresh = await db.get(Run, run.id)
         return fresh is not None and fresh.status == "cancelled"
 
+    # pipeline：非首阶段的输入 = 原始需求 + 上一阶段产出
+    request_text = _request_text(request)
+    if run.strategy == "pipeline" and run.sequence > 1 and run.parent_run_id:
+        previous = await _previous_stage_output(db, run)
+        if previous:
+            request_text = (
+                f"{request_text}\n\n"
+                "## 上一阶段产出（请在此基础上继续加工，不要重复已完成的工作）\n"
+                f"{previous}"
+            )
+
     try:
         final_status = await runner.run(
             run=run,
-            request_text=_request_text(request),
+            request_text=request_text,
             save_step=save_step,
             publish_event=publish_event,
             set_status=set_status,
@@ -210,6 +362,10 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
         )
         await _persist_steps(db, run, steps)
         await db.commit()
+        # router：把路由决策并入结果（前端/审计能看到是谁被选中、为什么）
+        if routing:
+            run.result = {**(run.result or {}), "routing": routing}
+            await db.commit()
         # FR-018：runner 可能以 cancelled 返回（外部取消），不发 completed 事件
         if final_status == "cancelled":
             run_events.run_cancelled(run.id)
@@ -234,6 +390,13 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
         transition(run, RunStatus.FAILED)
         await db.commit()
         run_events.run_failed(run.id, run.error)
+    finally:
+        # pipeline：无论成功/失败/挂起，都据当前状态推进链路或收敛父 Run
+        if run.strategy == "pipeline" and run.parent_run_id:
+            try:
+                await _advance_pipeline(db, run)
+            except Exception:
+                logger.exception("pipeline_advance_failed", run_id=_run_id_for_log(run))
 
 
 @celery_app.task(name="app.tasks.execute_run.execute_run", bind=True, max_retries=2)
