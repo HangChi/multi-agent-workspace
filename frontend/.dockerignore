@@ -1,0 +1,22 @@
+# 构建上下文就是这个目录（deploy/docker-compose.yml: context: ../frontend），
+# 因此必须在这里也放一份 .dockerignore：根目录那份不会对 ../frontend 生效。
+# 否则 node_modules 会被 COPY 进镜像，覆盖容器内 `npm ci` 装好的 linux 依赖
+# （本机是 darwin 二进制，vite/rollup 会直接报找不到 native 模块）。
+
+# 依赖
+node_modules/
+
+# 构建产物（镜像内重新构建）
+dist/
+*.tsbuildinfo
+
+# 本地环境变量与日志
+.env
+.env.*
+*.log
+npm-debug.log*
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/
