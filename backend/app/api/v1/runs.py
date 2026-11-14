@@ -25,6 +25,7 @@ from app.models.step import Step
 from app.orchestrator.state_machine import RunStatus, transition
 from app.schemas.run import RunOut
 from app.services import artifact_service
+from app.services.assignment_service import _enqueue
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -108,17 +109,27 @@ async def retry_run(run_id: str, _m: MemberUser, user: CurrentUser, db: DB):
         detail={"from_status": from_status},
     )
     await db.commit()
+    # 重新入队（FR-017）：failed → queued 后必须让 Worker 再次消费
+    _enqueue([run.id])
     return {"status": "queued"}
 
 
 @router.post("/{run_id}/reply")
 async def reply_run(run_id: str, user: CurrentUser, db: DB, payload: dict | None = None):
-    """回复运行（FR-021）：needs_input → running（继续执行）；其余 409。"""
+    """回复运行（FR-021）：needs_input → running（继续执行）；其余 409。
+
+    用户回复内容保存到 run.user_reply，恢复执行时注入对话上下文（缺陷 A 修复）。
+    """
     run = await _get_owned_run(db, run_id, user)
     from_status = run.status
     # 幂等分支会吞掉 running→running，必须显式校验前置状态（FR-021）
     if run.status != "needs_input":
         raise _conflict("仅 needs_input 状态可回复")
+    message = (payload or {}).get("message")
+    if not message or not str(message).strip():
+        raise _conflict("回复内容不能为空")
+    # 保存用户回复（FR-021）：供恢复执行时注入对话上下文
+    run.user_reply = str(message).strip()
     transition(run, RunStatus.RUNNING)
 
     await write_audit(
@@ -127,9 +138,11 @@ async def reply_run(run_id: str, user: CurrentUser, db: DB, payload: dict | None
         action="run_reply",
         target_type="run",
         target_id=run.id,
-        detail={"from_status": from_status, "message": (payload or {}).get("message")},
+        detail={"from_status": from_status, "message": message},
     )
     await db.commit()
+    # 回复后重新入队（FR-021）：needs_input → running 后必须让 Worker 继续执行
+    _enqueue([run.id])
     return {"status": "running"}
 
 

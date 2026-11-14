@@ -221,12 +221,19 @@ def test_running_cannot_go_back_to_queued():
         transition(run, RunStatus.QUEUED)
 
 
-@pytest.mark.parametrize("to", ["queued", "completed", "cancelled", "timeout", "failed"])
+@pytest.mark.parametrize("to", ["queued", "completed", "timeout", "failed"])
 def test_needs_input_only_back_to_running(to: str):
-    """needs_input 仅可 → running（回复继续），其余拒绝。"""
+    """needs_input 仅可 → running（回复继续）/cancelled（放弃挂起），其余拒绝。"""
     run = FakeRun(status="needs_input")
     with pytest.raises(TransitionError, match="不可迁移"):
         transition(run, RunStatus(to))
+
+
+def test_needs_input_can_cancel():
+    """needs_input → cancelled：用户放弃挂起任务（FR-018）。"""
+    run = FakeRun(status="needs_input")
+    transition(run, RunStatus.CANCELLED)
+    assert run.status == "cancelled"
 
 
 # ---------- 幂等 ----------

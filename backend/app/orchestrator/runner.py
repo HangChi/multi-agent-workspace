@@ -86,8 +86,14 @@ class ReActRunner:
         publish_event: EventSink,
         set_status: Callable[[str], Awaitable[Any]],
         set_cost: Callable[[int], Awaitable[Any]],
+        extra_user_messages: list[str] | None = None,
+        should_abort: Callable[[], Awaitable[bool]] | None = None,
     ) -> str:
         """执行一次 ReAct 循环，返回最终状态字符串。
+
+        Args:
+            extra_user_messages: needs_input 恢复执行时注入的用户回复（FR-021）。
+            should_abort: 外部取消检查回调（FR-018）：每轮循环前 await，True 则终止执行。
 
         Raises:
             MaxStepsExceeded / ExecutionTimeout / CostLimitExceeded / NeedsInput:
@@ -102,6 +108,9 @@ class ReActRunner:
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": request_text},
         ]
+        # FR-021：needs_input 恢复时注入用户回复（追加到初始需求之后）
+        for reply in extra_user_messages or []:
+            messages.append({"role": "user", "content": reply})
 
         step_count = 0
         seq = 0  # 全局单调步骤序号（LLM/tool/final 共用，避免跨轮重复）
@@ -110,6 +119,13 @@ class ReActRunner:
         tools = [executor.schema() for executor in self.executors.values()]
 
         while True:
+            # 0. 取消检查（FR-018）：外部已取消则终止，不继续执行
+            if should_abort is not None and await should_abort():
+                transition(run, RunStatus.CANCELLED)
+                await set_status(run.status)
+                await publish_event({"type": "status_change", "status": run.status})
+                return "cancelled"
+
             # 1. 超时检查（进入下一轮前）
             if time.monotonic() - start > self.timeout_seconds:
                 transition(run, RunStatus.TIMEOUT)

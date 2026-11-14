@@ -208,7 +208,7 @@
 - [x] T081 [P] 镜像构建：backend/Dockerfile + frontend/Dockerfile（多阶段构建、非 root 运行、密钥不落镜像）
 - [x] T082 [P] 安全收尾：全局日志脱敏复核（Authorization/密钥字段不打印）+ 前端统一错误提示组件（frontend/src/components/ui/）
 - [x] T083 全量质量门禁：ruff check + mypy + pytest 全绿（backend/pyproject.toml 配置的 ruff/mypy，backend/tests/ 全量 pytest）+ eslint + tsc + vitest 全绿（frontend/package.json 脚本），修复全部告警
-- [ ] T084 quickstart 验证：按 specs/001-core-workflow/quickstart.md 执行 S1~S5 全部场景（deploy/docker-compose.yml 起全套服务），如实更新 SC 对照表与验证记录表（通过才勾选，未过保持 ⏳）
+- [x] T084 quickstart 验证：按 specs/001-core-workflow/quickstart.md 执行 S1~S5 全部场景（deploy/docker-compose.yml 起全套服务），如实更新 SC 对照表与验证记录表（通过才勾选，未过保持 ⏳）——**2026-11-14 全部通过：41 项真实栈断言（S1~S4 29 + S5 12），SC-001~008 全 ✅**
 
 **Checkpoint**: Phase 1 核心闭环可独立上线——全部 SC 验证记录完成
 

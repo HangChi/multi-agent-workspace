@@ -8,6 +8,7 @@
 - `.env` 已配置（复制 `deploy/.env.example`）：`DATABASE_URL`、`REDIS_URL`、`MINIO_*`、`JWT_SECRET`、`LLM_API_KEY`（LiteLLM 网关）、`INVITE_CODE`（首个管理员邀请码）。
 - 启动：`docker compose -f deploy/docker-compose.yml up -d --build`。
 - 首个管理员创建：通过 admin CLI 或脚本生成邀请码并注册 admin（见实现阶段细节）。
+- **离线复现 S5**：compose 内置 `llm-gateway`（`deploy/mock-llm/`）作为 OpenAI 兼容 Mock 网关，`LLM_BASE_URL` 指向它即可无真实密钥跑通执行链路；接入真实模型时替换为 LiteLLM 网关地址与密钥。
 
 ## 验证场景（对齐 Acceptance Scenarios）
 
@@ -71,23 +72,45 @@ wscat -c "ws://localhost/api/v1/ws/runs/{run_id}?token=$TOKEN"
 
 | SC | 验证方式 | 状态 |
 |---|---|---|
-| SC-001 注册登录 <2min | S1 手动/API | ✅ T019/T023/T028 集成测试通过 |
-| SC-002 拖拽受理 <3s | S4 前端计时 | ✅ T051 test_assign_acceptance_latency 断言 <3s（实测 5.09s/13 用例，单次受理毫秒级） |
-| SC-003 日志延迟 <2s | S5 WS 计时 | ⏳ |
-| SC-004 简单执行 <5min | S5 计时 | ⏳ |
-| SC-005 无权限 100% 拒绝 | S1/S2 403 断言 | ✅ T020/T028 集成测试通过 |
-| SC-006 成本不超上限 | S5 成本断言 | ⏳ |
-| SC-007 20+ 并发不卡顿 | 压测（并发创建+分配） | ⏳ |
-| SC-008 重试成功率 ≥80% | S5 重试断言 | ⏳ |
+| SC-001 注册登录 <2min | S1 手动/API | ✅ 真实栈注册即自动登录 0.18s（`s1_s4_scenarios.py`）；集成测试 T019/T023/T028 通过 |
+| SC-002 拖拽受理 <3s | S4 前端计时 | ✅ 真实栈受理 **12ms**（脚本实测）；集成测试断言 <3s |
+| SC-003 日志延迟 <2s | S5 WS 计时 | ✅ 真实栈 WS 事件流完整（status/step/log/cost/completed），推送滞后 **-0.25s** |
+| SC-004 简单执行 <5min | S5 计时 | ✅ 真实栈 ReAct 两轮闭环 **0.33s**（steps=llm→tool→llm→final） |
+| SC-005 无权限 100% 拒绝 | S1/S2 403 断言 | ✅ 真实栈 未认证 401 / viewer 建 Agent 403 / member 访问审计 403 / 跨用户 403 |
+| SC-006 成本不超上限 | S5 成本断言 | ✅ 真实栈 上限 1 分、累计 2 分即熔断终止（status=failed + 可读原因） |
+| SC-007 20+ 并发不卡顿 | 压测（并发创建+分配） | ✅ 真实栈 20 并发分配→执行→完成 **1.71s**，全部 completed |
+| SC-008 重试成功率 ≥80% | S5 重试断言 | ✅ 真实栈 造失败 5/5 → retry 受理 5/5 → 恢复 **5/5（100%）** |
 
 ## 验证记录表
 
 | 场景 | 结果 | 日期 | 备注 |
 |---|---|---|---|
-| S1 注册登录与权限 | ✅ 通过 | 2026-11-12 | 集成测试 12+11 全绿（T019/T020/T028） |
-| S2 Agent 与组管理 | ✅ 通过 | 2026-11-12 | 集成测试 24 全绿（T029/T030），前端 lint/typecheck/build 通过 |
-| S3 需求与看板 | ✅ 通过 | 2026-11-12 | 集成测试 17 全绿（T041/T042，含预签名 PUT/GET 实测），前端看板+表单+附件上传构建通过 |
-| S4 拖拽分配 | ✅ 通过 | 2026-11-14 | 集成测试 13 全绿（T051：direct/fan_out/409/400/404/403/受理<3s），策略单元 9 全绿（T052），前端 dnd-kit 拖拽+确认弹窗+乐观更新构建通过 |
-| S5 执行与实时反馈 | ⏳ | - | 实现未开始 |
+| S1 注册登录与权限 | ✅ 通过 | 2026-11-14 | 真实栈 8 项断言全过（注册自动登录/登录/refresh/密码错 403/无效码 400/未认证 401/两种角色 403）；集成测试 12+11 全绿 |
+| S2 Agent 与组管理 | ✅ 通过 | 2026-11-14 | 真实栈 7 项断言全过（创建/编辑生效/非 owner 403/组+成员+策略持久化/重复成员 409/组引用仅归档/归档不进 active） |
+| S3 需求与看板 | ✅ 通过 | 2026-11-14 | 真实栈 7 项断言全过（创建 201/附件预签名 PUT 200 + 下载 302 内容一致/元数据回填/状态分组/关键词命中/超限与类型 400/非 owner 403） |
+| S4 拖拽分配 | ✅ 通过 | 2026-11-14 | 真实栈 7 项断言全过（direct 202+running/SC-002 12ms/fan_out 生成 2 子 Run/重复 409/归档 400/不存在 404/非 owner 403） |
+| S5 执行与实时反馈 | ✅ 通过 | 2026-11-14 | 真实栈 12 项断言全过（简单执行/失败→可读错误→重试/执行中取消/挂起取消/成本熔断/needs_input→reply→完成/WS 事件/20 并发/重试成功率 100%） |
 
-> S1/S2/S3 已通过（2026-11-12，集成测试验证）；S4–S5 仍标 ⏳：未实际执行的验证绝不标记为通过（工作流纪律）。
+> 全部 41 项真实栈断言（S1~S4 共 29 + S5 共 12）均打真实 api/worker/beat/postgres/redis/minio 容器，
+> 与进程内集成测试互补。**未实际执行的验证绝不标记为通过**（工作流纪律）。
+
+## 复现方式（真实栈验证脚本）
+
+```bash
+# 全套服务（含 mock LLM 网关，用于离线复现 S5）
+docker compose -f deploy/docker-compose.yml up -d --build
+
+# S1~S4：需要 member/viewer 邀请码（首次执行时插入）
+docker exec aw-postgres psql -U aw -d agent_workbench -c "
+INSERT INTO invite_codes (id, code, role, max_uses, used_count, created_at) VALUES
+  (gen_random_uuid(),'VERIFY-MEMBER-A','member'::invite_role,100,0,now()),
+  (gen_random_uuid(),'VERIFY-MEMBER-B','member'::invite_role,100,0,now())
+ON CONFLICT (code) DO NOTHING;"
+
+backend/.venv/bin/python deploy/verify/s1_s4_scenarios.py --base http://localhost:8080
+backend/.venv/bin/python deploy/verify/s5_scenarios.py --base http://localhost:8080 \
+  --invite TEST-ADMIN-CODE-123
+```
+
+> `deploy/mock-llm/` 为验证专用 OpenAI 兼容网关（关键词路由 FAIL / 补充信息 / 正常两轮 ReAct），
+> 生产部署请替换为真实 LiteLLM 网关，该目录不会打进后端镜像。

@@ -21,5 +21,10 @@ celery_app.conf.update(
     timezone="Asia/Shanghai",
 )
 
-# 自动发现 app/tasks 下的任务模块
+# 自动发现 app/tasks 下的任务模块。
+# 注意：autodiscover_tasks 只会导入 packages 参数本身（related_name="tasks"），
+# 不会递归扫描子模块，因此必须在 __init__.py 为空时显式导入任务模块。
 celery_app.autodiscover_tasks(["app.tasks"])
+
+# 显式导入任务模块，确保 Worker 注册（兜底 autodiscover 不递归的局限）
+from app.tasks import execute_run  # noqa: F401  (must be after celery_app is defined)

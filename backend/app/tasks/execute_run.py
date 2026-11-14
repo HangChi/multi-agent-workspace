@@ -16,7 +16,7 @@ import os
 
 import redis
 import structlog
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
@@ -145,8 +145,12 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
         run_events.run_failed(run.id, run.error)
         return
 
-    # 组父 Run（fan_out）：仅占位完成（子 Run 各自执行）
+    # 组父 Run（fan_out）：仅占位完成（子 Run 各自执行）。
+    # 状态机要求 queued → running → completed：先迁移 running 再 completed。
     if run.assignee_type == "group":
+        transition(run, RunStatus.RUNNING)
+        await db.commit()
+        run_events.status_change(run.id, run.status)
         transition(run, RunStatus.COMPLETED)
         run.result = {"note": "组父 Run：由子 Run 完成执行"}
         await db.commit()
@@ -155,6 +159,19 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
 
     runner = _build_runner(run, agent)
     steps: list[dict] = []
+
+    # FR-021 恢复执行（needs_input → running）：旧步骤已写库，重跑会撞 (run_id, seq) 唯一约束。
+    # 先清理旧步骤（缺陷 C 修复），再注入用户回复（缺陷 A 修复）。
+    old_steps = (
+        (await db.execute(select(Step.id).where(Step.run_id == run.id))).scalars().all()
+    )
+    if old_steps:
+        # 显式批量删除旧步骤（不触发 lazy 关系加载，兼容测试环境无 selectinload）
+        await db.execute(delete(Step).where(Step.run_id == run.id))
+        await db.commit()
+        logger.info("run_reply_cleanup_steps", run_id=_run_id_for_log(run), removed=len(old_steps))
+    user_reply = run.user_reply
+    extra_messages = [user_reply] if user_reply else None
 
     async def save_step(step: dict) -> None:
         steps.append(step)
@@ -169,18 +186,29 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
     async def set_cost(cost_cents: int) -> None:
         await db.commit()
 
+    async def check_cancelled() -> bool:
+        """FR-018 取消检查：每轮循环前查 DB 最新状态，外部 cancel 则终止执行。"""
+        fresh = await db.get(Run, run.id)
+        return fresh is not None and fresh.status == "cancelled"
+
     try:
-        await runner.run(
+        final_status = await runner.run(
             run=run,
             request_text=_request_text(request),
             save_step=save_step,
             publish_event=publish_event,
             set_status=set_status,
             set_cost=set_cost,
+            extra_user_messages=extra_messages,
+            should_abort=check_cancelled,
         )
         await _persist_steps(db, run, steps)
         await db.commit()
-        run_events.run_completed(run.id, run.result)
+        # FR-018：runner 可能以 cancelled 返回（外部取消），不发 completed 事件
+        if final_status == "cancelled":
+            run_events.run_cancelled(run.id)
+        else:
+            run_events.run_completed(run.id, run.result)
     except NeedsInput as exc:
         await _persist_steps(db, run, steps)
         await db.commit()
@@ -247,6 +275,10 @@ def execute_run(self, run_id: str) -> str:
                 run = await db.get(Run, run_id)
                 if run is not None:
                     run.error = f"执行器致命错误: {error_text}"
+                    # 状态机要求 queued → running → failed；若仍在 queued（任务消费即崩），
+                    # 先合法迁移到 running 再 failed，避免 TransitionError
+                    if run.status == "queued":
+                        transition(run, RunStatus.RUNNING)
                     transition(run, RunStatus.FAILED)
                     await db.commit()
                     run_events.run_failed(run_id, run.error)

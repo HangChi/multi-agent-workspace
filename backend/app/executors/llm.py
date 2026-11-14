@@ -4,6 +4,7 @@
 按模型单价表（可配置，默认 gpt-4o-mini 等）换算。
 """
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -125,13 +126,23 @@ class LiteLLMClient:
         usage = response.usage
 
         content = message.get("content") or ""
-        tool_calls = [
-            ToolCall(
-                name=tc.get("function", {}).get("name", ""),
-                arguments=dict(tc.get("function", {}).get("arguments", {})),
-            )
-            for tc in (message.get("tool_calls") or [])
-        ]
+        tool_calls: list[ToolCall] = []
+        for tc in message.get("tool_calls") or []:
+            # litellm 返回 ChatCompletionMessageToolCall 对象（非 dict）：
+            # function 可能是对象或 dict，arguments 可能是 dict 或 JSON 字符串
+            fn = tc.get("function") or {}
+            name = fn.get("name", "") if isinstance(fn, dict) else getattr(fn, "name", "") or ""
+            raw_args = fn.get("arguments") if isinstance(fn, dict) else getattr(fn, "arguments", "")
+            if isinstance(raw_args, str):
+                try:
+                    parsed = json.loads(raw_args)
+                except (json.JSONDecodeError, TypeError):
+                    parsed = {"raw": raw_args}
+            elif isinstance(raw_args, dict):
+                parsed = raw_args
+            else:
+                parsed = {}
+            tool_calls.append(ToolCall(name=name, arguments=parsed))
 
         needs_input, needs_input_message = _extract_needs_input(message)
 

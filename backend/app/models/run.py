@@ -55,6 +55,8 @@ class Run(Base):
     current_step: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # needs_input 挂起时的用户回复（FR-021）：reply 端点写入，恢复执行时注入对话上下文
+    user_reply: Mapped[str | None] = mapped_column(Text, nullable=True)
     cost_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

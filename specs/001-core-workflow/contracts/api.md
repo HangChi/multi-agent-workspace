@@ -18,7 +18,7 @@
 登录。请求 `{"email", "password"}` → 200 tokens（同上）。403 凭证错误/账号禁用。
 
 ### POST /auth/refresh
-刷新。请求 `{"refresh_token"}` → 200 `{"access": "...", "refresh": "..."}`。
+刷新。请求 `{"refresh_token"}` → 200 `{"tokens": {"access": "...", "refresh": "..."}}`（与 register/login 同构，前端按 `data.tokens` 解包）。
 
 ### GET /auth/me
 当前用户 → 200 `{"id", "email", "role", "status"}`。

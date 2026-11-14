@@ -4,7 +4,7 @@
 - queued → running → completed / failed / needs_input → running / cancelled / timeout
 - failed / timeout → queued（重试，FR-017；重置执行现场）
 - 终态（completed/failed/cancelled/timeout）不可迁移
-- needs_input → running（用户回复继续，FR-021）
+- needs_input → running（用户回复继续，FR-021）/ cancelled（用户放弃挂起任务，FR-018）
 - 迁移幂等：重复迁移 no-op
 
 纯函数式实现：不依赖 DB，run 对象由调用方传入（ORM 或测试 dataclass）。
@@ -44,7 +44,7 @@ _TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
             RunStatus.TIMEOUT,
         }
     ),
-    RunStatus.NEEDS_INPUT: frozenset({RunStatus.RUNNING}),
+    RunStatus.NEEDS_INPUT: frozenset({RunStatus.RUNNING, RunStatus.CANCELLED}),
     RunStatus.FAILED: frozenset({RunStatus.QUEUED}),
     RunStatus.TIMEOUT: frozenset({RunStatus.QUEUED}),
     RunStatus.COMPLETED: frozenset(),
