@@ -12,6 +12,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  sandbox-images:
+    name: 沙箱基础镜像构建
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: 构建沙箱执行镜像
+        run: docker build -t aw-sandbox-python:3.12 deploy/sandbox
+      - name: 构建网络规则镜像
+        run: docker build -t aw-sbx-net:1 deploy/sbx-net
+      - name: 构建 DNS 代理镜像
+        run: docker build -t aw-dns-proxy:1 deploy/dns-proxy
+
   backend:
     name: 后端（lint + 类型 + 测试）
     runs-on: ubuntu-latest

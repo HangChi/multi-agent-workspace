@@ -28,11 +28,15 @@ celery_app.conf.update(
     timezone="Asia/Shanghai",
 )
 
-# 周期任务（Beat）：僵尸 Run 回收，避免 worker 崩溃后看板永久卡「执行中」
+# 周期任务（Beat）：回收僵尸 Run，并每日清除超过 90 天的沙箱脚本和输出。
 celery_app.conf.beat_schedule = {
     "reap-stale-runs": {
         "task": "app.tasks.maintenance.reap_stale_runs",
         "schedule": crontab(minute="*/5"),
+    },
+    "purge-expired-sandbox-data": {
+        "task": "app.tasks.maintenance.purge_expired_sandbox_data",
+        "schedule": crontab(hour=3, minute=0),
     },
 }
 

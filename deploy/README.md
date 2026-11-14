@@ -47,6 +47,51 @@ docker compose -p aw -f deploy/docker-compose.yml --profile mock up -d --build
    按机器规格在 `docker-compose.yml` 的 `deploy.resources.limits` 调整。
 6. **日志轮转**：所有服务 `json-file` 单文件 10MB × 3 份，避免磁盘被写满。
 
+## 沙箱镜像与网络运维
+
+Compose 中的沙箱执行镜像由 Worker 启动，网络规则镜像只在每次执行时短暂启动，DNS 代理长期运行但不向宿主机发布端口。三者的镜像 tag 必须与后端配置及 Compose 一致：`aw-sandbox-python:3.12`、`aw-sbx-net:1`、`aw-dns-proxy:1`。
+
+```bash
+# 从仓库根目录分别构建（CI 也会逐个构建验证）
+docker build -t aw-sandbox-python:3.12 deploy/sandbox
+docker build -t aw-sbx-net:1 deploy/sbx-net
+docker build -t aw-dns-proxy:1 deploy/dns-proxy
+
+# 更新 Compose 管理的服务（包括 DNS 代理）；沙箱执行/网络镜像需用上面的命令单独重建
+docker compose -p aw -f deploy/docker-compose.yml build
+docker compose -p aw -f deploy/docker-compose.yml up -d
+```
+
+Beat 每天 03:00（`Asia/Shanghai`）清空创建时间超过 90 天的沙箱代码、stdout 和 stderr；代码以空字符串保留以满足非空约束。`code_sha256`、状态、资源限额和其他执行元数据不删除。
+
+沙箱的网络隔离和 iptables/conntrack 观测**要求 Linux Docker 主机**。Docker Desktop 的 Linux VM 不等同于已验证的 Linux 主机环境；macOS/Windows 本机运行不能作为网络隔离正确性的验证。生产上线前应在目标 Linux 主机执行项目沙箱验证脚本，并确认 Worker 记录到的 egress 数据与预期一致。
+
+### DNS 故障排查
+
+```bash
+# 检查代理状态、健康情况与近期 DNS 查询（查询日志包括源 IP）
+docker compose -p aw -f deploy/docker-compose.yml ps dns-proxy
+docker logs --tail 200 aw-dns-proxy 2>&1 | grep -E 'query\\[|forwarded|reply'
+
+# 检查配置挂载与容器解析器；dns-proxy 不应发布宿主机端口
+docker inspect aw-dns-proxy --format '{{json .Mounts}}'
+docker inspect aw-dns-proxy --format '{{json .NetworkSettings.Networks}}'
+```
+
+确认 `deploy/dns-proxy/blacklist.conf` 中规则格式为 `address=/domain/`，且 `dnsmasq.conf` 中指定的上游 DNS 能从主机网络访问。修改全局黑名单后重启代理使挂载的配置生效：
+
+```bash
+docker compose -p aw -f deploy/docker-compose.yml restart dns-proxy
+```
+
+`dns-proxy` 仅负责域名解析与查询日志，不是访问控制的唯一边界；沙箱网络出口规则由 Linux iptables 强制执行。若解析失败，先查代理健康检查、日志和上游连通性，再查 Worker 为独立执行网络设置 DNS 的日志。DNS 日志缺失不等于网络访问被阻止：沙箱可直接连接 IP；可观测的目标和域名归因也会受 DNS 缓存、直连 IP 影响。
+
+### 安全边界与观测限制
+
+- Worker 连接 Docker Engine 需要访问 Docker socket。**可访问该 socket 的进程通常等价于宿主机 root**，能够创建特权容器、挂载宿主文件系统或控制其他容器。当前部署对 Worker 挂载 socket 是高权限信任边界，不是抵御已攻陷 Worker 的隔离措施；应限制主机访问、管理组成员和 Worker 镜像来源，并评估专用主机/受限 Docker API 等隔离方案。不要把 socket 暴露给不可信网络。
+- 网络审计只记录 DNS 查询与连接目标等元数据；不解密 TLS，也看不到 HTTPS URL 路径或请求/响应正文。CDN、反向代理和共享 IP 会让 IP 到域名的映射不唯一，域名归因可能缺失或不准确；直接 IP 连接也可能只显示 `ip-direct`。不能将审计结果描述为完整 URL 级追踪。
+- 网络规则和流量观测依赖 Linux 主机的 iptables、独立容器网络和 conntrack 行为。macOS/Windows Docker Desktop 及其他未验证运行时不能代替 Linux 部署验收。TLS/CDN 可观测性限制同样适用于生产 Linux 主机。
+
 ## HTTPS 入口（可选）
 
 `Caddyfile` 是另一种入口方案（自动 HTTPS + WS 透传），适合公网部署：把
