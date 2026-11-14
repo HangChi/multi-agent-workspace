@@ -131,7 +131,7 @@ class ReActRunner:
             started = time.monotonic()
             try:
                 resp = await self.llm.chat(messages, tools=tools or None)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - LLM 兜底：任何异常转可读错误（FR-017）
                 # LLM 异常 → 可读错误（FR-017），正常返回
                 transition(run, RunStatus.FAILED)
                 run.error = f"LLM 调用失败: {exc}"
@@ -195,7 +195,7 @@ class ReActRunner:
                         try:
                             result = await executor.execute(tc.arguments)
                             output = _jsonable(result)
-                        except Exception as exc:
+                        except Exception as exc:  # noqa: BLE001 - 工具异常转为可读 output.error
                             output = {"error": f"工具 {tc.name} 执行失败: {exc}"}
                         tool_name = tc.name
 

@@ -144,7 +144,7 @@ async def _collect_events(run_id: str, *, timeout: float = 5.0) -> list[dict[str
         task.cancel()
         try:
             await task
-        except (asyncio.CancelledError, Exception):
+        except (asyncio.CancelledError, Exception):  # noqa: S110, BLE001 - 测试清理，静默即可
             pass
     return events
 

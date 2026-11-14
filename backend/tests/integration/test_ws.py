@@ -15,6 +15,7 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from app.core.events import publish_run_event
 from app.core.security import create_access_token
@@ -33,7 +34,7 @@ def _token(user_id: str = "u-test-1", role: str = "member") -> str:
 def test_ws_rejects_invalid_token():
     """无效 token → 握手拒绝。"""
     client = TestClient(app)
-    with pytest.raises(Exception), client.websocket_connect(
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect(
         f"{WS_URL}/{uuid.uuid4()}", params={"token": "invalid-token"}
     ):
         pass  # 不应走到这里
@@ -42,7 +43,7 @@ def test_ws_rejects_invalid_token():
 def test_ws_rejects_missing_token():
     """缺 token → 握手拒绝。"""
     client = TestClient(app)
-    with pytest.raises(Exception), client.websocket_connect(f"{WS_URL}/{uuid.uuid4()}"):
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect(f"{WS_URL}/{uuid.uuid4()}"):
         pass
 
 

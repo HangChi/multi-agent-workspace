@@ -75,5 +75,5 @@ async def ws_run_events(websocket: WebSocket, run_id: str) -> None:
         sub_task.cancel()
         try:
             await sub_task
-        except (asyncio.CancelledError, Exception):
+        except (asyncio.CancelledError, Exception):  # noqa: S110, BLE001 - 任务取消/清理，静默即可
             pass
