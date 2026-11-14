@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import Mock
+
 import pytest
 
 from app.executors.egress import RuleView
@@ -10,6 +12,46 @@ from app.executors.egress_network import (
     _dns_ip_domains,
     validate_execution_id,
 )
+
+
+def test_missing_docker_lookup_does_not_skip_network_policy(monkeypatch) -> None:
+    from app.core.config import settings
+    from app.executors.sandbox_client import SandboxInfraError, SandboxRun
+    from tests.sandbox_fixtures import FakeDockerClient
+
+    client = FakeDockerClient()
+    client.existing_images = {settings.sbx_image}
+    prepare = Mock(side_effect=NetworkPolicyError("missing lookup"))
+    monkeypatch.setattr("app.executors.sandbox_client.NetworkCapture.prepare", prepare)
+    run = SandboxRun(
+        execution_id="f4e784e5-1dd9-4ae1-84ad-a0c66bdb761a",
+        language="python", code="print(1)", client=client,
+    )
+    with pytest.raises(SandboxInfraError, match="missing lookup"):
+        run.execute()
+    prepare.assert_called_once_with(client, client.network, run.execution_id, None)
+    assert client.containers.created == []
+    assert client.volumes.created == []
+    assert client.network.removed == 1
+
+
+def test_empty_network_capture_prevents_resource_creation(monkeypatch) -> None:
+    from app.core.config import settings
+    from app.executors.sandbox_client import SandboxInfraError, SandboxRun
+    from tests.sandbox_fixtures import FakeDockerClient
+
+    client = FakeDockerClient()
+    client.existing_images = {settings.sbx_image}
+    monkeypatch.setattr("app.executors.sandbox_client.NetworkCapture.prepare", Mock(return_value=None))
+    run = SandboxRun(
+        execution_id="f4e784e5-1dd9-4ae1-84ad-a0c66bdb761a",
+        language="python", code="print(1)", client=client,
+    )
+    with pytest.raises(SandboxInfraError, match="出站网络策略未就绪"):
+        run.execute()
+    assert client.containers.created == []
+    assert client.volumes.created == []
+    assert client.network.removed == 1
 
 
 def test_runtime_tags_require_safe_uuid() -> None:

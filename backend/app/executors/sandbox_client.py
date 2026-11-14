@@ -374,14 +374,13 @@ class SandboxRun:
             # Policy installation happens before container creation/start. A failed
             # rule install is an infrastructure error, never a reason to run open.
             self._prepare_egress(client)
-            if self._egress is None and hasattr(client.containers, "get"):
+            if self._egress is None:
                 raise SandboxInfraError("出站网络策略未就绪，拒绝启动沙箱")
             self._create_volumes(client)
             container = self._create_container(client)
             self._container = container
             self._put_script(container)
-            if self._egress is not None:
-                self._egress.start_capture(container)
+            self._egress.start_capture(container)
             try:
                 return self._start_and_wait(container)
             finally:
@@ -535,14 +534,7 @@ class SandboxRun:
             raise SandboxInfraError(f"创建沙箱网络失败：{exc}") from exc
 
     def _prepare_egress(self, client: docker.DockerClient) -> None:
-        """Attach the controlled DNS proxy and install v4/v6 kernel policy.
-
-        The lightweight unit Docker fake has no container lookup API and is an
-        explicit test injection; real Docker SDK clients always have it. Production
-        clients therefore cannot reach the fallback path.
-        """
-        if not hasattr(client.containers, "get"):
-            return
+        """Attach the controlled DNS proxy and install v4/v6 kernel policy."""
         try:
             self._egress = NetworkCapture.prepare(
                 client, self._network, self.execution_id, self.egress_snapshot

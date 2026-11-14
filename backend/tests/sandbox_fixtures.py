@@ -198,6 +198,31 @@ class _FakeImages:
         return object()
 
 
+class FakeNetworkCapture:
+    """Explicit unit-test stand-in for the privileged egress helper.
+
+    The production SandboxRun always invokes NetworkCapture.prepare; this fake
+    only supplies the Docker SDK surface needed by lifecycle tests.
+    """
+
+    dns_proxy_ip = "172.30.0.2"
+
+    @classmethod
+    def prepare(
+        cls, client: Any, network: Any, execution_id: str, snapshot: Any
+    ) -> FakeNetworkCapture:
+        return cls()
+
+    def start_capture(self, container: Any) -> None:
+        return None
+
+    def collect(self) -> tuple[list[dict[str, Any]], bool]:
+        return [], False
+
+    def cleanup(self) -> None:
+        return None
+
+
 class FakeDockerClient:
     """Docker SDK 客户端的可控替身。
 
@@ -267,6 +292,10 @@ def fake_docker(monkeypatch: pytest.MonkeyPatch) -> FakeDockerClient:
 
     monkeypatch.setattr(
         "app.executors.sandbox_client.docker.from_env", lambda: fake
+    )
+    monkeypatch.setattr(
+        "app.executors.sandbox_client.NetworkCapture.prepare",
+        FakeNetworkCapture.prepare,
     )
     return fake
 
