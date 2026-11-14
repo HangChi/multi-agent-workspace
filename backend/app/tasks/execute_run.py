@@ -175,6 +175,12 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
 
     async def save_step(step: dict) -> None:
         steps.append(step)
+        # 维护 Run.current_step（契约字段：已执行到第几步；状态机复位时置 0）
+        # 每步立即落库，前端在运行中 refetch 即可看到进度增长。
+        seq = step.get("seq")
+        if isinstance(seq, int) and seq > run.current_step:
+            run.current_step = seq
+            await db.commit()
 
     async def publish_event(event: dict) -> None:
         # Worker 侧发布（events.py 内部处理事件循环）

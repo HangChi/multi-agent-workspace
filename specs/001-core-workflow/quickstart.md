@@ -90,9 +90,18 @@ wscat -c "ws://localhost/api/v1/ws/runs/{run_id}?token=$TOKEN"
 | S3 需求与看板 | ✅ 通过 | 2026-11-14 | 真实栈 7 项断言全过（创建 201/附件预签名 PUT 200 + 下载 302 内容一致/元数据回填/状态分组/关键词命中/超限与类型 400/非 owner 403） |
 | S4 拖拽分配 | ✅ 通过 | 2026-11-14 | 真实栈 7 项断言全过（direct 202+running/SC-002 12ms/fan_out 生成 2 子 Run/重复 409/归档 400/不存在 404/非 owner 403） |
 | S5 执行与实时反馈 | ✅ 通过 | 2026-11-14 | 真实栈 12 项断言全过（简单执行/失败→可读错误→重试/执行中取消/挂起取消/成本熔断/needs_input→reply→完成/WS 事件/20 并发/重试成功率 100%） |
+| 前端交互（S4/S5 浏览器） | ✅ 通过 | 2026-11-14 | Playwright 真机 Chrome 9 项全过：登录→看板渲染→**鼠标拖拽卡片到 Agent → 确认弹窗（含目标名/优先级）→ 确认分配 → 卡片转「执行中」+出现「查看运行」→ 运行详情 WS「已连接」→ 状态到「已完成」、成本 ¥0.04、4 个步骤全 completed、当前步骤=4；无 console error** |
 
-> 全部 41 项真实栈断言（S1~S4 共 29 + S5 共 12）均打真实 api/worker/beat/postgres/redis/minio 容器，
+> 全部 41 项真实栈断言（S1~S4 共 29 + S5 共 12）+ 9 项浏览器断言均打真实容器栈，
 > 与进程内集成测试互补。**未实际执行的验证绝不标记为通过**（工作流纪律）。
+
+### 浏览器验证中发现并修复的缺陷
+
+| 缺陷 | 现象 | 根因 | 修复 |
+|---|---|---|---|
+| 前端零样式 | 整站无 CSS，元素堆叠成纯文本流 | `frontend/postcss.config.js` 缺失，`@tailwind` 指令未处理（CSS 产物仅 57 字节） | 补 PostCSS 配置（tailwindcss + autoprefixer），产物 21.6 KB |
+| api 重启后前端 502 | 重建 api 容器后 `/api/*` 持续 502，须重启前端才恢复 | nginx 启动时静态解析 `api:8000`，容器换 IP 后仍打旧地址 | nginx 改为变量式 `proxy_pass` + Docker 内嵌 DNS `resolver 127.0.0.11 valid=10s` |
+| 「当前步骤」恒为 0 | 运行详情已执行 4 步，字段仍显示 0 | `Run.current_step` 从未被写（仅复位时置 0） | `save_step` 回调内推进 `current_step` 并落库，集成测试加断言 |
 
 ## 复现方式（真实栈验证脚本）
 
@@ -110,6 +119,10 @@ ON CONFLICT (code) DO NOTHING;"
 backend/.venv/bin/python deploy/verify/s1_s4_scenarios.py --base http://localhost:8080
 backend/.venv/bin/python deploy/verify/s5_scenarios.py --base http://localhost:8080 \
   --invite TEST-ADMIN-CODE-123
+
+# 前端交互（S4 拖拽 / S5 实时反馈）：真实 Chrome，截图落在 deploy/verify/artifacts/
+NODE_PATH=$HOME/.workbuddy/binaries/node/workspace/node_modules \
+  node deploy/verify/ui_s4_s5.cjs
 ```
 
 > `deploy/mock-llm/` 为验证专用 OpenAI 兼容网关（关键词路由 FAIL / 补充信息 / 正常两轮 ReAct），

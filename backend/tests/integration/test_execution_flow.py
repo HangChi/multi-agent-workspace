@@ -194,6 +194,10 @@ async def test_full_flow_assign_execute_complete(client, make_headers, db_sessio
     assert rows[2].cost_cents == 4
     assert [s.seq for s in rows] == [1, 2, 3, 4]  # seq 连续无缺
 
+    # 7. current_step 随执行推进（契约字段，前端「当前步骤」展示用）
+    await db_session.refresh(run)
+    assert run.current_step == 4
+
     # 7. WS 事件（真实 Redis 频道）到达：… → run_completed
     types = [e["type"] for e in events]
     assert "status_change" in types
