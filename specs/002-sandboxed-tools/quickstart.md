@@ -84,7 +84,9 @@ docker exec aw-worker docker version --format '{{.Server.Version}}'
 | 元数据拦截 | `curl http://169.254.169.254/latest/meta-data/` | 失败且原因可读（策略拦截）；记录 `deny` + `matched_rule_id` |
 | 直连 IP | 直接连某公网 IP:443 | 记录 `target_domain=ip-direct`，`action=allow` |
 | 内网拦截 | 连 `10.0.0.4:5432` | `deny` |
-| 限制模式 | Agent 设为 `restricted`，只加 `pypi.org`；脚本先访问 pypi 再访问 `example.com` | 第一个成功，第二个拒绝且留痕 |
+| 限制模式（IP/CIDR 已支持） | Agent 设为 `restricted`，只加目标 IP/CIDR；脚本访问白名单目标后再访问未授权公网 | 白名单目标成功，第二个拒绝且留痕 |
+
+> **当前安全偏差**：API 仍接受 `domain` 规则，但 Linux 内核运行时无法安全地把动态/wildcard DNS 绑定为稳定的目标集合；因此 restricted 模式的 domain allow 会 fail-closed（拒绝启动该执行），不会误放行。`pypi.org` 域名场景需先在 Linux 实机完成 DNS→策略绑定方案后再验收。
 | 成员不能绕过 | 普通成员调用 `DELETE /admin/egress-blacklist/{内置项}` | 403；内置项本身不可删（400） |
 
 ```bash

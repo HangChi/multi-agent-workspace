@@ -71,6 +71,8 @@
 
 → 201。校验：`target_type` ∈ domain/cidr/ip；domain 支持单个前导 `*.`；`port_range` 形如 `443` 或 `8000-8100`；同一 Agent 内重复目标 → 409 `CONFLICT`。
 
+**当前实现限制（未满足原始 restricted-domain 验收）**：规则 API 会接收并保存 `domain` 目标，但执行时的 Linux 内核规则目前只支持 IP/CIDR。restricted 模式含 domain allow 时，执行策略安装 fail-closed，沙箱不会启动；不得将其宣传为域名放行可用。Quickstart S5 将此作为未完成验收，需先实现安全的 DNS 响应与内核允许集绑定，并在 Linux 上验证。
+
 **不允许**通过本端点放宽全局黑名单：若 `target` 命中黑名单（如同一网段），返回 400 `INVALID_INPUT`，`detail` 说明「该目标被全局黑名单覆盖」。
 
 ### DELETE /agents/{id}/egress-rules/{rule_id}
