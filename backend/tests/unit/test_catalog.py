@@ -14,15 +14,14 @@ from app.executors.base import ExecutorRegistry
 from app.executors.catalog import CATALOG, LEGACY_TOOL_NAMES, get_tool, to_openai_schema
 
 # 已实现执行器的工具 → 注册表能按名取到
-IMPLEMENTED = ["web_search", "read_url", "calculate"]
+IMPLEMENTED = list(CATALOG)
 
 
 def _executor(name: str):
-    """按名取执行器实例（未实现则 skip，不算失败）。"""
+    """按名取执行器实例；目录新增工具时必须同步提供实现。"""
     registry = ExecutorRegistry.from_names([name])
     ex = registry.get(name)
-    if ex is None:
-        pytest.skip(f"{name} 的执行器尚未实现")
+    assert ex is not None, f"{name} 在目录中但没有真实执行器实现"
     return ex
 
 
