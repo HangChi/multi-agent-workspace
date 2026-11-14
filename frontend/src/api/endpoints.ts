@@ -352,3 +352,84 @@ export async function assignRequest(
   )
   return data
 }
+
+// ---------- 运行（T072，US5）----------
+
+export type RunStatus =
+  | 'queued'
+  | 'running'
+  | 'needs_input'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'timeout'
+
+export interface RunStep {
+  id: string
+  seq: number
+  kind: 'llm' | 'tool' | 'final'
+  status: 'running' | 'completed' | 'failed'
+  tool_name: string | null
+  duration_ms: number
+  cost_cents: number
+  created_at: string
+}
+
+export interface RunArtifact {
+  id: string
+  filename: string
+  size_bytes: number
+  mime_type: string | null
+  created_at: string
+}
+
+export interface RunDetail {
+  id: string
+  request_id: string
+  owner_id: string
+  assignee_type: 'agent' | 'group'
+  assignee_id: string
+  strategy: 'direct' | 'fan_out' | 'pipeline' | 'router'
+  status: RunStatus
+  current_step: number
+  result: Record<string, unknown> | null
+  error: string | null
+  cost_cents: number
+  started_at: string | null
+  finished_at: string | null
+  created_at: string
+  updated_at: string
+  steps: RunStep[]
+  artifacts: RunArtifact[]
+}
+
+/** 运行详情。 */
+export async function fetchRun(id: string): Promise<RunDetail> {
+  const { data } = await apiClient.get<RunDetail>(`/runs/${id}`)
+  return data
+}
+
+/** 取消运行（200 cancelled）。 */
+export async function cancelRun(id: string): Promise<{ status: string }> {
+  const { data } = await apiClient.post<{ status: string }>(`/runs/${id}/cancel`)
+  return data
+}
+
+/** 重试运行（202 queued，仅 failed/timeout）。 */
+export async function retryRun(id: string): Promise<{ status: string }> {
+  const { data } = await apiClient.post<{ status: string }>(`/runs/${id}/retry`)
+  return data
+}
+
+/** 回复运行（200 running，仅 needs_input）。 */
+export async function replyRun(id: string, message: string): Promise<{ status: string }> {
+  const { data } = await apiClient.post<{ status: string }>(`/runs/${id}/reply`, {
+    message,
+  })
+  return data
+}
+
+/** 制品下载 URL（302 预签名）。 */
+export function artifactDownloadUrl(runId: string, artifactId: string): string {
+  return `/api/v1/runs/${runId}/artifacts/${artifactId}`
+}

@@ -10,6 +10,7 @@ import {
   fetchRequests,
   WorkRequest,
 } from '../api/endpoints'
+import { useBoardStore } from '../stores/boardStore'
 
 /** 需求列表（看板用，含 refetch）。 */
 export function useRequests() {
@@ -60,7 +61,9 @@ export function useAssignRequest(onSettled?: (error: string | null) => void) {
       }
       onSettled?.(extractError(err))
     },
-    onSuccess: () => {
+    onSuccess: (data, vars) => {
+      // 记录 request → run 映射（供「查看运行」跳转）
+      useBoardStore.getState().setRunForRequest(vars.requestId, data.run_id)
       void qc.invalidateQueries({ queryKey: ['requests'] })
       onSettled?.(null)
     },

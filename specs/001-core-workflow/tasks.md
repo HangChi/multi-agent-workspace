@@ -173,25 +173,25 @@
 
 ### Tests for User Story 5（先写，先红后绿）⚠️
 
-- [ ] T061 [P] [US5] 状态机单元测试 backend/tests/unit/test_state_machine.py：合法迁移全路径（queued→running→completed/failed/needs_input→running/cancelled/timeout）、非法迁移全部拒绝（终态不可迁移、failed 仅可→queued 且重置 current_step/cost/error）、幂等
-- [ ] T062 [P] [US5] 执行器单元测试 backend/tests/unit/test_runner.py（mock LiteLLM）：LLM 直接 final / tool_call→执行→回填→final / max_steps 超限终止 / 超时终止 / 成本熔断（cost>limit 终止） / needs_input 触发 / 异常转可读错误
-- [ ] T063 [P] [US5] 运行 API 集成测试 backend/tests/integration/test_runs.py：详情 200（含 steps/cost/result/error/artifacts）/ cancel 200（终态 409）/ retry 202（仅 failed/timeout）/ reply 200（仅 needs_input，回复后回 running）/ 制品下载 302
-- [ ] T064 [P] [US5] WS 集成测试 backend/tests/integration/test_ws.py：握手鉴权（无效 token 401）/ status_change、step_new、step_update、log_line、cost_update、run_completed/run_failed/needs_input 事件按序到达 / ping→pong
+- [x] T061 [P] [US5] 状态机单元测试 backend/tests/unit/test_state_machine.py：合法迁移全路径（queued→running→completed/failed/needs_input→running/cancelled/timeout）、非法迁移全部拒绝（终态不可迁移、failed 仅可→queued 且重置 current_step/cost/error）、幂等
+- [x] T062 [P] [US5] 执行器单元测试 backend/tests/unit/test_runner.py（mock LiteLLM）：LLM 直接 final / tool_call→执行→回填→final / max_steps 超限终止 / 超时终止 / 成本熔断（cost>limit 终止） / needs_input 触发 / 异常转可读错误
+- [x] T063 [P] [US5] 运行 API 集成测试 backend/tests/integration/test_runs.py：详情 200（含 steps/cost/result/error/artifacts）/ cancel 200（终态 409）/ retry 202（仅 failed/timeout）/ reply 200（仅 needs_input，回复后回 running）/ 制品下载 302
+- [x] T064 [P] [US5] WS 集成测试 backend/tests/integration/test_ws.py：握手鉴权（无效 token 401）/ status_change、step_new、step_update、log_line、cost_update、run_completed/run_failed/needs_input 事件按序到达 / ping→pong
 
 ### Implementation for User Story 5
 
-- [ ] T065 [US5] 状态机：backend/app/orchestrator/state_machine.py（RunStatus 枚举 + 允许迁移表 + transition() 幂等迁移函数 + 时间戳维护 + 终态判定）
-- [ ] T066 [US5] 执行器基座：backend/app/executors/base.py（ToolExecutor 协议：name/schema/execute）+ backend/app/executors/llm.py（LiteLLM 封装：chat 调用、tool_call 解析、usage→cost_cents 换算（模型单价表可配置））
-- [ ] T067 [US5] HTTP 工具：backend/app/executors/http.py（web_search 工具：调用联网搜索 API 返回结果；其余 Phase 1 内置工具集仅注册名称）
-- [ ] T068 [US5] ReAct 执行器：backend/app/orchestrator/runner.py（消息序列循环：LLM→tool_call→executor→回填→再 LLM，直至 final/max_steps/超时/成本上限；每步写 steps 表 + 发布事件 + 累计 cost_cents；needs_input 时挂起等待 reply）
-- [ ] T069 [US5] Celery 任务：backend/app/tasks/execute_run.py（execute_run 任务：入队后由 Worker 消费，加 Redis 分布式锁防重复执行）+ backend/app/tasks/events.py（Worker→API 状态回调：publish_run_event 封装各事件类型）
-- [ ] T070 [US5] 运行端点：backend/app/api/v1/runs.py（GET /runs/{id}、POST /runs/{id}/cancel、POST /runs/{id}/retry、POST /runs/{id}/reply、GET /runs/{id}/artifacts/{artifact_id} 302 预签名）
-- [ ] T071 [US5] WS 端点：backend/app/api/v1/ws.py（WS /ws/runs/{id}：token 鉴权、订阅 Redis 频道 run:{id} 转发事件、连接断开清理、ping/pong 保活）
-- [ ] T072 [US5] 前端运行详情：frontend/src/pages/RunDetailPage.tsx + frontend/src/components/run/StepList.tsx（状态流转展示 + 分步展开查看输入输出 + 成本实时显示 + 重试/取消/回复按钮）
-- [ ] T073 [US5] 前端 WS 订阅：frontend/src/hooks/useRunSocket.ts（连接管理、自动重连、事件分发到 Zustand/Query、日志 200ms 批量渲染）
-- [ ] T074 [US5] 审计挂接：在 backend/app/api/v1/runs.py 内调用 core/audit.py 的 write_audit（run_cancel/run_retry/run_reply）
-- [ ] T075 [US5] 成本熔断验证：S5 场景 5（成本实时累计且不超上限，超限自动终止——SC-006），在 backend/tests/unit/test_runner.py 增加 cost_limit 终止断言
-- [ ] T076 [US5] 完整闭环集成测试：backend/tests/integration/test_execution_flow.py（mock LLM 走完 分配→入队→执行→完成，断言 steps/result/cost/artifacts 与 WS 事件——SC-004）
+- [x] T065 [US5] 状态机：backend/app/orchestrator/state_machine.py（RunStatus 枚举 + 允许迁移表 + transition() 幂等迁移函数 + 时间戳维护 + 终态判定）
+- [x] T066 [US5] 执行器基座：backend/app/executors/base.py（ToolExecutor 协议：name/schema/execute）+ backend/app/executors/llm.py（LiteLLM 封装：chat 调用、tool_call 解析、usage→cost_cents 换算（模型单价表可配置））
+- [x] T067 [US5] HTTP 工具：backend/app/executors/http.py（web_search 工具：调用联网搜索 API 返回结果；其余 Phase 1 内置工具集仅注册名称）
+- [x] T068 [US5] ReAct 执行器：backend/app/orchestrator/runner.py（消息序列循环：LLM→tool_call→executor→回填→再 LLM，直至 final/max_steps/超时/成本上限；每步写 steps 表 + 发布事件 + 累计 cost_cents；needs_input 时挂起等待 reply）
+- [x] T069 [US5] Celery 任务：backend/app/tasks/execute_run.py（execute_run 任务：入队后由 Worker 消费，加 Redis 分布式锁防重复执行）+ backend/app/tasks/events.py（Worker→API 状态回调：publish_run_event 封装各事件类型）
+- [x] T070 [US5] 运行端点：backend/app/api/v1/runs.py（GET /runs/{id}、POST /runs/{id}/cancel、POST /runs/{id}/retry、POST /runs/{id}/reply、GET /runs/{id}/artifacts/{artifact_id} 302 预签名）
+- [x] T071 [US5] WS 端点：backend/app/api/v1/ws.py（WS /ws/runs/{id}：token 鉴权、订阅 Redis 频道 run:{id} 转发事件、连接断开清理、ping/pong 保活）
+- [x] T072 [US5] 前端运行详情：frontend/src/pages/RunDetailPage.tsx + frontend/src/components/run/StepList.tsx（状态流转展示 + 分步展开查看输入输出 + 成本实时显示 + 重试/取消/回复按钮）
+- [x] T073 [US5] 前端 WS 订阅：frontend/src/hooks/useRunSocket.ts（连接管理、自动重连、事件分发到 Zustand/Query、日志 200ms 批量渲染）
+- [x] T074 [US5] 审计挂接：在 backend/app/api/v1/runs.py 内调用 core/audit.py 的 write_audit（run_cancel/run_retry/run_reply）
+- [x] T075 [US5] 成本熔断验证：S5 场景 5（成本实时累计且不超上限，超限自动终止——SC-006），在 backend/tests/unit/test_runner.py 增加 cost_limit 终止断言
+- [x] T076 [US5] 完整闭环集成测试：backend/tests/integration/test_execution_flow.py（mock LLM 走完 分配→入队→执行→完成，断言 steps/result/cost/artifacts 与 WS 事件——SC-004）
 
 **Checkpoint**: US1-5 全部独立可用——「从执行到产出的完整闭环」交付
 

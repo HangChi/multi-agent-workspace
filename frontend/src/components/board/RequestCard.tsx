@@ -2,8 +2,10 @@
 
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
+import { Link } from 'react-router-dom'
 
 import { WorkRequest, attachmentDownloadUrl } from '../../api/endpoints'
+import { useBoardStore } from '../../stores/boardStore'
 
 const PRIORITY_STYLE: Record<string, string> = {
   high: 'bg-red-50 text-red-700 border-red-200',
@@ -38,6 +40,8 @@ export function RequestCard({ request, draggable = true }: Props) {
     data: { kind: 'request', id: request.id, title: request.title },
     disabled: !draggable,
   })
+
+  const runId = useBoardStore((s) => s.runByRequest[request.id])
 
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -76,7 +80,16 @@ export function RequestCard({ request, draggable = true }: Props) {
           </span>
         )}
         <span className="text-xs text-slate-400">{STATUS_LABEL[request.status]}</span>
-        {draggable && (
+        {runId && (
+          <Link
+            to={`/runs/${runId}`}
+            onClick={(e) => e.stopPropagation()}
+            className="ml-auto rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-600 hover:bg-blue-100"
+          >
+            查看运行
+          </Link>
+        )}
+        {!runId && draggable && (
           <span className="ml-auto text-[10px] text-slate-300">拖拽分配</span>
         )}
       </div>

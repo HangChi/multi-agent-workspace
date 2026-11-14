@@ -1,0 +1,68 @@
+"""Worker→API 事件封装（T069，US5）：publish_run_event 各事件类型的便捷封装。
+
+对齐 contracts/api.md WS 事件类型：
+status_change / step_new / step_update / log_line / cost_update /
+run_completed / run_failed / run_cancelled / needs_input / run_timeout。
+"""
+
+from typing import Any
+
+from app.core.events import publish_run_event
+
+
+def status_change(run_id: str, status: str) -> None:
+    _publish(run_id, {"type": "status_change", "status": status})
+
+
+def step_new(run_id: str, step: dict[str, Any]) -> None:
+    _publish(run_id, {"type": "step_new", "step": step})
+
+
+def step_update(run_id: str, step: dict[str, Any]) -> None:
+    _publish(run_id, {"type": "step_update", "step": step})
+
+
+def log_line(run_id: str, line: str, level: str = "info") -> None:
+    _publish(run_id, {"type": "log_line", "line": line, "level": level})
+
+
+def cost_update(run_id: str, cost_cents: int) -> None:
+    _publish(run_id, {"type": "cost_update", "cost_cents": cost_cents})
+
+
+def run_completed(run_id: str, result: dict[str, Any] | None) -> None:
+    _publish(run_id, {"type": "run_completed", "result": result})
+
+
+def run_failed(run_id: str, error: str) -> None:
+    _publish(run_id, {"type": "run_failed", "error": error})
+
+
+def run_cancelled(run_id: str) -> None:
+    _publish(run_id, {"type": "run_cancelled"})
+
+
+def run_timeout(run_id: str) -> None:
+    _publish(run_id, {"type": "run_timeout"})
+
+
+def needs_input(run_id: str, message: str) -> None:
+    _publish(run_id, {"type": "needs_input", "message": message})
+
+
+def _publish(run_id: str, payload: dict[str, Any]) -> None:
+    """发布事件；Redis 抖动不抛出（Worker 不因事件失败中断执行）。"""
+    try:
+        # 异步发布：Worker 上下文无事件循环时退化为同步 publish
+        import asyncio
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(publish_run_event(run_id, payload))
+        else:
+            asyncio.ensure_future(publish_run_event(run_id, payload))
+    except (ConnectionError, OSError, ValueError) as exc:
+        import structlog
+
+        structlog.get_logger(__name__).warning("event_publish_failed", run_id=run_id, error=str(exc))

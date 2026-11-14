@@ -10,6 +10,7 @@ import { BoardPage } from './pages/BoardPage'
 import { GroupPage } from './pages/GroupPage'
 import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
+import { RunDetailPage } from './pages/RunDetailPage'
 
 /** 登录守卫：未登录 → /login。 */
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -60,6 +61,7 @@ export function AppRouter() {
         <Route index element={<BoardHome />} />
         <Route path="agents" element={<AgentPage />} />
         <Route path="groups" element={<GroupPage />} />
+        <Route path="runs/:runId" element={<RunDetailPage />} />
         <Route
           path="admin"
           element={

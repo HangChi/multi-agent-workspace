@@ -13,6 +13,8 @@ from app.api.v1.agents import router as agents_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.groups import router as groups_router
 from app.api.v1.requests import router as requests_router
+from app.api.v1.runs import router as runs_router
+from app.api.v1.ws import router as ws_router
 from app.core.config import settings
 
 
@@ -39,8 +41,10 @@ def create_app() -> FastAPI:
     api_v1.include_router(agents_router)
     api_v1.include_router(groups_router)
     api_v1.include_router(requests_router)
+    api_v1.include_router(runs_router)
     api_v1.include_router(admin_router)
     app.include_router(api_v1)
+    app.include_router(ws_router)
 
     @app.get("/api/v1/health")
     async def health() -> dict:

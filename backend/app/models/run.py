@@ -69,3 +69,24 @@ class Run(Base):
     artifacts = relationship("Artifact", back_populates="run", cascade="all, delete-orphan")
     parent_run = relationship("Run", remote_side=[id], back_populates="child_runs")
     child_runs = relationship("Run", back_populates="parent_run")
+
+    # ---- 状态机协议（state_machine.RunLike）----
+
+    def mark_started(self) -> None:
+        from datetime import datetime, timezone
+
+        self.started_at = datetime.now(timezone.utc)
+
+    def mark_finished(self) -> None:
+        from datetime import datetime, timezone
+
+        self.finished_at = datetime.now(timezone.utc)
+
+    def clear_execution(self) -> None:
+        """failed/timeout → queued 重试时重置执行现场（FR-017）。"""
+        self.current_step = 0
+        self.cost_cents = 0
+        self.error = None
+        self.result = None
+        self.started_at = None
+        self.finished_at = None
