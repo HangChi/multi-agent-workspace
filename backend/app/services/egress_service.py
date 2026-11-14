@@ -29,8 +29,7 @@ def covered_by_builtin(payload: EgressRuleIn) -> bool:
         network = ipaddress.ip_network(payload.target, strict=True)
         return any(
             network.version == builtin.version
-            and network.network_address in builtin
-            and network.prefixlen >= builtin.prefixlen
+            and network.overlaps(builtin)
             for builtin in _builtin_cidrs()
         )
     except ValueError:
@@ -109,11 +108,32 @@ async def delete_agent_rule(
     await db.flush()
 
 
-async def list_global_rules(db: AsyncSession) -> list[EgressRule]:
+async def list_global_rules(db: AsyncSession) -> list[EgressRule | dict[str, Any]]:
     result = await db.execute(
         select(EgressRule).where(EgressRule.scope == "global").order_by(EgressRule.created_at.asc())
     )
-    return list(result.scalars().all())
+    rows: list[EgressRule | dict[str, Any]] = list(result.scalars().all())
+    existing = {row.target for row in rows if isinstance(row, EgressRule)}
+    for cidr in settings.egress_builtin_blacklist_list:
+        if cidr not in existing:
+            rows.insert(
+                0,
+                {
+                    "id": f"builtin:{cidr}",
+                    "scope": "global",
+                    "agent_id": None,
+                    "action": "deny",
+                    "target_type": "cidr",
+                    "target": cidr,
+                    "port_range": None,
+                    "note": "内置内网与云元数据保护，不可删除",
+                    "enabled": True,
+                    "builtin": True,
+                    "created_by": None,
+                    "created_at": None,
+                },
+            )
+    return rows
 
 
 async def create_global_rule(

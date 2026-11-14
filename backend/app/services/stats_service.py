@@ -16,7 +16,9 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.agent import Agent
 from app.models.run import Run
+from app.models.sandbox_execution import SandboxExecution
 
 _TERMINAL_SUCCESS = {"completed"}
 _TERMINAL_FAIL = {"failed", "timeout"}
@@ -100,6 +102,18 @@ async def overview(db: AsyncSession, owner_id: str) -> dict:
     total_7d = success_7d + fail_7d
     success_rate = round(success_7d / total_7d, 4) if total_7d else 0.0
 
+    sandbox_rows = (
+        await db.execute(
+            select(SandboxExecution).where(
+                SandboxExecution.agent_id.in_(
+                    select(Agent.id).where(Agent.owner_id == owner_id)
+                ),
+                SandboxExecution.created_at >= today_start,
+            )
+        )
+    ).scalars().all()
+    sandbox_minutes = sum(row.duration_ms for row in sandbox_rows) / 60000
+
     return {
         "running": running,
         "queued": queued,
@@ -108,4 +122,6 @@ async def overview(db: AsyncSession, owner_id: str) -> dict:
         "success_rate_7d": success_rate,
         "cost_today_cents": cost_today,
         "cost_trend_7d": [trend[(week_ago + timedelta(days=i)).date().isoformat()] for i in range(7)],
+        "sandbox_runs_today": len(sandbox_rows),
+        "sandbox_minutes_today": round(sandbox_minutes, 2),
     }

@@ -517,6 +517,8 @@ export interface StatsOverview {
   success_rate_7d: number
   cost_today_cents: number
   cost_trend_7d: number[]
+  sandbox_runs_today: number
+  sandbox_minutes_today: number
 }
 
 /** 仪表盘总览统计。 */

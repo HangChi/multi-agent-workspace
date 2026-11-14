@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import mimetypes
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
+import redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
@@ -19,6 +21,7 @@ from app.services import artifact_service
 
 ERROR_MESSAGES = {
     "timeout": "脚本执行超时，已终止。请缩短计算量或增大 timeout_s。",
+    "resource_busy": "沙箱并发已满，请稍后重试。系统会自动释放失联的执行槽位。",
     "cancelled": "脚本执行已取消。",
     "oom": "脚本因内存不足被终止，请减少内存占用。",
     "pids": "脚本创建的进程数超过限制，请减少并发子进程。",
@@ -26,6 +29,48 @@ ERROR_MESSAGES = {
     "infra": "沙箱基础设施不可用，请稍后重试。",
     "exit_code": "脚本以非零退出码结束，请检查 stderr 输出。",
 }
+
+
+def acquire_concurrency_slot() -> str | None:
+    """尝试获取一个带 TTL 的分布式沙箱槽位；过期租约自动回收。"""
+    client = redis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        for slot in range(settings.sbx_max_concurrency):
+            token = f"{slot}:{datetime.now(UTC).timestamp()}"
+            key = f"sbx:sem:{slot}"
+            if client.set(key, token, nx=True, ex=settings.sbx_timeout_max + 120):
+                return token
+        return None
+    finally:
+        client.close()
+
+
+def release_concurrency_slot(token: str | None) -> None:
+    """仅释放当前 token 所持有的槽位，避免误删新租约。"""
+    if token is None:
+        return
+    slot = token.split(":", 1)[0]
+    key = f"sbx:sem:{slot}"
+    client = redis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        # compare-and-delete 原子操作，租约过期后不误删别人的槽位
+        client.eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            1,
+            key,
+            token,
+        )
+    finally:
+        client.close()
+
+
+@contextmanager
+def sandbox_slot() -> Iterator[bool]:
+    token = acquire_concurrency_slot()
+    try:
+        yield token is not None
+    finally:
+        release_concurrency_slot(token)
 
 
 def finish_payload(result: dict[str, Any]) -> dict[str, Any]:

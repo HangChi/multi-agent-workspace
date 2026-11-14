@@ -20,12 +20,13 @@ from app.api.deps import DB, CurrentUser, require_role
 from app.api.errors import AppError
 from app.core.audit import write_audit
 from app.models.artifact import Artifact
+from app.models.egress import EgressAccess
 from app.models.run import Run
 from app.models.sandbox_execution import SandboxExecution
 from app.models.step import Step
 from app.orchestrator.state_machine import RunStatus, transition
 from app.schemas.run import RunOut
-from app.schemas.sandbox import ExecutionDetail, ExecutionSummary
+from app.schemas.sandbox import EgressAccessList, ExecutionDetail, ExecutionSummary
 from app.services import artifact_service
 from app.services.assignment_service import _enqueue
 
@@ -108,6 +109,23 @@ async def get_execution(run_id: str, execution_id: str, user: CurrentUser, db: D
             "artifacts": artifacts,
         }
     )
+
+
+@router.get("/{run_id}/executions/{execution_id}/egress", response_model=EgressAccessList)
+async def get_execution_egress(run_id: str, execution_id: str, user: CurrentUser, db: DB):
+    """查看某次执行的网络访问记录。"""
+    run = await _get_owned_run(db, run_id, user)
+    execution = await db.get(SandboxExecution, execution_id)
+    if execution is None or execution.run_id != run.id:
+        raise AppError("NOT_FOUND", "沙箱执行不存在")
+    rows = (
+        await db.execute(
+            select(EgressAccess)
+            .where(EgressAccess.execution_id == execution_id)
+            .order_by(EgressAccess.occurred_at.asc())
+        )
+    ).scalars().all()
+    return {"items": rows}
 
 
 @router.post("/{run_id}/cancel")

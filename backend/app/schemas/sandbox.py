@@ -89,3 +89,5 @@ class EgressAccessList(BaseModel):
     """出站访问记录列表。"""
 
     items: list[EgressAccessOut]
+    total: int = 0
+    summary: dict[str, int] = Field(default_factory=dict)

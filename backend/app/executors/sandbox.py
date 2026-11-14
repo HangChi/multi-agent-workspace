@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from typing import Any
+
+import redis
 
 from app.core.config import settings
 from app.executors.base import ToolExecutor
 from app.executors.catalog import CATALOG, ToolSpec
 from app.executors.sandbox_client import SandboxInfraError, SandboxRun
+
+logger = logging.getLogger(__name__)
 
 _ERROR_MESSAGES = {
     "timeout": "脚本执行超时，已终止。请缩短计算量或增大 timeout_s。",
@@ -109,6 +114,33 @@ class SandboxExecutor(ToolExecutor):
             }
         requested_timeout = arguments.get("timeout_s")
         timeout_s = requested_timeout if isinstance(requested_timeout, int) else None
+        from app.services.sandbox_service import (
+            acquire_concurrency_slot,
+            release_concurrency_slot,
+        )
+
+        try:
+            slot = await asyncio.to_thread(acquire_concurrency_slot)
+        except Exception as exc:  # noqa: BLE001 - Redis 不可用时视为基础设施故障
+            return {
+                "ok": False,
+                "status": "infra",
+                "error_category": "infra",
+                "exit_code": None,
+                "stdout": "",
+                "stderr": "",
+                "message": f"{_ERROR_MESSAGES['infra']}（无法获取并发槽位：{exc}）",
+            }
+        if slot is None:
+            return {
+                "ok": False,
+                "status": "resource",
+                "error_category": "resource_busy",
+                "exit_code": None,
+                "stdout": "",
+                "stderr": "",
+                "message": "沙箱并发已满，请稍后重试。",
+            }
         try:
             return await asyncio.to_thread(self._execute_sync, raw, timeout_s)
         except Exception as exc:  # noqa: BLE001 - 工具边界必须返回结构化失败
@@ -122,7 +154,12 @@ class SandboxExecutor(ToolExecutor):
                 "stderr": "",
                 "message": f"{_ERROR_MESSAGES.get(category, _ERROR_MESSAGES['infra'])}（{exc}）",
             }
-
+        finally:
+            try:
+                await asyncio.to_thread(release_concurrency_slot, slot)
+            except (redis.RedisError, OSError) as exc:
+                # 释放失败由 TTL 自愈，不能覆盖原始执行结果
+                logger.warning("sandbox_slot_release_failed: %s", exc)
     def _execute_sync(self, code: str, timeout_s: int | None) -> dict[str, Any]:
         if len(code.encode("utf-8")) > settings.sbx_code_max_bytes:
             return {
