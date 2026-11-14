@@ -1,0 +1,30 @@
+# WorkBuddy 本地项目数据（含会话记忆等，不入库）
+.workbuddy/
+
+# 环境变量与密钥
+.env
+.env.*
+!.env.example
+
+# 依赖目录
+node_modules/
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+
+# 构建产物
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# 日志与临时文件
+*.log
+logs/
+tmp/
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
