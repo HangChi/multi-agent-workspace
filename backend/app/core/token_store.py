@@ -22,10 +22,15 @@ from app.core.config import settings
 logger = structlog.get_logger(__name__)
 
 _KEY_PREFIX = "refresh:"
+_GRACE_PREFIX = "refresh_grace:"
 
 
 def _key(jti: str) -> str:
     return f"{_KEY_PREFIX}{jti}"
+
+
+def _grace_key(jti: str) -> str:
+    return f"{_GRACE_PREFIX}{jti}"
 
 
 def _client() -> aioredis.Redis:
@@ -43,15 +48,28 @@ async def register_refresh_token(jti: str, user_id: str, ttl_seconds: int) -> No
         await client.aclose()
 
 
-async def consume_refresh_token(jti: str) -> bool:
-    """一次性消费 jti：True=有效（已消费），False=已使用/已撤销/不存在。
+async def consume_refresh_token(jti: str, *, grace_seconds: int = 0) -> bool:
+    """消费 jti：True=有效，False=已使用/已撤销/不存在。
+
+    宽限期（grace_seconds）解决多标签页互相踢：两个标签页同时刷新时，后到的
+    那个手里还是旧 token。宽限期内允许重复消费（各拿一对新 token，都能用），
+    超过宽限期一律拒绝——重放窗口从「7 天」收紧到「秒级」。
 
     Redis 异常时返回 True（fail-open，见模块 docstring）。
     """
     client = _client()
     try:
-        # GETDEL 原子：并发用同一 token 时只有一个能取到
-        return (await client.getdel(_key(jti))) is not None
+        # 宽限期内：首次消费时留下的标记，允许再次使用
+        if grace_seconds > 0 and await client.exists(_grace_key(jti)):
+            return True
+
+        # GETDEL 原子：并发用同一 token 时只有一个能取到主记录
+        if (await client.getdel(_key(jti))) is None:
+            return False
+
+        if grace_seconds > 0:
+            await client.set(_grace_key(jti), "1", ex=grace_seconds)
+        return True
     except Exception as exc:  # noqa: BLE001
         logger.warning("refresh_store_unavailable", op="consume", error=type(exc).__name__)
         return True

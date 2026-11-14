@@ -152,8 +152,8 @@ async def test_me_unauthorized(client):
 # ---------- refresh 轮换（一次性消费）----------
 
 
-async def test_refresh_token_is_single_use(client, make_user):
-    """refresh token 用后立即失效：同一 token 第二次刷新 → 401。"""
+async def test_refresh_rotation_issues_new_token(client, make_user):
+    """刷新后换发新 token，旧 token 在宽限期后失效（rotation 生效）。"""
     _, password = await make_user(email="rotate@test.com")
     login = await client.post(
         LOGIN_URL, json={"email": "rotate@test.com", "password": password}
@@ -163,14 +163,75 @@ async def test_refresh_token_is_single_use(client, make_user):
     first = await client.post(REFRESH_URL, json={"refresh_token": rt})
     assert first.status_code == 200
 
-    replay = await client.post(REFRESH_URL, json={"refresh_token": rt})
-    assert replay.status_code == 401, "旧 refresh token 应已被消费而失效"
-
-    # 轮换出来的新 token 仍可正常刷新
     new_rt = first.json()["tokens"]["refresh"]
-    assert new_rt != rt
-    third = await client.post(REFRESH_URL, json={"refresh_token": new_rt})
-    assert third.status_code == 200
+    assert new_rt != rt, "应换发新的 refresh token"
+    assert first.json()["tokens"]["access"]
+
+    # 新 token 可继续刷新（链式）
+    second = await client.post(REFRESH_URL, json={"refresh_token": new_rt})
+    assert second.status_code == 200
+
+
+async def test_refresh_replay_within_grace_allowed(client, make_user):
+    """宽限期内（默认 30s）同一 token 可再用：多标签页并发刷新不互相踢。
+
+    两个标签页各自刷新时，后到的那个手里还是旧 token；宽限期内两个都能拿到
+    新 token 并继续工作。
+    """
+    _, password = await make_user(email="grace@test.com")
+    login = await client.post(LOGIN_URL, json={"email": "grace@test.com", "password": password})
+    rt = login.json()["tokens"]["refresh"]
+
+    tab_a = await client.post(REFRESH_URL, json={"refresh_token": rt})
+    tab_b = await client.post(REFRESH_URL, json={"refresh_token": rt})
+    assert tab_a.status_code == 200
+    assert tab_b.status_code == 200, "宽限期内不应互相踢掉"
+
+    # 各自拿到的新 token 都可用
+    for resp in (tab_a, tab_b):
+        r = await client.post(
+            REFRESH_URL, json={"refresh_token": resp.json()["tokens"]["refresh"]}
+        )
+        assert r.status_code == 200
+
+
+async def test_refresh_replay_rejected_when_grace_disabled(client, make_user, monkeypatch):
+    """refresh_grace_seconds=0 → 严格一次性：第二次立即 401。"""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "refresh_grace_seconds", 0)
+
+    _, password = await make_user(email="strict@test.com")
+    login = await client.post(LOGIN_URL, json={"email": "strict@test.com", "password": password})
+    rt = login.json()["tokens"]["refresh"]
+
+    assert (await client.post(REFRESH_URL, json={"refresh_token": rt})).status_code == 200
+    replay = await client.post(REFRESH_URL, json={"refresh_token": rt})
+    assert replay.status_code == 401
+
+
+async def test_refresh_replay_rejected_after_grace_window(client, make_user):
+    """宽限期用尽（模拟标记过期）后，旧 token 一律 401。"""
+    import redis.asyncio as aioredis
+
+    from app.core.config import settings
+    from app.core.security import decode_token
+    from app.core.token_store import _grace_key
+
+    _, password = await make_user(email="expire@test.com")
+    login = await client.post(LOGIN_URL, json={"email": "expire@test.com", "password": password})
+    rt = login.json()["tokens"]["refresh"]
+    assert (await client.post(REFRESH_URL, json={"refresh_token": rt})).status_code == 200
+
+    # 手动清掉宽限标记，等价于「30 秒已过去」
+    client_redis = aioredis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        await client_redis.delete(_grace_key(decode_token(rt)["jti"]))
+    finally:
+        await client_redis.aclose()
+
+    replay = await client.post(REFRESH_URL, json={"refresh_token": rt})
+    assert replay.status_code == 401
 
 
 async def test_refresh_token_without_jti_rejected(client, make_user):

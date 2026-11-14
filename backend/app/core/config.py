@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     jwt_access_ttl_minutes: int = 30
     jwt_refresh_ttl_days: int = 7
     jwt_algorithm: str = "HS256"
+    # refresh 宽限期（秒）：多标签页并发刷新时不互相踢；0 = 严格一次性
+    refresh_grace_seconds: int = 30
 
     # 邀请码
     invite_code: str = "CHANGE-ME-ADMIN-CODE"

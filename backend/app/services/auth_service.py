@@ -103,8 +103,8 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> dict[str, str]:
     jti = payload.get("jti")
     if not jti:
         raise AppError("UNAUTHORIZED", "refresh token 缺少标识，请重新登录")
-    if not await consume_refresh_token(jti):
-        # 已使用/已撤销：可能是重放，也可能是多标签页并发刷新
+    if not await consume_refresh_token(jti, grace_seconds=settings.refresh_grace_seconds):
+        # 已使用且超出宽限期：可能是重放，也可能是被撤销
         raise AppError("UNAUTHORIZED", "refresh token 已失效，请重新登录")
 
     user_id = payload.get("user_id")
