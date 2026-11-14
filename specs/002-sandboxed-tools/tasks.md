@@ -78,15 +78,15 @@
 
 ### Tests for User Story 1（先写，先红后绿）⚠️
 
-- [ ] T018 [P] [US1] 限额与分类单元测试 backend/tests/unit/test_sandbox_limits.py：退出码 0→`ok`、非零→`failed(exit_code)`、wait 超时→`timeout`、OOM→`resource(oom)`、pids 超限→`resource(pids)`、磁盘超限→`resource(disk)`、守护不可达→`infra`；每类断言 `error_message` 中文可读且非「未知错误」
+- [x] T018 [P] [US1] 限额与分类单元测试 backend/tests/unit/test_sandbox_limits.py：退出码 0→`ok`、非零→`failed(exit_code)`、wait 超时→`timeout`、OOM→`resource(oom)`、pids 超限→`resource(pids)`、磁盘超限→`resource(disk)`、守护不可达→`infra`；每类断言 `error_message` 中文可读且非「未知错误」
 - [x] T019 [P] [US1] 生命周期契约测试 backend/tests/unit/test_sandbox_client.py（fake_docker）：断言网络以独立名字创建、容器参数含 `nano_cpus/mem_limit/pids_limit/read_only/tmpfs`、超时后调 `kill(SIGKILL)`、`finally` 必调 `remove(force=True)` 与 `networks.remove()`、异常路径也不残留
-- [ ] T020 [P] [US1] 执行器单元测试 backend/tests/unit/test_sandbox_executor.py：`run_python`/`run_shell` 的 schema 形状；参数缺省用默认 timeout；**失败必须返回 `{"ok": false, "status": ..., "exit_code": ..., "stdout": ..., "stderr": ...}` 而非抛异常**（FR-013；反向验证：把实现改成抛异常，此测试必须红）
-- [ ] T021 [P] [US1] 输出截断单元测试 backend/tests/unit/test_sandbox_output.py：输出 3MB → 保留尾部 ≤1MB、`stdout_truncated=true`、`stdout_full_bytes=3145728`；二进制/乱码输出不抛异常、降级为可读替换
+- [x] T020 [P] [US1] 执行器单元测试 backend/tests/unit/test_sandbox_executor.py：`run_python`/`run_shell` 的 schema 形状；参数缺省用默认 timeout；**失败必须返回 `{"ok": false, "status": ..., "exit_code": ..., "stdout": ..., "stderr": ...}` 而非抛异常**（FR-013；反向验证：把实现改成抛异常，此测试必须红）
+- [x] T021 [P] [US1] 输出截断单元测试 backend/tests/unit/test_sandbox_output.py：输出 3MB → 保留尾部 ≤1MB、`stdout_truncated=true`、`stdout_full_bytes=3145728`；二进制/乱码输出不抛异常、降级为可读替换
 
 ### Implementation for User Story 1
 
-- [ ] T022 [US1] 沙箱执行器：backend/app/executors/sandbox.py（`RunPythonExecutor` / `RunShellExecutor`，实现 ToolExecutor 协议，schema 取自 catalog）
-- [ ] T023 [US1] 脚本注入方式：脚本经 `put_archive` 写入 `/workspace/main.py` 或 `/workspace/run.sh`，容器 `command` 为常量（`["python","-u","/workspace/main.py"]` / `["bash","/workspace/run.sh"]`）；`run_shell` 的命令串额外记入审计摘要（截断 4KB）。**禁止**把用户内容拼进任何命令行（R-07） （backend/app/executors/sandbox.py）
+- [x] T022 [US1] 沙箱执行器：backend/app/executors/sandbox.py（`RunPythonExecutor` / `RunShellExecutor`，实现 ToolExecutor 协议，schema 取自 catalog）
+- [x] T023 [US1] 脚本注入方式：脚本经 `put_archive` 写入 `/workspace/main.py` 或 `/workspace/run.sh`，容器 `command` 为常量（`["python","-u","/workspace/main.py"]` / `["bash","/workspace/run.sh"]`）；`run_shell` 的命令串额外记入审计摘要（截断 4KB）。**禁止**把用户内容拼进任何命令行（R-07） （backend/app/executors/sandbox.py）
 - [ ] T024 [US1] 资源限额映射：`nano_cpus`/`mem_limit`/`pids_limit`/`read_only=True` + `tmpfs` 写盘配额/`security_opt` 基础项；`limits` 快照写入 DB （backend/app/executors/sandbox_client.py）
 - [ ] T025 [US1] 超时与取消：分段等待（1s）轮询 `abort_check`（接既有 `should_abort`）；命中即 `kill` 并置 `status=failed/error_category=cancelled`；`timeout_s` 夹取在 `[1, SBX_TIMEOUT_MAX]` 且不超过所属 Run 剩余预算 （backend/app/executors/sandbox_client.py + backend/app/executors/sandbox.py）
 - [ ] T026 [US1] 执行服务：backend/app/services/sandbox_service.py（`start_execution()` 落 running 记录 → `finish_execution()` 落终态/耗时/退出码/stdout/stderr；失败分类映射表集中在此）
