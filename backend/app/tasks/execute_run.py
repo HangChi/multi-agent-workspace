@@ -90,17 +90,12 @@ def _build_runner(
     *,
     abort_check=None,
     on_sandbox_result=None,
-    egress_snapshot: dict[str, object] | None = None,
 ) -> ReActRunner:
     """按 Agent 配置构造 runner；无 Agent（组父 Run）用默认配置。"""
     if agent is not None:
         return ReActRunner(
             llm=LiteLLMClient(model=agent.model),
-            executors=build_executors(
-                list(agent.tools or []),
-                abort_check=abort_check,
-                egress_snapshot=egress_snapshot,
-            ),
+            executors=build_executors(list(agent.tools or []), abort_check=abort_check),
             max_steps=agent.max_steps,
             timeout_seconds=agent.max_run_seconds,
             cost_limit_cents=agent.cost_limit_cents,
@@ -317,17 +312,7 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
             run_events.run_completed(run.id, run.result)
             return
 
-    egress_snapshot: dict[str, object] | None = None
-    if agent is not None:
-        mode, global_rules, agent_rules = await egress_service.snapshot_for_execution(
-            db, agent_id=agent.id
-        )
-        egress_snapshot = {
-            "mode": mode,
-            "global_rules": [asdict(rule) for rule in global_rules],
-            "agent_rules": [asdict(rule) for rule in agent_rules],
-        }
-    runner = _build_runner(run, agent, egress_snapshot=egress_snapshot)
+    runner = _build_runner(run, agent)
 
     async def audit_denied(detail: dict) -> None:
         await write_audit(
@@ -464,6 +449,19 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
     async def publish_sandbox_started(detail: dict) -> None:
         if agent is None:
             raise RuntimeError("沙箱执行缺少 Agent 归属")
+        executor = runner.executors.get(str(detail["tool_name"]))
+        set_egress_snapshot = getattr(executor, "set_egress_snapshot", None)
+        if callable(set_egress_snapshot):
+            mode, global_rules, agent_rules = await egress_service.snapshot_for_execution(
+                db, agent_id=agent.id
+            )
+            set_egress_snapshot(
+                {
+                    "mode": mode,
+                    "global_rules": [asdict(rule) for rule in global_rules],
+                    "agent_rules": [asdict(rule) for rule in agent_rules],
+                }
+            )
         step_id = str(detail["step_id"])
         db.add(
             Step(
