@@ -106,7 +106,14 @@ async def get_execution(run_id: str, execution_id: str, user: CurrentUser, db: D
         {
             **execution.__dict__,
             "step_seq": step.seq if step else 0,
-            "artifacts": artifacts,
+            "artifacts": [
+                {
+                    "id": artifact.id,
+                    "filename": artifact.filename,
+                    "size_bytes": artifact.size_bytes,
+                }
+                for artifact in artifacts
+            ],
         }
     )
 

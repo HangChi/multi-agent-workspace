@@ -10,7 +10,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ExecutionSummary(BaseModel):
@@ -81,6 +81,11 @@ class EgressAccessOut(BaseModel):
     matched_rule_id: str | None = None
     bytes_out: int | None = None
     occurred_at: datetime
+
+    @field_validator("target_ip", mode="before")
+    @classmethod
+    def _stringify_ip(cls, value: Any) -> str:
+        return str(value)
 
     model_config = {"from_attributes": True}
 

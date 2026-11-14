@@ -29,7 +29,7 @@ async def create_blacklist(payload: BlacklistIn, user: CurrentUser, _admin: Admi
     return rule
 
 
-@router.delete("/egress-blacklist/{rule_id}", status_code=204)
+@router.delete("/egress-blacklist/{rule_id:path}", status_code=204)
 async def delete_blacklist(rule_id: str, user: CurrentUser, _admin: AdminUser, db: DB):
     await egress_service.delete_global_rule(db, rule_id=rule_id)
     await write_audit(db, user_id=user.id, action="egress_blacklist_delete", target_type="egress_rule", target_id=rule_id)
