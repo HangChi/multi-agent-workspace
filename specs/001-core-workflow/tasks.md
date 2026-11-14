@@ -43,17 +43,17 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T008 建全部 SQLAlchemy 模型：backend/app/models/（user.py、invite_code.py、agent.py、group.py、request.py、run.py、step.py、artifact.py、audit_log.py），对齐 data-model.md 字段/约束/索引/唯一约束（含 group_members 的 (group_id,agent_id)/(group_id,position) 唯一、steps 的 (run_id,seq) 唯一）
-- [ ] T009 Alembic 初始化与初始迁移：backend/alembic/env.py + backend/alembic/versions/0001_initial.py（全部 10 张表，含 enum 类型）
-- [ ] T010 环境配置：backend/app/core/config.py（pydantic-settings，字段对齐 deploy/.env.example，启动时校验必需项）
-- [ ] T011 数据库访问：backend/app/core/db.py（async engine + async_sessionmaker + get_db 依赖，连接池配置）
-- [ ] T012 [P] 安全基座：backend/app/core/security.py（bcrypt 密码哈希 + JWT access/refresh 签发与校验，token 载荷含 user_id/role/type/exp）
-- [ ] T013 [P] 审计日志：backend/app/core/audit.py（write_audit(user_id, action, target_type, target_id, detail)，structlog 写入 audit_logs 表）
-- [ ] T014 [P] 事件总线：backend/app/core/events.py（Redis Pub/Sub 封装：publish_run_event(run_id, payload) + 订阅者接口，频道命名 `run:{run_id}`）
-- [ ] T015 [P] Celery 基座：backend/app/tasks/celery_app.py（broker=Redis，任务序列化配置，结果后端）+ backend/app/worker.py（Worker 入口）
-- [ ] T016 API 依赖注入：backend/app/api/deps.py（get_current_user 解析 JWT、require_role(role) 角色权限依赖、get_owned_resource 资源归属校验，返回 401/403）
-- [ ] T017 统一错误处理：backend/app/api/errors.py（AppError 异常体系 + FastAPI exception handler，输出 `{"error":{"code","message"}}`，对齐 contracts/api.md 错误码表 400/401/403/404/409/422/429）
-- [ ] T018 测试基座：backend/tests/conftest.py（async 测试引擎、测试数据库 fixture（Alembic 迁移或 create_all）、Redis fixture、MinIO fixture/mock、httpx AsyncClient fixture、JWT 签发辅助、随机用户工厂）
+- [x] T008 建全部 SQLAlchemy 模型：backend/app/models/（user.py、invite_code.py、agent.py、group.py、request.py、run.py、step.py、artifact.py、audit_log.py），对齐 data-model.md 字段/约束/索引/唯一约束（含 group_members 的 (group_id,agent_id)/(group_id,position) 唯一、steps 的 (run_id,seq) 唯一）
+- [x] T009 Alembic 初始化与初始迁移：backend/alembic/env.py + backend/alembic/versions/0001_initial.py（全部 10 张表，含 enum 类型）
+- [x] T010 环境配置：backend/app/core/config.py（pydantic-settings，字段对齐 deploy/.env.example，启动时校验必需项）
+- [x] T011 数据库访问：backend/app/core/db.py（async engine + async_sessionmaker + get_db 依赖，连接池配置）
+- [x] T012 [P] 安全基座：backend/app/core/security.py（bcrypt 密码哈希 + JWT access/refresh 签发与校验，token 载荷含 user_id/role/type/exp）
+- [x] T013 [P] 审计日志：backend/app/core/audit.py（write_audit(user_id, action, target_type, target_id, detail)，structlog 写入 audit_logs 表）
+- [x] T014 [P] 事件总线：backend/app/core/events.py（Redis Pub/Sub 封装：publish_run_event(run_id, payload) + 订阅者接口，频道命名 `run:{run_id}`）
+- [x] T015 [P] Celery 基座：backend/app/tasks/celery_app.py（broker=Redis，任务序列化配置，结果后端）+ backend/app/worker.py（Worker 入口）
+- [x] T016 API 依赖注入：backend/app/api/deps.py（get_current_user 解析 JWT、require_role(role) 角色权限依赖、get_owned_resource 资源归属校验，返回 401/403）
+- [x] T017 统一错误处理：backend/app/api/errors.py（AppError 异常体系 + FastAPI exception handler，输出 `{"error":{"code","message"}}`，对齐 contracts/api.md 错误码表 400/401/403/404/409/422/429）
+- [x] T018 测试基座：backend/tests/conftest.py（async 测试引擎、测试数据库 fixture（Alembic 迁移或 create_all）、Redis fixture、MinIO fixture/mock、httpx AsyncClient fixture、JWT 签发辅助、随机用户工厂）
 
 **Checkpoint**: 数据库迁移可执行、安全/事件/队列基座就绪、测试可跑——用户故事可开始
 
