@@ -187,7 +187,7 @@
 
 ### Implementation for User Story 5
 
-- [x] T060 [US5] 规则编排：backend/app/executors/egress_network.py（替代原计划 egress.py 的 init 容器编排；argv-only iptables/ip6tables 链安装/清理、conntrack 采集与解析）
+- [ ] T060 [US5] 规则编排：backend/app/executors/egress_network.py（替代原计划 egress.py 的 init 容器编排；argv-only iptables/ip6tables 链安装/清理、conntrack 采集与解析）。**未完成**：内核运行时目前仅支持 IP/CIDR allow；restricted 模式中的 domain allow 因动态 DNS→内核策略绑定未实现而 fail-closed。
 - [x] T061 [US5] DNS 接线：`sandbox_client.py` 给容器传受控 DNS 代理；iptables 规则里 53 只放行到代理 IP；执行结束从 dns-proxy 拉该执行时间窗的查询记录并与 conntrack 归并 （backend/app/executors/sandbox_client.py）
 - [x] T062 [US5] 出站服务：backend/app/services/egress_service.py（规则 CRUD + `snapshot_for_execution()` 求值快照 + `record_accesses()` 批量写入 + `builtin` 项保护）
 - [x] T063 [US5] Agent 出网字段：`agents.egress_mode` 端点接线（每次沙箱执行开始前冻结 mode 与规则快照） （backend/app/api/v1/agents.py）
