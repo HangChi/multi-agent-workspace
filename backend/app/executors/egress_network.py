@@ -597,6 +597,9 @@ class NetworkCapture:
         try:
             dns_proxy = client.containers.get(EGRESS_DNS_PROXY)
             network.connect(dns_proxy)
+            # Docker can allocate an automatic gateway on first attachment;
+            # refresh the Network model before reading its cached IPAM metadata.
+            network.reload()
             dns_proxy.reload()
             address = (getattr(dns_proxy, "attrs", {}) or {}).get("NetworkSettings", {}).get("Networks", {}).get(network.name, {})
             dns_ip = address.get("IPAddress")

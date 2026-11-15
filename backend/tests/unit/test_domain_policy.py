@@ -59,11 +59,38 @@ def mediator(cfg=None, replies=None, execute=None):
     return Mediator(cfg, resolver=resolver, binder=binder, clock=lambda: 0), calls
 
 
+def test_runtime_domain_snapshot_refreshes_lazy_docker_ipam():
+    """Docker may populate automatic gateways only after the first attachment."""
+    from app.executors.egress_network import NetworkCapture
+
+    proxy = Mock()
+    proxy.attrs = {"NetworkSettings": {"Networks": {"sandbox": {"IPAddress": "172.30.0.2"}}}}
+    network = Mock(name="sandbox-network")
+    network.name = "sandbox"
+    network.attrs = {"Id": "abcdef123456", "IPAM": {"Config": [{"Subnet": "172.30.0.0/24"}]}}
+
+    def reload_network():
+        network.attrs["IPAM"]["Config"][0]["Gateway"] = "172.30.0.1"
+
+    network.reload.side_effect = reload_network
+    helper = Mock()
+    helper.logs.return_value = json.dumps({"aw_dns_ready": EID}).encode()
+    helper.attrs = {"State": {"Running": True}}
+    helper.exec_run.return_value = SimpleNamespace(exit_code=0)
+    client = Mock()
+    client.containers.get.return_value = proxy
+    client.containers.run.side_effect = lambda *args, **kwargs: helper if kwargs.get("detach") else b""
+    capture = NetworkCapture.prepare(client, network, EID, config())
+    network.reload.assert_called_once()
+    assert capture.dns_proxy_ip == "172.30.0.1"
+    assert capture.domain_config["upstream_ip"] == "172.30.0.2"
+
+
 def test_runtime_domain_snapshot_starts_execution_private_mediator():
     from app.executors.egress_network import NetworkCapture
     proxy = Mock()
     proxy.attrs = {"NetworkSettings": {"Networks": {"sandbox": {"IPAddress": "172.30.0.2"}}}}
-    network = SimpleNamespace(name="sandbox", connect=Mock(), disconnect=Mock(), attrs={
+    network = SimpleNamespace(name="sandbox", connect=Mock(), disconnect=Mock(), reload=Mock(), attrs={
         "Id": "abcdef123456", "IPAM": {"Config": [{"Gateway": "172.30.0.1"}]}})
     helper = Mock()
     helper.logs.return_value = json.dumps({"aw_dns_ready": EID}).encode()

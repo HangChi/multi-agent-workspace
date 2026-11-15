@@ -376,7 +376,7 @@ def test_prepare_reserves_ipv6_next_to_dns_proxy() -> None:
     from app.executors.egress_network import NetworkCapture
 
     network = SimpleNamespace(
-        name="sandbox", connect=Mock(), disconnect=Mock(),
+        name="sandbox", connect=Mock(), disconnect=Mock(), reload=Mock(),
         attrs={"Id": "abcdef123456", "EnableIPv6": True},
     )
     proxy = Mock()
