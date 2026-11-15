@@ -204,8 +204,8 @@
 
 **Purpose**: 真实栈验证、越权矩阵、数据保留、文档与门禁
 
-- [ ] T068 [P] 真实栈断言（沙箱）：原生 run `43701273368` 实际迁移/历史、denied/no_tools/builtins/denial_threshold 和 infra fault 通过；共同失败定位为 Docker 28 静态端点要求显式子网（HTTP 400）。`d88890d` 已修网络配置，703 项后端回归、真实 I/O 与四并发 VM 探针通过；最新原生 Linux CI run 见 GitHub Actions，需完整窗口通过后再勾选。CI 仅使用全新隔离身份和数据库，不绕过本地既有拒绝。
-- [ ] T069 [P] 真实栈断言（出站）：VM IP/多连接/IPv6 11/11，最新域名专项 18/18；原生 run `43701273368` 的 IP 场景共同端点故障、域名专项独立早退，仍未通过。`4b9e7ac` 保留 18 项强断言并补齐有限阶段诊断；等待原生 run `43703079200`，不降低双族/HTTPS、权限 API 和审计完整性要求。
+- [ ] T068 [P] 真实栈断言（沙箱）：2026-11-16 已完成的原生 Linux run `43774141487` 中，迁移/历史、真实 I/O 2/2、越权矩阵 13/13、infra/quota、数据库审计及执行/内核清理通过；HTTP 功能 13/14（出站 DNS timeout 未通过），20/20 并发执行成功、实时容器并发上限通过，但 API P95 比值 4.2479 > 1.2。`9f47c91` 恢复验收 API 与生产一致的连接池（Worker 保持 NullPool）；修复验证 run `43775194806` 的 P95 降至 5.45/12.01 ms，但比值 2.2056 仍未达标，HTTP 功能 11/14（新增终态先于步骤落库的可见性窗口）。`a98b5bb` 已用真实数据库/API 回归修复该持久化窗口，后续原生整窗验证前不提前勾选。CI 仅使用全新隔离身份和数据库，不绕过本地既有拒绝。
+- [ ] T069 [P] 真实栈断言（出站）：原生 Linux run `43774141487` 的 IP/多连接/IPv6/公网 HTTPS 12/12 通过，但域名专项在 policy_install 提前失败，未运行完 18 项；HTTP 出站用例另报 dns_runtime/operation_timeout。`03ef7a9` 补齐 DNS 接入后的 Docker 网络 IPAM 刷新，118 项相关测试及 6 subtests、Docker Desktop Linux VM 域名专项 18/18 通过；原生修复验证 run `43775194806` 仍在 policy_install 早退，故 IPAM 刷新不是已证实的原生根因；`80e6307` 补充仅含有限枚举的网络前置条件诊断，继续定位，不能用 VM 成功替代。不降低双族/HTTPS、权限 API、健康租约和审计完整性要求。
 - [x] T070 [P] 越权矩阵自动化：deploy/verify/sbx_escape_matrix.py 已创建；2026-11-15 最终 Docker Desktop Linux VM 运行 13/13 通过，包括 output tmpfs 内核配额、timeout/cancel，无执行资源残留。此任务矩阵通过不等于完整 SC-002 或原生 Linux 云主机安全验收；受保护 API 链路等仍见 T068/T076。
 - [x] T071 数据保留任务：backend/app/tasks/maintenance.py 增 `purge_sandbox_payloads`（90 天后清空 code/stdout/stderr，保留元数据与指纹）+ beat 每日一次
 - [x] T072 [P] 前端单测：frontend/src/components/agent/__tests__/EgressRules.test.tsx、frontend/src/components/run/__tests__/ExecutionCard.test.tsx、tools 目录渲染用例（vitest）
