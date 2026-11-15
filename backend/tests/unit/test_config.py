@@ -11,6 +11,7 @@ from app.core.config import Settings
 
 _STRONG_JWT = "a" * 48
 _STRONG_INVITE = "INV-2026-SECURE-CODE"
+_STRONG_MCP_KEY = "mcp-credential-key-2026-for-tests-strong"
 
 
 def _settings(**overrides) -> Settings:
@@ -19,6 +20,7 @@ def _settings(**overrides) -> Settings:
         "app_env": "development",
         "jwt_secret": "dev-only-change-me",
         "invite_code": "CHANGE-ME-ADMIN-CODE",
+        "mcp_credential_key": _STRONG_MCP_KEY,
     }
     base.update(overrides)
     return Settings(_env_file=None, **base)
