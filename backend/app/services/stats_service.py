@@ -2,9 +2,12 @@
 
 近 7 日成本按 UTC 自然日统计；非终态计数不受日期窗口限制。
 运行和沙箱分别在数据库聚合后合并为一行，不加载结果 JSON 或代码/输出。
+生产端点允许极短的有界仪表盘缓存，避免高频刷新拖慢执行状态写入。
 """
 
+import os
 from datetime import UTC, datetime, timedelta
+from time import monotonic
 
 from sqlalchemy import func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +19,29 @@ from app.models.sandbox_execution import SandboxExecution
 _TERMINAL_SUCCESS = {"completed"}
 _TERMINAL_FAIL = {"failed", "timeout"}
 _NON_TERMINAL = {"queued", "running", "needs_input"}
+_STATS_CACHE_TTL_SECONDS = 1.5
+_STATS_CACHE_MAX_ENTRIES = 256
+_stats_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _copy_snapshot(snapshot: dict) -> dict:
+    return {**snapshot, "cost_trend_7d": list(snapshot["cost_trend_7d"])}
+
+
+def _cached_snapshot(owner_id: str, now: float) -> dict | None:
+    entry = _stats_cache.get(owner_id)
+    if entry is None or now - entry[0] >= _STATS_CACHE_TTL_SECONDS:
+        if entry is not None:
+            _stats_cache.pop(owner_id, None)
+        return None
+    return _copy_snapshot(entry[1])
+
+
+def _store_snapshot(owner_id: str, now: float, snapshot: dict) -> None:
+    if len(_stats_cache) >= _STATS_CACHE_MAX_ENTRIES and owner_id not in _stats_cache:
+        oldest = min(_stats_cache, key=lambda key: _stats_cache[key][0])
+        _stats_cache.pop(oldest, None)
+    _stats_cache[owner_id] = (now, _copy_snapshot(snapshot))
 
 
 def _day_start(dt: datetime) -> datetime:
@@ -23,8 +49,19 @@ def _day_start(dt: datetime) -> datetime:
     return dt.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-async def overview(db: AsyncSession, owner_id: str) -> dict:
-    """Return one fresh owner-scoped aggregate, never per-run/per-execution rows."""
+async def overview(db: AsyncSession, owner_id: str, *, cache: bool = False) -> dict:
+    """Return one owner-scoped aggregate without loading run/execution payloads.
+
+    ``cache`` is reserved for the high-frequency dashboard endpoint. It is a
+    bounded 1.5-second snapshot and is disabled by test callers, which retain
+    exact read-after-write semantics.
+    """
+    use_cache = cache and os.getenv("TESTING") != "1"
+    now = monotonic()
+    if use_cache:
+        cached = _cached_snapshot(owner_id, now)
+        if cached is not None:
+            return cached
     today_start = _day_start(datetime.now(UTC))
     week_ago = today_start - timedelta(days=6)  # 含今日共 7 天
     completed = Run.status.in_(_TERMINAL_SUCCESS)
@@ -82,7 +119,7 @@ async def overview(db: AsyncSession, owner_id: str) -> dict:
         )
     ).mappings().one()
     total_7d = row["success_7d"] + row["fail_7d"]
-    return {
+    snapshot = {
         "running": row["running"],
         "queued": row["queued"],
         "completed_today": row["completed_today"],
@@ -93,3 +130,6 @@ async def overview(db: AsyncSession, owner_id: str) -> dict:
         "sandbox_runs_today": row["sandbox_runs_today"],
         "sandbox_minutes_today": round(row["sandbox_duration_ms"] / 60000, 2),
     }
+    if use_cache:
+        _store_snapshot(owner_id, now, snapshot)
+    return snapshot

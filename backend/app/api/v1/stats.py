@@ -18,4 +18,4 @@ router = APIRouter(prefix="/stats", tags=["stats"])
 @router.get("/overview")
 async def stats_overview(user: CurrentUser, db: DB):
     """仪表盘总览：当前用户的工作负载与成本统计。"""
-    return await stats_service.overview(db, user.id)
+    return await stats_service.overview(db, user.id, cache=True)
