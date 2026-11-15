@@ -101,6 +101,10 @@ services:
     image: aw-dns-proxy:1
     container_name: aw-dns-proxy
     restart: unless-stopped
+    # Keep upstream traffic on this network when Workers attach sandbox bridges.
+    networks:
+      default:
+        gw_priority: 100
     volumes:
       # 全局黑名单：运维维护，容器只读挂载
       - ./dns-proxy/blacklist.conf:/etc/dnsmasq.d/blacklist.conf:ro

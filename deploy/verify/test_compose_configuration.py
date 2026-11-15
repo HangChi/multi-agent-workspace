@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class ComposeConfigurationTests(unittest.TestCase):
-    def test_api_pools_connections_but_all_worker_variants_use_null_pool(self):
+    def resolve(self, filename="docker-compose.verify.yml"):
         # Only disposable test values; never expand the developer's deployment .env.
         environment = {
             key: os.environ[key] for key in ("PATH", "HOME") if key in os.environ
@@ -23,12 +23,21 @@ class ComposeConfigurationTests(unittest.TestCase):
         })
         result = subprocess.run(
             ["docker", "compose", "--env-file", "/dev/null", "-f",
-             str(ROOT / "deploy" / "docker-compose.verify.yml"),
+             str(ROOT / "deploy" / filename),
              "--profile", "faults", "config", "--format", "json"],
             cwd=ROOT, env=environment, capture_output=True, text=True,
             check=True, timeout=30,
         )
-        services = json.loads(result.stdout)["services"]
+        return json.loads(result.stdout)["services"]
+
+    def test_dns_primary_network_keeps_gateway_priority_over_dynamic_sandbox_networks(self):
+        for filename in ("docker-compose.verify.yml", "docker-compose.yml"):
+            with self.subTest(filename=filename):
+                dns = self.resolve(filename)["dns-proxy"]
+                self.assertGreater((dns["networks"]["default"] or {}).get("gw_priority", 0), 0)
+
+    def test_api_pools_connections_but_all_worker_variants_use_null_pool(self):
+        services = self.resolve()
         self.assertNotEqual(services["api"]["environment"].get("DB_POOL"), "null")
         for name in ("worker", "worker-infra", "worker-quota"):
             with self.subTest(service=name):

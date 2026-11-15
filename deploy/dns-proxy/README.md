@@ -30,6 +30,12 @@
 - **管理员维护的全局黑名单** → 落在这里，改完 `docker compose restart dns-proxy`；
 - **Agent 级「限制模式」的允许域名** → 不在这里，落在每次执行独立的 iptables 规则里（每个执行一个独立网络 + 一组自己的规则，天然隔离）。
 
+## 多网络接入与默认路由
+
+DNS 代理会被 Worker 动态接入执行网络。Docker 可能在接入时重新选择默认网关；如果公网上游查询改从执行网桥发出，就会被该执行的端口 53 出口规则拒绝。正式与验收 Compose 均为代理的主网络设置 `gw_priority: 100`，执行网络保持默认优先级 0，不依赖网络名字或接入顺序。不得通过放行执行网络到任意 DNS、宿主 DNS 或 Docker 内置 DNS 来规避此问题。
+
+部署要求 Docker Engine 与 Compose 支持 `gw_priority`（Engine 28+）；升级前先运行 `docker compose version` 并用 `docker compose config` 验证配置。调整此设置需要重建代理容器，而不只是重启旧容器。2026-11-16 的自有临时双网络探针复现了无优先级时的网关切换，并验证设置后主路由保持不变；这不是原生 Linux HTTP 验收通过的替代证据。
+
 ## 重建与自检
 
 ```bash

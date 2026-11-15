@@ -72,6 +72,10 @@ services:
   dns-proxy:
     image: aw-dns-proxy:1
     container_name: ${AW_VERIFY_DNS_NAME:-aw-002-verify-dns}
+    # Dynamic execution-network attachment must not steal the public DNS route.
+    networks:
+      default:
+        gw_priority: 100
     mem_limit: 64m
   llm-gateway:
     image: python:3.12-slim
