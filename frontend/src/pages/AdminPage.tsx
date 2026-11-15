@@ -26,6 +26,7 @@ import { Page } from '../components/ui/Page'
 import { PageHeader } from '../components/ui/PageHeader'
 import { Skeleton } from '../components/ui/Skeleton'
 import { cn } from '../components/ui/cn'
+import { formatBytes } from '../utils/formatBytes'
 
 const PAGE_SIZE = 20
 
@@ -424,7 +425,7 @@ export function AdminPage() {
         <Card>
           <div className="flex items-start justify-between gap-3"><div><h2 className="text-sm font-semibold text-ink">出站访问记录</h2><p className="mt-1 text-xs text-ink-muted">查看沙箱访问目标与策略结果，直连 IP 需要重点核查。</p></div><Button size="sm" variant="secondary" loading={egressBusy} onClick={() => void loadEgress()}>刷新</Button></div>
           <div className="mt-3 flex flex-wrap gap-2"><Badge tone="emerald">放行 {accessSummary.allow ?? 0}</Badge><Badge tone="rose">拦截 {accessSummary.deny ?? 0}</Badge><Badge tone="amber">ip-direct {accessSummary.ip_direct ?? 0}</Badge></div>
-          <div className="mt-3 overflow-x-auto"><table className="min-w-full text-xs"><thead><tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-ink-muted"><th className="px-2 py-2">目标</th><th className="px-2 py-2">端口</th><th className="px-2 py-2">动作</th><th className="px-2 py-2">流量</th></tr></thead><tbody className="divide-y divide-line-subtle">{accesses.length === 0 ? <tr><td colSpan={4} className="px-2 py-4 text-center text-ink-faint">暂无出站访问记录。</td></tr> : accesses.map((access, index) => <tr key={`${access.occurred_at}-${index}`} className={access.target_domain == null ? 'bg-amber-50/60 dark:bg-amber-500/10' : ''}><td className="px-2 py-2 font-mono text-ink">{access.target_domain ?? `ip-direct · ${access.target_ip}`}</td><td className="px-2 py-2 tabular-nums text-ink-muted">{access.port}</td><td className="px-2 py-2"><Badge tone={access.action === 'deny' ? 'rose' : 'emerald'}>{access.action === 'deny' ? '拦截' : '放行'}</Badge></td><td className="px-2 py-2 text-ink-muted">{access.bytes_out == null ? '—' : `${access.bytes_out} B`}</td></tr>)}</tbody></table></div>
+          <div className="mt-3 overflow-x-auto"><table className="min-w-full text-xs"><thead><tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-ink-muted"><th className="px-2 py-2">目标</th><th className="px-2 py-2">端口</th><th className="px-2 py-2">动作</th><th className="px-2 py-2">流量</th></tr></thead><tbody className="divide-y divide-line-subtle">{accesses.length === 0 ? <tr><td colSpan={4} className="px-2 py-4 text-center text-ink-faint">暂无出站访问记录。</td></tr> : accesses.map((access, index) => <tr key={`${access.occurred_at}-${index}`} className={access.target_domain == null ? 'bg-amber-50/60 dark:bg-amber-500/10' : ''}><td className="px-2 py-2 font-mono text-ink">{access.target_domain ?? `ip-direct · ${access.target_ip}`}</td><td className="px-2 py-2 tabular-nums text-ink-muted">{access.port}</td><td className="px-2 py-2"><Badge tone={access.action === 'deny' ? 'rose' : 'emerald'}>{access.action === 'deny' ? '拦截' : '放行'}</Badge></td><td className="px-2 py-2 text-ink-muted">{access.bytes_out == null ? '—' : formatBytes(access.bytes_out)}</td></tr>)}</tbody></table></div>
         </Card>
       </div>
     </Page>

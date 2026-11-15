@@ -10,6 +10,7 @@ import {
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
+import { formatBytes } from '../../utils/formatBytes'
 
 export interface ExecutionSummary {
   id: string
@@ -33,12 +34,6 @@ const ARTIFACT_LIMIT_LABEL: Record<string, string> = {
   files: '制品数量达到上限',
   file_size: '单个制品大小超过上限',
   total_size: '制品总大小达到上限',
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1048576).toFixed(1)} MB`
 }
 
 export function ExecutionCard({ runId, execution }: { runId: string; execution: ExecutionSummary }) {

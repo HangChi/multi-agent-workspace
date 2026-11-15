@@ -20,6 +20,7 @@ import { Skeleton } from '../components/ui/Skeleton'
 import { useToast } from '../components/ui/Toast'
 import { useRunSocket, type RunSocketEvent } from '../hooks/useRunSocket'
 import { cn } from '../components/ui/cn'
+import { formatBytes } from '../utils/formatBytes'
 
 const STATUS_LABEL: Record<api.RunStatus, string> = {
   queued: '排队中',
@@ -582,7 +583,7 @@ export function RunDetailPage() {
                   {art.filename}
                 </span>
                 <span className="shrink-0 text-2xs tabular-nums text-ink-faint">
-                  {(art.size_bytes / 1024).toFixed(1)} KB
+                  {formatBytes(art.size_bytes)}
                 </span>
                 <a
                   href={api.artifactDownloadUrl(run.id, art.id)}
