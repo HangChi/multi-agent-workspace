@@ -187,8 +187,8 @@
 
 ### Implementation for User Story 5
 
-- [ ] T060 [US5] 规则编排：backend/app/executors/egress_network.py（替代原计划 egress.py 的 init 容器编排；argv-only iptables/ip6tables 链安装/清理、conntrack 采集与解析）。**未完成**：内核运行时目前仅支持 IP/CIDR allow；restricted 模式中的 domain allow 因动态 DNS→内核策略绑定未实现而 fail-closed。
-- [x] T061 [US5] DNS 接线：`sandbox_client.py` 给容器传受控 DNS 代理；iptables 规则里 53 只放行到代理 IP；执行结束从 dns-proxy 拉该执行时间窗的查询记录并与 conntrack 归并 （backend/app/executors/sandbox_client.py）
+- [ ] T060 [US5] 规则编排：backend/app/executors/egress_network.py（替代原计划 egress.py 的 init 容器编排；argv-only iptables/ip6tables 链安装/清理、bridge 包头采集与解析）。**未完成**：内核运行时目前仅支持 IP/CIDR allow；restricted 模式中的 domain allow 因动态 DNS→内核策略绑定未实现而 fail-closed。
+- [x] T061 [US5] DNS 接线：`sandbox_client.py` 给容器传受控 DNS 代理；iptables 放行到代理的 53 与 established DNS 回包；执行结束从 dns-proxy 拉 reply/cached 记录，与执行 bridge 上的包头采集归并。2026-11-15 实测默认 HTTPS/DNS 通过；非完整 IPv6/100% 流水覆盖 （backend/app/executors/sandbox_client.py）
 - [x] T062 [US5] 出站服务：backend/app/services/egress_service.py（规则 CRUD + `snapshot_for_execution()` 求值快照 + `record_accesses()` 批量写入 + `builtin` 项保护）
 - [x] T063 [US5] Agent 出网字段：`agents.egress_mode` 端点接线（每次沙箱执行开始前冻结 mode 与规则快照） （backend/app/api/v1/agents.py）
 - [x] T064 [US5] 管理端点：backend/app/api/v1/admin_egress.py 增黑名单 CRUD 与 `GET /admin/egress-accesses`（含 `summary.ip_direct`）
@@ -204,14 +204,14 @@
 
 **Purpose**: 真实栈验证、越权矩阵、数据保留、文档与门禁
 
-- [ ] T068 [P] 真实栈断言（沙箱）：deploy/verify/s3_sandbox_scenarios.py（S1/S2/S3/S4）
-- [ ] T069 [P] 真实栈断言（出站）：deploy/verify/s5_egress_scenarios.py（S5：默认放行/元数据拦截/直连 IP/内网拦截/限制模式/内置项保护）
-- [ ] T070 [P] 越权矩阵自动化：deploy/verify/sbx_escape_matrix.py（quickstart 的 10 项，逐项断言「失败且不可见」，输出表格化结果）
+- [ ] T068 [P] 真实栈断言（沙箱）：deploy/verify/s3_sandbox_scenarios.py 已创建（确定性 Mock + HTTP S1/S3/S4，13 项脚本自测通过）。S2 由 runtime matrix 补充；受保护 API 验收因创建测试管理员/邀请码被权限策略拒绝而未执行，不能判完成。
+- [ ] T069 [P] 真实栈断言（出站）：deploy/verify/s5_egress_scenarios.py 已创建，Docker Desktop Linux VM 的 IP/CIDR 策略与默认 HTTPS/DNS 7/7 通过。域名规则、规则管理权限 API 与完整访问覆盖未过，保持未完成。
+- [ ] T070 [P] 越权矩阵自动化：deploy/verify/sbx_escape_matrix.py 已创建；10 项有界内核探针 + timeout/cancel 共 12 项通过，无执行资源残留。但 output 命名卷无内核磁盘上限，额外明确 FAIL，脚本非零退出，整体 SC-002 未通过。
 - [x] T071 数据保留任务：backend/app/tasks/maintenance.py 增 `purge_sandbox_payloads`（90 天后清空 code/stdout/stderr，保留元数据与指纹）+ beat 每日一次
 - [x] T072 [P] 前端单测：frontend/src/components/agent/__tests__/EgressRules.test.tsx、frontend/src/components/run/__tests__/ExecutionCard.test.tsx、tools 目录渲染用例（vitest）
 - [x] T073 [P] 运维文档：deploy/README.md 增「沙箱设施」章节（镜像重建、dns-proxy 排障、socket 风险声明、**已知缺口：不做 TLS 解密、CDN 共享 IP 可能 ip-direct**）
-- [x] T074 契约同步复核：已按实际实现同步路由 DTO、事件与安全偏差（见 contracts/api.md、tasks.md 实现偏差记录）
-- [x] T075 全量质量门禁：后端 `ruff check app`、`mypy app`、`pytest` 514 项通过；前端 `eslint`（2 个既有 Fast Refresh warning、0 errors）、`tsc`、`vitest` 32 项、`vite build` 全部通过；CI 已加入沙箱镜像构建步骤 （backend/pyproject.toml + frontend/package.json）
+- [ ] T074 契约同步复核：已记录 domain fail-closed、owner-only 404、内置项配置来源、出网采集与输出分块偏差；仍有 warning、时间过滤及实时流式/字节上限等原契约差异，未满足全部要求，撤回此前完成标记。
+- [x] T075 全量质量门禁：2026-11-15 最终后端 `ruff check app`、`mypy app`（84 文件）、`pytest` 520 项通过；验收 harness 自测 13 项通过。此前前端 `eslint`（2 个既有 Fast Refresh warning、0 errors）、`tsc`、`vitest` 32 项、`vite build` 已通过，本轮未改前端。CI 已加入沙箱镜像构建步骤；这些测试不替代 T076 真实整链路验收 （backend/pyproject.toml + frontend/package.json）
 - [ ] T076 quickstart 验证：在 Linux 宿主真实栈执行 S1~S6 + 越权矩阵，如实更新 quickstart.md 的 SC 对照与验证记录表（通过才 ✅，未过保持 ⏳） （specs/002-sandboxed-tools/quickstart.md）
 
 **Checkpoint**: P2「跑脚本」验收口径达成，可独立上线
@@ -311,7 +311,7 @@ US1 是能力、US2 是这能力的正确开关。**两者必须同批交付**�
 - [Story] 标记用于追溯；未标故事的多为 Phase 1/2 与 Polish 的横切任务
 - 测试未过前禁止勾选实现任务（TDD 纪律）
 - **必须反向验证的三处**：T020（失败不抛异常）、T034（越权阈值）、T049（信号量释放）——去掉判断后测试应变红，否则是假绿
-- **环境限制**：iptables/conntrack 相关验证（T060/T069/T070）只能在 Linux 宿主跑；macOS 本地开发跳过并在提交信息里注明
+- **环境范围**：内核策略需要 Linux；2026-11-15 已通过 Docker Desktop Linux VM 运行 helper 和 bridge 采集，不能再笼统以 macOS 为由跳过。VM 上的运行时证据与原生 Linux 全量验收分开，见 docker-verification.md。
 - 已知未覆盖：SC-004 的 P95 对比需压测（P3 才做全量压测），本特性用手工 20 并发观察并记录
 - 未决项（宪法 Follow-up）：gVisor/seccomp 加固归 P3；本特性只在 deploy/README 记录 socket 风险
 

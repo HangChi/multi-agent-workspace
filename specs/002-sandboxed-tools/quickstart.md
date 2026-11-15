@@ -10,8 +10,9 @@
 - 数据库已迁移到本特性最新版本（含 `tools` seed 与工具名迁移）。
 
 ```bash
-# 0. 构建沙箱镜像（改 Dockerfile 后需重建）
+# 0. 构建沙箱与网络辅助镜像（改 Dockerfile 后需重建）
 docker build -f deploy/sandbox/Dockerfile -t aw-sandbox-python:3.12 deploy/sandbox
+docker build -t aw-sbx-net:1 deploy/sbx-net
 
 # 1. 起全栈（Mock 网关用于离线复现；有真实 LLM 密钥则去掉 --profile mock）
 docker compose -p aw -f deploy/docker-compose.yml --profile mock up -d --build
@@ -21,7 +22,7 @@ docker compose -p aw -f deploy/docker-compose.yml build migrate
 docker compose -p aw -f deploy/docker-compose.yml run --rm migrate
 
 # 3. 确认 Worker 能看到 Docker
-docker exec aw-worker docker version --format '{{.Server.Version}}'
+docker exec aw-worker python -c 'import docker; print(docker.from_env().version()["Version"])'
 ```
 
 > 项目名必须是 `aw`；`.env` 必须在 `deploy/` 下。旧坑：只 build api/worker 不 build migrate，迁移不会生效。
@@ -73,7 +74,7 @@ docker exec aw-worker docker version --format '{{.Server.Version}}'
 
 1. 需求：「用 pandas 生成 20 行销售数据，存成 sales.csv」。
 2. 期望：运行详情出现 `sales.csv`，可下载；下载后 `sha256` 与接口返回的校验值一致；行数 20。
-3. 越权：用另一个账号 `GET /runs/{id}/artifacts/{aid}` → 403。
+3. 越权：用另一个账号 `GET /runs/{id}/artifacts/{aid}` → 404（当前实现隐藏非归属资源的存在；不是 403）。
 4. 上限：脚本写 60 个文件 → 只保留前 50 个且提示截断；写单个 30MB 文件 → 截断或拒绝并提示。
 
 ### S5 出站：默认放行、黑名单强制、限制模式（US5 / FR-019~023 / SC-009, SC-010）
@@ -86,8 +87,9 @@ docker exec aw-worker docker version --format '{{.Server.Version}}'
 | 内网拦截 | 连 `10.0.0.4:5432` | `deny` |
 | 限制模式（IP/CIDR 已支持） | Agent 设为 `restricted`，只加目标 IP/CIDR；脚本访问白名单目标后再访问未授权公网 | 白名单目标成功，第二个拒绝且留痕 |
 
-> **当前安全偏差**：API 仍接受 `domain` 规则，但 Linux 内核运行时无法安全地把动态/wildcard DNS 绑定为稳定的目标集合；因此 restricted 模式的 domain allow 会 fail-closed（拒绝启动该执行），不会误放行。`pypi.org` 域名场景需先在 Linux 实机完成 DNS→策略绑定方案后再验收。
 | 成员不能绕过 | 普通成员调用 `DELETE /admin/egress-blacklist/{内置项}` | 403；内置项本身不可删（400） |
+
+> **当前安全偏差**：API 仍接受 `domain` 规则，但动态/wildcard DNS→内核允许集绑定未实现；restricted domain allow 与全局 domain deny 均 fail-closed。默认模式 HTTPS 的 DNS 解析/归因已实测通过，不等于域名 allow 功能通过。内置 deny 记录的 `matched_rule_id` 当前为 null；内置项不是数据库规则行。
 
 ```bash
 # 一次性核对记录覆盖率（SC-009）：本次执行的每条 conntrack 目标都应有对应记录
@@ -137,27 +139,40 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 | 场景 | 状态 | 记录 |
 |---|---|---|
-| S1 脚本执行 | ⏳ | |
-| S2 超时与资源 | ⏳ | |
-| S3 工具授权 | ⏳ | |
-| S4 制品 | ⏳ | |
-| S5 出站策略 | ⏳ | |
-| S6 配额并发 | ⏳ | |
+| S1 脚本执行 | ⏳ | 2026-11-15 真实容器平方和 338350；API 持久化/WS/全链路延迟待凭据验收 |
+| S2 超时与资源 | ⏳ | 实测 timeout/cancel/OOM/pids/tmpfs；output 命名卷无内核限额，不能判整体通过 |
+| S3 工具授权 | ⏳ | 确定性 HTTP 验收脚本及 13 项自测已补齐；创建验收管理员/邀请码被权限策略拒绝，未执行受保护场景 |
+| S4 制品 | ⏳ | 实测沙箱 CSV→真实 MinIO→预签名 HTTP GET，20 行/153B/hash 一致；API 归属和上限场景未完成 |
+| S5 出站策略 | ⏳ | IP 策略与默认 HTTPS/DNS 运行时 7/7；域名 allow、IPv6 全流水和规则管理 API 未完整验收 |
+| S6 配额并发 | ⏳ | 未执行 20 并发/P95 测量 |
 
 > 状态只允许在真实容器栈上跑通后改成 ✅，并附 commit 与关键输出摘要；未跑过一律留 ⏳。
 
-## 复现脚本（实现阶段补齐）
+## 复现脚本
 
-计划中的一键复现（对齐 001 的 `deploy/verify/` 做法）：
+2026-11-15 证据、适用边界与未完成项见 [Docker 验证记录](docker-verification.md)。测试环境是 Docker Desktop Linux VM，不冒充原生 Linux 云主机验收。`deploy/docker-compose.verify.yml` 使用独立项目 `aw-002-verify`，不加载开发 `.env`、不共用开发数据库。
 
 ```bash
-# 后端集成/单元
-cd backend && DATABASE_URL="postgresql+asyncpg://aw:<密码>@127.0.0.1:5432/agent_workbench_test" \
-  timeout 600 python -m pytest -q
+# 从仓库根目录；后端回归必须指向专用测试服务。
+# tests/conftest.py 会重建测试 schema，绝不能指向开发/生产库。
+cd backend && DATABASE_URL="postgresql+asyncpg://aw:<测试密码>@127.0.0.1:55432/agent_workbench_test" \
+  REDIS_URL=redis://127.0.0.1:56379/0 .venv/bin/python -m pytest -q
 
-# 真实栈断言（S1~S6）
-python deploy/verify/s3_sandbox_scenarios.py     # 计划名，实现时创建
-python deploy/verify/s5_egress_scenarios.py      # 计划名
+# 以下从仓库根目录执行。API 验收需预先提供有效 owner/other/admin token；
+# 或在获批后用 SANDBOX_VERIFY_INVITE_CODE 创建成员。缺少身份时不伪造通过。
+backend/.venv/bin/python deploy/verify/s3_sandbox_scenarios.py \
+  --base http://localhost:8180 --artifact-fetch-container aw-002-verify-api-1
+
+# 下列 runtime 探针不访问应用数据库，不替代受保护 API 验收。
+EGRESS_DNS_PROXY=aw-002-verify-dns SBX_NETWORK_PREFIX=aw-002-probe \
+  backend/.venv/bin/python deploy/verify/s5_egress_scenarios.py \
+  --public-url https://pypi.org --output /tmp/aw-002-egress.json
+EGRESS_DNS_PROXY=aw-002-verify-dns SBX_NETWORK_PREFIX=aw-002-probe \
+  backend/.venv/bin/python deploy/verify/sbx_escape_matrix.py \
+  --output /tmp/aw-002-matrix.json
+docker exec -i aw-002-verify-worker-1 python - < deploy/verify/s4_artifact_runtime.py
 ```
+
+`sbx_escape_matrix.py` 对 output 无内核配额显式输出 FAIL 并以非零退出；不会为获得绿色结果而写满宿主磁盘。IP 出网探针 7/7 仅证明其列出的运行时场景，不证明域名规则、权限 API 或 100% 访问覆盖。
 
 **已知不可自动化的部分**：SC-004 的 P95 对比需要压测脚本（P3 才做全量压测），本特性先用手工 20 并发 + 观察，记录在案。
