@@ -196,6 +196,14 @@ async def transition_listing(
             raise AppError("CONFLICT", "只有已发布 listing 可以暂停")
         listing.status = "paused"
         audit_action = "external_tool_pause"
+    elif action == "resume":
+        if listing.status != "paused":
+            raise AppError("CONFLICT", "只有已暂停 listing 可以恢复")
+        if listing.tool_version.availability != "valid" or listing.tool_version.server.status != "published":
+            raise AppError("CONFLICT", "工具版本或服务器当前不可用")
+        listing.status = "published"
+        listing.published_at = datetime.now(UTC)
+        audit_action = "external_tool_resume"
     elif action == "revoke":
         if listing.status == "revoked":
             raise AppError("CONFLICT", "listing 已撤销")

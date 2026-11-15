@@ -14,6 +14,8 @@ class CredentialWrite(BaseModel):
 
 
 class CredentialOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     label: str
     kind: Literal["bearer", "api_key"]
@@ -181,4 +183,10 @@ class ExternalServerList(BaseModel):
 
 class CredentialRotate(BaseModel):
     label: str = Field(min_length=1, max_length=100)
+    kind: Literal["bearer", "api_key"] | None = None
     value: str = Field(min_length=1, max_length=8192, repr=False)
+
+
+class InstallationUpgrade(BaseModel):
+    listing_id: str
+    reason: str = Field(min_length=5, max_length=2000)

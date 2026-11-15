@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import DB, CurrentUser, require_role
 from app.schemas.external_tool import (
+    InstallationUpgrade,
     ListingList,
     ListingOut,
     ReviewDecision,
@@ -44,6 +45,31 @@ async def browse_marketplace(
     return {"items": items, "total": total}
 
 
+@router.post("/installations/{installation_id}/upgrade", response_model=ToolInstallationOut)
+async def upgrade_marketplace_installation(
+    installation_id: str,
+    payload: InstallationUpgrade,
+    user: CurrentUser,
+    _member: MemberUser,
+    db: DB,
+):
+    installation = await external_grant_service.upgrade_installation(
+        db,
+        installation_id=installation_id,
+        new_listing_id=payload.listing_id,
+        user_id=user.id,
+        reason=payload.reason,
+    )
+    return {
+        "id": installation.id,
+        "listing_id": installation.listing_id,
+        "owner_id": installation.owner_id,
+        "status": installation.status,
+        "version_policy": installation.version_policy,
+        "installed_at": installation.installed_at,
+    }
+
+
 @router.get("/installations")
 async def get_installations(_member: MemberUser, user: CurrentUser, db: DB):
     items = await external_grant_service.list_installations(db, owner_id=user.id)
@@ -78,6 +104,22 @@ async def install_tool(
 @router.get("/tools/{listing_id}", response_model=ListingOut)
 async def get_marketplace_listing(listing_id: str, _user: CurrentUser, db: DB):
     return await marketplace_service.listing_detail(db, listing_id)
+
+
+@router.post(
+    "/tools/{listing_id}/resume",
+    response_model=ListingOut,
+)
+async def resume_marketplace_listing(
+    listing_id: str,
+    payload: ReviewDecision,
+    _reviewer: Reviewer,
+    db: DB,
+    user: CurrentUser,
+):
+    return await marketplace_service.transition_listing(
+        db, listing_id=listing_id, reviewer_id=user.id, action="resume", reason=payload.reason
+    )
 
 
 @router.post(

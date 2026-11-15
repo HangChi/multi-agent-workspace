@@ -3,9 +3,13 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy import select
 
 from app.api.deps import DB, CurrentUser, require_role
+from app.models.external_credential import ExternalCredential
 from app.schemas.external_tool import (
+    CredentialOut,
+    CredentialRotate,
     ExternalServerCreate,
     ExternalServerList,
     ExternalServerOut,
@@ -13,7 +17,12 @@ from app.schemas.external_tool import (
     ListingOut,
     ReviewDecision,
 )
-from app.services import external_tool_service, marketplace_service
+from app.services import (
+    external_credential_service,
+    external_tool_service,
+    marketplace_service,
+)
+from app.services.external_audit_service import write_external_audit
 from app.tasks.validate_external_server import validate_external_server
 
 router = APIRouter(prefix="/external-tool-servers", tags=["external-tools"])
@@ -61,6 +70,89 @@ async def validate_external_server_endpoint(server_id: str, user: CurrentUser, _
     await external_tool_service.get_server(db, server_id=server_id, owner_id=user.id, is_admin=True)
     task = validate_external_server.delay(server_id, user.id)
     return {"status": "queued", "task_id": getattr(task, "id", None)}
+
+
+@router.post("/{server_id}/credentials/rotate", response_model=CredentialOut)
+async def rotate_external_credential(
+    server_id: str,
+    payload: CredentialRotate,
+    user: CurrentUser,
+    _admin: AdminUser,
+    db: DB,
+):
+    server = await external_tool_service.get_server(
+        db, server_id=server_id, owner_id=user.id, is_admin=True
+    )
+    credential = await db.scalar(
+        select(ExternalCredential)
+        .where(
+            ExternalCredential.server_id == server.id,
+            ExternalCredential.scope_owner_id == server.owner_id,
+            ExternalCredential.status == "active",
+        )
+        .order_by(ExternalCredential.created_at.desc())
+    )
+    if credential is None:
+        from app.api.errors import AppError
+
+        raise AppError("NOT_FOUND", "没有可轮换的活动凭证")
+    replacement = await external_credential_service.rotate_credential(
+        db,
+        old_credential=credential,
+        created_by=user.id,
+        label=payload.label,
+        value=payload.value,
+        kind=payload.kind,
+    )
+    await write_external_audit(
+        db,
+        user_id=user.id,
+        action="external_credential_rotate",
+        target_type="external_credential",
+        target_id=replacement.id,
+        detail={"server_id": server.id, "previous_credential_id": credential.id},
+    )
+    await db.commit()
+    await db.refresh(replacement)
+    return replacement
+
+
+@router.post(
+    "/{server_id}/credentials/{credential_id}/revoke", response_model=CredentialOut
+)
+async def revoke_external_credential(
+    server_id: str,
+    credential_id: str,
+    user: CurrentUser,
+    _admin: AdminUser,
+    db: DB,
+):
+    server = await external_tool_service.get_server(
+        db, server_id=server_id, owner_id=user.id, is_admin=True
+    )
+    credential = await db.scalar(
+        select(ExternalCredential).where(
+            ExternalCredential.id == credential_id,
+            ExternalCredential.server_id == server.id,
+            ExternalCredential.scope_owner_id == server.owner_id,
+        )
+    )
+    if credential is None:
+        from app.api.errors import AppError
+
+        raise AppError("NOT_FOUND", "外部工具凭证不存在")
+    await external_credential_service.revoke_credential(db, credential)
+    await write_external_audit(
+        db,
+        user_id=user.id,
+        action="external_credential_revoke",
+        target_type="external_credential",
+        target_id=credential.id,
+        detail={"server_id": server.id},
+    )
+    await db.commit()
+    await db.refresh(credential)
+    return credential
 
 
 @router.post("/{server_id}/tools/{tool_version_id}/approve", response_model=ListingOut)

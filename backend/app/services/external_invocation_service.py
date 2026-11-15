@@ -6,7 +6,7 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -24,7 +24,7 @@ from app.models.external_tool import (
     RunExternalToolSnapshot,
     ToolInstallation,
 )
-from app.services import external_concurrency
+from app.services import external_audit_service, external_concurrency
 
 _SAFE_ERROR_MESSAGES = {
     "parameter_error": "工具参数校验失败",
@@ -47,6 +47,7 @@ async def record_invocation(
     *,
     run_id: str,
     owner_id: str,
+    agent_id: str | None = None,
     server_id: str,
     tool_version_id: str,
     grant_id: str | None,
@@ -71,6 +72,7 @@ async def record_invocation(
         run_id=run_id,
         step_id=step_id,
         owner_id=owner_id,
+        agent_id=agent_id,
         server_id=server_id,
         tool_version_id=tool_version_id,
         grant_id=grant_id,
@@ -86,6 +88,25 @@ async def record_invocation(
     )
     db.add(invocation)
     await db.flush()
+    await external_audit_service.write_external_audit(
+        db,
+        user_id=owner_id,
+        action="external_tool_invocation",
+        target_type="run",
+        target_id=run_id,
+        detail={
+            "invocation_id": invocation.id,
+            "agent_id": agent_id,
+            "server_id": server_id,
+            "tool_version_id": tool_version_id,
+            "call_id": call_id,
+            "status": status,
+            "duration_ms": max(0, duration_ms),
+            "error_category": error_category,
+            "input_keys": input_summary["keys"] if input_summary else [],
+            "output_keys": output_summary["keys"] if output_summary else [],
+        },
+    )
     return invocation
 
 
@@ -245,12 +266,14 @@ async def build_external_executors(
             tool_version_id: str = version.id,
             grant_id: str = grant.id,
             credential_id: str | None = credential.id if credential else None,
+            agent_id: str | None = grant.agent_id,
             **kwargs: Any,
         ) -> None:
             await record_invocation(
                 db,
                 run_id=run_id,
                 owner_id=owner_id,
+                agent_id=agent_id,
                 server_id=server_id,
                 tool_version_id=tool_version_id,
                 grant_id=grant_id,
@@ -364,3 +387,65 @@ async def list_run_invocations(db: AsyncSession, *, run_id: str) -> list[dict[st
         )
     ).scalars().all()
     return [invocation_projection(row) for row in rows]
+
+
+async def list_invocation_audit(
+    db: AsyncSession,
+    *,
+    owner_id: str | None = None,
+    run_id: str | None = None,
+    server_id: str | None = None,
+    tool_version_id: str | None = None,
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+) -> tuple[list[dict[str, Any]], int]:
+    filters = []
+    if owner_id:
+        filters.append(ExternalToolInvocation.owner_id == owner_id)
+    if run_id:
+        filters.append(ExternalToolInvocation.run_id == run_id)
+    if server_id:
+        filters.append(ExternalToolInvocation.server_id == server_id)
+    if tool_version_id:
+        filters.append(ExternalToolInvocation.tool_version_id == tool_version_id)
+    if status:
+        filters.append(ExternalToolInvocation.status == status)
+    total = int(
+        (
+            await db.execute(
+                select(func.count()).select_from(ExternalToolInvocation).where(*filters)
+            )
+        ).scalar_one()
+    )
+    rows = (
+        await db.execute(
+            select(ExternalToolInvocation)
+            .options(
+                joinedload(ExternalToolInvocation.server),
+                joinedload(ExternalToolInvocation.tool_version),
+            )
+            .where(*filters)
+            .order_by(ExternalToolInvocation.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    ).scalars().all()
+    return [
+        {
+            "id": row.id,
+            "run_id": row.run_id,
+            "owner_id": row.owner_id,
+            "agent_id": row.agent_id,
+            "server_id": row.server_id,
+            "tool_version_id": row.tool_version_id,
+            "call_id": row.call_id,
+            "status": row.status,
+            "duration_ms": row.duration_ms,
+            "policy_result": dict(row.policy_result or {}),
+            "error_summary": row.error_summary,
+            "created_at": row.created_at.isoformat(),
+            "completed_at": row.completed_at.isoformat() if row.completed_at else None,
+        }
+        for row in rows
+    ], total

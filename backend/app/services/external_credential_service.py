@@ -64,9 +64,12 @@ async def rotate_credential(
     created_by: str,
     label: str,
     value: str,
+    kind: str | None = None,
 ) -> ExternalCredential:
     if old_credential.status != "active":
         raise AppError("INVALID_INPUT", "只能轮换活动凭证")
+    if kind is not None and kind != old_credential.kind:
+        raise AppError("INVALID_INPUT", "轮换凭证类型必须与当前认证模式一致")
     old_credential.status = "superseded"
     old_credential.rotated_at = datetime.now(UTC)
     return await create_credential(

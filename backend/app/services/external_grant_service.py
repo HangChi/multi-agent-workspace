@@ -230,3 +230,82 @@ async def revoke_grant(db: AsyncSession, *, agent_id: str, grant_id: str, user_i
         target_id=grant.id, detail={"agent_id": agent_id},
     )
     await db.commit()
+
+
+async def upgrade_installation(
+    db: AsyncSession,
+    *,
+    installation_id: str,
+    new_listing_id: str,
+    user_id: str,
+    reason: str,
+) -> ToolInstallation:
+    """Explicitly move an installation and its active grants to a published version."""
+    if len(reason.strip()) < 5:
+        raise AppError("INVALID_INPUT", "升级说明至少需要 5 个字符")
+    installation = await db.scalar(
+        select(ToolInstallation)
+        .options(joinedload(ToolInstallation.listing).joinedload(MarketplaceListing.tool_version))
+        .where(ToolInstallation.id == installation_id)
+    )
+    if installation is None:
+        raise AppError("NOT_FOUND", "工具安装不存在")
+    if installation.owner_id != user_id:
+        raise AppError("FORBIDDEN", "无权升级他人的工具安装")
+    if installation.status != "installed":
+        raise AppError("CONFLICT", "只有活动安装可以升级")
+    new_listing = await db.scalar(
+        select(MarketplaceListing)
+        .options(joinedload(MarketplaceListing.tool_version))
+        .where(MarketplaceListing.id == new_listing_id)
+    )
+    if (
+        new_listing is None
+        or new_listing.status != "published"
+        or new_listing.tool_version.availability != "valid"
+    ):
+        raise AppError("CONFLICT", "升级目标必须是已发布且有效的工具版本")
+    current_version = installation.listing.tool_version
+    target_version = new_listing.tool_version
+    if (
+        current_version.server_id != target_version.server_id
+        or current_version.external_name != target_version.external_name
+    ):
+        raise AppError("INVALID_INPUT", "升级目标必须是同一服务器的同名工具")
+    if current_version.id == target_version.id:
+        raise AppError("CONFLICT", "工具安装已经是该版本")
+
+    grants = (
+        await db.execute(
+            select(ExternalToolGrant).where(
+                ExternalToolGrant.installation_id == installation.id,
+                ExternalToolGrant.status == "active",
+            )
+        )
+    ).scalars().all()
+    target_permissions = set(target_version.required_permissions or [])
+    for grant in grants:
+        if not target_permissions.issubset(set(grant.permission_snapshot or [])):
+            raise AppError("CONFLICT", "新版本需要重新确认权限后才能升级")
+        grant.tool_version_id = target_version.id
+        grant.schema_snapshot = {
+            "input": target_version.input_schema,
+            "output": target_version.output_schema,
+        }
+    installation.listing_id = new_listing.id
+    await write_external_audit(
+        db,
+        user_id=user_id,
+        action="external_tool_version_upgrade",
+        target_type="tool_installation",
+        target_id=installation.id,
+        detail={
+            "from_version": current_version.version,
+            "to_version": target_version.version,
+            "listing_id": new_listing.id,
+            "reason": reason.strip(),
+        },
+    )
+    await db.commit()
+    await db.refresh(installation)
+    return installation

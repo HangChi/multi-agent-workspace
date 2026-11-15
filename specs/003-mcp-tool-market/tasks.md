@@ -139,13 +139,13 @@ description: "Implementation tasks for external MCP tools and governed marketpla
 
 ### Tests first
 
-- [ ] T053 [P] [US5] Add lifecycle integration tests for credential rotation/revocation, version upgrade, pause/resume/revoke, in-flight cancellation, and historical snapshots in `backend/tests/integration/test_external_lifecycle.py`.
-- [ ] T054 [P] [US5] Add audit query/filter and canary-secret absence tests in `backend/tests/integration/test_external_tool_audit.py`.
+- [X] T053 [P] [US5] Add lifecycle integration tests for credential rotation/revocation, version upgrade, pause/resume/revoke, in-flight cancellation, and historical snapshots in `backend/tests/integration/test_external_lifecycle.py`.
+- [X] T054 [P] [US5] Add audit query/filter and canary-secret absence tests in `backend/tests/integration/test_external_tool_audit.py`.
 
 ### Implementation
 
-- [ ] T055 [US5] Implement credential rotation/revocation and version upgrade services with immediate new-call effect and immutable history in `backend/app/services/external_credential_service.py` and `backend/app/services/marketplace_service.py`.
-- [ ] T056 [US5] Add filtered external invocation projections to admin/audit endpoints without exposing raw arguments/results/secrets in `backend/app/api/v1/admin.py`, `backend/app/services/external_invocation_service.py`, and `backend/app/schemas/external_invocation.py`.
+- [X] T055 [US5] Implement credential rotation/revocation and version upgrade services with immediate new-call effect and immutable history in `backend/app/services/external_credential_service.py` and `backend/app/services/marketplace_service.py`.
+- [X] T056 [US5] Add filtered external invocation projections to admin/audit endpoints without exposing raw arguments/results/secrets in `backend/app/api/v1/admin.py`, `backend/app/services/external_invocation_service.py`, and `backend/app/schemas/external_invocation.py`.
 - [ ] T057 [US5] Add operator UI for credential metadata/rotation, version comparison, pause/resume/revoke and invocation filters in `frontend/src/components/admin/ExternalToolServers.tsx` and `frontend/src/pages/AdminPage.tsx`.
 - [ ] T058 [US5] Add release alerts/diagnostic counters for validation drift, repeated auth/policy failures, destination changes, result caps, and audit gaps in `backend/app/services/external_observability.py` and `backend/app/core/log_setup.py`.
 - [ ] T059 [US5] Add lifecycle and audit frontend tests for status transitions, redaction, filters, and historical version display in `frontend/src/tests/external-lifecycle.test.tsx`.
