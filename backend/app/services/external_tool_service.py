@@ -12,15 +12,24 @@ from sqlalchemy.orm import selectinload
 from app.api.errors import AppError
 from app.executors.mcp_security import validate_endpoint
 from app.models.external_tool import ExternalToolServer, ExternalToolVersion
+from app.models.external_validation import ServerValidation
 from app.schemas.external_tool import ExternalServerCreate, ExternalServerUpdate
 from app.services.external_audit_service import write_external_audit
 from app.services.external_credential_service import create_credential
 from app.services.external_observability import observe_destination_change
 
 
-def _safe_server(server: ExternalToolServer) -> dict:
-    validations = sorted(server.validations, key=lambda item: item.started_at, reverse=True)
-    last = validations[0] if validations else None
+def _safe_server(
+    server: ExternalToolServer,
+    *,
+    last_validation: ServerValidation | None = None,
+    validations_loaded: bool = True,
+) -> dict:
+    if validations_loaded:
+        validations = server.validations
+        last = max(validations, key=lambda item: item.started_at) if validations else None
+    else:
+        last = last_validation
     return {
         "id": server.id,
         "owner_id": server.owner_id,
@@ -145,11 +154,39 @@ async def list_servers(
     rows = (await db.execute(
         select(ExternalToolServer).options(
             selectinload(ExternalToolServer.credentials),
-            selectinload(ExternalToolServer.validations),
             selectinload(ExternalToolServer.tools).selectinload(ExternalToolVersion.listings),
         ).where(*filters).order_by(ExternalToolServer.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
     )).scalars().all()
-    return [_safe_server(row) for row in rows], total
+    if not rows:
+        return [], total
+
+    latest_validation_ids = (
+        select(
+            ServerValidation.id.label("id"),
+            func.row_number()
+            .over(
+                partition_by=ServerValidation.server_id,
+                order_by=(ServerValidation.started_at.desc(), ServerValidation.id.desc()),
+            )
+            .label("row_number"),
+        )
+        .where(ServerValidation.server_id.in_([row.id for row in rows]))
+        .subquery()
+    )
+    latest_validations = (
+        await db.execute(
+            select(ServerValidation)
+            .join(latest_validation_ids, ServerValidation.id == latest_validation_ids.c.id)
+            .where(latest_validation_ids.c.row_number == 1)
+        )
+    ).scalars().all()
+    latest_by_server = {validation.server_id: validation for validation in latest_validations}
+    return [
+        _safe_server(
+            row, last_validation=latest_by_server.get(row.id), validations_loaded=False
+        )
+        for row in rows
+    ], total
 
 
 async def get_server(
