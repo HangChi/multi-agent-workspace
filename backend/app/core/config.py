@@ -185,6 +185,13 @@ class Settings(BaseSettings):
             "SBX_ARTIFACT_MAX_FILE_MB": self.sbx_artifact_max_file_mb,
             "SBX_ARTIFACT_MAX_TOTAL_MB": self.sbx_artifact_max_total_mb,
             "TOOL_DENY_THRESHOLD": self.tool_deny_threshold,
+            "MCP_CONNECT_TIMEOUT_SECONDS": self.mcp_connect_timeout_seconds,
+            "MCP_HANDSHAKE_TIMEOUT_SECONDS": int(self.mcp_handshake_timeout_seconds),
+            "MCP_CALL_TIMEOUT_SECONDS": int(self.mcp_call_timeout_seconds),
+            "MCP_MAX_RESPONSE_BYTES": self.mcp_max_response_bytes,
+            "MCP_MAX_RESULT_CHARS": self.mcp_max_result_chars,
+            "MCP_MAX_TOOLS_PER_SERVER": self.mcp_max_tools_per_server,
+            "MCP_MAX_CONCURRENCY_PER_SERVER": self.mcp_max_concurrency_per_server,
         }
         for name, value in positive.items():
             if value <= 0:

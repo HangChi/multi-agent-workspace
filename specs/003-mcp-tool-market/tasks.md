@@ -25,17 +25,17 @@ description: "Implementation tasks for external MCP tools and governed marketpla
 
 **Purpose**: Blocking security, protocol, secret, and persistence foundations. No user-story implementation starts until this phase passes.
 
-- [ ] T006 [P] Write failing unit tests for encrypted secret round-trip, key-version metadata, rotation, revocation, and canary redaction in `backend/tests/unit/test_external_credentials.py`.
-- [ ] T007 [P] Write failing unit tests for HTTPS/SSRF/DNS/redirect/port validation and safe error projection in `backend/tests/unit/test_mcp_security.py`.
-- [ ] T008 [P] Write failing unit tests for MCP JSON-RPC envelopes, initialize negotiation, paginated `tools/list`, duplicate detection, and unsupported transports in `backend/tests/unit/test_mcp_protocol.py`.
-- [ ] T009 Implement key-versioned encrypted credential service with write-only DTO boundary in `backend/app/core/secrets.py` and `backend/app/services/external_credential_service.py`.
-- [ ] T010 Implement endpoint normalization, DNS resolution checks, private/link-local/metadata/reserved blocking, redirect rejection/revalidation, and safe exceptions in `backend/app/executors/mcp_security.py`.
-- [ ] T011 Implement bounded Streamable HTTP JSON-RPC client with initialize, paginated discovery, cancellation, response limits, and no default side-effect retry in `backend/app/executors/mcp_client.py`.
-- [ ] T012 Write and apply Alembic migration for external server, credential, tool-version, listing, installation, grant, validation, run-snapshot, and invocation tables in `backend/alembic/versions/0005_external_tools.py`.
-- [ ] T013 Add SQLAlchemy models, enums, indexes, immutable snapshot relationships, and ORM exports in `backend/app/models/external_tool.py`, `backend/app/models/external_credential.py`, `backend/app/models/external_validation.py`, `backend/app/models/external_invocation.py`, and `backend/app/models/__init__.py`.
-- [ ] T014 Add shared Pydantic enums, bounded safe summaries, pagination DTOs, and redacted error schemas in `backend/app/schemas/external_tool.py` and `backend/app/schemas/external_invocation.py`.
-- [ ] T015 [P] Add strict audit action constants and secret-safe detail helpers in `backend/app/core/audit.py` and `backend/app/services/external_audit_service.py`.
-- [ ] T016 [P] Add model/API contract tests proving no credential value appears in responses, logs, audit detail, or websocket payloads in `backend/tests/unit/test_external_redaction.py`.
+- [X] T006 [P] Write failing unit tests for encrypted secret round-trip, key-version metadata, rotation, revocation, and canary redaction in `backend/tests/unit/test_external_credentials.py`.
+- [X] T007 [P] Write failing unit tests for HTTPS/SSRF/DNS/redirect/port validation and safe error projection in `backend/tests/unit/test_mcp_security.py`.
+- [X] T008 [P] Write failing unit tests for MCP JSON-RPC envelopes, initialize negotiation, paginated `tools/list`, duplicate detection, and unsupported transports in `backend/tests/unit/test_mcp_protocol.py`.
+- [X] T009 Implement key-versioned encrypted credential service with write-only DTO boundary in `backend/app/core/secrets.py` and `backend/app/services/external_credential_service.py`.
+- [X] T010 Implement endpoint normalization, DNS resolution checks, private/link-local/metadata/reserved blocking, redirect rejection/revalidation, and safe exceptions in `backend/app/executors/mcp_security.py`.
+- [X] T011 Implement bounded Streamable HTTP JSON-RPC client with initialize, paginated discovery, cancellation, response limits, and no default side-effect retry in `backend/app/executors/mcp_client.py`.
+- [X] T012 Write and apply Alembic migration for external server, credential, tool-version, listing, installation, grant, validation, run-snapshot, and invocation tables in `backend/alembic/versions/0005_external_tools.py`.
+- [X] T013 Add SQLAlchemy models, enums, indexes, immutable snapshot relationships, and ORM exports in `backend/app/models/external_tool.py`, `backend/app/models/external_credential.py`, `backend/app/models/external_validation.py`, `backend/app/models/external_invocation.py`, and `backend/app/models/__init__.py`.
+- [X] T014 Add shared Pydantic enums, bounded safe summaries, pagination DTOs, and redacted error schemas in `backend/app/schemas/external_tool.py` and `backend/app/schemas/external_invocation.py`.
+- [X] T015 [P] Add strict audit action constants and secret-safe detail helpers in `backend/app/core/audit.py` and `backend/app/services/external_audit_service.py`.
+- [X] T016 [P] Add model/API contract tests proving no credential value appears in responses, logs, audit detail, or websocket payloads in `backend/tests/unit/test_external_redaction.py`.
 
 **Checkpoint**: migration upgrades cleanly; foundational security/protocol/secret tests pass; no user story can bypass these services.
 
