@@ -13,8 +13,12 @@
 
 import uuid
 
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+
 from app.models.artifact import Artifact
 from app.models.run import Run
+from app.models.sandbox_execution import SandboxExecution
 from app.models.step import Step
 
 REQUESTS_URL = "/api/v1/requests"
@@ -122,6 +126,60 @@ async def test_run_detail_includes_steps_cost_result_error_artifacts(
     assert len(body["artifacts"]) == 1
     assert body["artifacts"][0]["filename"] == "report.md"
     assert body["artifacts"][0]["size_bytes"] == 2048
+
+
+async def test_run_polling_does_not_select_verbose_step_or_execution_payloads(
+    client, make_headers, db_session
+):
+    headers = await make_headers()
+    run = await _setup_run(client, headers, db_session, "running")
+    step = Step(
+        run_id=run.id, seq=1, kind="tool", status="completed", tool_name="run_python",
+        input={"code": "sensitive source" * 10000}, output={"stdout": "large output" * 10000},
+    )
+    db_session.add(step)
+    await db_session.flush()
+    execution = SandboxExecution(
+        run_id=run.id, step_id=step.id, agent_id=run.assignee_id,
+        language="python", code="print('private')", code_sha256="a" * 64,
+        status="ok", exit_code=0, stdout="large output" * 10000,
+        stderr="private stderr", image="test-only", limits={}, duration_ms=123,
+    )
+    db_session.add(execution)
+    db_session.add(Artifact(
+        run_id=run.id, step_id=step.id, object_key="private-object-key",
+        filename="result.txt", size_bytes=7,
+    ))
+    await db_session.commit()
+    statements = []
+
+    def capture_sql(_conn, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(statement)
+
+    event.listen(Engine, "before_cursor_execute", capture_sql)
+    try:
+        response = await client.get(f"{RUNS_URL}/{run.id}", headers=headers)
+    finally:
+        event.remove(Engine, "before_cursor_execute", capture_sql)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["steps"][0]["tool_name"] == "run_python"
+    assert body["executions"][0]["duration_ms"] == 123
+    assert body["executions"][0]["artifacts"] == 1
+    assert body["artifacts"][0]["filename"] == "result.txt"
+    for table, excluded in {
+        "steps": ("input", "output", "error"),
+        "sandbox_executions": ("code", "stdout", "stderr", "limits", "error_message"),
+        "artifacts": ("object_key",),
+    }.items():
+        selected = [sql.split("FROM", 1)[0] for sql in statements if f"FROM {table}" in sql]
+        assert selected, table
+        for column in excluded:
+            assert all(f"{table}.{column}," not in sql and f"{table}.{column} " not in sql for sql in selected), column
+    detail = await client.get(f"{RUNS_URL}/{run.id}/executions/{execution.id}", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["code"] == "print('private')"
+    assert detail.json()["stdout"] == "large output" * 10000
 
 
 async def test_run_detail_not_found(client, make_headers):

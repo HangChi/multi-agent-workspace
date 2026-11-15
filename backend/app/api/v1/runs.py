@@ -10,11 +10,13 @@
 T074：run_cancel / run_retry / run_reply 审计挂接（detail 含 from_status）。
 """
 
+from collections import Counter
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
+from sqlalchemy.orm import load_only
 
 from app.api.deps import DB, CurrentUser, require_role
 from app.api.errors import AppError
@@ -54,22 +56,35 @@ async def get_run(run_id: str, user: CurrentUser, db: DB):
     """运行详情（归属校验）：含 steps 列表摘要、cost、result、error、artifacts。"""
     run = await _get_owned_run(db, run_id, user)
 
+    # Polling returns summaries, not potentially large code/output/JSON payloads.
+    # Raise on accidental deferred access instead of silently adding lazy I/O.
     steps = (
-        (await db.execute(select(Step).where(Step.run_id == run.id).order_by(Step.seq)))
-        .scalars()
-        .all()
-    )
+        await db.execute(
+            select(Step).where(Step.run_id == run.id).order_by(Step.seq).options(load_only(
+                Step.id, Step.seq, Step.kind, Step.status, Step.tool_name,
+                Step.duration_ms, Step.cost_cents, Step.created_at, raiseload=True,
+            ))
+        )
+    ).scalars().all()
     artifacts = (
-        (await db.execute(select(Artifact).where(Artifact.run_id == run.id)))
-        .scalars()
-        .all()
-    )
+        await db.execute(
+            select(Artifact).where(Artifact.run_id == run.id).options(load_only(
+                Artifact.id, Artifact.step_id, Artifact.filename, Artifact.size_bytes,
+                Artifact.mime_type, Artifact.sha256, Artifact.created_at, raiseload=True,
+            ))
+        )
+    ).scalars().all()
     executions = (
-        (await db.execute(select(SandboxExecution).where(SandboxExecution.run_id == run.id)))
-        .scalars()
-        .all()
-    )
+        await db.execute(
+            select(SandboxExecution).where(SandboxExecution.run_id == run.id).options(load_only(
+                SandboxExecution.id, SandboxExecution.step_id, SandboxExecution.language,
+                SandboxExecution.status, SandboxExecution.exit_code, SandboxExecution.duration_ms,
+                SandboxExecution.stdout_truncated, raiseload=True,
+            ))
+        )
+    ).scalars().all()
     step_seq = {step.id: step.seq for step in steps}
+    artifact_counts = Counter(artifact.step_id for artifact in artifacts)
     execution_summaries = [
         ExecutionSummary(
             id=execution.id,
@@ -79,7 +94,7 @@ async def get_run(run_id: str, user: CurrentUser, db: DB):
             exit_code=execution.exit_code,
             duration_ms=execution.duration_ms,
             stdout_truncated=execution.stdout_truncated,
-            artifacts=sum(1 for artifact in artifacts if artifact.step_id == execution.step_id),
+            artifacts=artifact_counts[execution.step_id],
         )
         for execution in executions
     ]
