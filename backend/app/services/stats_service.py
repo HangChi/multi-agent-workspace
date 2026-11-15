@@ -19,7 +19,7 @@ from app.models.sandbox_execution import SandboxExecution
 _TERMINAL_SUCCESS = {"completed"}
 _TERMINAL_FAIL = {"failed", "timeout"}
 _NON_TERMINAL = {"queued", "running", "needs_input"}
-_STATS_CACHE_TTL_SECONDS = 1.5
+_STATS_CACHE_TTL_SECONDS = 5.0
 _STATS_CACHE_MAX_ENTRIES = 256
 _stats_cache: dict[str, tuple[float, dict]] = {}
 
@@ -53,7 +53,7 @@ async def overview(db: AsyncSession, owner_id: str, *, cache: bool = False) -> d
     """Return one owner-scoped aggregate without loading run/execution payloads.
 
     ``cache`` is reserved for the high-frequency dashboard endpoint. It is a
-    bounded 1.5-second snapshot and is disabled by test callers, which retain
+    bounded 5-second snapshot and is disabled by test callers, which retain
     exact read-after-write semantics.
     """
     use_cache = cache and os.getenv("TESTING") != "1"
