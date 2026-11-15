@@ -50,7 +50,7 @@ docker exec aw-worker python -c 'import docker; print(docker.from_env().version(
 | 超时 | `while True: pass`（`timeout_s=5`） | `status=timeout`，5 秒 + ≤3 秒内被杀，容器与网络无残留 |
 | 内存 | `x = bytearray(2*1024**3)`（配额 512MB） | `status=resource`，`error_category=oom`，Worker 存活 |
 | 进程数 | fork 循环 | `status=resource`，`error_category=pids` |
-| 磁盘 | 循环写 1GB 文件 | `status=resource` 或产物截断，磁盘不越界 |
+| 磁盘 | 循环写 1GB 文件 | 有界 workspace/output/tmp 共享 tmpfs 在配额处返回 `ENOSPC`；执行不会越界，产物仍可从 keeper 回收 |
 
 **附加检查（必须执行）**：`docker ps -a | grep aw-sbx` 应为空；`docker network ls | grep aw-sbx` 应为空。
 
@@ -85,7 +85,7 @@ docker exec aw-worker python -c 'import docker; print(docker.from_env().version(
 | 元数据拦截 | `curl http://169.254.169.254/latest/meta-data/` | 失败且原因可读（策略拦截）；记录 `deny` + `matched_rule_id` |
 | 直连 IP | 直接连某公网 IP:443 | 记录 `target_domain=ip-direct`，`action=allow` |
 | 内网拦截 | 连 `10.0.0.4:5432` | `deny` |
-| 限制模式（IP/CIDR 已支持） | Agent 设为 `restricted`，只加目标 IP/CIDR；脚本访问白名单目标后再访问未授权公网 | 白名单目标成功，第二个拒绝且留痕 |
+| 限制模式（IP/CIDR 已支持） | Agent 设为 `restricted`，只加目标 IP/CIDR；脚本访问白名单目标后再访问未授权公网 | 白名单目标成功，第二个拒绝且留痕；域名 allow 当前 fail-closed |
 
 | 成员不能绕过 | 普通成员调用 `DELETE /admin/egress-blacklist/{内置项}` | 403；内置项本身不可删（400） |
 
@@ -140,10 +140,10 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | 场景 | 状态 | 记录 |
 |---|---|---|
 | S1 脚本执行 | ⏳ | 2026-11-15 真实容器平方和 338350；API 持久化/WS/全链路延迟待凭据验收 |
-| S2 超时与资源 | ⏳ | 实测 timeout/cancel/OOM/pids/tmpfs；output 命名卷无内核限额，不能判整体通过 |
+| S2 超时与资源 | ⏳ | Docker Desktop Linux VM 有界矩阵 13/13，含 workspace/output 内核配额、timeout/cancel/OOM/pids；整体 S2 仍需 protected API/UI 分类和完整场景验收 |
 | S3 工具授权 | ⏳ | 确定性 HTTP 验收脚本及 13 项自测已补齐；创建验收管理员/邀请码被权限策略拒绝，未执行受保护场景 |
 | S4 制品 | ⏳ | 实测沙箱 CSV→真实 MinIO→预签名 HTTP GET，20 行/153B/hash 一致；API 归属和上限场景未完成 |
-| S5 出站策略 | ⏳ | IP 策略与默认 HTTPS/DNS 运行时 7/7；域名 allow、IPv6 全流水和规则管理 API 未完整验收 |
+| S5 出站策略 | ⏳ | 最新独立 runtime fixture：IP/多连接/IPv6 场景 11/11；此前版本另有默认 HTTPS/DNS 证据。域名 allow、完整协议/高负载覆盖和规则管理 protected API 未完整验收 |
 | S6 配额并发 | ⏳ | 未执行 20 并发/P95 测量 |
 
 > 状态只允许在真实容器栈上跑通后改成 ✅，并附 commit 与关键输出摘要；未跑过一律留 ⏳。
@@ -173,6 +173,6 @@ EGRESS_DNS_PROXY=aw-002-verify-dns SBX_NETWORK_PREFIX=aw-002-probe \
 docker exec -i aw-002-verify-worker-1 python - < deploy/verify/s4_artifact_runtime.py
 ```
 
-`sbx_escape_matrix.py` 对 output 无内核配额显式输出 FAIL 并以非零退出；不会为获得绿色结果而写满宿主磁盘。IP 出网探针 7/7 仅证明其列出的运行时场景，不证明域名规则、权限 API 或 100% 访问覆盖。
+最新 `sbx_escape_matrix.py` 在 Docker Desktop Linux VM 上 13/13 通过，包含有界 output 内核配额探针；不会为验证而写满宿主磁盘。最新出网探针 11/11 覆盖 IP/CIDR、多 TCP 连接和 IPv6 fixture，不含可选 public HTTPS；此前版本的 HTTPS 证据不替代当前版本重跑。它们均不证明域名规则、权限 API、受保护整链路或 100% 访问覆盖。
 
 **已知不可自动化的部分**：SC-004 的 P95 对比需要压测脚本（P3 才做全量压测），本特性先用手工 20 并发 + 观察，记录在案。

@@ -103,7 +103,8 @@
  "duration_ms": 4210, "cpu_ms": 3100, "mem_peak_bytes": 148897792,
  "image": "aw-sandbox-python:3.12",
  "limits": {"timeout_s": 120, "cpu": 1.0, "mem_mb": 512, "disk_mb": 256, "pids": 128},
- "artifacts": [{"id": "...", "filename": "result.csv", "size_bytes": 2048}]}
+ "artifacts": [{"id": "...", "filename": "result.csv", "size_bytes": 2048}],
+ "artifact_truncated": {"reason": "files", "message": "..."} | null}
 ```
 
 权限：Run 的 `owner_id` 或 admin；其他用户 403（沿用 001 的越权修复口径）。
@@ -209,10 +210,11 @@
 上文仍保留原验收目标；下列差异没有因文档记录而自动视为满足，T074 保持未完成。真实容器证据见 `../docker-verification.md`。
 
 - **身份与归属**：当前 Run、执行详情、制品下载只允许 owner，其他用户（包括非 owner admin）返回 404，匿名 401；不是上文 owner/admin + 403。后端集成测试已覆盖；本轮受保护 HTTP 验收因测试管理员/邀请码授权被拒而未运行。
-- **空 restricted 规则 warning**：模式和规则可保存，但附加 warning 响应尚未实现。
+- **空 restricted 规则 warning（已对齐）**：Agent POST/PATCH 保存时，restricted 且无启用 allow 规则返回 `warning`；保存不被阻止。存在启用 allow 或 default 模式时 warning 为 null。
 - **内置黑名单**：来自服务端配置常量，GET 返回合成 `builtin:*` 项，不是首次迁移写入的 DB 行。删除内置项返回 400；其访问记录 `matched_rule_id=null`，自定义规则命中使用真实 UUID。
-- **访问检索**：已支持 run_id、agent_id、action、page、page_size；上文 from/to 时间过滤尚未实现。
-- **出网事实**：改为进程启动前等待就绪的 bridge TCP/UDP 包头 watcher，修复 conntrack 漏掉未确认 DROP 尝试的问题；域名关联兼容 DNS reply/cached。当前仅 IPv4 采集，按目标/protocol/port 去重，bytes_out 为 null，不能声称完整连接流水或 SC-009 100%。
+- **访问检索（已对齐）**：支持 run_id、agent_id、action、`from`、`to`、page、page_size。时间区间为半开 `[from,to)`，时间必须带时区，summary 与 items 使用相同筛选，且 summary 不受分页影响。
+- **出网事实（部分对齐）**：bridge TCP/UDP 包头 watcher 在用户进程启动前就绪；按 TCP 连接区分源端口/序号与生命周期，UDP 按五元组流归并；支持实际 IPv4/IPv6 源地址和目标采集。真实 Docker Desktop Linux VM 已验证同目标多次 TCP 连接分别记录及 IPv6 allow/deny。`bytes_out` 仍为 null；UDP 同五元组 socket 重开、ICMP/分片/扩展头、丢包/高吞吐 100% 覆盖仍有限，不能声称 SC-009 完全满足。
 - **域名策略**：restricted domain allow 和实际生效的全局 domain deny 都在内核安装阶段 fail-closed；默认模式能解析域名并不等于支持 domain allow。
-- **拒绝事件**：当前 `egress_denied` 携带 execution_id、target_ip、target_domain、port、matched_rule_id；没有上文 reason 字段。
-- **输出事件**：当前完成回调后分块发布，按 4096 个字符切片，不是容器运行时持续流式；多字节 UTF-8 也未保证每条 ≤4KB bytes。WS 顺序/重复 started 与完整流式体验仍需实际验收。
+- **拒绝事件**：`egress_denied` 带 execution_id、target_ip、target_domain、port、matched_rule_id，以及通用可读 reason（不披露具体内部规则细节）。
+- **输出事件（实现已接线，端到端仍待验）**：容器运行时 attach 后增量发布；按 UTF-8 字节切片，每条不超过 4096 bytes；输出尾部与实时发布预算均有界。集成测试验证 started/output/finished 的顺序与 started 唯一，但跨服务 WebSocket protected live E2E 尚未执行。
+- **制品截断提示（已对齐）**：执行详情增加 `artifact_truncated: {reason,message} | null`；仅当 Step.output 中 execution_id 与详情匹配时投影，旧数据不猜测归属。LLM/Step/API/前端均能看到截断原因，执行成功状态不因此改为失败。

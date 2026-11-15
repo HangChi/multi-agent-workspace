@@ -2,7 +2,7 @@
 
 ## 结论
 
-**部分通过，不能宣布 002 完整验收完成或可上线。** 本轮执行了真实容器/内核/MinIO 探针，不再仅依赖 Docker SDK fake。受保护的 API→Celery→沙箱整链路仍被身份授权阻塞；domain allow、output 内核配额及 S6 等原规格缺口仍在。Quickstart S1–S6 继续保留 ⏳。
+**部分通过，不能宣布 002 完整验收完成或可上线。** 本记录包含历史快照与 2026-11-15 本轮追加验证；最新证据已补齐 output 内核配额、实时有界输出、真实 IPv6 包头事实和同目标多连接留痕。受保护的 API→Celery→沙箱整链路仍被身份授权阻塞；domain allow、S6 并发/P95、部分协议覆盖和原生 Linux 全量验收仍未完成。Quickstart S1–S6 继续保留 ⏳。
 
 ## 环境与隔离
 
@@ -81,6 +81,19 @@
 - `ruff check app`：通过；`mypy app`：84 source files，通过。
 - 验收 harness 自测：13/13 通过。
 - 本轮没有修改前端；此前前端 32 项、typecheck/build 已通过，ESLint 0 errors / 2 既有 warnings。本轮未重复宣称完成浏览器 E2E。
+
+## 2026-11-15 后续修复与复验（最新）
+
+前文 520 项、7/7 出网与 12 项矩阵是当时的历史结果，保留原状，不代表当前最新验证。此后本地提交 `2ed08f3`、`3e17dcc`、`668299d`、`1e3b571` 分别补充删除规则强制审计、沙箱 I/O 与出网事实边界、制品/API 提示，以及出网筛选/Agent 保存 warning 契约。
+
+- 全套后端 pytest：**602 passed**；`ruff check app`、`mypy app`（84 files）通过。
+- 前端 Vitest：**43 passed**；typecheck/build 通过；ESLint 0 errors、2 个既有 Fast Refresh warnings。验收 harness：13 项通过。
+- `deploy/verify/s2_io_scenarios.py`：**2/2**。真实有界 tmpfs 在 16 MiB 配额处 `ENOSPC`；`/workspace` 与 `/tmp` 共享额度、`/code` 只读；执行退出后 keeper 可回收制品。多 MB stdout/stderr 实测每流精确保留 4096 bytes、原始计数准确、live callback 受 4096-byte 预算限制；执行资源残留 0。
+- `deploy/verify/sbx_escape_matrix.py`：**13/13**，包含 output 内核配额、timeout/cancel 等；每项执行后容器/网络/卷残留 0。
+- `deploy/verify/s5_egress_scenarios.py`：**11/11**，包含同目标 3 条独立允许与拒绝 TCP 连接、真实 IPv6 源地址 allow/restricted deny/global deny 优先；fixture 与执行资源清理。该轮 11 项不含可选 public HTTPS 场景；未把早先版本的 HTTPS 结果算成本轮最终代码验证。
+- Docker 证据仍仅适用于 macOS 上的 Docker Desktop Linux VM，不代表原生 Linux 云主机。domain allow/global domain deny 继续 fail-closed；protected API→Celery→真实 Docker/DB/WS、20 并发/P95、全量协议与高负载访问覆盖均未完成。
+
+工作区测试使用专用 integration PostgreSQL/Redis/MinIO；未读取 `deploy/.env`，未重启既有开发服务，未创建或伪造验收身份。尝试运行本轮可选公网 HTTPS smoke 时被权限策略拒绝，因此未执行、不记作通过。
 
 ## 继续验收所需条件与剩余缺口
 
