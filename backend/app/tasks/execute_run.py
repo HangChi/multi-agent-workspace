@@ -18,18 +18,20 @@ from typing import Any
 
 import redis
 import structlog
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, select
 from sqlalchemy.orm import selectinload
 
 from app.core.audit import write_audit
 from app.core.config import settings
 from app.core.db import SessionLocal
+from app.executors.catalog import CATALOG
 from app.executors.llm import LiteLLMClient, LLMClientError
 from app.executors.sandbox import build_executors
 from app.models.agent import Agent
 from app.models.request import Request
 from app.models.run import Run
 from app.models.step import Step
+from app.models.tool import Tool
 from app.orchestrator.router import route
 from app.orchestrator.runner import (
     CostLimitExceeded,
@@ -363,8 +365,19 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
             return False
         # Query scalar columns so operator disables and Agent edits committed
         # during an LLM call are visible despite this long-lived ORM session.
-        current_grants = await db.scalar(select(Agent.tools).where(Agent.id == agent.id))
-        current_enabled = [spec.name for spec in await enabled_tool_specs(db)]
+        current_rows = (
+            await db.execute(
+                select(Agent.tools, Tool.name)
+                .select_from(Agent)
+                .outerjoin(
+                    Tool,
+                    and_(Tool.enabled.is_(True), Tool.name.in_(CATALOG)),
+                )
+                .where(Agent.id == agent.id)
+            )
+        ).all()
+        current_grants = current_rows[0][0] if current_rows else []
+        current_enabled = [row[1] for row in current_rows if row[1] is not None]
         return (
             name in (run.tool_grants_snapshot or [])
             and name in filter_grants(current_grants, current_enabled)
