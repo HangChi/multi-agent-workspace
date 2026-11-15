@@ -1,26 +1,29 @@
 """Kernel-enforced egress policy for one sandbox network.
 
-The worker never interpolates user input into a shell command.  Every operation is
-an argv list executed by a short-lived, fixed network-admin image.  The image is
-only a transport for iptables/conntrack; policy decisions and rule construction
-remain in this module so they can be tested without Linux privileges.
+The worker never interpolates user input into a shell command. Privileged work
+uses fixed, resource-bounded helpers with argv/data-only inputs. Base IP/CIDR
+ACL construction is here; the trusted, pure domain-policy implementation and
+header-only observer live in deploy/sbx-net and are tested without privileges.
 
-Domain rules are intentionally rejected here.  A DNS name is not a stable kernel
-match and wildcard DNS cannot be safely translated to a finite IP set at runtime.
-Rejecting the execution is fail-closed; silently accepting such a rule would make
-restricted mode bypassable.
+Domain snapshots use an execution-private trusted DNS mediator. It validates
+complete alias chains and atomically binds answers to timeout-enforced nft sets
+BEFORE replying. Shared DNS logs are never an authorization source. A kernel
+health lease expires within one second of gateway death, including established
+flows. This is destination authorization, not TLS/SNI identity verification.
 """
 
 from __future__ import annotations
 
+import base64
 import ipaddress
+import json
 import logging
 import os
 import re
 import time
 import uuid
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -44,6 +47,7 @@ _UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
 )
 _PACKET_RE = re.compile(r"\bIP6?\s+(\S+)\.(\d+)\s+>\s+(\S+)\.(\d+):\s+(.*)")
+_IP_HEADER_RE = re.compile(r"\bIP6?\s+(\S+)\s+>\s+(\S+):\s+(.*)")
 _FIELD_RE = re.compile(
     r"src=(?P<src>[^\s]+)\s+dst=(?P<dst>[^\s]+)\s+"
     r"sport=(?P<sport>\d+)\s+dport=(?P<dport>\d+)"
@@ -74,6 +78,31 @@ def _chain_names(execution_id: str) -> tuple[str, str]:
     token = validate_execution_id(execution_id).replace("-", "").upper()
     # iptables chain names are short and must not contain user-controlled syntax.
     return f"AWF{token[:20]}", f"AWI{token[:20]}"
+
+
+def _protocol_guard(execution_id: str, bridge: str) -> str:
+    """Fail closed on protocols/fragment/extension paths not fully audited.
+
+    Their pre-firewall IP headers are still captured as port=0 denied facts.
+    This guard applies even in ordinary default mode, not just domain mode.
+    """
+    token = uuid.UUID(validate_execution_id(execution_id)).hex
+    if not re.fullmatch(r"br-[0-9a-fA-F]{6,64}", bridge):
+        raise NetworkPolicyError("invalid bridge for protocol guard")
+    prefix = f'iifname "{bridge}" '
+    rows = [prefix + "ip frag-off & 0x3fff != 0 drop",
+            prefix + "meta nfproto ipv6 ip6 nexthdr != { tcp, udp } drop",
+            prefix + "meta l4proto != { tcp, udp } drop"]
+    # PREROUTING must precede conntrack defragmentation (-400). A filter-only
+    # fragment check is too late: Linux reassembles the datagram before FORWARD.
+    # IPv6 ICMP is permitted here for host neighbor discovery, but unsupported
+    # protocols (including routed ICMP) are still denied in the FORWARD chain.
+    early = [prefix + "ip frag-off & 0x3fff != 0 drop",
+             prefix + "meta nfproto ipv6 ip6 nexthdr != { tcp, udp, ipv6-icmp } drop"]
+    return (f"table inet awp_{token} {{\nchain pre {{ type filter hook prerouting "
+            "priority -450; policy accept; " + "; ".join(early) + "; }\n"
+            "chain forward { type filter hook forward priority -20; policy accept; "
+            + "; ".join(rows) + "; }\n}\n")
 
 
 def _port_args(rule: RuleView) -> list[str]:
@@ -117,6 +146,7 @@ def _family_commands(
     global_rules: list[RuleView],
     agent_rules: list[RuleView],
     builtin_blacklist: list[str],
+    host_dns_upstream: str | None = None,
 ) -> list[list[str]]:
     try:
         dns_version = ipaddress.ip_address(dns_proxy_ip).version
@@ -203,6 +233,17 @@ def _family_commands(
     else:
         commands.append([executable, "-A", forward_chain, "-j", "ACCEPT"])
 
+    if host_dns_upstream is not None and dns_args:
+        upstream = str(ipaddress.ip_address(host_dns_upstream))
+        for proto in ("udp", "tcp"):
+            # Only the execution gateway's DNS listener and its established
+            # upstream replies are reachable on the host. No other host service.
+            commands.append([executable, "-A", input_chain, "-d", dns_proxy_ip,
+                             "-p", proto, "--dport", "53", "-j", "ACCEPT"])
+            commands.append([executable, "-A", input_chain, "-s", upstream,
+                             "-p", proto, "--sport", "53", "-m", "conntrack",
+                             "--ctstate", "ESTABLISHED", "-j", "ACCEPT"])
+
     # INPUT is separate from FORWARD: a bridge peer must not reach host services.
     # IPv6 nevertheless needs on-link neighbor discovery for its gateway. Without
     # this narrow control-plane exception TCP never reaches FORWARD at all.
@@ -241,18 +282,20 @@ def compile_iptables_commands(
 def _compile_with_chains(
     *, bridge: str, dns_proxy_ip: str, mode: Literal["default", "restricted"],
     global_rules: list[RuleView], agent_rules: list[RuleView], builtin_blacklist: list[str],
-    forward: str, input_chain: str,
+    forward: str, input_chain: str, host_dns_upstream: str | None = None,
 ) -> list[list[str]]:
     commands: list[list[str]] = []
     commands.extend(_family_commands(
         executable="iptables", bridge=bridge, dns_proxy_ip=dns_proxy_ip,
         forward_chain=forward, input_chain=input_chain, mode=mode,
         global_rules=global_rules, agent_rules=agent_rules, builtin_blacklist=builtin_blacklist,
+        host_dns_upstream=host_dns_upstream,
     ))
     commands.extend(_family_commands(
         executable="ip6tables", bridge=bridge, dns_proxy_ip=dns_proxy_ip,
         forward_chain=forward + "6", input_chain=input_chain + "6", mode=mode,
         global_rules=global_rules, agent_rules=agent_rules, builtin_blacklist=builtin_blacklist,
+        host_dns_upstream=host_dns_upstream,
     ))
     return commands
 
@@ -260,12 +303,14 @@ def _compile_with_chains(
 def compile_runtime_commands(
     *, execution_id: str, bridge: str, dns_proxy_ip: str, mode: Literal["default", "restricted"],
     global_rules: list[RuleView], agent_rules: list[RuleView], builtin_blacklist: list[str],
+    host_dns_upstream: str | None = None,
 ) -> tuple[list[list[str]], list[list[str]]]:
     forward, input_chain = _chain_names(execution_id)
     install = _compile_with_chains(
         bridge=bridge, dns_proxy_ip=dns_proxy_ip, mode=mode,
         global_rules=global_rules, agent_rules=agent_rules,
         builtin_blacklist=builtin_blacklist, forward=forward, input_chain=input_chain,
+        host_dns_upstream=host_dns_upstream,
     )
     cleanup = []
     for executable, suffix in (("iptables", ""), ("ip6tables", "6")):
@@ -348,8 +393,9 @@ def parse_packet_output(output: str | bytes, *, source_ip: str) -> list[dict[str
     TCP SYN retransmissions retain one fact; a fresh absolute initial sequence
     or a SYN after closure starts another, including reuse of the same source
     port. UDP has no handshake: same-five-tuple socket reuse is not distinguishable
-    from more datagrams on one flow. ICMP/fragments/non-port traffic are not
-    connection facts in this parser. No payload or byte-count estimate is stored.
+    from more datagrams on one flow. Unsupported IP protocols/fragments/extension
+    paths are denied port=0 target facts, not silently omitted or permitted.
+    No payload or byte-count estimate is stored.
     """
     text = output.decode("utf-8", "replace") if isinstance(output, bytes) else output
     records: list[dict[str, Any]] = []
@@ -357,7 +403,34 @@ def parse_packet_output(output: str | bytes, *, source_ip: str) -> list[dict[str
     source_ip = str(ipaddress.ip_address(source_ip))
     for line in text.splitlines():
         match = _PACKET_RE.search(line)
+        if match:
+            try:
+                ipaddress.ip_address(match.group(1))
+                ipaddress.ip_address(match.group(3))
+            except ValueError:
+                # A portless IPv4 address's last octet is NOT a port.
+                match = None
         if not match:
+            header = _IP_HEADER_RE.search(line)
+            if not header:
+                continue
+            try:
+                source = str(ipaddress.ip_address(header.group(1)))
+                target = str(ipaddress.ip_address(header.group(2)))
+            except ValueError:
+                continue
+            if source != source_ip:
+                continue
+            detail = header.group(3)
+            reason = detail.removeprefix("AW-DENY ").split(" ")[0]
+            protocol = reason if detail.startswith("AW-DENY ") else (
+                "icmp6" if detail.startswith("ICMP6") else "icmp" if detail.startswith("ICMP") else "ip-other"
+            )
+            timestamp_match = re.match(r"(\d+(?:\.\d+)?)\s", line)
+            record = _connection_record(source, 0, target, 0, protocol[:10],
+                                        timestamp_match.group(1) if timestamp_match else None)
+            record.update(action="deny", _kernel_denied=True)
+            records.append(record)
             continue
         try:
             source = str(ipaddress.ip_address(match.group(1)))
@@ -441,6 +514,8 @@ class NetworkCapture:
     source_ip: str | None = None
     source_ipv6: str | None = None
     started_at: int = 0
+    domain_gateway: Any = None
+    domain_config: dict[str, Any] | None = None
 
     @classmethod
     def prepare(cls, client: Any, network: Any, execution_id: str, snapshot: dict[str, Any] | None) -> NetworkCapture:
@@ -469,16 +544,31 @@ class NetworkCapture:
             )
             if not bridge:
                 raise NetworkPolicyError("Docker network has no bridge interface")
+            mediated = any(r.target_type == "domain" and r.action == "deny" for r in global_rules) or (
+                mode == "restricted" and any(r.target_type == "domain" and r.action == "allow" for r in agent_rules)
+            )
+            upstream_ip = dns_ip
+            if mediated:
+                gateways = (attrs.get("IPAM") or {}).get("Config") or []
+                dns_ip = next((g.get("Gateway") for g in gateways
+                               if g.get("Gateway") and ipaddress.ip_address(g["Gateway"]).version == 4), None)
+                if not dns_ip:
+                    raise NetworkPolicyError("domain DNS mediator requires execution bridge IPv4 gateway")
             install, cleanup = compile_runtime_commands(
                 execution_id=execution_id, bridge=bridge, dns_proxy_ip=dns_ip,
-                mode=mode, global_rules=global_rules, agent_rules=agent_rules,
-                builtin_blacklist=builtins,
+                mode="default" if mediated else mode,
+                global_rules=[r for r in global_rules if r.target_type != "domain"] if mediated else global_rules,
+                agent_rules=[] if mediated else agent_rules,
+                builtin_blacklist=builtins, host_dns_upstream=upstream_ip if mediated else None,
             )
+            cleanup.append(["nft", "delete", "table", "inet", "awp_" + uuid.UUID(execution_id).hex])
+            if mediated:
+                cleanup.append(["nft", "delete", "table", "inet", "awd_" + uuid.UUID(execution_id).hex])
             # Reserve an address in this execution-private network at create time.
             # Docker does not populate IPAddress until start; capture must be ready
             # before user code, so dynamic allocation cannot be used here. Docker
             # rejects an occupied/out-of-subnet address rather than running open.
-            source_ip = str(ipaddress.ip_address(dns_ip) + 1)
+            source_ip = str(ipaddress.ip_address(upstream_ip) + 1)
             dns_ipv6 = address.get("GlobalIPv6Address")
             source_ipv6 = str(ipaddress.IPv6Address(dns_ipv6) + 1) if dns_ipv6 else None
             if attrs.get("EnableIPv6") and source_ipv6 is None:
@@ -487,13 +577,19 @@ class NetworkCapture:
                       dns_proxy, dns_ip, bridge, install, cleanup,
                       source_ip=source_ip, source_ipv6=source_ipv6)
             try:
-                obj._run_commands(install)
+                obj._run_commands(install, nft_script=_protocol_guard(execution_id, bridge))
+                if mediated:
+                    obj.domain_config = {
+                        "execution_id": execution_id, "bridge": bridge, "mode": mode,
+                        "listen_ip": dns_ip, "upstream_ip": upstream_ip,
+                        "source_ip": source_ip, "source_ipv6": source_ipv6,
+                        "global_rules": [asdict(r) for r in global_rules],
+                        "agent_rules": [asdict(r) for r in agent_rules],
+                        "builtin_blacklist": builtins,
+                    }
+                    obj._start_domain_gateway()
             except Exception:
-                for command in cleanup:
-                    try:
-                        obj._run_command(command)
-                    except NetworkPolicyError:
-                        pass
+                obj.cleanup()
                 raise
             return obj
         except Exception as exc:
@@ -511,14 +607,72 @@ class NetworkCapture:
             result = self.client.containers.run(
                 NET_IMAGE, command=command, network_mode="host", cap_add=["NET_ADMIN"],
                 detach=False, remove=True, labels={"aw.managed": "true", "aw.execution": self.execution_id},
+                cap_drop=["ALL"], read_only=True, security_opt=["no-new-privileges"],
+                mem_limit="64m", memswap_limit="64m", pids_limit=32,
             )
             return result if isinstance(result, bytes) else bytes(result or b"")
         except (APIError, DockerException, OSError) as exc:
             raise NetworkPolicyError(f"network policy command failed: {command[0]}") from exc
 
-    def _run_commands(self, commands: Iterable[list[str]]) -> None:
-        for command in commands:
-            self._run_command(command)
+    def _run_commands(
+        self, commands: Iterable[list[str]], *, best_effort: bool = False, nft_script: str | None = None,
+    ) -> None:
+        # One fixed helper, not one Docker container PER firewall rule. The helper
+        # executes bounded argv arrays, without shell parsing or interpolation.
+        payload = base64.b64encode(json.dumps({
+            "commands": list(commands), "best_effort": best_effort, "nft_script": nft_script,
+        }, separators=(",", ":")).encode()).decode()
+        self._run_command(["python3", "/opt/aw/command_batch.py", payload])
+
+    def _start_domain_gateway(self) -> None:
+        payload = base64.b64encode(json.dumps(self.domain_config, separators=(",", ":")).encode()).decode()
+        self.domain_gateway = self.client.containers.run(
+            NET_IMAGE, command=["python3", "-u", "/opt/aw/dns_mediator.py", payload],
+            network_mode="host", cap_drop=["ALL"], cap_add=["NET_ADMIN", "NET_BIND_SERVICE"],
+            detach=True, remove=False, read_only=True, security_opt=["no-new-privileges"],
+            name=f"aw-domain-{self.execution_id}", mem_limit="64m", memswap_limit="64m",
+            nano_cpus=250_000_000, pids_limit=64,
+            tmpfs={"/run": "rw,noexec,nosuid,nodev,size=1m"},
+            labels={"aw.managed": "true", "aw.execution": self.execution_id},
+            log_config=LogConfig(type="local", config={"max-size": "4m", "max-file": "1", "compress": "false"}),
+        )
+        deadline = time.monotonic() + 4
+        while time.monotonic() < deadline:
+            logs = self.domain_gateway.logs()
+            text = logs.decode("utf-8", "replace") if isinstance(logs, bytes) else str(logs)
+            if any(json.loads(line).get("aw_dns_ready") == self.execution_id
+                   for line in text.splitlines() if line.startswith("{")):
+                self.assert_healthy()
+                return
+            self.domain_gateway.reload()
+            state = (getattr(self.domain_gateway, "attrs", {}) or {}).get("State") or {}
+            if state.get("Running") is not True:
+                raise NetworkPolicyError("execution DNS mediator failed before readiness")
+            time.sleep(0.02)
+        raise NetworkPolicyError("execution DNS mediator did not become ready")
+
+    def assert_healthy(self) -> None:
+        """Worker-side liveness complements the independent <=1s kernel lease."""
+        if self.domain_gateway is None:
+            return
+        try:
+            self.domain_gateway.reload()
+            state = (getattr(self.domain_gateway, "attrs", {}) or {}).get("State") or {}
+            if state.get("Running") is not True or state.get("Paused") is True:
+                raise NetworkPolicyError("execution DNS mediator died; network fails closed")
+            # Docker Running alone misses SIGSTOP/deadlocks. Read the trusted
+            # heartbeat INSIDE the helper; no host path or payload is exposed.
+            # The marker is written only AFTER successful kernel lease refresh.
+            result = self.domain_gateway.exec_run([
+                "python3", "-c",
+                ("import json,time,sys;v=json.load(open('/run/aw-dns-health'));"
+                 "sys.exit(0 if v['execution_id']==sys.argv[1] and 0<=time.monotonic()-v['at']<0.8 else 1)"),
+                self.execution_id,
+            ])
+            if result.exit_code != 0:
+                raise NetworkPolicyError("execution DNS mediator stalled or kernel health lease expired")
+        except (APIError, DockerException, OSError) as exc:
+            raise NetworkPolicyError("cannot confirm execution DNS mediator health") from exc
 
     def start_capture(self, container: Any) -> None:
         """Wait for header capture readiness before the user process starts."""
@@ -542,16 +696,15 @@ class NetworkCapture:
                 self.source_ipv6 = actual_ipv6
             except ipaddress.AddressValueError as exc:
                 raise NetworkPolicyError("sandbox IPv6 address is invalid") from exc
-        sources = ["src", "host", self.source_ip]
+        sources = [self.source_ip]
         if self.source_ipv6:
-            sources = ["(", *sources, "or", "src", "host", self.source_ipv6, ")"]
+            sources.append(self.source_ipv6)
         self.started_at = int(datetime.now(UTC).timestamp())
         try:
             self.watcher = self.client.containers.run(
                 NET_IMAGE,
-                command=["tcpdump", "--immediate-mode", "-l", "-nn", "-S", "-tt", "-i", self.bridge,
-                         *sources, "and", "(tcp or udp)"],
-                network_mode="host", cap_add=["NET_ADMIN", "NET_RAW"], detach=True, remove=False,
+                command=["python3", "-u", "/opt/aw/packet_capture.py", self.bridge, *sources],
+                network_mode="host", cap_add=["NET_RAW"], detach=True, remove=False,
                 name=f"aw-egress-{self.execution_id}",
                 labels={"aw.managed": "true", "aw.execution": self.execution_id},
                 read_only=True, cap_drop=["ALL"], security_opt=["no-new-privileges"],
@@ -567,6 +720,30 @@ class NetworkCapture:
                 raise NetworkPolicyError("packet capture did not become ready")
         except (APIError, DockerException, OSError) as exc:
             raise NetworkPolicyError("unable to start packet capture") from exc
+
+    def _domain_events(self) -> list[dict[str, Any]]:
+        if self.domain_gateway is None:
+            return []
+        raw = self.domain_gateway.logs()
+        text = raw.decode("utf-8", "strict") if isinstance(raw, bytes) else str(raw)
+        ready = False
+        events: list[dict[str, Any]] = []
+        try:
+            for line in text.splitlines():
+                if not line.startswith("{"):
+                    continue
+                event = json.loads(line)
+                if event.get("aw_dns_ready") == self.execution_id:
+                    ready = True
+                elif event.get("aw_dns") == 1:
+                    if event.get("execution_id") != self.execution_id or event.get("seq") != len(events) + 1:
+                        raise NetworkPolicyError("execution DNS audit is truncated or misattributed")
+                    events.append(event)
+            if not ready:
+                raise NetworkPolicyError("execution DNS audit readiness record missing (truncated log)")
+        except (ValueError, UnicodeError) as exc:
+            raise NetworkPolicyError("execution DNS audit is malformed") from exc
+        return events
 
     def collect(self) -> tuple[list[dict[str, Any]], bool]:
         if self.watcher is None or not self.source_ip:
@@ -589,17 +766,33 @@ class NetworkCapture:
             events = self.watcher.logs(stdout=True, stderr=False)
             packet_text = events.decode("utf-8", "replace") if isinstance(events, bytes) else events
             captured = re.search(r"(\d+) packets? captured", diagnostics)
-            if captured is None or int(captured.group(1)) != len(_PACKET_RE.findall(packet_text)):
+            if captured is None or int(captured.group(1)) != len(_IP_HEADER_RE.findall(packet_text)):
                 raise NetworkPolicyError("packet capture log is truncated or contains unparseable packets")
             records = parse_packet_output(packet_text, source_ip=self.source_ip)
             if self.source_ipv6:
                 records.extend(parse_packet_output(events, source_ip=self.source_ipv6))
             records.sort(key=lambda record: record.get("occurred_at", ""))
-            dns_logs = self.dns_proxy.logs(since=self.started_at)
-            ip_domains = _dns_ip_domains(dns_logs, self.source_ip)
+            self.assert_healthy()
+            domain_events = self._domain_events()
+            if self.domain_config is None:
+                dns_logs = self.dns_proxy.logs(since=self.started_at)
+                ip_domains = _dns_ip_domains(dns_logs, self.source_ip)
+                for record in records:
+                    record["domain"] = ip_domains.get(record["target_ip"], "ip-direct")
+            else:
+                # Only this execution's trusted, pre-response bindings can give
+                # domain authority. Shared dnsmasq logs are not consulted here.
+                for record in records:
+                    when = datetime.fromisoformat(record["occurred_at"]).timestamp()
+                    matching = [e for e in domain_events if e["action"] == "allow"
+                                and record["target_ip"] in e.get("addresses", [])
+                                and e["time"] <= when < e["time"] + e.get("ttl", 0)]
+                    if matching:
+                        record["domain"] = matching[-1]["domain"]
             for record in records:
-                record["domain"] = ip_domains.get(record["target_ip"], "ip-direct")
-            for record in records:
+                if record.pop("_kernel_denied", False):
+                    record.update(action="deny", matched_rule_id=None)
+                    continue
                 if record["target_ip"] == self.dns_proxy_ip and record["port"] == 53:
                     record.update(action="allow", matched_rule_id=None, domain="dns-proxy")
                     record.setdefault("occurred_at", datetime.now(UTC).isoformat())
@@ -616,7 +809,32 @@ class NetworkCapture:
                 )
                 record["action"] = decision.action
                 record["matched_rule_id"] = decision.matched_rule_id
+                if self.domain_config is not None:
+                    when = datetime.fromisoformat(record["occurred_at"]).timestamp()
+                    blocked = [r for e in domain_events
+                               if record["target_ip"] in e.get("addresses", [])
+                               and e["time"] <= when < e["time"] + e.get("ttl", 0)
+                               for r in e.get("denied_rules", [])
+                               if not r.get("port_range") or (
+                                   int(r["port_range"].split("-")[0]) <= record["port"] <=
+                                   int(r["port_range"].split("-")[-1]))]
+                    if blocked:
+                        record.update(action="deny", matched_rule_id=blocked[-1].get("id"))
+                    elif (self.mode == "default" and record["domain"] == "ip-direct"
+                          and any(r.action == "deny" and r.target_type == "domain" for r in self.global_rules)):
+                        record.update(action="deny", matched_rule_id=None)
                 record.setdefault("occurred_at", datetime.now(UTC).isoformat())
+            for event in domain_events:
+                if event["action"] == "deny":
+                    # A DNS policy refusal is attributable even if no subsequent
+                    # TCP SYN exists (CNAME blacklist/unknown-name denial).
+                    records.append({
+                        "source_ip": self.source_ip, "source_port": event.get("source_port", 0),
+                        "target_ip": self.dns_proxy_ip, "port": 53, "protocol": event.get("protocol", "udp"),
+                        "domain": event["domain"], "action": "deny",
+                        "matched_rule_id": event.get("matched_rule_id"), "bytes_out": None,
+                        "occurred_at": datetime.fromtimestamp(event["time"], UTC).isoformat(),
+                    })
             denied = any(record["action"] == "deny" for record in records)
             return records, denied
         finally:
@@ -637,12 +855,17 @@ class NetworkCapture:
             except (APIError, DockerException, OSError, RuntimeError) as cleanup_exc:
                 logger.debug("packet watcher remove failed: %s", cleanup_exc)
             self.watcher = None
-        for command in self.cleanup_commands:
+        if self.domain_gateway is not None:
             try:
-                self._run_command(command)
-            except NetworkPolicyError:
-                # Cleanup is best effort and must never flush global host rules.
-                pass
+                self.domain_gateway.remove(force=True)
+            except (APIError, DockerException, OSError, RuntimeError) as cleanup_exc:
+                logger.debug("domain gateway cleanup failed: %s", cleanup_exc)
+            self.domain_gateway = None
+        try:
+            self._run_commands(self.cleanup_commands, best_effort=True)
+        except NetworkPolicyError:
+            # Only execution-owned chains/table; never flush global host rules.
+            pass
         try:
             self.network.disconnect(self.dns_proxy, force=True)
         except (APIError, DockerException, OSError, RuntimeError) as cleanup_exc:

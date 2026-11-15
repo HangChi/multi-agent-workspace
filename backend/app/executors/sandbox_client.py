@@ -363,6 +363,34 @@ class _OutputCapture:
         self.thread.join(timeout=1)
 
 
+class _ResourceSampler:
+    """Retain live cgroup samples without delaying cancellation or time limits."""
+
+    def __init__(self, sample: Callable[[], tuple[int | None, int | None]]) -> None:
+        self._sample = sample
+        self._stop = threading.Event()
+        self.values: tuple[int | None, int | None] = (None, None)
+        self._thread = threading.Thread(target=self._consume, daemon=True)
+        self._thread.start()
+
+    def _consume(self) -> None:
+        while True:
+            measured = self._sample()
+            cpu, memory = (
+                max(value for value in (previous, current) if value is not None)
+                if previous is not None or current is not None else None
+                for previous, current in zip(self.values, measured, strict=True)
+            )
+            self.values = cpu, memory
+            if self._stop.wait(0.1):
+                return
+
+    def finish(self) -> tuple[int | None, int | None]:
+        self._stop.set()
+        self._thread.join(timeout=0.5)
+        return self.values
+
+
 class SandboxRun:
     """一次沙箱执行的上下文管理器。
 
@@ -414,6 +442,7 @@ class SandboxRun:
         self._container: Any = None
         self._storage: Any = None
         self._capture: _OutputCapture | None = None
+        self._metrics: _ResourceSampler | None = None
         self._output_callback = output_callback
         self._executed = False
         # Filled after the process exits. These are facts for the caller to persist,
@@ -732,6 +761,9 @@ class SandboxRun:
                 f"{self.code_volume_name}:{CODE_DIR}:ro",
                 f"{self.output_volume_name}:{WORKSPACE_DIR}:rw",
                 f"{self.output_volume_name}:{TMP_DIR}:rw",
+                # Docker otherwise provides an independent writable 64 MiB
+                # /dev/shm, outside the execution's aggregate filesystem budget.
+                f"{self.output_volume_name}:/dev/shm:rw",
             ],
             "log_config": docker.types.LogConfig(type="none"),
             # CPU 用 nano 精度，避免浮点转 int 时把 0.5 核截成 0（0 = 不限制）
@@ -778,7 +810,27 @@ class SandboxRun:
         except (APIError, DockerException) as exc:
             raise SandboxInfraError(f"写入脚本失败：{exc}") from exc
 
+    def _assert_egress_healthy(self) -> None:
+        if self._egress is None:
+            raise SandboxInfraError("出站策略不可用，拒绝继续执行脚本")
+        try:
+            self._egress.assert_healthy()
+        except NetworkPolicyError as exc:
+            raise SandboxInfraError("出站策略不可用，已停止执行脚本") from exc
+
     def _start_and_wait(self, container: Any) -> SandboxOutcome:
+        self._assert_egress_healthy()
+        if self._abort_check is not None and self._abort_check():
+            # Setup can outlast the caller's cancel request. Never start user
+            # code merely to kill it on the first polling iteration.
+            return SandboxOutcome(
+                exit_code=None, stdout=b"", stderr=b"",
+                stdout_truncated=False, stdout_full_bytes=0,
+                stderr_truncated=False, stderr_full_bytes=0,
+                duration_ms=0, timed_out=False, cancelled=True, oom_killed=False,
+                cpu_ms=None, mem_peak_bytes=None,
+                container_id=str(getattr(container, "id", "") or ""),
+            )
         self._capture = _OutputCapture(
             container, settings.sbx_stdout_max_bytes, self._output_callback
         )
@@ -787,6 +839,7 @@ class SandboxRun:
         except (APIError, DockerException) as exc:
             raise SandboxInfraError(f"启动沙箱容器失败：{exc}") from exc
 
+        self._metrics = _ResourceSampler(lambda: self._sample_stats(container))
         started = time.monotonic()
         timed_out = False
         cancelled = False
@@ -794,6 +847,11 @@ class SandboxRun:
         deadline = started + self.limits.timeout_s
 
         while True:
+            try:
+                self._assert_egress_healthy()
+            except SandboxInfraError:
+                self._kill(container)
+                raise
             if self._capture.error is not None:
                 self._kill(container)
                 raise SandboxInfraError("沙箱输出采集失败，已终止脚本") from self._capture.error
@@ -836,7 +894,7 @@ class SandboxRun:
             logger.warning("执行 %s 刷新退出状态失败：%s", self.execution_id, exc)
         attrs = getattr(container, "attrs", None) or {}
         state = attrs.get("State") or {}
-        cpu_ms, mem_peak = self._sample_stats(container)
+        cpu_ms, mem_peak = self._metrics.finish()
 
         return SandboxOutcome(
             exit_code=exit_code,
@@ -886,7 +944,9 @@ class SandboxRun:
         编造 0 会让「资源峰值」这张表失去意义。
         """
         try:
-            stats = container.stats(stream=False)
+            # Docker's default non-streaming stats waits for two samples. One
+            # shot keeps metrics off the execution/cancellation latency path.
+            stats = container.stats(stream=False, one_shot=True)
         except (APIError, DockerException, requests.exceptions.RequestException) as exc:
             logger.info("执行 %s 采集资源峰值失败：%s", self.execution_id, exc)
             return None, None
@@ -901,10 +961,16 @@ class SandboxRun:
         try:
             memory = stats["memory_stats"]
             # `peak` 是 cgroup v2 的峰值；v1 没有该字段，退化为 max_usage
-            raw_peak = memory.get("peak", memory.get("max_usage"))
+            # Engine/cgroup v2 may expose usage but omit a lifetime peak. The
+            # sampler retains the maximum actually observed usage in that case.
+            raw_peak = memory.get("peak", memory.get("max_usage", memory.get("usage")))
             mem_peak = int(raw_peak) if raw_peak is not None else None
         except (KeyError, TypeError, ValueError):
             mem_peak = None
+        # Docker may answer a post-exit request with a cleared CPU counter and
+        # no memory cgroup at all. This is missing evidence, not measured zero.
+        if cpu_ms == 0 and not stats.get("memory_stats"):
+            cpu_ms = None
         return cpu_ms, mem_peak
 
     # ---------------- 清理 ----------------
@@ -925,6 +991,10 @@ class SandboxRun:
         if self._capture is not None:
             self._capture.close()
             self._capture = None
+
+        if self._metrics is not None:
+            self._metrics.finish()
+            self._metrics = None
 
         if self._storage is not None:
             try:

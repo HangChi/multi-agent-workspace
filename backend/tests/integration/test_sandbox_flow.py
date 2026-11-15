@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import io
 import json
@@ -64,7 +65,8 @@ def fake_docker(monkeypatch: pytest.MonkeyPatch) -> FakeDockerClient:
         network = create_network(name, **kwargs)
         network.attrs = {
             "Id": "0123456789abcdef",
-            "Options": {"com.docker.network.bridge.name": "br-integration"},
+            "Options": {"com.docker.network.bridge.name": "br-0123456789ab"},
+            "IPAM": {"Config": [{"Gateway": "172.30.0.1"}]},
         }
 
         def connect(proxy):
@@ -99,7 +101,7 @@ def fake_docker(monkeypatch: pytest.MonkeyPatch) -> FakeDockerClient:
             return SimpleNamespace(
                 stop=lambda **kwargs: None,
                 logs=lambda **kwargs: (
-                    (b"tcpdump: listening on br-integration\n"
+                    (b"listening on br-0123456789ab\n"
                      b"1 packet captured\n1 packet received by filter\n0 packets dropped by kernel\n")
                     if kwargs.get("stderr") else
                     b"1763170000.123 IP 172.30.0.3.42222 > 203.0.113.44.443: Flags [S], length 0\n"
@@ -266,7 +268,13 @@ async def test_real_execute_persists_stdout_audit_and_artifact(
     assert fake_docker.container.removed == [True]
     assert fake_docker.network.removed == 1
     assert all(volume.removed == 1 for volume in fake_docker.volumes.created)
-    assert any(command["command"][0] == "iptables" for command in fake_docker.helper_commands)
+    batches = [
+        json.loads(base64.b64decode(helper["command"][2]))
+        for helper in fake_docker.helper_commands
+        if helper["command"][:2] == ["python3", "/opt/aw/command_batch.py"]
+    ]
+    assert batches, "real policy must install through the fixed trusted batch helper"
+    assert any(command[0] == "iptables" for batch in batches for command in batch["commands"])
     assert event_types.count("sandbox_started") == 1
     assert event_types.count("sandbox_finished") == 1
     assert event_types.index("sandbox_started") < event_types.index("sandbox_output")

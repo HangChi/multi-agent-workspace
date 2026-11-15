@@ -415,7 +415,7 @@ def test_capture_filter_includes_reserved_ipv6_and_absolute_tcp_sequence() -> No
     }}})
     capture.start_capture(container)
     command = capture.client.containers.run.call_args.kwargs["command"]
-    assert "2001:db8::3" in command and "-S" in command and "-nn" in command
+    assert "2001:db8::3" in command and "/opt/aw/packet_capture.py" in command
     assert capture.source_ipv6 == "2001:db8::3"
 
 

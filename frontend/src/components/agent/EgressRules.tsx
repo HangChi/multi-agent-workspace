@@ -62,10 +62,10 @@ export function EgressRules({ agentId, mode }: { agentId: string; mode: 'default
       <div>
         <h3 className="text-sm font-medium text-ink">Agent 出站允许清单</h3>
         <p className="mt-1 text-xs text-ink-muted">
-          {mode === 'restricted' ? '限制模式下，仅允许清单内的 IP/网段出网；全局黑名单仍不可绕过。' : '默认模式下规则仅用于预设；全局内网与云元数据黑名单不可绕过。'}
+          {mode === 'restricted' ? '限制模式下，仅允许清单内的域名、IP/网段和端口出网；全局黑名单仍不可绕过。' : '默认模式下规则仅用于预设；全局内网与云元数据黑名单不可绕过。'}
         </p>
         <p role="status" className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-          域名规则当前不支持出站放行；保存域名规则不会放行，限制模式含启用的域名规则时沙箱不会启动。
+          域名规则通过受控 DNS 按解析链和 TTL 绑定到 IP；不做 TLS 解密，共享 IP 不等同于应用层域名身份校验。
         </p>
       </div>
       <div className="grid gap-2 sm:grid-cols-[1fr_130px_auto]">

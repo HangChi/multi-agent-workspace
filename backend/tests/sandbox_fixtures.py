@@ -123,7 +123,7 @@ class FakeContainer:
     def reload(self) -> None:
         return None
 
-    def stats(self, stream: bool = False) -> dict[str, Any]:
+    def stats(self, stream: bool = False, one_shot: bool = False) -> dict[str, Any]:
         if self.stats_raises is not None:
             raise self.stats_raises
         return self.stats_data
@@ -234,6 +234,9 @@ class FakeNetworkCapture:
         return cls()
 
     def start_capture(self, container: Any) -> None:
+        return None
+
+    def assert_healthy(self) -> None:
         return None
 
     def collect(self) -> tuple[list[dict[str, Any]], bool]:

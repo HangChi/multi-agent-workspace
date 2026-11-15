@@ -23,6 +23,7 @@ def test_all_user_writable_working_paths_share_a_bounded_filesystem(fake_docker)
         binds = fake_docker.container.created_kwargs["volumes"]
         assert f"{output.name}:/workspace:rw" in binds
         assert f"{output.name}:/tmp:rw" in binds
+        assert f"{output.name}:/dev/shm:rw" in binds
         assert f"{run.code_volume_name}:/code:ro" in binds
 
 

@@ -26,7 +26,11 @@ RUN apk add --no-cache \
         conntrack-tools \
         tcpdump \
         iproute2 \
-        iputils
+        iputils \
+        nftables \
+        python3
+
+COPY domain_policy.py dns_mediator.py command_batch.py packet_capture.py /opt/aw/
 
 # 故意不设 ENTRYPOINT：Worker 显式指定命令（sh -c '<固定模板>'）。
 # 若被误用为常驻容器，立即退出，不留下任何网络规则。

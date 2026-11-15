@@ -30,12 +30,16 @@ describe('EgressRules', () => {
     ))
   })
 
-  it('explains that saved domain rules are not usable for restricted egress', async () => {
+  it('explains controlled DNS domain rules without promising application identity checks', async () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({ data: { items: [{ id: 'r1', target_type: 'domain', target: 'pypi.org', port_range: null }], egress_mode: 'restricted' } })
     render(<EgressRules agentId="agent-1" mode="restricted" />)
     await screen.findByText('pypi.org')
-    expect(screen.getByText(/域名规则当前不支持/)).toHaveTextContent('不会放行')
-    expect(screen.getByText(/域名规则当前不支持/)).toHaveTextContent('沙箱不会启动')
+    expect(screen.getByText(/仅允许清单内/)).toHaveTextContent('域名、IP/网段和端口')
+    expect(screen.getByRole('status')).toHaveTextContent('受控 DNS')
+    expect(screen.getByRole('status')).toHaveTextContent('TTL')
+    expect(screen.getByRole('status')).toHaveTextContent('不做 TLS 解密')
+    expect(screen.getByRole('status')).toHaveTextContent('不等同于应用层域名身份校验')
+    expect(screen.queryByText(/域名规则当前不支持/)).not.toBeInTheDocument()
   })
 
   it('renders existing rules and adds a domain rule', async () => {
