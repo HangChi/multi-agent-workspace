@@ -101,6 +101,68 @@ async def test_credential_rotation_revocation_is_immediate_and_secret_safe(
 
 
 @pytest.mark.asyncio
+async def test_in_flight_call_cancelled_after_credential_revocation(monkeypatch):
+    from app.executors.external_tool import (
+        ExternalToolExecutionError,
+        ExternalToolExecutor,
+    )
+
+    started = False
+    revoked = False
+
+    async def authorize():
+        return not revoked
+
+    class SlowClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def initialize(self):
+            nonlocal started
+            started = True
+
+        async def call_tool(self, _name, _arguments, *, timeout=None):
+            await asyncio.sleep(1)
+            return {"content": [{"type": "text", "text": "late"}]}
+
+        async def cancel(self, _request_id):
+            return None
+
+    import asyncio
+
+    checks = 0
+
+    async def abort_check():
+        nonlocal checks
+        checks += 1
+        return revoked
+
+    executor = ExternalToolExecutor(
+        stable_name="mcp_lifecycle_cancel",
+        external_name="lookup",
+        description="cancel fixture",
+        endpoint="https://fixture.example.test/rpc",
+        input_schema={"type": "object"},
+        permission_snapshot=[],
+        required_permissions=[],
+        client_factory=lambda *_args, **_kwargs: SlowClient(),
+        authorize_call=authorize,
+        abort_check=abort_check,
+        timeout_seconds=2,
+    )
+    task = asyncio.create_task(executor.execute({}))
+    while not started:
+        await asyncio.sleep(0)
+    revoked = True
+    with pytest.raises(ExternalToolExecutionError) as exc:
+        await task
+    assert exc.value.category == "cancelled"
+
+
+@pytest.mark.asyncio
 async def test_pause_resume_revoke_listing_and_explicit_upgrade_preserve_history(
     client, db_session, make_user, make_headers
 ):
