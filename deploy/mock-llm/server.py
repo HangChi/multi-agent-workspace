@@ -127,8 +127,11 @@ def sandbox_reply(messages, tools, last_user):
     if scenario not in {"denied", "denied_threshold"} and advertised != {name}:
         return "SANDBOX_SCENARIO_ERROR: grants differ from requested singleton", None
     if not tool_messages or scenario == "denied_threshold":
-        if scenario in {"ws", "cancel"} and not tool_messages:
-            # Gives the HTTP client time to finish the real WS subscription.
+        if scenario in {"ws", "cancel", "calculate", "web_search", "read_url", "denied_threshold",
+                        "timeout", "oom", "pids", "disk", "policy", "egress_domain_denied", "infra", "quota"} and not tool_messages:
+            # Run assignment precedes WS connect. Delay only the first response
+            # for observed scenarios until the real subscription can establish.
+            # S6 sleep workload/model timing is deliberately unchanged.
             import time
             time.sleep(1)
         return "", [{

@@ -187,8 +187,8 @@
 
 ### Implementation for User Story 5
 
-- [ ] T060 [US5] 规则编排：backend/app/executors/egress_network.py（替代原计划 egress.py 的 init 容器编排；argv-only iptables/ip6tables 链安装/清理、bridge 包头采集与解析）。**部分完成**：IP/CIDR allow、IPv4/IPv6 bridge 包头事实和多连接区分已有 Docker Desktop Linux VM 实测；restricted domain allow 与全局 domain deny 因动态 DNS→内核策略绑定未实现而 fail-closed，完整协议/高负载审计覆盖也未验收。
-- [x] T061 [US5] DNS 接线：`sandbox_client.py` 给容器传受控 DNS 代理；iptables 放行到代理的 53 与 established DNS 回包；执行结束从 dns-proxy 拉 reply/cached 记录，与执行 bridge 上的包头采集归并。2026-11-15 实测默认 DNS/HTTPS 归因路径（已有历史证据）及本轮 IPv4/IPv6 包头场景；仍不等同完整 IPv6/UDP/高负载 100% 流水覆盖（backend/app/executors/sandbox_client.py）
+- [x] T060 [US5] 规则编排：执行私有可信 DNS mediator，在答复前原子写入精确/通配/CNAME 的 TTL/IP 族/端口 nft 集合，全局 deny 优先；≤1 秒健康租约及 Worker 心跳检查；所有执行有 pre-defrag 协议 guard 与固定 AF_PACKET 包头审计，缺失证据 fail-closed。固定 argv 批量安装/清理，无用户容器能力扩张。Docker Desktop Linux VM 专项 18/18、规则/DNS/包头单测 107 项通过；原生整栈和并发验收单独见 T069/T076，不以专项结果替代。
+- [x] T061 [US5] DNS 接线：无域名策略时使用共享受控上游；有域名策略时仅使用执行私有 mediator 的答复前绑定和有序审计，不以共享 dnsmasq 日志授权。TCP/UDP DNS、IPv4/IPv6、完整 CNAME、TTL、拒绝归属和网关死亡/挂起均有真实专项；只记录包头，不推算应用字节或 TLS 身份（backend/app/executors/sandbox_client.py）。
 - [x] T062 [US5] 出站服务：backend/app/services/egress_service.py（规则 CRUD + `snapshot_for_execution()` 求值快照 + `record_accesses()` 批量写入 + `builtin` 项保护）
 - [x] T063 [US5] Agent 出网字段：`agents.egress_mode` 端点接线（每次沙箱执行开始前冻结 mode 与规则快照） （backend/app/api/v1/agents.py）
 - [x] T064 [US5] 管理端点：backend/app/api/v1/admin_egress.py 增黑名单 CRUD 与 `GET /admin/egress-accesses`（含 `summary.ip_direct`）
@@ -210,8 +210,8 @@
 - [x] T071 数据保留任务：backend/app/tasks/maintenance.py 增 `purge_sandbox_payloads`（90 天后清空 code/stdout/stderr，保留元数据与指纹）+ beat 每日一次
 - [x] T072 [P] 前端单测：frontend/src/components/agent/__tests__/EgressRules.test.tsx、frontend/src/components/run/__tests__/ExecutionCard.test.tsx、tools 目录渲染用例（vitest）
 - [x] T073 [P] 运维文档：deploy/README.md 增「沙箱设施」章节（镜像重建、dns-proxy 排障、socket 风险声明、**已知缺口：不做 TLS 解密、CDN 共享 IP 可能 ip-direct**）
-- [x] T074 契约同步复核：已同步本轮实现的 restricted 空规则 warning、`from/to` 半开时间过滤、实时有界输出、UTF-8 字节分块、IPv4/IPv6 事实与制品截断提示；仍明确记录 domain fail-closed、owner-only 404、内置项配置来源、bytes_out null、部分访问语义与原始契约差异。
-- [x] T075 全量质量门禁：2026-11-15 最终后端 `ruff check app`、`mypy app`（84 文件）、`pytest` 602 项通过；前端 `vitest` 43 项、`tsc`、`vite build` 通过，`eslint` 0 errors/2 个既有 Fast Refresh warning；验收 harness 自测 13 项通过。CI 已加入沙箱镜像构建步骤；这些测试不替代 T076 真实整链路验收 （backend/pyproject.toml + frontend/package.json）
+- [x] T074 契约同步复核：已同步 restricted 空规则 warning、半开时间过滤、实时有界输出、制品截断提示、执行私有域名 TTL/端口授权、pre-defrag 包头事实和不可变工具授权历史；明确保留 owner-only 404、内置项来源、bytes_out null、UDP 流及共享 IP/TLS 身份边界，不用契约更新代替真实验收。
+- [x] T075 全量质量门禁：2026-11-15 后端 `ruff check app tests`、`mypy app`（85 文件）、`pytest` 697 项通过；前端 `vitest` 43 项、typecheck/build 通过，`eslint` 0 errors/2 个既有 Fast Refresh warning。GitHub 原生任务已实测构建镜像和迁移/历史；独立前后端 CI 质量门禁通过。验收 harness 持续补充反向控制；这些结果不替代 T076 真实整链路/并发验收（backend/pyproject.toml + frontend/package.json）。
 - [ ] T076 quickstart 验证：在 Linux 宿主真实栈执行 S1~S6 + 越权矩阵，如实更新 quickstart.md 的 SC 对照与验证记录表（通过才 ✅，未过保持 ⏳） （specs/002-sandboxed-tools/quickstart.md）
 
 **Checkpoint**: P2「跑脚本」验收口径达成，可独立上线

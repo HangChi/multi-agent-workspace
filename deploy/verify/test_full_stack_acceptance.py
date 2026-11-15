@@ -98,6 +98,14 @@ class GatewayControlTests(unittest.TestCase):
 
 
 class AcceptanceHarnessTests(unittest.TestCase):
+    def socket(self, events):
+        ws = AsyncMock()
+        ws.recv.side_effect = [json.dumps(event) for event in events]
+        connection = MagicMock()
+        connection.__aenter__ = AsyncMock(return_value=ws)
+        connection.__aexit__ = AsyncMock(return_value=False)
+        return connection
+
     def verifier(self, http):
         args = full.parser().parse_args([])
         verifier = full.FullVerifier(args, http)
@@ -131,17 +139,142 @@ class AcceptanceHarnessTests(unittest.TestCase):
         async def check(count=5, audit_count=5, denied=True):
             async with httpx.AsyncClient() as client:
                 verifier = self.verifier(client)
+                summaries = [{"seq": index + 1, "kind": "tool", "tool_name": "run_shell", "status": "failed"}
+                             for index in range(count)]
                 run = {"id": "run-id", "executions": [], "artifacts": [], "error": "threshold reached",
-                       "steps": [{"kind": "tool", "tool_name": "run_shell", "output": {"denied": denied, "ok": False}}
-                                 for _ in range(count)]}
+                       "steps": summaries}
                 verifier.create_run = AsyncMock(return_value='run-id')
                 verifier.wait_run = AsyncMock(return_value=run)
                 verifier.audit = AsyncMock(return_value=[{}] * audit_count)
-                await verifier.denial_threshold()
+                events = [{"type": "ready"}] + [{"type": "step_update", "step": {
+                    **step, "output": {"denied": denied, "ok": False}}} for step in summaries]
+                events.append({"type": "run_failed"})
+                with patch.object(full, "connect", return_value=self.socket(events)):
+                    await verifier.denial_threshold()
         asyncio.run(check())
         for args in ((4, 5, True), (6, 5, True), (5, 4, True), (5, 5, False)):
             with self.subTest(args=args), self.assertRaises(full.CheckFailure):
                 asyncio.run(check(*args))
+
+    def test_ws_url_uses_root_route_and_encoded_token(self):
+        async def check():
+            async with httpx.AsyncClient() as client:
+                verifier = self.verifier(client)
+                verifier.base = 'https://ci.example.com'
+                verifier.tokens['owner'] = 'token&must=stay?encoded'
+                url = full.urlsplit(verifier.ws_url('run-id'))
+                self.assertEqual(url.scheme, 'wss')
+                self.assertEqual(url.path, '/ws/runs/run-id')
+                self.assertEqual(url.query, 'token=token%26must%3Dstay%3Fencoded')
+        asyncio.run(check())
+
+    def test_builtins_exact_results_come_from_ws_not_summary(self):
+        async def check(calculation=338350):
+            async with httpx.AsyncClient() as client:
+                verifier = self.verifier(client)
+                async def execute(scenario, grants):
+                    output = {'calculate': {'result': calculation},
+                              'web_search': {'results': [{'title': '002 controlled search result'}]},
+                              'read_url': {'status': 200, 'text': 'Example Domain'}}[scenario]
+                    step = {'seq': 2, 'kind': 'tool', 'tool_name': scenario, 'status': 'completed'}
+                    run = {'id': scenario, 'steps': [step], 'executions': [],
+                           'result': {'answer': f'SANDBOX_{scenario.upper()}_OK'}}
+                    verifier.observe_tool_event(scenario, {'type': 'step_update', 'step': {**step, 'output': output}})
+                    return run
+                verifier.execute = execute
+                await verifier.builtins()
+        asyncio.run(check())
+        for wrong in (338349, True, None, '338350'):
+            with self.subTest(wrong=wrong), self.assertRaises(full.CheckFailure):
+                asyncio.run(check(wrong))
+
+    def test_failed_execution_observes_explicit_false_even_with_summary_only_steps(self):
+        async def check(ok=False):
+            async with httpx.AsyncClient() as client:
+                verifier = self.verifier(client)
+                step = {'seq': 2, 'kind': 'tool', 'tool_name': 'run_python', 'status': 'failed'}
+                run = {'id': 'run-id', 'steps': [step]}
+                execution = {'id': 'execution-id', 'status': 'infra', 'exit_code': None,
+                             'error_category': 'infra', 'error_message': '创建沙箱网络失败: secret-token',
+                             'duration_ms': 12}
+                verifier.executions = AsyncMock(return_value=[execution])
+                verifier.audit = AsyncMock(return_value=[{}])
+                verifier.observe_tool_event('run-id', {'type': 'step_update', 'step': {**step, 'output': {'ok': ok}}})
+                await verifier.checked_execution(run, category='infra')
+                self.assertNotIn('secret-token', json.dumps(verifier.evidence))
+        asyncio.run(check())
+        for wrong in (True, None, 0, ''):
+            with self.subTest(wrong=wrong), self.assertRaises(full.CheckFailure):
+                asyncio.run(check(wrong))
+
+    def test_sleep_load_path_never_adds_ws_or_observer_delay(self):
+        async def check():
+            async with httpx.AsyncClient() as client:
+                verifier = self.verifier(client)
+                verifier.create_run = AsyncMock(return_value='run-id')
+                verifier.wait_run = AsyncMock(return_value={'id': 'run-id'})
+                verifier.observed_run = AsyncMock(side_effect=AssertionError('S6 must remain HTTP only'))
+                self.assertEqual(await verifier.execute('sleep', ['run_python']), {'id': 'run-id'})
+        asyncio.run(check())
+
+    def test_cross_owner_ws_requires_403_not_server_failure(self):
+        async def check(status):
+            async with httpx.AsyncClient() as client:
+                verifier = self.verifier(client)
+                verifier.create_run = AsyncMock(return_value='run-id')
+                verifier.wait_run = AsyncMock(return_value={'id': 'run-id'})
+                verifier.checked_execution = AsyncMock()
+                allowed = self.socket([{'type': 'ready'}, {'type': 'sandbox_started'},
+                                       {'type': 'sandbox_output', 'chunk': 'real'}, {'type': 'sandbox_finished'}])
+                denied = self.socket([])
+                denied.__aenter__.side_effect = full.InvalidStatus(SimpleNamespace(status_code=status, reason_phrase='denied'))
+                with patch.object(full, 'connect', side_effect=[allowed, denied]):
+                    await verifier.websocket()
+        asyncio.run(check(403))
+        for wrong in (404, 500, 502):
+            with self.subTest(status=wrong), self.assertRaises(full.CheckFailure):
+                asyncio.run(check(wrong))
+
+    def test_cancel_waits_for_real_failed_tool_result_after_sandbox_finished(self):
+        async def check():
+            async with httpx.AsyncClient() as client:
+                verifier = self.verifier(client)
+                step = {'seq': 2, 'kind': 'tool', 'tool_name': 'run_python', 'status': 'failed'}
+                run = {'id': 'run-id', 'steps': [step]}
+                verifier.create_run = AsyncMock(return_value='run-id')
+                verifier.wait_run = AsyncMock(return_value=run)
+                verifier.request = AsyncMock()
+                verifier.audit = AsyncMock(return_value=[{}])
+                verifier.executions = AsyncMock(return_value=[{
+                    'id': 'execution-id', 'status': 'cancelled', 'error_category': 'cancelled',
+                    'error_message': '已取消', 'exit_code': None, 'duration_ms': 42}])
+                events = [{'type': 'ready'}, {'type': 'sandbox_output', 'chunk': 'cancel-started'},
+                          {'type': 'sandbox_finished'}, {'type': 'step_update', 'step': {
+                              **step, 'status': 'completed', 'output': {'ok': False}}}]
+                with patch.object(full, 'connect', return_value=self.socket(events)):
+                    await verifier.cancellation()
+                self.assertEqual(verifier.tool_steps(run)[0]['output'], {'ok': False})
+        asyncio.run(check())
+
+    def test_diagnostic_execution_facts_are_finite_and_drop_raw_error_and_output(self):
+        async def check():
+            run_id, execution_id = '43178b0f-8d83-46ec-ad3b-afd26ed5fd1a', 'a3e4d9ca-bf99-4670-8c03-145a41285289'
+            def handle(request):
+                if '/executions/' in request.url.path:
+                    return httpx.Response(200, json={'id': execution_id, 'status': 'infra', 'duration_ms': 21,
+                        'error_category': 'infra', 'stdout': 'Bearer SECRET', 'stderr': 'X-Amz-Signature=SECRET',
+                        'error_message': '创建沙箱网络失败: IPv6 pool is not available SECRET',
+                        'code': 'SECRET', 'mem_peak_bytes': 'SECRET'})
+                return httpx.Response(200, json={'id': run_id, 'status': 'completed', 'steps': [],
+                    'executions': [{'id': execution_id}], 'error': 'SECRET'})
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+                facts = await self.verifier(client).diagnostic_facts([run_id])
+                self.assertNotIn('SECRET', json.dumps(facts))
+                execution = facts[0]['executions'][0]
+                self.assertEqual(execution['error_stage'], 'network_create')
+                self.assertEqual(execution['error_code'], 'ipv6_pool_unavailable')
+                self.assertEqual(execution['duration_ms'], 21)
+        asyncio.run(check())
 
     def test_setup_failure_report_never_echoes_credentials(self):
         async def check(directory):
@@ -196,6 +329,23 @@ class NativeIsolationTests(unittest.TestCase):
         }]})
         self.assertNotIn('secret', json.dumps(report))
         self.assertEqual(report['results'][0]['status'], 'infra')
+
+    def test_runtime_failure_evidence_preserves_only_finite_values(self):
+        runtime = {'error_stage': 'network_create', 'error_code': 'ipv6_pool_unavailable',
+                   'error_type': 'RuntimeError', 'error_chain': ['RuntimeError', 'APIError'],
+                   'daemon_status': 500, 'error': 'SECRET', 'stderr': 'SECRET'}
+        def report(value):
+            return native.sanitized_runtime({'results': [{'name': 'case', 'passed': False, 'runtime': value}]})
+        result = report(runtime)['results'][0]
+        self.assertNotIn('SECRET', json.dumps(result))
+        for key in ('error_stage', 'error_code', 'error_type', 'error_chain', 'daemon_status'):
+            self.assertEqual(result[key], runtime[key])
+        for key, value in (('error_stage', 'SECRET'), ('error_code', 'SECRET'),
+                           ('error_type', 'SECRET'), ('error_chain', ['SECRET']),
+                           ('error_chain', ['APIError'] * 9), ('daemon_status', 600),
+                           ('daemon_status', 'SECRET')):
+            with self.subTest(key=key, value=value), self.assertRaises(native.AcceptanceFailure):
+                report({**runtime, key: value})
 
     def test_empty_or_implicit_runtime_success_is_rejected(self):
         for report in ({}, {'results': []}, {'results': [{'name': 'missing pass'}]}):

@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 import docker
+from sandbox_runtime import ERROR_CODES, ERROR_STAGES, ERROR_TYPES
 
 ROOT = Path(__file__).resolve().parents[2]
 VERIFY = ROOT / "deploy" / "verify"
@@ -78,9 +79,23 @@ def sanitized_runtime(document: dict[str, Any]) -> dict[str, Any]:
         runtime = item.get("runtime") or {}
         for key in ("execution_id", "status", "error_category", "exit_code", "duration_ms", "total_ms",
                     "cpu_ms", "mem_peak_bytes", "stdout_bytes", "stderr_bytes", "stdout_retained",
-                    "stderr_retained", "streamed_bytes", "residual", "kernel_residual"):
+                    "stderr_retained", "streamed_bytes", "residual", "kernel_residual",
+                    "error_stage", "error_code", "error_type", "error_chain", "daemon_status"):
             value = runtime.get(key)
             if value is not None:
+                if key == "error_stage":
+                    require(value in ERROR_STAGES, "runtime error stage outside finite allowlist")
+                elif key == "error_code":
+                    require(value in ERROR_CODES, "runtime error code outside finite allowlist")
+                elif key == "error_type":
+                    require(value in ERROR_TYPES, "runtime error type outside finite allowlist")
+                elif key == "error_chain":
+                    require(isinstance(value, list) and 0 < len(value) <= 8
+                            and all(item in ERROR_TYPES for item in value),
+                            "runtime error chain outside finite allowlist")
+                elif key == "daemon_status":
+                    require(type(value) is int and 400 <= value <= 599,
+                            "runtime daemon status outside HTTP range")
                 result[key] = value
         # No arbitrary per-script exception messages or output are copied.
         safe.append(result)

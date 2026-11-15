@@ -16,6 +16,7 @@ import json
 import math
 import os
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -23,10 +24,13 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 from s3_sandbox_scenarios import CheckFailure, Verifier, parser, require
+from sandbox_runtime import failure_evidence
 from websockets.asyncio.client import connect
-from websockets.exceptions import WebSocketException
+from websockets.exceptions import InvalidStatus
 
 TERMINAL = {"completed", "failed", "timeout", "cancelled", "needs_input"}
+OBSERVED_SCENARIOS = {"calculate", "web_search", "read_url", "denied_threshold", "timeout", "oom",
+                      "pids", "disk", "policy", "egress_domain_denied", "infra", "quota"}
 
 
 def percentile95(samples: list[float]) -> float:
@@ -63,6 +67,96 @@ class FullVerifier(Verifier):
         super().__init__(args, http)
         self.evidence: list[dict[str, Any]] = []
         self.metrics: dict[str, Any] = {}
+        self.observed_steps: dict[str, dict[int, dict[str, Any]]] = {}
+
+    def observe_tool_event(self, run_id: str, event: dict[str, Any]) -> None:
+        # RunOut.steps deliberately has no input/output. The supported real WS
+        # step_update event supplies actual results, kept in memory, never reports.
+        step = event.get("step") or {}
+        if event.get("type") == "step_update" and step.get("kind") == "tool":
+            sequence = step.get("seq")
+            require(type(sequence) is int and 0 < sequence <= 1024,
+                    "WS tool step sequence missing/out of bounds")
+            self.observed_steps.setdefault(run_id, {})[sequence] = step
+
+    def tool_steps(self, run: dict[str, Any]) -> list[dict[str, Any]]:
+        summaries = [step for step in run["steps"] if step["kind"] == "tool"]
+        observed = self.observed_steps.get(run["id"], {})
+        require(len(observed) == len(summaries), "WS tool results do not cover persisted step summaries")
+        results = []
+        for summary in summaries:
+            step = observed.get(summary.get("seq")) or {}
+            require(step.get("tool_name") == summary["tool_name"]
+                    and isinstance(step.get("output"), dict),
+                    "WS result does not match persisted tool step")
+            results.append(step)
+        return results
+
+    async def observed_run(self, run_id: str, *, expected_status: str = "completed") -> dict[str, Any]:
+        ready = False
+        async with connect(self.ws_url(run_id), open_timeout=10, max_size=2 * 1024 * 1024) as ws:
+            async with asyncio.timeout(self.args.timeout):
+                for _ in range(4096):
+                    event = json.loads(await ws.recv())
+                    ready |= event.get("type") == "ready"
+                    self.observe_tool_event(run_id, event)
+                    if event.get("type") in {"run_completed", "run_failed", "run_timeout", "run_cancelled", "needs_input"}:
+                        break
+                else:
+                    raise CheckFailure("WS event bound exceeded")
+        require(ready, "WS Redis subscription readiness missing")
+        return await self.wait_run(run_id, expected_status=expected_status)
+
+    async def execute(self, scenario: str, tools: list[str]) -> dict[str, Any]:
+        if scenario not in OBSERVED_SCENARIOS:
+            # In particular S6 keeps its original HTTP-only load path/workload.
+            return await super().execute(scenario, tools)
+        return await self.observed_run(await self.create_run(scenario, tools))
+
+    async def diagnostic_facts(self, run_ids: list[str]) -> list[dict[str, Any]]:
+        """Bounded failed-check read-back; never include errors, outputs or URLs."""
+        facts = []
+        try:
+            async with asyncio.timeout(10):
+                for run_id in run_ids[:8]:
+                    run_id = str(uuid.UUID(run_id))
+                    run = (await self.request("GET", f"/runs/{run_id}")).json()
+                    summary: dict[str, Any] = {"run_id": run_id,
+                                               "step_count": len(run.get("steps", [])),
+                                               "execution_count": len(run.get("executions", []))}
+                    if run.get("status") in TERMINAL | {"running", "queued"}:
+                        summary["status"] = run["status"]
+                    if run.get("error"):
+                        summary.update(failure_evidence(run["error"]))
+                    summary["executions"] = []
+                    for item in run.get("executions", [])[:4]:
+                        execution_id = str(uuid.UUID(item["id"]))
+                        execution = (await self.request(
+                            "GET", f"/runs/{run_id}/executions/{execution_id}")).json()
+                        detail: dict[str, Any] = {"execution_id": execution_id}
+                        if execution.get("status") in {"running", "ok", "failed", "timeout", "oom", "infra", "cancelled"}:
+                            detail["status"] = execution["status"]
+                        if execution.get("error_category") in {
+                            "exit_code", "timeout", "oom", "pids", "disk", "policy", "infra", "cancelled", "resource_busy"
+                        }:
+                            detail["error_category"] = execution["error_category"]
+                        for key in ("duration_ms", "cpu_ms", "mem_peak_bytes", "stdout_full_bytes", "stderr_full_bytes"):
+                            value = execution.get(key)
+                            if type(value) in {int, float} and math.isfinite(value) and 0 <= value <= 2 ** 63 - 1:
+                                detail[key] = value
+                        exit_code = execution.get("exit_code")
+                        if exit_code is None or type(exit_code) is int and -255 <= exit_code <= 255:
+                            detail["exit_code"] = exit_code
+                        for key in ("stdout_truncated", "stderr_truncated"):
+                            if type(execution.get(key)) is bool:
+                                detail[key] = execution[key]
+                        if execution.get("error_message"):
+                            detail.update(failure_evidence(execution["error_message"]))
+                        summary["executions"].append(detail)
+                    facts.append(summary)
+        except Exception as exc:
+            facts.append({"diagnostic_read_failed": True, **failure_evidence(exc)})
+        return facts
 
     async def setup(self) -> None:
         # Only the ephemeral bootstrap knows this password; API logins issue real
@@ -102,14 +196,18 @@ class FullVerifier(Verifier):
             message = execution.get("error_message") or ""
             require(bool(message) and "未知错误" not in message and any(ord(c) > 127 for c in message),
                     "failure needs readable localized classification")
-            require((steps[0].get("output") or {}).get("ok") is False,
+            observed = [step for step in self.tool_steps(run) if step["tool_name"] == "run_python"]
+            require(len(observed) == 1 and observed[0]["output"].get("ok") is False,
                     "failed tool result must explicitly set ok=false")
         require(bool(await self.audit("sandbox_exec", execution["id"])),
                 "exact-execution sandbox audit missing")
-        self.evidence.append({"run_id": run["id"], "execution_id": execution["id"],
-                              "status": execution["status"], "error_category": execution.get("error_category"),
-                              "duration_ms": execution["duration_ms"], "exit_code": execution["exit_code"],
-                              "cpu_ms": execution.get("cpu_ms"), "mem_peak_bytes": execution.get("mem_peak_bytes")})
+        item = {"run_id": run["id"], "execution_id": execution["id"],
+                "status": execution["status"], "error_category": execution.get("error_category"),
+                "duration_ms": execution["duration_ms"], "exit_code": execution["exit_code"],
+                "cpu_ms": execution.get("cpu_ms"), "mem_peak_bytes": execution.get("mem_peak_bytes")}
+        if category is not None:
+            item.update(failure_evidence(execution.get("error_message") or category))
+        self.evidence.append(item)
         return execution
 
     async def builtins(self) -> None:
@@ -119,7 +217,7 @@ class FullVerifier(Verifier):
             steps = [step for step in run["steps"] if step["kind"] == "tool"]
             require(len(steps) == 1 and steps[0]["tool_name"] == name
                     and steps[0]["status"] == "completed", f"{name} executor unavailable")
-            output = steps[0].get("output") or {}
+            output = self.tool_steps(run)[0]["output"]
             if name == "calculate":
                 require(output.get("result") == 338350, "calculator did not produce exact sum")
             elif name == "web_search":
@@ -133,8 +231,8 @@ class FullVerifier(Verifier):
 
     async def denial_threshold(self) -> None:
         run_id = await self.create_run("denied_threshold", ["calculate"], agent_options={"max_steps": 20})
-        run = await self.wait_run(run_id, expected_status="failed")
-        tools = [step for step in run["steps"] if step["kind"] == "tool"]
+        run = await self.observed_run(run_id, expected_status="failed")
+        tools = self.tool_steps(run)
         require(len(tools) == 5 and all(step["tool_name"] == "run_shell"
                                       and (step.get("output") or {}).get("denied") is True
                                       and (step.get("output") or {}).get("ok") is False for step in tools),
@@ -271,7 +369,7 @@ class FullVerifier(Verifier):
                 "API-configured domain allow did not reach native kernel/audit")
         denied_id = await self.create_run("egress_domain_denied", ["run_python"],
                                           agent_options={"egress_mode": "restricted"}, egress_rules=[payload])
-        denied = await self.wait_run(denied_id)
+        denied = await self.observed_run(denied_id)
         denied_execution = await self.checked_execution(denied, category="policy")
         require(bool(await self.audit("egress_denied", denied_execution["id"])),
                 "restricted domain denial audit missing")
@@ -292,7 +390,7 @@ class FullVerifier(Verifier):
     def ws_url(self, run_id: str, identity: str = "owner") -> str:
         parsed = urlsplit(self.base)
         return urlunsplit(("wss" if parsed.scheme == "https" else "ws", parsed.netloc,
-                           parsed.path + f"/api/v1/ws/runs/{run_id}",
+                           parsed.path + f"/ws/runs/{run_id}",
                            urlencode({"token": self.tokens[identity]}), ""))
 
     async def websocket(self) -> None:
@@ -320,8 +418,9 @@ class FullVerifier(Verifier):
         try:
             async with connect(self.ws_url(run_id, "other"), open_timeout=5):
                 raise CheckFailure("cross-owner WS subscription was accepted")
-        except WebSocketException:
-            pass  # Failed handshake is the required real ownership denial.
+        except InvalidStatus as exc:
+            require(exc.response.status_code == 403,
+                    "cross-owner WS must fail with explicit HTTP 403, not routing/server error")
         self.metrics["websocket_event_types"] = events
 
     async def cancellation(self) -> None:
@@ -334,11 +433,16 @@ class FullVerifier(Verifier):
                         break
             started = time.monotonic()
             await self.request("POST", f"/runs/{run_id}/cancel")
+            finished = False
             async with asyncio.timeout(10):
-                while True:
+                for _ in range(4096):
                     event = json.loads(await ws.recv())
-                    if event.get("type") == "sandbox_finished":
+                    self.observe_tool_event(run_id, event)
+                    finished |= event.get("type") == "sandbox_finished"
+                    if finished and self.observed_steps.get(run_id):
                         break
+                else:
+                    raise CheckFailure("WS cancellation event bound exceeded")
         require(time.monotonic() - started <= 5, "cancelled running script was not promptly terminated")
         run = await self.wait_run(run_id, expected_status="cancelled")
         await self.checked_execution(run, category="cancelled")
@@ -440,16 +544,20 @@ async def main(argv: list[str] | None = None) -> int:
         try:
             await verifier.setup()
         except Exception as exc:
-            results.append({"name": "authenticated_setup", "passed": False, "error_type": type(exc).__name__})
+            results.append({"name": "authenticated_setup", "passed": False, **failure_evidence(exc)})
         else:
             for name in checks:
                 started = time.monotonic()
+                previous_runs = len(verifier.run_ids)
                 try:
                     await getattr(verifier, name)()
                 except Exception as exc:
-                    result = {"name": name, "passed": False, "error_type": type(exc).__name__}
-                    if isinstance(exc, CheckFailure):
-                        result["assertion"] = str(exc)[:256]
+                    result = {"name": name, "passed": False, **failure_evidence(exc)}
+                    if isinstance(exc, InvalidStatus):
+                        status = exc.response.status_code
+                        if type(status) is int and 100 <= status <= 599:
+                            result["websocket_http_status"] = status
+                    result["diagnostics"] = await verifier.diagnostic_facts(verifier.run_ids[previous_runs:])
                 else:
                     result = {"name": name, "passed": True}
                 result["elapsed_ms"] = round((time.monotonic() - started) * 1000)

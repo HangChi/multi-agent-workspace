@@ -24,6 +24,18 @@ class SafeFailureEvidenceTests(unittest.TestCase):
         self.assertEqual(facts['error_type'], 'ExecutionError')
         self.assertNotIn('secret', json.dumps(facts))
 
+    def test_static_ip_subnet_failure_is_classified_without_private_details(self):
+        failure = RuntimeError('创建沙箱容器失败：private-container')
+        failure.__cause__ = OSError(
+            'user specified IP address is supported only when connecting to '
+            'networks with user configured subnets: private-network'
+        )
+        facts = runtime.failure_evidence(failure)
+        self.assertEqual(facts['error_stage'], 'container_create')
+        self.assertEqual(facts['error_code'], 'static_ip_requires_subnet')
+        self.assertIn(facts['error_code'], runtime.ERROR_CODES)
+        self.assertNotIn('private', json.dumps(facts))
+
     def test_exception_names_and_status_are_allowlisted(self):
         failure = type('secret_exception_type', (RuntimeError,), {})('secret-message')
         failure.status_code = 503

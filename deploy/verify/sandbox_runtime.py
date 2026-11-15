@@ -25,11 +25,15 @@ ERROR_STAGES = frozenset({
     'unknown', 'docker_connect', 'image_check', 'network_create', 'volume_create',
     'storage_start', 'storage_ready', 'policy_install', 'container_create',
     'script_inject', 'output_capture', 'container_start', 'container_wait', 'audit_collect',
+    'fixture_config', 'fixture_network_create', 'fixture_container_create',
+    'fixture_listener_ready', 'fixture_ipv6_create', 'fixture_probe',
+    'fixture_cleanup', 'fixture_client_close',
 })
 ERROR_CODES = frozenset({
     'unknown', 'ipv6_pool_unavailable', 'address_pool_overlap', 'ipv6_unavailable',
     'permission_denied', 'address_in_use', 'address_unavailable', 'missing_executable',
     'invalid_argument', 'no_space_left', 'connection_refused', 'docker_api_error',
+    'static_ip_requires_subnet',
 })
 ERROR_TYPES = frozenset({
     'SandboxInfraError', 'NetworkPolicyError', 'APIError', 'DockerException',
@@ -66,6 +70,7 @@ def failure_evidence(failure: BaseException | str) -> dict[str, Any]:
         ('出站记录采集失败', 'audit_collect'),
     ) if marker in text), 'unknown')
     code = next((value for matched, value in (
+        ('user specified ip address is supported only' in text, 'static_ip_requires_subnet'),
         ('ipv6' in text and 'pool' in text and 'available' in text, 'ipv6_pool_unavailable'),
         ('pool overlaps' in text, 'address_pool_overlap'),
         ('ipv6' in text and any(word in text for word in ('disabled', 'not enabled', 'not configured')), 'ipv6_unavailable'),

@@ -3,7 +3,7 @@
 backend/.venv/bin/python deploy/verify/s5_egress_scenarios.py --output /tmp/002-egress.json
 No Internet service is probed for IP/private policy tests. Benchmark-range and
 private-range fixture containers are created here and removed in finally. Domain
-rules are tested separately as a known fail-closed limitation, not a success.
+mediation is covered by the separate s5_domain_runtime.py matrix.
 Database/API rule ownership is covered by s3_sandbox_scenarios.py and API tests.
 """
 from __future__ import annotations
@@ -12,8 +12,67 @@ import argparse
 import json
 import os
 import uuid
+from typing import Any
 
-from sandbox_runtime import docker_client, probe, report
+from sandbox_runtime import docker_client, failure_evidence, probe, report
+
+_FIXTURE_STAGES = frozenset({
+    "docker_connect", "fixture_config", "fixture_network_create", "fixture_container_create",
+    "fixture_listener_ready", "fixture_ipv6_create", "fixture_probe",
+    "fixture_cleanup", "fixture_client_close",
+})
+
+
+def _failure_result(name: str, failure: BaseException | str, stage: str) -> dict[str, Any]:
+    """Build bounded evidence without retaining daemon exception text."""
+    facts = failure_evidence(failure)
+    facts["error_stage"] = stage if stage in _FIXTURE_STAGES else "fixture_probe"
+    return {"name": name, "passed": False, "runtime": {"status": "infra", **facts}}
+
+
+def _wait_for_listener(server: Any, host: str, *, attempts: int = 100) -> None:
+    """Poll an owned listener with a finite in-container readiness budget."""
+    if not 1 <= attempts <= 100:
+        raise ValueError("unsupported fixture readiness budget")
+    if host == "::1":
+        family = "socket.AF_INET6"
+    elif host == "127.0.0.1":
+        family = "socket.AF_INET"
+    else:
+        raise ValueError("unsupported fixture readiness address")
+    code = (
+        "import socket,time\n"
+        f"for _ in range({attempts}):\n"
+        " try:\n"
+        f"  with socket.socket({family}) as s: s.settimeout(0.1); s.connect(({host!r},8000))\n"
+        "  break\n"
+        " except OSError: time.sleep(0.02)\n"
+        "else: raise RuntimeError('fixture listener did not start')\n"
+    )
+    ready = server.exec_run(["python", "-c", code])
+    if ready.exit_code != 0:
+        raise RuntimeError("fixture listener readiness check failed")
+
+
+def _cleanup_owned(containers: list[Any], networks: list[Any], client: Any) -> list[dict[str, Any]]:
+    """Remove only handles created by this invocation, continuing after errors."""
+    failures: list[dict[str, Any]] = []
+    for container in reversed(containers):
+        try:
+            container.remove(force=True)
+        except Exception as exc:  # noqa: BLE001 - retain only bounded enum evidence
+            failures.append(_failure_result("fixture container cleanup", exc, "fixture_cleanup"))
+    for network in reversed(networks):
+        try:
+            network.remove()
+        except Exception as exc:  # noqa: BLE001 - retain only bounded enum evidence
+            failures.append(_failure_result("fixture network cleanup", exc, "fixture_cleanup"))
+    if client is not None:
+        try:
+            client.close()
+        except Exception as exc:  # noqa: BLE001 - retain only bounded enum evidence
+            failures.append(_failure_result("fixture client cleanup", exc, "fixture_client_close"))
+    return failures
 
 
 def connect_code(address: str, port: int = 8000) -> str:
@@ -30,27 +89,31 @@ def main() -> int:
     parser.add_argument("--output")
     parser.add_argument("--public-url", help="Optional HTTPS DNS smoke target, e.g. https://pypi.org")
     args = parser.parse_args()
-    client = docker_client()
+    client = None
     fixture_id = str(uuid.uuid4())
     labels = {"aw.verify": "002-egress", "aw.execution": fixture_id}
     if os.environ.get("AW_VERIFY_RUN_ID"):
         labels["aw.verify_run"] = os.environ["AW_VERIFY_RUN_ID"]
     networks, containers, results = [], [], []
+    stage = "docker_connect"
     try:
+        client = docker_client()
+        stage = "fixture_config"
         import docker
-
         from app.core.config import settings
 
         # Docker rejects overlapping subnets. Never adopt an existing network.
         addresses = []
         for subnet in ("198.18.254.0/24", "10.253.254.0/24"):
             prefix = subnet.rsplit(".", 1)[0]
+            stage = "fixture_network_create"
             network = client.networks.create(
                 f"aw-verify-{fixture_id}-{len(networks)}", driver="bridge", labels=labels,
                 ipam=docker.types.IPAMConfig(pool_configs=[docker.types.IPAMPool(subnet=subnet)]),
             )
             networks.append(network)
             address = prefix + ".2"
+            stage = "fixture_container_create"
             server = client.containers.run(
                 settings.sbx_image, command=["python", "-m", "http.server", "8000"],
                 network=network.name, detach=True, labels=labels, read_only=True,
@@ -62,8 +125,8 @@ def main() -> int:
             actual = server.attrs["NetworkSettings"]["Networks"][network.name]["IPAddress"]
             assert actual == address, (actual, address)
             # Confirm the controlled listener itself is healthy before policy checks.
-            ready = server.exec_run(["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000',timeout=3).read()"])
-            assert ready.exit_code == 0, ready.output.decode()
+            stage = "fixture_listener_ready"
+            _wait_for_listener(server, "127.0.0.1")
             addresses.append(address)
         public_ip, private_ip = addresses
         allow = {"id": str(uuid.uuid4()), "action": "allow", "target_type": "ip", "target": public_ip, "port_range": "8000"}
@@ -75,6 +138,7 @@ def main() -> int:
             ("restricted empty deny", public_ip, 8000, {"mode": "restricted"}, False),
             ("global deny wins over agent allow", public_ip, 8000, {"mode": "restricted", "agent_rules": [allow], "global_rules": [{**allow, "id": str(uuid.uuid4()), "action": "deny"}]}, False),
         ]
+        stage = "fixture_probe"
         for name, address, port, snapshot, connected in cases:
             outcome = probe(client, connect_code(address, port), snapshot=snapshot)
             try:
@@ -118,6 +182,7 @@ def main() -> int:
         # IPv6 service is probed. The sandbox's *actual* reserved IPv6 source must
         # appear in the audit, not merely a successful connection result.
         segment = fixture_id.replace("-", "")[:4]
+        stage = "fixture_ipv6_create"
         ipv6_network = client.networks.create(
             f"aw-verify-{fixture_id}-ipv6", driver="bridge", enable_ipv6=True, labels=labels,
             ipam=docker.types.IPAMConfig(pool_configs=[
@@ -134,18 +199,10 @@ def main() -> int:
         containers.append(ipv6_server)
         ipv6_server.reload()
         ipv6_target = ipv6_server.attrs["NetworkSettings"]["Networks"][ipv6_network.name]["GlobalIPv6Address"]
-        ready = ipv6_server.exec_run([
-            "python", "-c",
-            (
-                "import socket,time\n"
-                "for _ in range(100):\n"
-                " try: socket.create_connection(('::1',8000),timeout=0.1).close(); break\n"
-                " except OSError: time.sleep(0.02)\n"
-                "else: raise RuntimeError('IPv6 fixture listener did not start')\n"
-            ),
-        ])
-        assert ready.exit_code == 0, ready.output.decode()
+        stage = "fixture_listener_ready"
+        _wait_for_listener(ipv6_server, "::1")
         v6_allow = {"id": str(uuid.uuid4()), "action": "allow", "target_type": "ip", "target": ipv6_target, "port_range": "8000"}
+        stage = "fixture_probe"
         for name, snapshot, connected in [
             ("actual source IPv6 default allow audit", None, True),
             ("actual source IPv6 restricted deny audit", {"mode": "restricted"}, False),
@@ -169,13 +226,11 @@ def main() -> int:
             outcome = probe(client, code)
             dns_accesses = [r for r in outcome.get("egress", []) if r["port"] == 443 and r["domain"] != "ip-direct"]
             results.append({"name": "public HTTPS with DNS attribution", "passed": outcome.get("exit_code") == 0 and bool(dns_accesses) and not any(outcome["residual"].values()), "runtime": outcome})
-        return report(results, args.output)
+    except Exception as exc:  # noqa: BLE001 - bounded setup evidence is required
+        results.append(_failure_result("fixture setup", exc, stage))
     finally:
-        for container in reversed(containers):
-            container.remove(force=True)
-        for network in reversed(networks):
-            network.remove()
-        client.close()
+        results.extend(_cleanup_owned(containers, networks, client))
+    return report(results, args.output)
 
 
 if __name__ == "__main__":
