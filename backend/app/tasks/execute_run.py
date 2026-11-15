@@ -32,6 +32,7 @@ from app.models.request import Request
 from app.models.run import Run
 from app.models.step import Step
 from app.models.tool import Tool
+from app.models.user import new_uuid
 from app.orchestrator.router import route
 from app.orchestrator.runner import (
     CostLimitExceeded,
@@ -129,6 +130,10 @@ async def _persist_steps(db, run: Run, steps: list[dict]) -> None:
     for step in steps:
         if step.get("id") and await db.get(Step, step["id"]):
             continue
+        # Keep the identity in the runner's step dict so subsequent batch flushes
+        # reuse an already persisted step rather than duplicating its sequence.
+        if not step.get("id"):
+            step["id"] = new_uuid()
         db.add(
             Step(
                 id=step.get("id"),
@@ -414,12 +419,13 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
 
     async def save_step(step: dict) -> None:
         steps.append(step)
-        # 维护 Run.current_step（契约字段：已执行到第几步；状态机复位时置 0）
-        # 每步立即落库，前端在运行中 refetch 即可看到进度增长。
+        # Persist the step and progress together BEFORE status/events can expose
+        # it. A terminal run must never be visible with an empty/partial history.
+        await _persist_steps(db, run, [step])
         seq = step.get("seq")
         if isinstance(seq, int) and seq > run.current_step:
             run.current_step = seq
-            await db.commit()
+        await db.commit()
 
     async def publish_event(event: dict) -> None:
         # Worker 侧发布（events.py 内部处理事件循环）

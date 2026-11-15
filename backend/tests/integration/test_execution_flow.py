@@ -25,6 +25,7 @@ from app.executors.llm import LLMResponse, ToolCall
 from app.models.agent import Agent
 from app.models.run import Run
 from app.models.step import Step
+from app.orchestrator.runner import ReActRunner
 from app.orchestrator.state_machine import RunStatus
 from app.tasks.execute_run import _execute
 
@@ -151,6 +152,34 @@ async def _collect_events(run_id: str, *, timeout: float = 5.0) -> list[dict[str
 
 
 # ---------- 闭环：分配 → 入队 → 执行 → 完成 ----------
+
+
+async def test_terminal_state_is_not_visible_before_all_steps_are_committed(
+    client, make_headers, db_session, _fake_llm, monkeypatch
+):
+    headers = await make_headers()
+    agent = await _create_agent(client, headers)
+    request = await _create_request(client, headers)
+    assigned = await _assign(client, headers, request["id"], agent["id"])
+    run_id = assigned["run_id"]
+    snapshots = []
+    original = ReActRunner.run
+
+    async def observe_runner_return(self, **kwargs):
+        result = await original(self, **kwargs)
+        # Read through another real API/DB session at the precise window before
+        # _execute's final batch persistence, not after the Worker has returned.
+        response = await client.get(f"{RUNS_URL}/{run_id}", headers=headers)
+        assert response.status_code == 200
+        snapshots.append(response.json())
+        return result
+
+    monkeypatch.setattr(ReActRunner, "run", observe_runner_return)
+    await _load_and_execute(db_session, run_id, agent["id"])
+    assert snapshots[0]["status"] == "completed"
+    assert [step["kind"] for step in snapshots[0]["steps"]] == ["llm", "tool", "llm", "final"]
+    final = (await client.get(f"{RUNS_URL}/{run_id}", headers=headers)).json()
+    assert [step["id"] for step in final["steps"]] == [step["id"] for step in snapshots[0]["steps"]]
 
 
 async def test_full_flow_assign_execute_complete(client, make_headers, db_session, _fake_llm):
