@@ -132,6 +132,13 @@ jobs:
         working-directory: backend
         run: alembic upgrade head
 
+      - name: 迁移可逆性（仅 CI disposable 数据库）
+        working-directory: backend
+        run: |
+          alembic downgrade base
+          alembic upgrade head
+          alembic current
+
       - name: ruff
         working-directory: backend
         run: ruff check app tests

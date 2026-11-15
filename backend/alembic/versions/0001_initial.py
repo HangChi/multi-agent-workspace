@@ -202,10 +202,30 @@ def downgrade() -> None:
     op.drop_table('agents')
     op.drop_index(op.f('ix_agent_groups_owner_id'), table_name='agent_groups')
     op.drop_table('agent_groups')
-    op.drop_index(op.f('ix_users_email'), table_name='users')
+    # users and invite_codes intentionally have a cyclic FK relationship. Drop
+    # both constraints before either table so a full downgrade works on PostgreSQL.
     op.drop_constraint('fk_users_invite_code_id', 'users', type_='foreignkey')
+    op.drop_constraint('invite_codes_created_by_fkey', 'invite_codes', type_='foreignkey')
+    op.drop_index(op.f('ix_users_email'), table_name='users')
     op.drop_column('users', 'invite_code_id')
     op.drop_table('users')
     op.drop_index(op.f('ix_invite_codes_code'), table_name='invite_codes')
     op.drop_table('invite_codes')
+    # PostgreSQL enum types are independent schema objects and survive table drops.
+    for enum_name in (
+        'user_role',
+        'user_status',
+        'invite_role',
+        'group_routing',
+        'group_status',
+        'agent_status',
+        'request_priority',
+        'request_status',
+        'run_assignee_type',
+        'run_strategy',
+        'run_status',
+        'step_kind',
+        'step_status',
+    ):
+        op.execute(f'DROP TYPE IF EXISTS {enum_name}')
     # ### end Alembic commands ###

@@ -85,6 +85,7 @@ def validate_endpoint(
         literal = ipaddress.ip_address(host)
     except ValueError:
         literal = None
+    addresses: tuple[str, ...]
     if literal is not None:
         addresses = (_validate_address(str(literal)),)
     else:
