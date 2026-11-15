@@ -204,14 +204,14 @@
 
 **Purpose**: 真实栈验证、越权矩阵、数据保留、文档与门禁
 
-- [ ] T068 [P] 真实栈断言（沙箱）：原生 GitHub CI 已在全新独立栈执行受保护 HTTP 验收、真实迁移和历史保留校验；run `43699286675` 迁移通过，但共同沙箱准备故障及 harness 的 WS/结果读取缺陷导致整栈失败。`f698fe5` 已修正 harness 并增加有限脱敏诊断，等待重跑；本地创建身份的既有拒绝未被绕过，CI 不使用开发身份或数据库。
-- [ ] T069 [P] 真实栈断言（出站）：Docker Desktop Linux VM IP/多连接/IPv6 11/11、域名专项 18/18；原生 run `43699286675` 的 S5 fixture 提前失败且没有生成报告，后续域名矩阵未执行。已修有界 listener readiness 和 setup/cleanup 报告，不降低 IPv6/HTTPS、规则管理权限及审计完整性要求，等待原生重跑。
+- [ ] T068 [P] 真实栈断言（沙箱）：原生 run `43701273368` 实际迁移/历史、denied/no_tools/builtins/denial_threshold 和 infra fault 通过；共同失败定位为 Docker 28 静态端点要求显式子网（HTTP 400）。`d88890d` 已修网络配置，703 项后端回归、真实 I/O 与四并发 VM 探针通过；原生 run `43703079200` 待结果，不提前判完成。CI 仅使用全新隔离身份和数据库，不绕过本地既有拒绝。
+- [ ] T069 [P] 真实栈断言（出站）：VM IP/多连接/IPv6 11/11，最新域名专项 18/18；原生 run `43701273368` 的 IP 场景共同端点故障、域名专项独立早退，仍未通过。`4b9e7ac` 保留 18 项强断言并补齐有限阶段诊断；等待原生 run `43703079200`，不降低双族/HTTPS、权限 API 和审计完整性要求。
 - [x] T070 [P] 越权矩阵自动化：deploy/verify/sbx_escape_matrix.py 已创建；2026-11-15 最终 Docker Desktop Linux VM 运行 13/13 通过，包括 output tmpfs 内核配额、timeout/cancel，无执行资源残留。此任务矩阵通过不等于完整 SC-002 或原生 Linux 云主机安全验收；受保护 API 链路等仍见 T068/T076。
 - [x] T071 数据保留任务：backend/app/tasks/maintenance.py 增 `purge_sandbox_payloads`（90 天后清空 code/stdout/stderr，保留元数据与指纹）+ beat 每日一次
 - [x] T072 [P] 前端单测：frontend/src/components/agent/__tests__/EgressRules.test.tsx、frontend/src/components/run/__tests__/ExecutionCard.test.tsx、tools 目录渲染用例（vitest）
 - [x] T073 [P] 运维文档：deploy/README.md 增「沙箱设施」章节（镜像重建、dns-proxy 排障、socket 风险声明、**已知缺口：不做 TLS 解密、CDN 共享 IP 可能 ip-direct**）
 - [x] T074 契约同步复核：已同步 restricted 空规则 warning、半开时间过滤、实时有界输出、制品截断提示、执行私有域名 TTL/端口授权、pre-defrag 包头事实和不可变工具授权历史；明确保留 owner-only 404、内置项来源、bytes_out null、UDP 流及共享 IP/TLS 身份边界，不用契约更新代替真实验收。
-- [x] T075 全量质量门禁：2026-11-15 后端 `ruff check app tests`、`mypy app`（85 文件）、`pytest` 697 项通过；前端 `vitest` 43 项、typecheck/build 通过，`eslint` 0 errors/2 个既有 Fast Refresh warning。GitHub 原生任务已实测构建镜像和迁移/历史；独立前后端 CI 质量门禁通过。验收 harness 持续补充反向控制；这些结果不替代 T076 真实整链路/并发验收（backend/pyproject.toml + frontend/package.json）。
+- [x] T075 全量质量门禁：2026-11-15 后端 `ruff check app tests`、`mypy app`（85 文件）、`pytest` 703 项通过（本次新建一次性 PostgreSQL，含 3 subtests）；前端 `vitest` 43 项、typecheck/build 通过，`eslint` 0 errors/2 个既有 Fast Refresh warning。GitHub 原生任务已实测构建镜像和迁移/历史；独立前后端 CI 质量门禁通过。验收 harness 持续补充反向控制；这些结果不替代 T076 真实整链路/并发验收（backend/pyproject.toml + frontend/package.json）。
 - [ ] T076 quickstart 验证：在 Linux 宿主真实栈执行 S1~S6 + 越权矩阵，如实更新 quickstart.md 的 SC 对照与验证记录表（通过才 ✅，未过保持 ⏳） （specs/002-sandboxed-tools/quickstart.md）
 
 **Checkpoint**: P2「跑脚本」验收口径达成，可独立上线

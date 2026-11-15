@@ -2,7 +2,7 @@
 
 ## 结论
 
-**部分通过，不能宣布 002 完整验收完成或可上线。** 下文保留历史失败快照；最新本地门禁为后端 697 项、前端 43 项，Docker Desktop Linux VM 的 I/O 2/2、越权矩阵 13/13、域名专项 18/18。原生 GitHub CI 已在全新隔离栈实际执行迁移和受保护 HTTP 用例，当前不再是仅有身份阻塞：run `43699286675` 因共同沙箱准备故障及验收 harness 缺陷失败，后续 S6 等未执行。已提交 `f698fe5` 修复真实 WS/结果读取、fixture readiness 和有界脱敏诊断，仍须原生重跑取得通过证据。Quickstart S1–S6 继续保留 ⏳。
+**部分通过，不能宣布 002 完整验收完成或可上线。** 下文保留历史失败快照；最新本地门禁为后端 703 项、前端 43 项，Docker Desktop Linux VM 的 I/O 2/2、越权矩阵 13/13、域名专项 18/18。原生 GitHub CI 已在全新隔离栈实际执行迁移和受保护 HTTP 用例，当前不再是仅有身份阻塞：run `43699286675` 因共同沙箱准备故障及验收 harness 缺陷失败，后续 S6 等未执行。已提交 `f698fe5` 修复真实 WS/结果读取、fixture readiness 和有界脱敏诊断，仍须原生重跑取得通过证据。Quickstart S1–S6 继续保留 ⏳。
 
 ## 环境与隔离
 
@@ -108,6 +108,15 @@
 - GitHub run `43699286675`（`2171e70`）：原生 Ubuntu/Docker 28、cgroup v2，双族 bridge/netfilter 前置实测通过；真实迁移、工具目录与旧历史 SQL NULL 校验通过。HTTP 14 项仅 denied/no_tools 通过，I/O 2 项及越权矩阵 13 项失败；S5 fixture 未产出报告导致 runner 中止，域名、S6 与 fault suites 未执行。执行资源和本次 project 清理通过。不可把后续未执行项目算成功。
 - `f97012d`、`f698fe5`：失败诊断仅保留有限 stage/code/type/HTTP status；修复 harness 把 summary 当工具输出、错误 WS 路径、取消观察顺序，以及 fixture listener readiness/setup/cleanup 报告。全量 harness 自测 **61/61**、scoped Ruff/diff check 通过；诊断重跑不能替代实际故障修复。
 
-剩余门禁：根据真实脱敏诊断修复共同沙箱准备故障；原生完整 HTTP/I/O/越权/IP+IPv6+HTTPS/域名矩阵、SC-001 完整窗口、严格 20 并发 P95，以及 infra/quota fault suites 全部通过后，才能完成 T068/T069/T076。只上传有界脱敏 JSON，不输出或提交 `deploy/.env` 凭据，不重启既有本地开发服务。
+### 第三轮原生诊断与 Docker 28 兼容性修复
+
+- Run `43701273368`（`f698fe5`）：前后端门禁通过，真实迁移与历史保留通过；HTTP denied/no_tools/builtins/denial_threshold 通过，其余 10 项失败。I/O 2 项和其余 SandboxRun 场景的共同原因已明确：`container_create` / `static_ip_requires_subnet` / daemon HTTP 400，不再只是推测 IPv6 pool 或权限问题。域名专项在首项之前异常，原因仍待其独立 phase 诊断，不能套用 SandboxRun 根因。
+- 本轮所有套件实际有报告：S5 IP+IPv6+HTTPS 12 项均失败，域名专项未完成 18 项；infra fault 通过，quota 未通过。严格 S6 baseline P95 **37.060ms**、load P95 **195.697ms**、比例 **5.2806**，20 次运行全部失败、活容器峰值 0；此结果明确不通过，未剔除样本。独立 observer 的两个错误均为 `NotFound`（SDK list 后逐个 inspect 与回收竞争）。持久化/审计不变量与执行/project/内核残留检查通过，残留 0。
+- `d88890d`：保留 Docker 自动选择子网，先创建本次 UUID 的空双栈网络读取真实 subnet/gateway，再仅删除该 reservation 并以相同地址池显式重建；只对已确认的子网重叠冲突重试，最多 8 次。始终保留 IPv6、固定安全参数、执行前静态地址预留、策略与抓包，不选任意宿主子网、不降级动态端点、不修改 Docker API 协商以绕过验证。
+- 修复后本地后端 **703 passed，3 subtests passed in 65.78s**，仅使用本次新建的随机凭据、随机 loopback 端口一次性 PostgreSQL，结束后仅删除该容器；既有测试库 schema 重建被权限策略拒绝后未重试。真实 I/O **2/2**、四个同时执行的独立双栈沙箱均成功且无残留。
+- `4b9e7ac`：observer 改为单次 daemon 活容器快照，不因已回收容器的后续 inspect 丢失采样；真实查询/结构错误仍失败。域名专项保留全部 18 项、强化有限阶段诊断和独立清理；完整 harness **80/80**、Ruff/diff check 通过。修改后的真实 VM 域名专项再次 **18/18**，含内核/容器/网络残留 0。
+- 原生重跑 `43703079200`（`6195f7b`）正在执行。所有本地或 harness 通过均不等于该原生重跑通过。
+
+剩余门禁：原生完整 HTTP/I/O/越权/IP+IPv6+HTTPS/域名矩阵、SC-001 完整窗口、严格 20 并发 P95，以及 infra/quota fault suites 全部通过后，才能完成 T068/T069/T076。只上传有界脱敏 JSON，不输出或提交 `deploy/.env` 凭据，不重启既有本地开发服务。
 
 `.specify/extensions.yml` 在上轮检查时不存在；最终完成前仍需复核 after_implement hooks。
