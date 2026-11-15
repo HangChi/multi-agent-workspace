@@ -17,6 +17,7 @@ import ipaddress
 import logging
 import os
 import re
+import time
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -136,6 +137,12 @@ def _family_commands(
         for proto in ("udp", "tcp"):
             commands.append(
                 [executable, "-A", forward_chain, "-p", proto, "--dport", "53", *dns_args, "-j", "ACCEPT"]
+            )
+            # Same-bridge proxy replies traverse FORWARD with this input bridge
+            # too. Permit only established DNS replies before private-IP drops.
+            commands.append(
+                [executable, "-A", forward_chain, "-s", dns_proxy_ip, "-p", proto,
+                 "--sport", "53", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"]
             )
     for proto in ("udp", "tcp"):
         commands.append([executable, "-A", forward_chain, "-p", proto, "--dport", "53", "-j", "DROP"])
@@ -295,6 +302,30 @@ def parse_conntrack_output(output: str | bytes, *, source_ip: str) -> list[dict[
     return list(records.values())
 
 
+def parse_packet_output(output: str | bytes, *, source_ip: str) -> list[dict[str, Any]]:
+    """Observe attempted TCP/UDP destinations before FORWARD can drop them.
+
+    Dropped SYNs never become confirmed conntrack entries, so conntrack alone
+    cannot supply deny audits. The trusted helper emits line-buffered headers
+    only (no payload); user containers never receive packet-capture privileges.
+    """
+    text = output.decode("utf-8", "replace") if isinstance(output, bytes) else output
+    pattern = re.compile(r"\bIP6?\s+(\S+)\.(\d+)\s+>\s+(\S+)\.(\d+):\s+(.*)")
+    records: dict[tuple[str, str, int], dict[str, Any]] = {}
+    for line in text.splitlines():
+        match = pattern.search(line)
+        if not match or match.group(1) != source_ip:
+            continue
+        target, port = match.group(3), int(match.group(4))
+        protocol = "tcp" if "Flags [" in match.group(5) else "udp"
+        records.setdefault((protocol, target, port), {
+            "target_ip": target, "domain": "ip-direct", "port": port,
+            "protocol": protocol, "action": "allow", "matched_rule_id": None,
+            "bytes_out": None,
+        })
+    return list(records.values())
+
+
 def _dns_ip_domains(logs: bytes | str, source_ip: str) -> dict[str, str]:
     """Map an IP to a domain only when query/reply evidence is unambiguous.
 
@@ -303,8 +334,8 @@ def _dns_ip_domains(logs: bytes | str, source_ip: str) -> dict[str, str]:
     and no other queried domain returned the same address during the window.
     """
     text = logs.decode("utf-8", "replace") if isinstance(logs, bytes) else logs
-    query_re = re.compile(r"query\[[^]]+\]\s+(\S+)\s+from\s+" + re.escape(source_ip))
-    reply_re = re.compile(r"reply\s+(\S+)\s+is\s+(\S+)")
+    query_re = re.compile(r"query\[[^]]+\]\s+(\S+)\s+from\s+" + re.escape(source_ip) + r"(?:\s|$)")
+    reply_re = re.compile(r"(?:reply|cached)\s+(\S+)\s+is\s+(\S+)")
     queried: set[str] = set()
     answers: dict[str, set[str]] = {}
     for line in text.splitlines():
@@ -322,13 +353,13 @@ def _dns_ip_domains(logs: bytes | str, source_ip: str) -> dict[str, str]:
     return {
         ip: next(iter(domains))
         for ip, domains in answers.items()
-        if len(domains & queried) == 1
+        if len(domains) == 1 and domains.issubset(queried)
     }
 
 
 @dataclass
 class NetworkCapture:
-    """Per-execution policy and conntrack watcher lifecycle."""
+    """Per-execution policy and pre-firewall packet watcher lifecycle."""
 
     client: Any
     network: Any
@@ -420,7 +451,7 @@ class NetworkCapture:
             self._run_command(command)
 
     def start_capture(self, container: Any) -> None:
-        """Start conntrack event capture before the user process starts."""
+        """Wait for header capture readiness before the user process starts."""
         attrs = getattr(container, "attrs", {}) or {}
         networks = (attrs.get("NetworkSettings", {}) or {}).get("Networks", {})
         network_info: dict[str, Any] = networks.get(self.network.name) or next(iter(networks.values()), {})
@@ -431,13 +462,21 @@ class NetworkCapture:
         try:
             self.watcher = self.client.containers.run(
                 NET_IMAGE,
-                command=["conntrack", "-E", "-o", "timestamp", "-s", self.source_ip],
-                network_mode="host", cap_add=["NET_ADMIN"], detach=True, remove=False,
+                command=["tcpdump", "--immediate-mode", "-l", "-n", "-tt", "-i", self.bridge,
+                         "src", "host", self.source_ip, "and", "(tcp or udp)"],
+                network_mode="host", cap_add=["NET_ADMIN", "NET_RAW"], detach=True, remove=False,
                 name=f"aw-egress-{self.execution_id}",
                 labels={"aw.managed": "true", "aw.execution": self.execution_id},
             )
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                if b"listening on" in self.watcher.logs(stdout=False, stderr=True):
+                    break
+                time.sleep(0.02)
+            else:
+                raise NetworkPolicyError("packet capture did not become ready")
         except (APIError, DockerException, OSError) as exc:
-            raise NetworkPolicyError("unable to start conntrack event capture") from exc
+            raise NetworkPolicyError("unable to start packet capture") from exc
 
     def collect(self) -> tuple[list[dict[str, Any]], bool]:
         if self.watcher is None or not self.source_ip:
@@ -448,12 +487,16 @@ class NetworkCapture:
             except TypeError:
                 self.watcher.stop()
             events = self.watcher.logs(stdout=True, stderr=False)
-            records = parse_conntrack_output(events, source_ip=self.source_ip)
+            records = parse_packet_output(events, source_ip=self.source_ip)
             dns_logs = self.dns_proxy.logs(since=self.started_at)
             ip_domains = _dns_ip_domains(dns_logs, self.source_ip)
             for record in records:
                 record["domain"] = ip_domains.get(record["target_ip"], "ip-direct")
             for record in records:
+                if record["target_ip"] == self.dns_proxy_ip and record["port"] == 53:
+                    record.update(action="allow", matched_rule_id=None, domain="dns-proxy",
+                                  occurred_at=datetime.now(UTC).isoformat())
+                    continue
                 decision = evaluate(
                     record["target_ip"], record.get("domain"), record["port"],
                     mode=self.mode, global_rules=self.global_rules,
@@ -473,7 +516,7 @@ class NetworkCapture:
             try:
                 self.watcher.remove(force=True)
             except (APIError, DockerException, OSError, RuntimeError) as cleanup_exc:
-                logger.debug("conntrack watcher cleanup failed: %s", cleanup_exc)
+                logger.debug("packet watcher cleanup failed: %s", cleanup_exc)
             self.watcher = None
 
     def cleanup(self) -> None:
@@ -481,11 +524,11 @@ class NetworkCapture:
             try:
                 self.watcher.stop(timeout=3)
             except (APIError, DockerException, OSError, RuntimeError) as cleanup_exc:
-                logger.debug("conntrack watcher stop failed: %s", cleanup_exc)
+                logger.debug("packet watcher stop failed: %s", cleanup_exc)
             try:
                 self.watcher.remove(force=True)
             except (APIError, DockerException, OSError, RuntimeError) as cleanup_exc:
-                logger.debug("conntrack watcher remove failed: %s", cleanup_exc)
+                logger.debug("packet watcher remove failed: %s", cleanup_exc)
             self.watcher = None
         for command in self.cleanup_commands:
             try:

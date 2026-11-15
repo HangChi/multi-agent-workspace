@@ -61,6 +61,7 @@ def test_capture_uses_reserved_address_before_user_process(reported_ip: str) -> 
     from app.executors.egress_network import NetworkCapture
 
     client = Mock()
+    client.containers.run.return_value.logs.return_value = b"tcpdump: listening on br-abc123\n"
     capture = NetworkCapture(
         client=client, network=SimpleNamespace(name="sandbox"),
         execution_id="f4e784e5-1dd9-4ae1-84ad-a0c66bdb761a", mode="default",
@@ -73,7 +74,7 @@ def test_capture_uses_reserved_address_before_user_process(reported_ip: str) -> 
     }}})
     capture.start_capture(container)
     assert capture.source_ip == "172.30.0.3"
-    assert client.containers.run.call_args.kwargs["command"][-1] == "172.30.0.3"
+    assert "172.30.0.3" in client.containers.run.call_args.kwargs["command"]
 
 
 def test_runtime_tags_require_safe_uuid() -> None:
@@ -129,6 +130,31 @@ def test_global_deny_cidr_has_kernel_drop_rule() -> None:
     assert "198.51.100.0/24" in rendered and "--dport 80:90" in rendered
 
 
+def test_packet_capture_includes_unconfirmed_denied_syn() -> None:
+    from app.executors.egress_network import parse_packet_output
+
+    records = parse_packet_output(
+        "1763170000.123 IP 172.30.0.3.41234 > 169.254.169.254.80: Flags [S], seq 1, win 64240, length 0\n"
+        "1763170000.124 IP 172.30.0.3.41234 > 169.254.169.254.80: Flags [S], seq 1, win 64240, length 0\n"
+        "1763170000.125 IP 172.30.0.3.51234 > 172.30.0.2.53: 123+ A? pypi.org. (26)\n",
+        source_ip="172.30.0.3",
+    )
+    assert [(r["target_ip"], r["port"], r["protocol"]) for r in records] == [
+        ("169.254.169.254", 80, "tcp"), ("172.30.0.2", 53, "udp"),
+    ]
+
+
+def test_dns_proxy_return_path_is_allowed_before_private_drops() -> None:
+    commands = compile_iptables_commands(
+        bridge="br-abc123", dns_proxy_ip="172.30.0.2", mode="restricted",
+        global_rules=[], agent_rules=[], builtin_blacklist=["172.16.0.0/12"],
+    )
+    rules = [" ".join(command) for command in commands]
+    answer = next(i for i, rule in enumerate(rules) if "-s 172.30.0.2" in rule and "--sport 53" in rule)
+    deny = next(i for i, rule in enumerate(rules) if "-d 172.16.0.0/12" in rule)
+    assert answer < deny
+
+
 def test_dns_correlation_requires_unambiguous_matching_reply() -> None:
     logs = """dnsmasq[1]: query[A] example.com from 172.19.0.3
 dnsmasq[1]: reply example.com is 203.0.113.9
@@ -137,6 +163,11 @@ dnsmasq[1]: reply cdn.example is 203.0.113.9
 """
     assert _dns_ip_domains(logs, "172.19.0.3") == {}
     assert _dns_ip_domains(logs, "172.19.0.4") == {}
+    assert _dns_ip_domains(
+        "dnsmasq[1]: query[A] pypi.org from 172.19.0.3\n"
+        "dnsmasq[1]: cached pypi.org is 151.101.0.223\n",
+        "172.19.0.3",
+    ) == {"151.101.0.223": "pypi.org"}
     assert _dns_ip_domains(
         "dnsmasq[1]: query[A] example.com from 172.19.0.3\n"
         "dnsmasq[1]: reply example.com is 203.0.113.8\n",

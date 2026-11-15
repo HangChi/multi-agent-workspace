@@ -96,10 +96,8 @@ def fake_docker(monkeypatch: pytest.MonkeyPatch) -> FakeDockerClient:
             return SimpleNamespace(
                 stop=lambda **kwargs: None,
                 logs=lambda **kwargs: (
-                    b"tcp 6 431999 ESTABLISHED src=172.30.0.3 dst=203.0.113.44 "
-                    b"sport=42222 dport=443 packets=2 bytes=128 "
-                    b"src=203.0.113.44 dst=172.30.0.3 sport=443 dport=42222 "
-                    b"packets=2 bytes=128\n"
+                    b"tcpdump: listening on br-integration\n" if kwargs.get("stderr") else
+                    b"1763170000.123 IP 172.30.0.3.42222 > 203.0.113.44.443: Flags [S], length 0\n"
                 ),
                 remove=lambda **kwargs: None,
             )

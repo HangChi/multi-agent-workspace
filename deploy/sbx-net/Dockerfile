@@ -4,7 +4,8 @@
 # 用途：被 Worker 以**短命容器**方式调用，只做三件事：
 #   1. 给每次执行的独立 bridge 网络插入 FORWARD 链黑名单 DROP 规则；
 #   2. 把该网络的 DNS 出口钉死到 dns-proxy（其余 53 端口一律 DROP）；
-#   3. 执行结束时用 `conntrack -L` 快照该容器 IP 的真实连接目标。
+#   3. 用户进程启动前在执行专属 bridge 上启动 tcpdump（只采包头），记录被 DROP 的尝试。
+#      conntrack 不会确认 FORWARD 丢弃的 SYN，不能单独用于 deny 审计。
 #
 # 为什么要独立镜像 + `--net=host --cap-add=NET_ADMIN`：
 #   Worker 自己**不能**拿 NET_ADMIN。一旦 Worker 进 host 网络命名空间，
@@ -23,6 +24,7 @@ FROM alpine:3.20
 RUN apk add --no-cache \
         iptables \
         conntrack-tools \
+        tcpdump \
         iproute2 \
         iputils
 
