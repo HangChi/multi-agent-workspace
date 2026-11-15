@@ -25,6 +25,7 @@ dependencies = [
     # 沙箱执行：通过 Docker SDK 起一次性容器（research R-01）。只用 SDK，
     # 不引入 docker-compose / podman 等第二套容器设施。
     "docker>=7.1",
+    "jsonschema>=4.23",
 ]
 
 [project.optional-dependencies]

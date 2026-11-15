@@ -115,19 +115,19 @@ description: "Implementation tasks for external MCP tools and governed marketpla
 
 ### Tests first
 
-- [ ] T043 [P] [US4] Add external executor unit tests for schema/permission preflight, MCP success/tool error/protocol error, result bounds, timeout, cancellation, and no retry in `backend/tests/unit/test_external_tool_executor.py`.
-- [ ] T044 [P] [US4] Add Runner tests for external failure status, terminal-run late-result rejection, and tool-message redaction in `backend/tests/unit/test_runner_external_tools.py`.
-- [ ] T045 [P] [US4] Add invocation integration tests for success, all error categories, quota/concurrency, cancellation, and audit facts in `backend/tests/integration/test_external_tool_invocations.py`.
+- [X] T043 [P] [US4] Add external executor unit tests for schema/permission preflight, MCP success/tool error/protocol error, result bounds, timeout, cancellation, and no retry in `backend/tests/unit/test_external_tool_executor.py`.
+- [X] T044 [P] [US4] Add Runner tests for external failure status, terminal-run late-result rejection, and tool-message redaction in `backend/tests/unit/test_runner_external_tools.py`.
+- [X] T045 [P] [US4] Add invocation integration tests for success, all error categories, quota/concurrency, cancellation, and audit facts in `backend/tests/integration/test_external_tool_invocations.py`.
 
 ### Implementation
 
-- [ ] T046 [US4] Implement `ToolExecutor` external adapter, local schema validation, bounded result sanitizer, credential injection, status/error mapping, and cancellation in `backend/app/executors/external_tool.py`.
-- [ ] T047 [US4] Implement authorized external executor construction from immutable run snapshots and current-state fail-closed checks in `backend/app/tasks/execute_run.py` and `backend/app/services/external_invocation_service.py`.
-- [ ] T048 [US4] Extend `ReActRunner` to preserve external failure categories, avoid completed status for failed external calls, bound tool messages, and reject late results in `backend/app/orchestrator/runner.py`.
-- [ ] T049 [US4] Persist invocation facts and publish start/update/policy-denied events using existing run timeline in `backend/app/models/external_invocation.py`, `backend/app/tasks/events.py`, and `backend/app/tasks/execute_run.py`.
-- [ ] T050 [US4] Extend run response and WebSocket schemas/handlers with safe external invocation projections in `backend/app/schemas/run.py`, `backend/app/api/v1/runs.py`, and `backend/app/api/v1/ws.py`.
-- [ ] T051 [US4] Add Run detail external invocation card and reducer support without creating a second execution view in `frontend/src/components/run/ExternalToolInvocationCard.tsx`, `frontend/src/pages/RunDetailPage.tsx`, and `frontend/src/hooks/useRunSocket.ts`.
-- [ ] T052 [US4] Add end-to-end fixture-server quickstart test covering successful continuation and all required failure classifications.
+- [X] T046 [US4] Implement `ToolExecutor` external adapter, local schema validation, bounded result sanitizer, credential injection, status/error mapping, and cancellation in `backend/app/executors/external_tool.py`.
+- [X] T047 [US4] Implement authorized external executor construction from immutable run snapshots and current-state fail-closed checks in `backend/app/tasks/execute_run.py` and `backend/app/services/external_invocation_service.py`.
+- [X] T048 [US4] Extend `ReActRunner` to preserve external failure categories, avoid completed status for failed external calls, bound tool messages, and reject late results in `backend/app/orchestrator/runner.py`.
+- [X] T049 [US4] Persist invocation facts and publish start/update/policy-denied events using existing run timeline in `backend/app/models/external_invocation.py`, `backend/app/tasks/events.py`, and `backend/app/tasks/execute_run.py`.
+- [X] T050 [US4] Extend run response and WebSocket schemas/handlers with safe external invocation projections in `backend/app/schemas/run.py`, `backend/app/api/v1/runs.py`, and `backend/app/api/v1/ws.py`.
+- [X] T051 [US4] Add Run detail external invocation card and reducer support without creating a second execution view in `frontend/src/components/run/ExternalToolInvocationCard.tsx`, `frontend/src/pages/RunDetailPage.tsx`, and `frontend/src/hooks/useRunSocket.ts`.
+- [X] T052 [US4] Add end-to-end fixture-server quickstart test covering successful continuation and all required failure classifications in `backend/tests/integration/test_external_mcp_e2e.py`.
 
 **Checkpoint**: US4 independent invocation test passes; commit Phase 6.
 

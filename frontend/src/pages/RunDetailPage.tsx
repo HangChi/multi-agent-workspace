@@ -7,6 +7,7 @@ import * as api from '../api/endpoints'
 import { extractError } from '../api/client'
 import { StepList } from '../components/run/StepList'
 import { ExecutionCard } from '../components/run/ExecutionCard'
+import { ExternalToolInvocationCard } from '../components/run/ExternalToolInvocationCard'
 import { Badge } from '../components/ui/Badge'
 import type { BadgeTone } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
@@ -172,6 +173,40 @@ export function RunDetailPage() {
         break
       case 'sandbox_output':
         setLogs((prev) => [...prev.slice(-199), { line: event.chunk as string, level: event.stream === 'stderr' ? 'error' : 'info' }])
+        break
+      case 'external_tool_call_started':
+        setRun((prev) => {
+          if (!prev) return prev
+          const seq = Number(event.step_seq)
+          const stableName = String(event.stable_name ?? 'external-tool')
+          const invocation: api.RunExternalToolInvocation = {
+            id: `pending-${seq}`,
+            step_id: null,
+            server_name: 'MCP',
+            tool_name: stableName,
+            stable_name: stableName,
+            version: String(event.version ?? 'unknown'),
+            status: 'running',
+            duration_ms: 0,
+            error_category: null,
+            result_truncated: false,
+            created_at: new Date().toISOString(),
+          }
+          return { ...prev, external_tool_invocations: [...(prev.external_tool_invocations ?? []).filter((item) => item.id !== invocation.id), invocation] }
+        })
+        break
+      case 'external_tool_call_update':
+      case 'external_tool_policy_denied':
+        setRun((prev) => {
+          if (!prev) return prev
+          const seq = Number(event.step_seq)
+          return {
+            ...prev,
+            external_tool_invocations: (prev.external_tool_invocations ?? []).map((item) => item.id === `pending-${seq}`
+              ? { ...item, status: String(event.status ?? 'policy_denied'), duration_ms: Number(event.duration_ms ?? 0), error_category: (event.error_category as string | null) ?? (event.type === 'external_tool_policy_denied' ? 'policy_denied' : null), result_truncated: Boolean(event.result_truncated) }
+              : item),
+          }
+        })
         break
       case 'needs_input':
         setRun((prev) => (prev ? { ...prev, status: 'needs_input' } : prev))
@@ -510,6 +545,14 @@ export function RunDetailPage() {
         <div className="space-y-2">
           {(run.executions ?? []).map((execution) => (
             <ExecutionCard key={execution.id} runId={run.id} execution={execution} />
+          ))}
+        </div>
+      )}
+
+      {(run.external_tool_invocations ?? []).length > 0 && (
+        <div className="space-y-2" aria-label="外部工具调用">
+          {(run.external_tool_invocations ?? []).map((invocation) => (
+            <ExternalToolInvocationCard key={invocation.id} invocation={invocation} />
           ))}
         </div>
       )}

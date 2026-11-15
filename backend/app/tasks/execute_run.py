@@ -40,6 +40,10 @@ from app.orchestrator.runner import (
 )
 from app.orchestrator.state_machine import RunStatus, transition
 from app.services import egress_service, sandbox_service
+from app.services.external_invocation_service import (
+    build_external_executors,
+    ensure_external_snapshots,
+)
 from app.services.quota_service import QuotaExceeded, assert_user_quota
 from app.services.tool_service import (
     enabled_tool_specs,
@@ -96,12 +100,15 @@ def _build_runner(
     tool_names: list[str] | None = None,
     abort_check=None,
     on_sandbox_result=None,
+    external_executors: dict[str, Any] | None = None,
 ) -> ReActRunner:
     """按 Agent 配置构造 runner；无 Agent（组父 Run）用默认配置。"""
     if agent is not None:
+        executors = build_executors(tool_names or [], abort_check=abort_check)
+        executors.update(external_executors or {})
         return ReActRunner(
             llm=LiteLLMClient(model=agent.model),
-            executors=build_executors(tool_names or [], abort_check=abort_check),
+            executors=executors,
             max_steps=agent.max_steps,
             timeout_seconds=agent.max_run_seconds,
             cost_limit_cents=agent.cost_limit_cents,
@@ -335,9 +342,23 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
             run.tool_grants_snapshot = list(grants)
         tool_names = filter_grants(run.tool_grants_snapshot, grants)
         await db.flush()
-    runner = _build_runner(run, agent, tool_names=tool_names)
+        if run.strategy == "router":
+            await ensure_external_snapshots(
+                db, run_id=run.id, owner_id=run.owner_id, agent_id=agent.id
+            )
+    async def external_abort_check() -> bool:
+        return await _is_cancelled(db, run.id)
+
+    external_executors = await build_external_executors(
+        db, run_id=run.id, owner_id=run.owner_id, abort_check=external_abort_check
+    )
+    runner = _build_runner(
+        run, agent, tool_names=tool_names, external_executors=external_executors
+    )
 
     async def authorize_tool(name: str) -> bool:
+        if name in external_executors:
+            return True  # Per-call current-state check runs inside the external executor.
         if agent is None:
             return False
         # Query scalar columns so operator disables and Agent edits committed

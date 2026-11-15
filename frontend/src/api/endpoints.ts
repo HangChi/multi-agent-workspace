@@ -713,6 +713,20 @@ export async function fetchEgressAccesses(query: EgressAccessQuery = {}): Promis
   return data
 }
 
+export interface RunExternalToolInvocation {
+  id: string
+  step_id: string | null
+  server_name: string
+  tool_name: string
+  stable_name: string
+  version: string
+  status: string
+  duration_ms: number
+  error_category: string | null
+  result_truncated: boolean
+  created_at: string
+}
+
 export interface RunDetail {
   id: string
   request_id: string
@@ -733,6 +747,7 @@ export interface RunDetail {
   steps: RunStep[]
   artifacts: RunArtifact[]
   executions?: RunExecution[]
+  external_tool_invocations?: RunExternalToolInvocation[]
 }
 
 /** 运行详情。 */

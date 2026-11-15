@@ -21,6 +21,7 @@ from typing import Any
 from app.core.config import settings
 from app.executors.base import DeniedToolResult
 from app.executors.catalog import CATALOG
+from app.executors.external_tool import ExternalToolExecutionError
 from app.orchestrator.state_machine import RunLike, RunStatus, transition
 
 
@@ -46,9 +47,13 @@ def _redact_tool_calls(value: Any) -> Any:
     if not isinstance(calls, list):
         return calls
     for call in calls:
-        if not isinstance(call, dict) or call.get("name") not in {"run_python", "run_shell"}:
+        if not isinstance(call, dict):
             continue
-        call["arguments"] = {"source": "[stored in sandbox execution detail]"}
+        name = call.get("name")
+        if name in {"run_python", "run_shell"}:
+            call["arguments"] = {"source": "[stored in sandbox execution detail]"}
+        elif isinstance(name, str) and name.startswith("mcp_"):
+            call["arguments"] = {"redacted": True}
     return calls
 
 
@@ -59,6 +64,18 @@ def _step_input(message: Any) -> Any:
     sanitized = dict(message)
     if sanitized.get("role") == "tool" and sanitized.get("name") in {"run_python", "run_shell"}:
         sanitized["content"] = "[sandbox output is available in execution detail]"
+    elif sanitized.get("role") == "tool" and isinstance(sanitized.get("name"), str) and sanitized["name"].startswith("mcp_"):
+        try:
+            content = json.loads(str(sanitized.get("content", "{}")))
+            sanitized["content"] = json.dumps(
+                {
+                    "status": content.get("status") if isinstance(content, dict) else "succeeded",
+                    "result_truncated": bool(content.get("result_truncated")) if isinstance(content, dict) else False,
+                },
+                ensure_ascii=False,
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            sanitized["content"] = "[external tool output omitted]"
     if sanitized.get("role") == "assistant" and isinstance(sanitized.get("tool_calls"), list):
         sanitized["tool_calls"] = _redact_tool_calls(sanitized["tool_calls"])
     return sanitized
@@ -251,6 +268,21 @@ class ReActRunner:
                         executor = None
                     sandbox_payload: dict[str, Any] | None = None
                     sandbox_step_id: str | None = None
+                    external_step_id: str | None = None
+                    external_failure: ExternalToolExecutionError | None = None
+                    if executor is not None and getattr(executor, "is_external_tool", False):
+                        external_step_id = str(uuid.uuid4())
+                        set_invocation_context = getattr(executor, "set_invocation_context", None)
+                        if callable(set_invocation_context):
+                            set_invocation_context(external_step_id)
+                        await publish_event(
+                            {
+                                "type": "external_tool_call_started",
+                                "step_seq": seq,
+                                "stable_name": tc.name,
+                                "version": getattr(executor, "version", None),
+                            }
+                        )
                     denied = executor is None and tc.name in CATALOG
                     if executor is None:
                         if denied:
@@ -354,6 +386,13 @@ class ReActRunner:
                             output = _jsonable(result)
                             if sandbox_payload is not None:
                                 sandbox_payload["_result"] = output
+                        except ExternalToolExecutionError as exc:
+                            external_failure = exc
+                            output = {
+                                "ok": False,
+                                "error_category": exc.category,
+                                "message": str(exc),
+                            }
                         except Exception as exc:  # noqa: BLE001 - 工具异常转为可读 output.error
                             output = {"error": f"工具 {tc.name} 执行失败: {exc}"}
                         tool_name = tc.name
@@ -368,17 +407,30 @@ class ReActRunner:
                         )
                         if sandbox_payload is not None and key in output
                     }
+                    external_tool = bool(executor is not None and getattr(executor, "is_external_tool", False))
+                    external_step_summary = {
+                        "status": external_failure.category if external_failure else "succeeded",
+                        "error_category": external_failure.category if external_failure else None,
+                        "result_truncated": bool(
+                            isinstance(output, dict) and output.get("result_truncated")
+                        ),
+                    }
                     tool_step: dict[str, Any] = {
-                        "id": sandbox_step_id or (str(uuid.uuid4()) if sandbox_payload is not None else None),
+                        "id": sandbox_step_id or external_step_id or (str(uuid.uuid4()) if sandbox_payload is not None else None),
                         "seq": seq,
                         "kind": "tool",
-                        "status": "failed" if denied else "completed",
+                        "status": "failed" if denied or external_failure else "completed",
                         "input": (
                             {"execution_id": sandbox_payload["execution_id"]}
                             if sandbox_payload is not None
+                            else {"argument_keys": sorted(tc.arguments)} if external_tool
                             else tc.arguments
                         ),
-                        "output": sandbox_step_summary if sandbox_payload is not None else output,
+                        "output": (
+                            sandbox_step_summary if sandbox_payload is not None
+                            else external_step_summary if external_tool
+                            else output
+                        ),
                         "tool_name": tool_name,
                         "cost_cents": 0,
                         "duration_ms": tool_duration_ms,
@@ -404,6 +456,54 @@ class ReActRunner:
                             }
                         )
                     await publish_event({"type": "step_update", "step": tool_step})
+                    if external_failure is not None:
+                        if external_failure.category == "policy_denied":
+                            await publish_event(
+                                {
+                                    "type": "external_tool_policy_denied",
+                                    "step_seq": seq,
+                                    "stable_name": tc.name,
+                                    "reason": "外部工具当前不可用",
+                                }
+                            )
+                        await publish_event(
+                            {
+                                "type": "external_tool_call_update",
+                                "step_seq": seq,
+                                "status": external_failure.category,
+                                "duration_ms": tool_duration_ms,
+                                "error_category": external_failure.category,
+                                "result_truncated": False,
+                            }
+                        )
+                        if external_failure.category == "cancelled":
+                            transition(run, RunStatus.CANCELLED)
+                            await set_status(run.status)
+                            await publish_event({"type": "run_cancelled"})
+                            return run.status
+                        transition(run, RunStatus.FAILED)
+                        run.error = f"外部工具调用失败（{external_failure.category}）"
+                        await set_status(run.status)
+                        await publish_event({"type": "run_failed", "error": run.error})
+                        return run.status
+
+                    if getattr(executor, "is_external_tool", False):
+                        await publish_event(
+                            {
+                                "type": "external_tool_call_update",
+                                "step_seq": seq,
+                                "status": (
+                                    "result_truncated"
+                                    if isinstance(output, dict) and output.get("result_truncated")
+                                    else "succeeded"
+                                ),
+                                "duration_ms": tool_duration_ms,
+                                "error_category": None,
+                                "result_truncated": bool(
+                                    isinstance(output, dict) and output.get("result_truncated")
+                                ),
+                            }
+                        )
 
                     if not denied:
                         denied_count = 0

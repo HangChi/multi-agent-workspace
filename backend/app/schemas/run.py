@@ -41,6 +41,20 @@ class ArtifactOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ExternalToolInvocationOut(BaseModel):
+    id: str
+    step_id: str | None = None
+    server_name: str
+    tool_name: str
+    stable_name: str
+    version: str
+    status: str
+    duration_ms: int = 0
+    error_category: str | None = None
+    result_truncated: bool = False
+    created_at: datetime
+
+
 class RunOut(BaseModel):
     """运行详情。"""
 
@@ -63,5 +77,6 @@ class RunOut(BaseModel):
     steps: list[StepOut] = []
     artifacts: list[ArtifactOut] = []
     executions: list[ExecutionSummary] = []
+    external_tool_invocations: list[ExternalToolInvocationOut] = []
 
     model_config = {"from_attributes": True}

@@ -29,6 +29,7 @@ from app.schemas.run import RunOut
 from app.schemas.sandbox import EgressAccessList, ExecutionDetail, ExecutionSummary
 from app.services import artifact_service
 from app.services.assignment_service import _enqueue
+from app.services.external_invocation_service import list_run_invocations
 from app.services.sandbox_service import execution_artifact_truncation
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -82,12 +83,14 @@ async def get_run(run_id: str, user: CurrentUser, db: DB):
         )
         for execution in executions
     ]
+    external_tool_invocations = await list_run_invocations(db, run_id=run.id)
     return RunOut.model_validate(
         {
             **run.__dict__,
             "steps": steps,
             "artifacts": artifacts,
             "executions": execution_summaries,
+            "external_tool_invocations": external_tool_invocations,
         }
     )
 
