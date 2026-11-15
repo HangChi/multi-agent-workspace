@@ -87,8 +87,8 @@ npm run test -- --run
 npm run build
 ```
 
-并发验收：使用 20 个成功与 20 个失败/超时外部调用，确认核心 API 无请求失败、所有调用有结构化终态，且对同一 server 的并发和重试不超过配置上限。当前仓库已验证的是确定性 fixture transport 上的 20 成功 + 20 `tool_error` 场景（并发峰值 8）；这不能替代真实 Worker/HTTP/API 部署验收，也不能证明核心 API P95。部署验收完成前不得将 T063 标记为完成。
+并发验收：使用 20 个成功与 20 个失败/超时外部调用，确认核心 API 无请求失败、所有调用有结构化终态，且对同一 server 的并发和重试不超过配置上限。当前仓库已验证的是确定性 fixture transport 上的 20 成功、10 `tool_error`、10 timeout 场景（并发峰值 8）；这不能替代真实 Worker/HTTP/API 部署验收，也不能证明核心 API P95。部署验收完成前不得将 T063 标记为完成。
 
-发布状态：当前报告明确标记为尚不适合生产发布；后端全量回归中仍有两个与本特性无关的 MinIO presigned URL timeout，migration downgrade/upgrade 尚需 disposable DB，Feature 002 native/full-stack acceptance 仍单独阻塞。详见 [`release-status.md`](release-status.md)。
+发布状态：当前报告明确标记为尚不适合生产发布；真实 Worker/HTTP/API 部署并发与 P95 验收、生产部署 smoke/告警阈值验证尚未完成，Feature 002 native/full-stack acceptance 仍是独立门槛。详见 [`release-status.md`](release-status.md)。
 
 详细字段和状态见 [`data-model.md`](data-model.md)，HTTP/WS 形状见 [`contracts/api.md`](contracts/api.md)。
