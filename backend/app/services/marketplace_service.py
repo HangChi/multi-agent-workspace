@@ -100,8 +100,16 @@ async def listing_detail(db: AsyncSession, listing_id: str) -> dict:
     return listing_projection(listing)
 
 
-async def approve_listing(
-    db: AsyncSession, *, server_id: str, tool_version_id: str, reviewer_id: str, reason: str
+async def _review_listing(
+    db: AsyncSession,
+    *,
+    server_id: str,
+    tool_version_id: str,
+    reviewer_id: str,
+    reason: str,
+    status: str,
+    audit_action: str,
+    require_valid: bool = False,
 ) -> dict:
     if len(reason.strip()) < 5:
         raise AppError("INVALID_INPUT", "审核说明至少需要 5 个字符")
@@ -112,7 +120,9 @@ async def approve_listing(
     )
     if version is None:
         raise AppError("NOT_FOUND", "外部工具版本不存在")
-    if version.server.current_validation_status != "passed" or version.availability != "valid":
+    if require_valid and (
+        version.server.current_validation_status != "passed" or version.availability != "valid"
+    ):
         raise AppError("CONFLICT", "只有通过验证且有效的版本可以发布")
     listing = await db.scalar(
         select(MarketplaceListing)
@@ -122,68 +132,60 @@ async def approve_listing(
     if listing is None:
         listing = MarketplaceListing(
             tool_version_id=version.id,
-            status="published",
+            status=status,
             usage_summary=version.description[:1000],
             data_handling="按服务器声明处理外部请求",
-            restrictions={"timeout_seconds": 30},
+            restrictions={"timeout_seconds": 30} if status == "published" else {},
         )
         db.add(listing)
         await db.flush()
         listing.tool_version = version
-    listing.status = "published"
+    reviewed_at = datetime.now(UTC)
+    listing.status = status
     listing.reviewer_id = reviewer_id
-    listing.reviewed_at = datetime.now(UTC)
+    listing.reviewed_at = reviewed_at
     listing.review_reason = reason.strip()
-    listing.published_at = listing.reviewed_at
+    if status == "published":
+        listing.published_at = reviewed_at
     await write_external_audit(
         db,
         user_id=reviewer_id,
-        action="external_tool_approve",
+        action=audit_action,
         target_type="marketplace_listing",
         target_id=listing.id,
         detail={"tool_version_id": version.id, "reason": reason.strip()},
     )
     await db.commit()
     return listing_projection(await _listing(db, listing.id))
+
+
+async def approve_listing(
+    db: AsyncSession, *, server_id: str, tool_version_id: str, reviewer_id: str, reason: str
+) -> dict:
+    return await _review_listing(
+        db,
+        server_id=server_id,
+        tool_version_id=tool_version_id,
+        reviewer_id=reviewer_id,
+        reason=reason,
+        status="published",
+        audit_action="external_tool_approve",
+        require_valid=True,
+    )
 
 
 async def reject_listing(
     db: AsyncSession, *, server_id: str, tool_version_id: str, reviewer_id: str, reason: str
 ) -> dict:
-    if len(reason.strip()) < 5:
-        raise AppError("INVALID_INPUT", "拒绝说明至少需要 5 个字符")
-    version = await db.scalar(
-        select(ExternalToolVersion).options(joinedload(ExternalToolVersion.server)).where(
-            ExternalToolVersion.id == tool_version_id, ExternalToolVersion.server_id == server_id
-        )
-    )
-    if version is None:
-        raise AppError("NOT_FOUND", "外部工具版本不存在")
-    listing = await db.scalar(select(MarketplaceListing).where(MarketplaceListing.tool_version_id == version.id))
-    if listing is None:
-        listing = MarketplaceListing(
-            tool_version_id=version.id,
-            status="rejected",
-            usage_summary=version.description[:1000],
-            data_handling="按服务器声明处理外部请求",
-            restrictions={},
-        )
-        db.add(listing)
-        await db.flush()
-    listing.status = "rejected"
-    listing.reviewer_id = reviewer_id
-    listing.reviewed_at = datetime.now(UTC)
-    listing.review_reason = reason.strip()
-    await write_external_audit(
+    return await _review_listing(
         db,
-        user_id=reviewer_id,
-        action="external_tool_reject",
-        target_type="marketplace_listing",
-        target_id=listing.id,
-        detail={"tool_version_id": version.id, "reason": reason.strip()},
+        server_id=server_id,
+        tool_version_id=tool_version_id,
+        reviewer_id=reviewer_id,
+        reason=reason,
+        status="rejected",
+        audit_action="external_tool_reject",
     )
-    await db.commit()
-    return listing_projection(await _listing(db, listing.id))
 
 
 async def transition_listing(
