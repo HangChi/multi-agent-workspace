@@ -45,8 +45,10 @@ class TestNetworkAndNaming:
     def test_network_is_created_per_execution(self, fake_docker) -> None:
         run = _run()
         run.execute()
-        assert len(fake_docker.networks.created) == 1
-        network = fake_docker.networks.created[0]
+        # One empty reservation is replaced by the same explicit daemon IPAM.
+        assert len(fake_docker.networks.created) == 2
+        assert fake_docker.networks.created[0].removed == 1
+        network = fake_docker.networks.created[-1]
         assert network.name == run.network_name
         assert run.network_name.endswith("exec-1")
         assert network.created_kwargs["driver"] == "bridge"
@@ -57,7 +59,8 @@ class TestNetworkAndNaming:
         second = SandboxRun(execution_id="exec-b", language="python", code="print(2)")
         first.execute()
         second.execute()
-        names = [n.name for n in fake_docker.networks.created]
+        names = [n.name for n in fake_docker.networks.created if "ipam" in n.created_kwargs]
+        assert len(names) == 2
         assert len(set(names)) == 2
         assert first.network_name != second.network_name
 

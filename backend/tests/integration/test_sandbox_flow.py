@@ -63,14 +63,15 @@ def fake_docker(monkeypatch: pytest.MonkeyPatch) -> FakeDockerClient:
 
     def network_create(name, **kwargs):
         network = create_network(name, **kwargs)
-        network.attrs = {
+        network.attrs.update({
             "Id": "0123456789abcdef",
             "Options": {"com.docker.network.bridge.name": "br-0123456789ab"},
-            "IPAM": {"Config": [{"Gateway": "172.30.0.1"}]},
-        }
+        })
 
         def connect(proxy):
-            proxy.attrs["NetworkSettings"]["Networks"][name] = {"IPAddress": "172.30.0.2"}
+            proxy.attrs["NetworkSettings"]["Networks"][name] = {
+                "IPAddress": "172.30.0.2", "GlobalIPv6Address": "fd00:1234::2",
+            }
 
         network.connect = connect
         network.disconnect = lambda proxy, **kwargs: None

@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import codecs
 import io
+import ipaddress
 import logging
 import tarfile
 import threading
@@ -649,18 +650,56 @@ class SandboxRun:
             raise SandboxInfraError(f"无法校验沙箱镜像：{exc}") from exc
 
     def _create_network(self, client: docker.DockerClient) -> Any:
+        # Docker 28 rejects static endpoint addresses in automatically allocated
+        # pools. Preserve daemon pool selection (including host route avoidance),
+        # then materialize those SAME pools as explicit IPAM before any endpoint,
+        # policy helper or user container is attached. Never choose host subnets.
+        options = {
+            "driver": "bridge",
+            "internal": False,
+            "enable_ipv6": True,
+            "labels": self._labels(),
+        }
         try:
-            return client.networks.create(
-                self.network_name,
-                driver="bridge",
-                # Keep the bridge externally routable only through the policy below.
-                # `internal=True` would also break the controlled DNS path.
-                internal=False,
-                enable_ipv6=True,
-                labels=self._labels(),
-            )
-        except (APIError, DockerException) as exc:
+            for attempt in range(8):
+                reservation = client.networks.create(self.network_name, **options)
+                # Track the exact returned handle even if validation/removal fails;
+                # execute()/the context manager can clean only our own resource.
+                self._network = reservation
+                reservation.reload()
+                config = (reservation.attrs.get("IPAM") or {}).get("Config")
+                if not isinstance(config, list) or reservation.attrs.get("Containers"):
+                    raise ValueError("empty dual-stack network reservation required")
+                pools = []
+                families: set[int] = set()
+                for entry in config:
+                    if not isinstance(entry, dict):
+                        raise TypeError("invalid daemon IPAM pool")
+                    subnet = ipaddress.ip_network(entry.get("Subnet", ""), strict=True)
+                    gateway = ipaddress.ip_address(entry.get("Gateway", ""))
+                    if gateway not in subnet or subnet.version in families:
+                        raise ValueError("invalid daemon IPAM gateway or duplicate family")
+                    families.add(subnet.version)
+                    pools.append(docker.types.IPAMPool(subnet=str(subnet), gateway=str(gateway)))
+                if families != {4, 6}:
+                    raise ValueError("daemon did not allocate both IP families")
+                reservation.remove()
+                self._network = None
+                try:
+                    self._network = client.networks.create(
+                        self.network_name, ipam=docker.types.IPAMConfig(pool_configs=pools), **options,
+                    )
+                    return self._network
+                except APIError as exc:
+                    # Another execution may claim a freed pool in this narrow
+                    # remove/recreate window. Retry only that exact daemon conflict
+                    # with a fresh reservation; every other error fails closed.
+                    overlap = "pool overlaps with other one on this address space" in str(exc.explanation).lower()
+                    if attempt == 7 or exc.status_code not in {400, 409} or not overlap:
+                        raise
+        except (APIError, DockerException, TypeError, ValueError) as exc:
             raise SandboxInfraError(f"创建沙箱网络失败：{exc}") from exc
+        raise SandboxInfraError("创建沙箱网络失败：地址池重试预算耗尽")
 
     def _prepare_egress(self, client: docker.DockerClient) -> None:
         """Attach the controlled DNS proxy and install v4/v6 kernel policy."""

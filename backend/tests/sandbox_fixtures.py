@@ -144,6 +144,18 @@ class FakeNetwork:
         self.name = name
         self.created_kwargs = kwargs
         self.removed = 0
+        self.attrs = {
+            "EnableIPv6": True,
+            "Containers": {},
+            "Labels": kwargs.get("labels", {}),
+            "IPAM": kwargs.get("ipam") or {"Config": [
+                {"Subnet": "172.30.0.0/24", "Gateway": "172.30.0.1"},
+                {"Subnet": "fd00:1234::/64", "Gateway": "fd00:1234::1"},
+            ]},
+        }
+
+    def reload(self) -> None:
+        return None
 
     def remove(self) -> None:
         self.removed += 1
