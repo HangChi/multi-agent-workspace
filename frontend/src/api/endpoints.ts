@@ -567,6 +567,7 @@ export interface RunDetail {
   strategy: 'direct' | 'fan_out' | 'pipeline' | 'router'
   status: RunStatus
   current_step: number
+  tool_grants_snapshot?: string[] | null
   result: Record<string, unknown> | null
   error: string | null
   cost_cents: number

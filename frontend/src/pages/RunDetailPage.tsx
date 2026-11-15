@@ -405,6 +405,16 @@ export function RunDetailPage() {
               </span>
             )}
           </MetaTile>
+          <div className="col-span-2 text-xs sm:col-span-4">
+            <dt className="inline text-ink-muted">工具授权快照：</dt>
+            <dd className="inline break-words text-ink">
+              {run.tool_grants_snapshot == null
+                ? '未记录（旧版或待路由运行）'
+                : run.tool_grants_snapshot.length === 0
+                  ? '无工具'
+                  : run.tool_grants_snapshot.join('、')}
+            </dd>
+          </div>
         </dl>
 
         {actionError && (

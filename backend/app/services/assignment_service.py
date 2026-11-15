@@ -30,6 +30,7 @@ from app.orchestrator.strategies import (
 )
 from app.services.quota_service import assert_user_quota
 from app.services.request_service import get_request
+from app.services.tool_service import enabled_tool_specs, reconcile_agent_grants
 
 logger = structlog.get_logger(__name__)
 
@@ -220,6 +221,21 @@ async def assign(
             )
             db.add(child)
             runs.append(child)
+
+    # Freeze direct/child grants before enqueue, so edits made while queued can
+    # revoke but never silently add capabilities to this run. Router parents do
+    # not know their selected member yet; those snapshot at first execution.
+    for run in runs:
+        if run.assignee_type == 'group' and run.strategy != 'router':
+            run.tool_grants_snapshot = []  # Orchestration-only parent: no tools.
+    agent_runs = [run for run in runs if run.assignee_type == 'agent']
+    if agent_runs:
+        enabled = [spec.name for spec in await enabled_tool_specs(db, lock=True)]
+        for run in agent_runs:
+            agent = await db.get(Agent, run.assignee_id)
+            if agent is None:
+                raise AppError('NOT_FOUND', 'Agent 不存在')
+            run.tool_grants_snapshot = list(reconcile_agent_grants(agent, enabled))
 
     await db.flush()
 

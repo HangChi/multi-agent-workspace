@@ -1,8 +1,9 @@
 """工具目录模型：工具的可运营面（启用开关、展示文案）。
 
 字段值的**唯一事实源是 `app/executors/catalog.py`**（见 data-model.md）。
-本表由 seed 迁移写入，只承载运营侧可变部分；运行时读 catalog，不读本表，
-因此这里改了 display_name 只影响界面，不影响执行行为。
+本表由 seed 迁移写入，只承载运营侧可变部分；定义仍来自 catalog，
+可用性则取 catalog 与本表 enabled=true 行的交集（缺行也拒绝）。
+禁用/删除时由迁移安装的触发器移除现存 Agent 授权，但不改历史 Run 快照。
 """
 
 from datetime import datetime

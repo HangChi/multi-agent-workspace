@@ -12,6 +12,11 @@ from app.api.errors import AppError
 from app.models.agent import Agent
 from app.models.group_member import GroupMember
 from app.schemas.agent import AgentCreate, AgentUpdate
+from app.services.tool_service import (
+    enabled_tool_specs,
+    reconcile_agent_grants,
+    validate_grants,
+)
 
 
 def _check_owner(agent: Agent, user_id: str) -> None:
@@ -20,6 +25,7 @@ def _check_owner(agent: Agent, user_id: str) -> None:
 
 async def create_agent(db: AsyncSession, *, user_id: str, payload: AgentCreate) -> Agent:
     """创建 Agent（member/admin 已由路由层校验）。"""
+    await validate_grants(db, payload.tools)
     agent = Agent(
         owner_id=user_id,
         name=payload.name,
@@ -66,7 +72,13 @@ async def update_agent(
 ) -> Agent:
     """编辑 Agent（归属校验）。"""
     agent = await get_agent(db, agent_id, user_id)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    if 'tools' in changes:
+        await validate_grants(db, changes['tools'])
+    else:
+        specs = await enabled_tool_specs(db, lock=True)
+        reconcile_agent_grants(agent, (spec.name for spec in specs))
+    for field, value in changes.items():
         setattr(agent, field, value)
     await db.flush()
     return agent

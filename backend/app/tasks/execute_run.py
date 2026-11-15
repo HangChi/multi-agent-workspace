@@ -41,6 +41,11 @@ from app.orchestrator.runner import (
 from app.orchestrator.state_machine import RunStatus, transition
 from app.services import egress_service, sandbox_service
 from app.services.quota_service import QuotaExceeded, assert_user_quota
+from app.services.tool_service import (
+    enabled_tool_specs,
+    filter_grants,
+    reconcile_agent_grants,
+)
 from app.tasks import events as run_events
 from app.tasks.celery_app import celery_app
 
@@ -88,6 +93,7 @@ def _build_runner(
     run: Run,
     agent: Agent | None,
     *,
+    tool_names: list[str] | None = None,
     abort_check=None,
     on_sandbox_result=None,
 ) -> ReActRunner:
@@ -95,7 +101,7 @@ def _build_runner(
     if agent is not None:
         return ReActRunner(
             llm=LiteLLMClient(model=agent.model),
-            executors=build_executors(list(agent.tools or []), abort_check=abort_check),
+            executors=build_executors(tool_names or [], abort_check=abort_check),
             max_steps=agent.max_steps,
             timeout_seconds=agent.max_run_seconds,
             cost_limit_cents=agent.cost_limit_cents,
@@ -105,7 +111,7 @@ def _build_runner(
     # 组父 Run：仅做编排占位（fan_out 时子 Run 各自执行），直接完成不调 LLM
     return ReActRunner(
         llm=LiteLLMClient(),
-        executors=build_executors(),
+        executors=build_executors([]),
     )
 
 
@@ -318,7 +324,32 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
             run_events.run_completed(run.id, run.result)
             return
 
-    runner = _build_runner(run, agent)
+    enabled = [spec.name for spec in await enabled_tool_specs(db)]
+    tool_names: list[str] = []
+    if agent is not None:
+        grants = reconcile_agent_grants(agent, enabled)
+        if run.tool_grants_snapshot is None:
+            # Router selection / unexecuted legacy runs: this is the first point
+            # where the actual configuration is known. Completed legacy history
+            # is never backfilled from today's Agent settings.
+            run.tool_grants_snapshot = list(grants)
+        tool_names = filter_grants(run.tool_grants_snapshot, grants)
+        await db.flush()
+    runner = _build_runner(run, agent, tool_names=tool_names)
+
+    async def authorize_tool(name: str) -> bool:
+        if agent is None:
+            return False
+        # Query scalar columns so operator disables and Agent edits committed
+        # during an LLM call are visible despite this long-lived ORM session.
+        current_grants = await db.scalar(select(Agent.tools).where(Agent.id == agent.id))
+        current_enabled = [spec.name for spec in await enabled_tool_specs(db)]
+        return (
+            name in (run.tool_grants_snapshot or [])
+            and name in filter_grants(current_grants, current_enabled)
+        )
+
+    runner.authorize_tool = authorize_tool
 
     async def audit_denied(detail: dict) -> None:
         await write_audit(

@@ -98,6 +98,7 @@ class ReActRunner:
         audit_denied: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
         on_sandbox_started: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
         on_sandbox_result: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
+        authorize_tool: Callable[[str], Awaitable[bool]] | None = None,
     ) -> None:
         self.llm = llm
         self.executors = executors
@@ -107,6 +108,7 @@ class ReActRunner:
         self.audit_denied = audit_denied
         self.on_sandbox_started = on_sandbox_started
         self.on_sandbox_result = on_sandbox_result
+        self.authorize_tool = authorize_tool
         self.system_prompt = system_prompt or (
             "你是一个任务执行助手。你需要：1) 理解用户需求；2) 必要时调用工具获取信息；"
             "3) 最终用『最终答案』格式给出结果。如果缺少关键信息，回复 __NEEDS_INPUT__ 加补充要求。"
@@ -239,6 +241,14 @@ class ReActRunner:
                     seq += 1
                     tool_started = time.monotonic()
                     executor = self.executors.get(tc.name)
+                    if (
+                        executor is not None
+                        and self.authorize_tool is not None
+                        and not await self.authorize_tool(tc.name)
+                    ):
+                        self.executors.pop(tc.name, None)
+                        tools = [item.schema() for item in self.executors.values()]
+                        executor = None
                     sandbox_payload: dict[str, Any] | None = None
                     sandbox_step_id: str | None = None
                     denied = executor is None and tc.name in CATALOG
@@ -362,7 +372,7 @@ class ReActRunner:
                         "id": sandbox_step_id or (str(uuid.uuid4()) if sandbox_payload is not None else None),
                         "seq": seq,
                         "kind": "tool",
-                        "status": "completed",
+                        "status": "failed" if denied else "completed",
                         "input": (
                             {"execution_id": sandbox_payload["execution_id"]}
                             if sandbox_payload is not None

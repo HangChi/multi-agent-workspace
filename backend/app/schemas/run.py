@@ -52,6 +52,7 @@ class RunOut(BaseModel):
     strategy: str
     status: str
     current_step: int = 0
+    tool_grants_snapshot: list[str] | None = None
     result: dict[str, Any] | None = None
     error: str | None = None
     cost_cents: int = 0

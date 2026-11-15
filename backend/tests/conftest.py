@@ -25,6 +25,7 @@ if "agent_workbench_test" not in _TEST_DATABASE_URL:
 os.environ["DATABASE_URL"] = _TEST_DATABASE_URL
 
 from collections.abc import AsyncGenerator, Callable
+from dataclasses import asdict
 from typing import Any
 
 import httpx
@@ -37,6 +38,8 @@ from sqlalchemy.pool import NullPool
 from app.core.config import settings
 from app.core.db import Base
 from app.core.security import create_access_token, hash_password
+from app.executors.catalog import CATALOG
+from app.models.tool import Tool
 from app.models.user import User
 
 # 沙箱相关夹具（T017）：fake_docker / sbx_semaphore / sandbox_factory / fixed_clock。
@@ -59,6 +62,12 @@ async def _setup_test_db() -> AsyncGenerator[None, None]:
         await conn.execute(text("DROP SCHEMA public CASCADE"))
         await conn.execute(text("CREATE SCHEMA public"))
         await conn.run_sync(Base.metadata.create_all)
+        # Match the production migration's explicit enabled catalog. Missing rows
+        # now correctly fail closed instead of silently granting code defaults.
+        await conn.execute(
+            Tool.__table__.insert(),
+            [{**asdict(spec), 'enabled': True} for spec in CATALOG.values()],
+        )
     yield
     await engine.dispose()
 

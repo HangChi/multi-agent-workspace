@@ -58,6 +58,9 @@ class Run(Base):
     sequence: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    # Assignment-time grants (router: first member selection). NULL means legacy
+    # history was not recorded, not that the run had no tools. Never reset on retry.
+    tool_grants_snapshot: Mapped[list[str] | None] = mapped_column(JSON(none_as_null=True), nullable=True)
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     # needs_input 挂起时的用户回复（FR-021）：reply 端点写入，恢复执行时注入对话上下文
