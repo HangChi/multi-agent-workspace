@@ -188,28 +188,7 @@ services:
       context: ../backend
     container_name: aw-api
     restart: unless-stopped
-    environment:
-      APP_ENV: ${APP_ENV:-production}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      CELERY_BROKER_URL: ${CELERY_BROKER_URL}
-      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND}
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_ACCESS_TTL_MINUTES: ${JWT_ACCESS_TTL_MINUTES:-30}
-      JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:-7}
-      REFRESH_GRACE_SECONDS: ${REFRESH_GRACE_SECONDS:-30}
-      INVITE_CODE: ${INVITE_CODE}
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-      MINIO_BUCKET: ${MINIO_BUCKET}
-      MINIO_SECURE: ${MINIO_SECURE:-false}
-      LLM_API_KEY: ${LLM_API_KEY}
-      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
-      LLM_BASE_URL: ${LLM_BASE_URL}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
-      MONTHLY_QUOTA_CENTS: ${MONTHLY_QUOTA_CENTS:-1000000}
+    environment: *app_env
     logging: *default-logging
     deploy:
       resources:
