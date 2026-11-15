@@ -15,6 +15,7 @@ from app.api.v1.admin_egress import router as admin_egress_router
 from app.api.v1.agent_egress import router as agent_egress_router
 from app.api.v1.agents import router as agents_router
 from app.api.v1.auth import router as auth_router
+from app.api.v1.external_tool_grants import router as external_tool_grants_router
 from app.api.v1.external_tool_servers import router as external_tool_servers_router
 from app.api.v1.groups import router as groups_router
 from app.api.v1.marketplace import router as marketplace_router
@@ -61,6 +62,7 @@ def create_app() -> FastAPI:
     api_v1.include_router(groups_router)
     api_v1.include_router(marketplace_router)
     api_v1.include_router(external_tool_servers_router)
+    api_v1.include_router(external_tool_grants_router)
     api_v1.include_router(requests_router)
     api_v1.include_router(runs_router)
     api_v1.include_router(stats_router)

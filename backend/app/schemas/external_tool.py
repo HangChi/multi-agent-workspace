@@ -146,7 +146,7 @@ class ToolInstallationOut(BaseModel):
     owner_id: str
     status: str
     version_policy: str
-    installed_at: str
+    installed_at: datetime
 
 
 class ExternalGrantCreate(BaseModel):
@@ -167,6 +167,11 @@ class ExternalGrantOut(BaseModel):
     credential: CredentialOut | None = None
     status: str
     unavailable_reason: str | None = None
+
+
+class ExternalGrantList(BaseModel):
+    items: list[ExternalGrantOut]
+    total: int
 
 
 class ExternalServerList(BaseModel):

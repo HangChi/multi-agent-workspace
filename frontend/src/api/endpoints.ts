@@ -163,8 +163,8 @@ export interface ExternalToolVersion {
   stable_name: string
   version: string
   description: string
-  availability: string
   required_permissions: string[]
+  availability: string
   listing_id: string | null
   listing_status: string | null
 }
@@ -182,6 +182,55 @@ export interface ExternalServer {
 export async function fetchExternalServers(): Promise<{ items: ExternalServer[]; total: number }> {
   const { data } = await apiClient.get<{ items: ExternalServer[]; total: number }>('/external-tool-servers')
   return data
+}
+
+export interface ToolInstallation {
+  id: string
+  listing_id: string
+  owner_id: string
+  status: string
+  version_policy: 'pinned' | 'allow_patch'
+  installed_at: string
+}
+
+export interface ExternalGrant {
+  id: string
+  agent_id: string
+  installation_id: string
+  tool_version_id: string
+  stable_name: string
+  version: string
+  permissions: string[]
+  status: 'active' | 'disabled' | 'revoked'
+  unavailable_reason: string | null
+  credential: { id: string; label: string; kind: string; status: string } | null
+}
+
+export async function installMarketplaceTool(listingId: string, version_policy: 'pinned' | 'allow_patch' = 'pinned'): Promise<ToolInstallation> {
+  const { data } = await apiClient.post<ToolInstallation>(`/marketplace/tools/${listingId}/install`, { version_policy })
+  return data
+}
+
+export async function fetchMarketplaceInstallations(): Promise<{ items: ToolInstallation[]; total: number }> {
+  const { data } = await apiClient.get<{ items: ToolInstallation[]; total: number }>('/marketplace/installations')
+  return data
+}
+
+export async function fetchExternalToolGrants(agentId: string): Promise<{ items: ExternalGrant[]; total: number }> {
+  const { data } = await apiClient.get<{ items: ExternalGrant[]; total: number }>(`/agents/${agentId}/external-tool-grants`)
+  return data
+}
+
+export async function createExternalToolGrant(
+  agentId: string,
+  payload: { installation_id: string; tool_version_id: string; permissions: string[]; credential_id?: string },
+): Promise<ExternalGrant> {
+  const { data } = await apiClient.post<ExternalGrant>(`/agents/${agentId}/external-tool-grants`, payload)
+  return data
+}
+
+export async function revokeExternalToolGrant(agentId: string, grantId: string): Promise<void> {
+  await apiClient.delete(`/agents/${agentId}/external-tool-grants/${grantId}`)
 }
 
 // ---------- Agent（T037）----------

@@ -14,11 +14,19 @@ import os
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.api.errors import AppError
 from app.core.events import publish_run_event
 from app.models.agent import Agent
+from app.models.external_tool import (
+    ExternalToolGrant,
+    ExternalToolServer,
+    ExternalToolVersion,
+    MarketplaceListing,
+    RunExternalToolSnapshot,
+    ToolInstallation,
+)
 from app.models.group import AgentGroup
 from app.models.group_member import GroupMember
 from app.models.request import Request
@@ -228,6 +236,7 @@ async def assign(
     for run in runs:
         if run.assignee_type == 'group' and run.strategy != 'router':
             run.tool_grants_snapshot = []  # Orchestration-only parent: no tools.
+    await db.flush()
     agent_runs = [run for run in runs if run.assignee_type == 'agent']
     if agent_runs:
         enabled = [spec.name for spec in await enabled_tool_specs(db, lock=True)]
@@ -236,6 +245,40 @@ async def assign(
             if agent is None:
                 raise AppError('NOT_FOUND', 'Agent 不存在')
             run.tool_grants_snapshot = list(reconcile_agent_grants(agent, enabled))
+            external_grants = (
+                await db.execute(
+                    select(ExternalToolGrant)
+                    .options(joinedload(ExternalToolGrant.tool_version))
+                    .join(ExternalToolGrant.installation)
+                    .join(ExternalToolGrant.tool_version)
+                    .join(ExternalToolVersion.server)
+                    .join(MarketplaceListing, MarketplaceListing.tool_version_id == ExternalToolVersion.id)
+                    .where(
+                        ExternalToolGrant.agent_id == agent.id,
+                        ExternalToolGrant.status == "active",
+                        ToolInstallation.owner_id == run.owner_id,
+                        ToolInstallation.status == "installed",
+                        MarketplaceListing.status == "published",
+                        ExternalToolVersion.availability == "valid",
+                        ExternalToolServer.status == "published",
+                    )
+                )
+            ).scalars().all()
+            for grant in external_grants:
+                db.add(
+                    RunExternalToolSnapshot(
+                        run_id=run.id,
+                        grant_id=grant.id,
+                        server_id=grant.tool_version.server_id,
+                        tool_version_id=grant.tool_version_id,
+                        stable_name=grant.tool_version.stable_name,
+                        external_name=grant.tool_version.external_name,
+                        version=grant.tool_version.version,
+                        permission_snapshot=list(grant.permission_snapshot or []),
+                        schema_snapshot=dict(grant.schema_snapshot),
+                        credential_id=grant.credential_id,
+                    )
+                )
 
     await db.flush()
 

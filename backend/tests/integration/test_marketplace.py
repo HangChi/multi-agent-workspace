@@ -73,7 +73,7 @@ async def test_marketplace_browse_exposes_published_validated_listings_only(
     assert response.json()["total"] == 1
     assert response.json()["items"][0]["stable_name"] == published.stable_name
     assert "endpoint_url" not in response.text
-    admin_response = await client.get("/api/v1/marketplace/tools", headers=admin_headers)
+    admin_response = await client.get("/api/v1/marketplace/tools?q=published", headers=admin_headers)
     assert admin_response.status_code == 200
     assert admin_response.json()["total"] == 1
 

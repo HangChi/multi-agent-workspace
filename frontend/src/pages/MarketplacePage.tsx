@@ -1,9 +1,13 @@
 /** Member-facing published external MCP tool marketplace. */
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { fetchMarketplaceTools } from '../api/endpoints'
+import {
+  fetchMarketplaceInstallations,
+  fetchMarketplaceTools,
+  installMarketplaceTool,
+} from '../api/endpoints'
 import { Badge } from '../components/ui/Badge'
 import { Card } from '../components/ui/Card'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -19,6 +23,15 @@ export function MarketplacePage() {
   const [category, setCategory] = useState('')
   const [capability, setCapability] = useState('')
   const [applied, setApplied] = useState({ q: '', category: '', capability: '' })
+  const queryClient = useQueryClient()
+  const { data: installations } = useQuery({ queryKey: ['marketplace-installations'], queryFn: fetchMarketplaceInstallations })
+  const install = useMutation({
+    mutationFn: (listingId: string) => installMarketplaceTool(listingId, 'pinned'),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['marketplace-installations'] })
+    },
+  })
+  const installedListingIds = new Set((installations?.items ?? []).filter((item) => item.status === 'installed').map((item) => item.listing_id))
   const { data, isLoading, isError } = useQuery({
     queryKey: ['marketplace-tools', applied],
     queryFn: () => fetchMarketplaceTools({
@@ -63,7 +76,12 @@ export function MarketplacePage() {
               </div>
               <div className="mt-auto flex items-center justify-between border-t border-line-subtle pt-3 text-xs text-ink-faint">
                 <span className="font-mono">{listing.stable_name}</span>
-                <button type="button" disabled className="rounded-lg border border-line px-3 py-1.5 font-medium text-ink-muted opacity-70">安装即将开放</button>
+                <button
+                  type="button"
+                  disabled={installedListingIds.has(listing.listing_id) || install.isPending}
+                  onClick={() => install.mutate(listing.listing_id)}
+                  className="rounded-lg border border-line px-3 py-1.5 font-medium text-ink transition hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-60"
+                >{installedListingIds.has(listing.listing_id) ? '已安装' : install.isPending && install.variables === listing.listing_id ? '安装中…' : '安装'}</button>
               </div>
             </Card>
           ))}

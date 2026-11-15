@@ -92,18 +92,18 @@ description: "Implementation tasks for external MCP tools and governed marketpla
 
 ### Tests first
 
-- [ ] T034 [P] [US3] Add installation/grant contract tests for create/list/revoke, ownership, version pinning, permission subsets, and credential scope in `backend/tests/integration/test_external_tool_grants.py`.
-- [ ] T035 [P] [US3] Add regression tests proving 002 builtin `agents.tools` and immutable `Run.tool_grants_snapshot` behavior is unchanged in `backend/tests/integration/test_builtin_tool_regression.py`.
+- [X] T034 [P] [US3] Add installation/grant contract tests for create/list/revoke, ownership, version pinning, permission subsets, and credential scope in `backend/tests/integration/test_external_tool_grants.py`.
+- [X] T035 [P] [US3] Add regression tests proving 002 builtin `agents.tools` and immutable `Run.tool_grants_snapshot` behavior is unchanged in `backend/tests/integration/test_builtin_tool_regression.py`.
 
 ### Implementation
 
-- [ ] T036 [US3] Implement installation and grant resolution services with owner/RBAC checks, active-state intersection, version pinning, permission subset validation, and fail-closed availability reasons in `backend/app/services/external_grant_service.py`.
-- [ ] T037 [US3] Implement install and Agent external-grant endpoints in `backend/app/api/v1/marketplace.py` and `backend/app/api/v1/external_tool_grants.py`; register router.
-- [ ] T038 [US3] Add immutable external grant/run snapshot creation at assignment/execution boundary in `backend/app/services/assignment_service.py`, `backend/app/models/external_tool.py`, and `backend/app/tasks/execute_run.py`.
-- [ ] T039 [US3] Add external grant DTOs and safe availability/version/credential metadata projections in `backend/app/schemas/external_tool.py`.
-- [ ] T040 [US3] Add Agent external-grant query/mutation wrappers and version/permission controls in `frontend/src/api/endpoints.ts` and `frontend/src/components/agent/ExternalToolGrants.tsx`.
-- [ ] T041 [US3] Integrate external-grant panel into Agent editor while preserving builtin tool selection and empty-tool semantics in `frontend/src/components/agent/AgentForm.tsx` and `frontend/src/pages/AgentPage.tsx`.
-- [ ] T042 [P] [US3] Add frontend grant tests for version pinning, revoked states, role ownership, and no credential values in `frontend/src/tests/external-tool-grants.test.tsx`.
+- [X] T036 [US3] Implement installation and grant resolution services with owner/RBAC checks, active-state intersection, version pinning, permission subset validation, and fail-closed availability reasons in `backend/app/services/external_grant_service.py`.
+- [X] T037 [US3] Implement install and Agent external-grant endpoints in `backend/app/api/v1/marketplace.py` and `backend/app/api/v1/external_tool_grants.py`; register router.
+- [X] T038 [US3] Add immutable external grant/run snapshot creation at assignment/execution boundary in `backend/app/services/assignment_service.py`, `backend/app/models/external_tool.py`, and `backend/app/tasks/execute_run.py`.
+- [X] T039 [US3] Add external grant DTOs and safe availability/version/credential metadata projections in `backend/app/schemas/external_tool.py`.
+- [X] T040 [US3] Add Agent external-grant query/mutation wrappers and version/permission controls in `frontend/src/api/endpoints.ts` and `frontend/src/components/agent/ExternalToolGrants.tsx`.
+- [X] T041 [US3] Integrate external-grant panel into Agent editor while preserving builtin tool selection and empty-tool semantics in `frontend/src/components/agent/AgentForm.tsx` and `frontend/src/pages/AgentPage.tsx`.
+- [X] T042 [P] [US3] Add frontend grant tests for version pinning, revoked states, role ownership, and no credential values in `frontend/src/components/agent/__tests__/ExternalToolGrants.test.tsx`.
 
 **Checkpoint**: US3 independent grant test passes; commit Phase 5.
 

@@ -5,11 +5,18 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import DB, CurrentUser, require_role
-from app.schemas.external_tool import ListingList, ListingOut, ReviewDecision
-from app.services import marketplace_service
+from app.schemas.external_tool import (
+    ListingList,
+    ListingOut,
+    ReviewDecision,
+    ToolInstallationOut,
+    ToolInstallCreate,
+)
+from app.services import external_grant_service, marketplace_service
 
 router = APIRouter(prefix="/marketplace", tags=["marketplace"])
 Reviewer = Annotated[object, Depends(require_role("admin"))]
+MemberUser = Annotated[object, Depends(require_role("admin", "member"))]
 
 
 @router.get("/tools", response_model=ListingList)
@@ -35,6 +42,37 @@ async def browse_marketplace(
         page_size=page_size,
     )
     return {"items": items, "total": total}
+
+
+@router.get("/installations")
+async def get_installations(_member: MemberUser, user: CurrentUser, db: DB):
+    items = await external_grant_service.list_installations(db, owner_id=user.id)
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/tools/{listing_id}/install", response_model=ToolInstallationOut, status_code=201)
+async def install_tool(
+    listing_id: str,
+    payload: ToolInstallCreate,
+    user: CurrentUser,
+    _member: MemberUser,
+    db: DB,
+):
+    installation = await external_grant_service.install_listing(
+        db,
+        listing_id=listing_id,
+        owner_id=user.id,
+        installed_by=user.id,
+        version_policy=payload.version_policy,
+    )
+    return {
+        "id": installation.id,
+        "listing_id": installation.listing_id,
+        "owner_id": installation.owner_id,
+        "status": installation.status,
+        "version_policy": installation.version_policy,
+        "installed_at": installation.installed_at,
+    }
 
 
 @router.get("/tools/{listing_id}", response_model=ListingOut)

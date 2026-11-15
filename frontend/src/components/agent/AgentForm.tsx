@@ -9,6 +9,7 @@ import { Input, NumberInput, Slider, Select, Textarea } from '../ui/Field'
 import { cn } from '../ui/cn'
 
 import { EgressRules } from './EgressRules'
+import { ExternalToolGrants } from './ExternalToolGrants'
 
 
 export interface AgentFormValues {
@@ -217,7 +218,10 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
       </Select>
 
       {initial?.id && (
-        <EgressRules agentId={initial.id} mode={values.egress_mode} />
+        <>
+          <EgressRules agentId={initial.id} mode={values.egress_mode} />
+          <ExternalToolGrants agentId={initial.id} />
+        </>
       )}
 
       <div>

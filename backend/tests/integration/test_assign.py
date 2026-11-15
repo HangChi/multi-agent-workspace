@@ -14,6 +14,14 @@ import uuid
 
 from sqlalchemy import select
 
+from app.models.external_tool import (
+    ExternalToolGrant,
+    ExternalToolServer,
+    ExternalToolVersion,
+    MarketplaceListing,
+    RunExternalToolSnapshot,
+    ToolInstallation,
+)
 from app.models.request import Request
 from app.models.run import Run
 
@@ -451,3 +459,82 @@ async def test_assign_group_strategy_with_agent_target_rejected(client, make_hea
         {"assignee_type": "agent", "assignee_id": agent["id"], "strategy": "pipeline"},
     )
     assert resp.status_code == 400
+
+
+async def test_assign_freezes_external_grant_version_and_schema_snapshot(client, auth_headers, db_session):
+    """Assignment captures external identity/schema independently of later state changes."""
+    headers, owner = await auth_headers(role="member")
+    agent = await _create_agent(client, headers, name="external-snapshot-agent")
+    request = await _create_request(client, headers, title="external-snapshot")
+    server = ExternalToolServer(
+        owner_id=owner.id,
+        created_by=owner.id,
+        name="Snapshot Server",
+        description="snapshot fixture",
+        endpoint_url="https://8.8.8.8/snapshot",
+        normalized_endpoint_url="https://8.8.8.8/snapshot",
+        maintainer="Platform",
+        auth_mode="none",
+        status="published",
+        current_validation_status="passed",
+    )
+    db_session.add(server)
+    await db_session.flush()
+    version = ExternalToolVersion(
+        server_id=server.id,
+        external_name="lookup",
+        stable_name="mcp_snapshot_lookup_v1",
+        version="1.2.3+snapshot",
+        description="Lookup",
+        input_schema={"type": "object", "properties": {"q": {"type": "string"}}},
+        required_permissions=["records.read"],
+        definition_hash="snapshot-definition",
+        availability="valid",
+    )
+    db_session.add(version)
+    await db_session.flush()
+    listing = MarketplaceListing(
+        tool_version_id=version.id,
+        status="published",
+        usage_summary="Lookup",
+        data_handling="Sends query to server",
+        restrictions={},
+    )
+    db_session.add(listing)
+    await db_session.flush()
+    installation = ToolInstallation(
+        listing_id=listing.id,
+        owner_id=owner.id,
+        installed_by=owner.id,
+        status="installed",
+        version_policy="pinned",
+    )
+    db_session.add(installation)
+    await db_session.flush()
+    grant = ExternalToolGrant(
+        agent_id=agent["id"],
+        installation_id=installation.id,
+        tool_version_id=version.id,
+        permission_snapshot=["records.read"],
+        schema_snapshot={"input": version.input_schema, "output": None},
+        status="active",
+        granted_by=owner.id,
+    )
+    db_session.add(grant)
+    await db_session.commit()
+
+    response = await _assign(
+        client,
+        headers,
+        request["id"],
+        {"assignee_type": "agent", "assignee_id": agent["id"]},
+    )
+    assert response.status_code == 202, response.text
+    snapshot = await db_session.scalar(
+        select(RunExternalToolSnapshot).where(RunExternalToolSnapshot.run_id == response.json()["run_id"])
+    )
+    assert snapshot is not None
+    assert snapshot.grant_id == grant.id
+    assert snapshot.tool_version_id == version.id
+    assert snapshot.version == "1.2.3+snapshot"
+    assert snapshot.schema_snapshot == {"input": version.input_schema, "output": None}
