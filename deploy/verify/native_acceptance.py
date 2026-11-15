@@ -296,6 +296,20 @@ class NativeRunner:
                        "--base", f"http://127.0.0.1:{self.env['AW_VERIFY_PORT']}",
                        "--suite", suite, "--timeout", "240", "--poll-interval", "0.5"], timeout=900)
 
+    def live_sandbox_count(self) -> int:
+        # High-level list() inspects each container after listing; an execution
+        # reclaimed between those calls raises NotFound and corrupts the sample.
+        # Use a single daemon snapshot, still failing on real query/schema errors.
+        containers = self.client.api.containers(filters={"label": "aw.managed=true", "status": "running"})
+        require(isinstance(containers, list), "invalid live-container snapshot")
+        count = 0
+        for container in containers:
+            names = container.get("Names")
+            require(isinstance(names, list) and names and all(isinstance(name, str) for name in names)
+                    and container.get("State") == "running", "invalid running-container summary")
+            count += any(name.lstrip("/").startswith(self.prefix + "-") and name.endswith("-c") for name in names)
+        return count
+
     def performance(self) -> None:
         observed: list[int] = []
         errors: list[str] = []
@@ -304,9 +318,7 @@ class NativeRunner:
         def observe() -> None:
             while not stop.is_set():
                 try:
-                    containers = self.client.containers.list(filters={"label": "aw.managed=true", "status": "running"})
-                    count = sum(c.name.startswith(self.prefix + "-") and c.name.endswith("-c") for c in containers)
-                    observed.append(count)
+                    observed.append(self.live_sandbox_count())
                 except Exception as exc:
                     errors.append(type(exc).__name__)
                 stop.wait(.1)

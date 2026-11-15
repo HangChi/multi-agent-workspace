@@ -380,6 +380,29 @@ class NativeIsolationTests(unittest.TestCase):
                         runner.run_suite(suite, ['never-executed'], runtime=True)
                     self.assertEqual(runner.results[-1]['passed'], count >= required)
 
+    def test_live_concurrency_uses_one_daemon_snapshot_without_inspect_races(self):
+        runner = object.__new__(native.NativeRunner)
+        runner.prefix = 'aw002ci-123-1-sbx'
+        runner.client = MagicMock()
+        runner.client.api.containers.return_value = [
+            {'Names': ['/aw002ci-123-1-sbx-a-c'], 'State': 'running'},
+            {'Names': ['/aw002ci-123-1-sbx-b-c', '/alias'], 'State': 'running'},
+            {'Names': ['/aw002ci-123-1-sbx-a-c-storage'], 'State': 'running'},
+            {'Names': ['/unrelated-a-c'], 'State': 'running'},
+        ]
+        self.assertEqual(runner.live_sandbox_count(), 2)
+        runner.client.api.containers.assert_called_once_with(
+            filters={'label': 'aw.managed=true', 'status': 'running'})
+        runner.client.containers.list.assert_not_called()
+
+    def test_live_concurrency_snapshot_error_is_not_ignored(self):
+        runner = object.__new__(native.NativeRunner)
+        runner.prefix = 'aw002ci-123-1-sbx'
+        runner.client = MagicMock()
+        runner.client.api.containers.side_effect = RuntimeError('controlled daemon failure')
+        with self.assertRaises(RuntimeError):
+            runner.live_sandbox_count()
+
     def test_cleanup_never_adopts_rejected_existing_project(self):
         runner = object.__new__(native.NativeRunner)
         runner.started_stack = False
