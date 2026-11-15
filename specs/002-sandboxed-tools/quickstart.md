@@ -63,9 +63,9 @@ docker exec aw-worker python -c 'import docker; print(docker.from_env().version(
 4. 迁移校验（存量数据）：
    ```sql
    -- 迁移后不应再有旧名
-   SELECT count(*) FROM agents WHERE tools ?| array['web_fetch','shell','http','code_interpreter'];
+   SELECT count(*) FROM agents WHERE tools::jsonb ?| array['web_fetch','shell','http','code_interpreter'];
    -- 期望 0
-   SELECT count(*) FROM agents WHERE tools ? 'read_url' OR tools ? 'run_shell' OR tools ? 'run_python';
+   SELECT count(*) FROM agents WHERE tools::jsonb ?| array['read_url','run_shell','run_python'];
    -- 期望 = 迁移前勾选了对应旧名的 Agent 数（迁移日志里核对）
    ```
 5. 历史快照不被篡改：取一条 001 时期的运行，`steps.tool_name` 仍是旧名（如 `web_fetch`）。
