@@ -53,7 +53,7 @@ async def overview(db: AsyncSession, owner_id: str, *, cache: bool = False) -> d
     """Return one owner-scoped aggregate without loading run/execution payloads.
 
     ``cache`` is reserved for the high-frequency dashboard endpoint. It is a
-    bounded 5-second snapshot and is disabled by test callers, which retain
+    bounded 15-second snapshot and is disabled by test callers, which retain
     exact read-after-write semantics.
     """
     use_cache = cache and os.getenv("TESTING") != "1"
