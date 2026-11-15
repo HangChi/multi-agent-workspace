@@ -526,5 +526,6 @@ def test_network_failure_decoder_rejects_unbound_or_malformed_helper_output():
     valid = json.dumps({"aw_net_failure": 1, "execution_id": EID,
                         "stage": "policy_install", "code": "nft_syntax"})
     assert _finite_network_failure(valid, EID) == "network_failure[policy_install,nft_syntax]"
+    assert _finite_network_failure(iter([valid.encode()]), EID) == "network_failure[policy_install,nft_syntax]"
     assert _finite_network_failure(valid.replace(EID, "other"), EID) is None
     assert _finite_network_failure(valid.replace("nft_syntax", "secret"), EID) is None

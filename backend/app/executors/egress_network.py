@@ -74,7 +74,22 @@ def finite_error_token(failure: BaseException) -> str | None:
 
 def _finite_network_failure(output: Any, execution_id: str) -> str | None:
     """Decode one trusted helper event without exposing helper output."""
-    if not isinstance(output, (bytes, str)) or len(output) > 131072:
+    if not isinstance(output, (bytes, str)):
+        try:
+            chunks: list[bytes] = []
+            size = 0
+            for chunk in output:
+                if not isinstance(chunk, (bytes, str)):
+                    return None
+                encoded = chunk.encode() if isinstance(chunk, str) else chunk
+                size += len(encoded)
+                if size > 131072:
+                    return None
+                chunks.append(encoded)
+            output = b"".join(chunks)
+        except (OSError, TypeError, ValueError):
+            return None
+    if len(output) > 131072:
         return None
     text = output.decode("utf-8", "replace") if isinstance(output, bytes) else output
     for line in text.splitlines():
