@@ -226,15 +226,24 @@ class Mediator:
     def resolve(self, q: Question, deadline: float) -> bytes:
         upstream = str(ipaddress.ip_address(self.config["upstream_ip"]))
         kind = socket.AF_INET6 if ":" in upstream else socket.AF_INET
-        remaining = min(1.0, deadline - time.monotonic())
-        if remaining <= 0:
-            raise PolicyError("DNS resolution deadline exceeded")
-        with socket.socket(kind, socket.SOCK_DGRAM) as conn:
-            conn.settimeout(remaining)
-            conn.connect((upstream, 53))
-            conn.send(q.wire())
-            data = conn.recv(MAX_WIRE + 1)
-        return data
+        wire = q.wire()
+        last_timeout: TimeoutError | None = None
+        # A single lost UDP request must not turn a healthy mediator into a
+        # failure while keeping the total resolver budget bounded by the query
+        # deadline. Every attempt remains finite and fail-closed on exhaustion.
+        for _ in range(2):
+            remaining = min(1.0, deadline - time.monotonic())
+            if remaining <= 0:
+                break
+            try:
+                with socket.socket(kind, socket.SOCK_DGRAM) as conn:
+                    conn.settimeout(remaining)
+                    conn.connect((upstream, 53))
+                    conn.send(wire)
+                    return conn.recv(MAX_WIRE + 1)
+            except TimeoutError as exc:
+                last_timeout = exc
+        raise last_timeout or PolicyError("DNS resolution deadline exceeded")
 
     def process(self, wire: bytes, peer: str, *, protocol: str = "udp", source_port: int = 0) -> bytes | None:
         q = None

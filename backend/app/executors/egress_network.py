@@ -27,7 +27,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from docker.errors import APIError, DockerException
+from docker.errors import APIError, ContainerError, DockerException
 from docker.types import LogConfig
 
 from app.core.config import settings
@@ -50,6 +50,12 @@ _DNS_DIAGNOSTIC_CODES = frozenset({
     "helper_not_ready", "health_expired", "helper_paused", "helper_oom", "diagnostic_invalid",
     "capture_exited", "capture_incomplete", "capture_truncated",
 })
+_NETWORK_DIAGNOSTIC_STAGES = frozenset({"policy_install"})
+_NETWORK_DIAGNOSTIC_CODES = frozenset({
+    "permission_denied", "address_in_use", "address_unavailable", "missing_executable",
+    "invalid_argument", "no_space_left", "operation_timeout", "nft_syntax",
+    "nft_feature_unavailable", "nft_transaction_failed",
+})
 
 
 class NetworkPolicyError(RuntimeError):
@@ -57,12 +63,33 @@ class NetworkPolicyError(RuntimeError):
 
 
 def finite_error_token(failure: BaseException) -> str | None:
-    """Return only a canonical allowlisted diagnostic, never exception text."""
+    """Return only a canonical DNS diagnostic, never exception text."""
     if not isinstance(failure, NetworkPolicyError):
         return None
     match = re.fullmatch(r"dns_failure\[([a-z_]{1,40}),([a-z_]{1,40})\]", str(failure)[:128])
     if match and match[1] in _DNS_DIAGNOSTIC_STAGES and match[2] in _DNS_DIAGNOSTIC_CODES:
         return f"dns_failure[{match[1]},{match[2]}]"
+    return None
+
+
+def _finite_network_failure(output: Any, execution_id: str) -> str | None:
+    """Decode one trusted helper event without exposing helper output."""
+    if not isinstance(output, (bytes, str)) or len(output) > 131072:
+        return None
+    text = output.decode("utf-8", "replace") if isinstance(output, bytes) else output
+    for line in text.splitlines():
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except (TypeError, ValueError):
+            continue
+        if (isinstance(event, dict) and event.get("aw_net_failure") == 1
+                and event.get("execution_id") == execution_id
+                and event.get("stage") in _NETWORK_DIAGNOSTIC_STAGES
+                and event.get("code") in _NETWORK_DIAGNOSTIC_CODES
+                and set(event) == {"aw_net_failure", "execution_id", "stage", "code"}):
+            return f"network_failure[{event['stage']},{event['code']}]"
     return None
 
 
@@ -634,6 +661,11 @@ class NetworkCapture:
                 mem_limit="64m", memswap_limit="64m", pids_limit=32,
             )
             return result if isinstance(result, bytes) else bytes(result or b"")
+        except ContainerError as exc:
+            token = _finite_network_failure(getattr(exc, "output", None), self.execution_id)
+            if token:
+                raise NetworkPolicyError(token) from exc
+            raise NetworkPolicyError(f"network policy command failed: {command[0]}") from exc
         except (APIError, DockerException, OSError) as exc:
             raise NetworkPolicyError(f"network policy command failed: {command[0]}") from exc
 
@@ -643,7 +675,8 @@ class NetworkCapture:
         # One fixed helper, not one Docker container PER firewall rule. The helper
         # executes bounded argv arrays, without shell parsing or interpolation.
         payload = base64.b64encode(json.dumps({
-            "commands": list(commands), "best_effort": best_effort, "nft_script": nft_script,
+            "execution_id": self.execution_id, "commands": list(commands),
+            "best_effort": best_effort, "nft_script": nft_script,
         }, separators=(",", ":")).encode()).decode()
         self._run_command(["python3", "/opt/aw/command_batch.py", payload])
 

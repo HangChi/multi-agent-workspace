@@ -15,7 +15,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 HELPERS = ROOT / "deploy" / "sbx-net"
 # The Docker build context owns this exact source; tests exercise it, not a copy.
-for module_name in ("domain_policy", "dns_mediator"):
+for module_name in ("domain_policy", "dns_mediator", "command_batch"):
     spec = importlib.util.spec_from_file_location(module_name, HELPERS / f"{module_name}.py")
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
@@ -501,3 +501,30 @@ def test_packet_audit_failure_is_distinct_from_gateway_health(status, stats, cod
     assert "secret" not in str(raised.value)
     watcher.remove.assert_called_once_with(force=True)
     assert capture.watcher is None
+
+
+def test_network_batch_failure_reports_only_finite_execution_bound_diagnostic(monkeypatch, capsys):
+    import command_batch
+
+    data = {"execution_id": EID, "commands": [], "best_effort": False}
+    failure = command_batch.subprocess.TimeoutExpired(["nft", "-f", "-"], 1)
+    monkeypatch.setattr(command_batch.subprocess, "run", Mock(side_effect=failure))
+    with pytest.raises(command_batch.subprocess.TimeoutExpired):
+        command_batch._run_checked(["nft", "-f", "-"], input_data=b"secret-rules",
+                                   timeout=1, data=data, stage="policy_install")
+    output = capsys.readouterr().out
+    assert json.loads(output) == {
+        "aw_net_failure": 1, "execution_id": EID,
+        "stage": "policy_install", "code": "operation_timeout",
+    }
+    assert "secret" not in output
+
+
+def test_network_failure_decoder_rejects_unbound_or_malformed_helper_output():
+    from app.executors.egress_network import _finite_network_failure
+
+    valid = json.dumps({"aw_net_failure": 1, "execution_id": EID,
+                        "stage": "policy_install", "code": "nft_syntax"})
+    assert _finite_network_failure(valid, EID) == "network_failure[policy_install,nft_syntax]"
+    assert _finite_network_failure(valid.replace(EID, "other"), EID) is None
+    assert _finite_network_failure(valid.replace("nft_syntax", "secret"), EID) is None

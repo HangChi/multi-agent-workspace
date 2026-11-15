@@ -91,10 +91,15 @@ def failure_evidence(failure: BaseException | str) -> dict[str, Any]:
     ) if matched), 'unknown')
     # Trusted helper diagnostics survive persisted/chained localized failures.
     # Both fields must be finite enums; arbitrary marker contents never escape.
-    for match in re.finditer(r'dns_failure\[([a-z_]{1,40}),([a-z_]{1,40})\]', text):
-        if match[1] in ERROR_STAGES and match[2] in ERROR_CODES:
-            stage, code = match[1], match[2]
-            break
+    for pattern in (r'dns_failure\[([a-z_]{1,40}),([a-z_]{1,40})\]',
+                    r'network_failure\[([a-z_]{1,40}),([a-z_]{1,40})\]'):
+        for match in re.finditer(pattern, text):
+            if match[1] in ERROR_STAGES and match[2] in ERROR_CODES:
+                stage, code = match[1], match[2]
+                break
+        else:
+            continue
+        break
     result: dict[str, Any] = {
         'error_stage': stage, 'error_code': code, 'error_type': chain[0] if chain else 'OtherError',
         'error_chain': chain,
