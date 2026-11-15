@@ -692,6 +692,12 @@ class SandboxRun:
             self._logs(container, stderr=True), settings.sbx_stdout_max_bytes
         )
 
+        # wait() returns an exit code but does not refresh the SDK's cached attrs.
+        # Without reload, OOMKilled remains the value from container creation.
+        try:
+            container.reload()
+        except (APIError, DockerException) as exc:
+            logger.warning("执行 %s 刷新退出状态失败：%s", self.execution_id, exc)
         attrs = getattr(container, "attrs", None) or {}
         state = attrs.get("State") or {}
         cpu_ms, mem_peak = self._sample_stats(container)

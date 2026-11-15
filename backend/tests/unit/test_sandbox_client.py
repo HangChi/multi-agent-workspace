@@ -280,6 +280,18 @@ class TestOutcomeFields:
         assert outcome.oom_killed is True
         assert outcome.exit_code == 137
 
+    def test_exit_state_is_reloaded_after_wait(self, fake_docker) -> None:
+        fake_docker.exit_code = 137
+        create = fake_docker.containers.create
+
+        def create_with_stale_state(image: str, **kwargs):
+            container = create(image, **kwargs)
+            container.reload = lambda: container.attrs["State"].update(OOMKilled=True)
+            return container
+
+        fake_docker.containers.create = create_with_stale_state
+        assert _run().execute().oom_killed is True
+
     def test_nonzero_exit_code_preserved(self, fake_docker) -> None:
         fake_docker.exit_code = 2
         outcome = _run().execute()
