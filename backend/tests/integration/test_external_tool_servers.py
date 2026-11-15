@@ -32,7 +32,7 @@ async def test_server_create_list_detail_update_and_validate(client, make_header
     assert created["credentials"][0]["label"] == "team-search-prod"
     server_id = created["id"]
 
-    listing = await client.get("/api/v1/external-tool-servers", headers=headers)
+    listing = await client.get("/api/v1/external-tool-servers?q=Team%20Search", headers=headers)
     assert listing.status_code == 200
     assert listing.json()["total"] == 1
     assert "canary-secret-value" not in listing.text

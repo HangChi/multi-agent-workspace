@@ -17,6 +17,7 @@ from app.api.v1.agents import router as agents_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.external_tool_servers import router as external_tool_servers_router
 from app.api.v1.groups import router as groups_router
+from app.api.v1.marketplace import router as marketplace_router
 from app.api.v1.requests import router as requests_router
 from app.api.v1.runs import router as runs_router
 from app.api.v1.stats import router as stats_router
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
     api_v1.include_router(agents_router)
     api_v1.include_router(agent_egress_router)
     api_v1.include_router(groups_router)
+    api_v1.include_router(marketplace_router)
     api_v1.include_router(external_tool_servers_router)
     api_v1.include_router(requests_router)
     api_v1.include_router(runs_router)

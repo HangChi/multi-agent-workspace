@@ -68,19 +68,19 @@ description: "Implementation tasks for external MCP tools and governed marketpla
 
 ### Tests first
 
-- [ ] T024 [P] [US2] Add contract tests for marketplace listing/detail/search filters and approve/reject/pause/revoke transitions in `backend/tests/integration/test_marketplace.py`.
-- [ ] T025 [P] [US2] Add authorization tests for admin/reviewer/member/viewer visibility and reason-required negative transitions in `backend/tests/integration/test_marketplace_permissions.py`.
+- [X] T024 [P] [US2] Add contract tests for marketplace listing/detail/search filters and approve/reject/pause/revoke transitions in `backend/tests/integration/test_marketplace.py`.
+- [X] T025 [P] [US2] Add authorization tests for admin/reviewer/member/viewer visibility and reason-required negative transitions in `backend/tests/integration/test_marketplace_permissions.py`.
 
 ### Implementation
 
-- [ ] T026 [US2] Implement listing/review service with validation gate, immutable version references, lifecycle transitions, reason validation, and strict audit in `backend/app/services/marketplace_service.py`.
-- [ ] T027 [US2] Implement published listing query with bounded keyword/category/capability/version filters in `backend/app/services/marketplace_query_service.py`.
-- [ ] T028 [US2] Implement marketplace browse/detail and governance endpoints in `backend/app/api/v1/marketplace.py` and register router in `backend/app/main.py`.
-- [ ] T029 [US2] Add frontend marketplace DTOs, query/mutation wrappers, and invalidation keys in `frontend/src/api/endpoints.ts`.
-- [ ] T030 [US2] Build member marketplace filters, listing cards, detail/install entry point, empty/error states in `frontend/src/pages/MarketplacePage.tsx` and `frontend/src/components/marketplace/`.
-- [ ] T031 [US2] Build admin server/listing review controls with confirmation reasons and safe status projections in `frontend/src/components/admin/ExternalToolServers.tsx` and `frontend/src/pages/AdminPage.tsx`.
-- [ ] T032 [US2] Wire marketplace route/navigation and role visibility in `frontend/src/router.tsx` and `frontend/src/components/layout/AppLayout.tsx`.
-- [ ] T033 [P] [US2] Add frontend tests for listing visibility, filters, governance actions, and secret absence in `frontend/src/tests/marketplace.test.tsx`.
+- [X] T026 [US2] Implement listing/review service with validation gate, immutable version references, lifecycle transitions, reason validation, and strict audit in `backend/app/services/marketplace_service.py`.
+- [X] T027 [US2] Implement published listing query with bounded keyword/category/capability/version filters in `backend/app/services/marketplace_query_service.py`.
+- [X] T028 [US2] Implement marketplace browse/detail and governance endpoints in `backend/app/api/v1/marketplace.py` and register router in `backend/app/main.py`.
+- [X] T029 [US2] Add frontend marketplace DTOs, query/mutation wrappers, and invalidation keys in `frontend/src/api/endpoints.ts`.
+- [X] T030 [US2] Build member marketplace filters, listing cards, detail/install entry point, empty/error states in `frontend/src/pages/MarketplacePage.tsx` and `frontend/src/components/marketplace/`.
+- [X] T031 [US2] Build admin server/listing review controls with confirmation reasons and safe status projections in `frontend/src/components/admin/ExternalToolServers.tsx` and `frontend/src/pages/AdminPage.tsx`.
+- [X] T032 [US2] Wire marketplace route/navigation and role visibility in `frontend/src/router.tsx` and `frontend/src/components/layout/AppLayout.tsx`.
+- [X] T033 [P] [US2] Add frontend tests for listing visibility, filters, governance actions, and secret absence in `frontend/src/pages/__tests__/MarketplacePage.test.tsx`.
 
 **Checkpoint**: US2 independent market/review test passes; commit Phase 4.
 

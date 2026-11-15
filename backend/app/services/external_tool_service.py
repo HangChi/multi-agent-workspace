@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.errors import AppError
 from app.executors.mcp_security import validate_endpoint
-from app.models.external_tool import ExternalToolServer
+from app.models.external_tool import ExternalToolServer, ExternalToolVersion
 from app.schemas.external_tool import ExternalServerCreate, ExternalServerUpdate
 from app.services.external_audit_service import write_external_audit
 from app.services.external_credential_service import create_credential
@@ -34,6 +34,24 @@ def _safe_server(server: ExternalToolServer) -> dict:
         "updated_at": server.updated_at.isoformat() if server.updated_at else datetime.now(UTC).isoformat(),
         "last_validated_at": server.last_validated_at.isoformat() if server.last_validated_at else None,
         "current_validation_status": server.current_validation_status,
+        "tools": [
+            {
+                "id": tool.id,
+                "external_name": tool.external_name,
+                "stable_name": tool.stable_name,
+                "version": tool.version,
+                "description": tool.description,
+                "input_schema": tool.input_schema,
+                "output_schema": tool.output_schema,
+                "required_permissions": tool.required_permissions,
+                "definition_hash": tool.definition_hash,
+                "availability": tool.availability,
+                "discovered_at": tool.discovered_at,
+                "listing_id": tool.listings[0].id if tool.listings else None,
+                "listing_status": tool.listings[0].status if tool.listings else None,
+            }
+            for tool in server.tools
+        ],
         "credentials": [
             {
                 "id": credential.id,
@@ -125,7 +143,9 @@ async def list_servers(
     total = int((await db.execute(select(func.count()).select_from(ExternalToolServer).where(*filters))).scalar_one())
     rows = (await db.execute(
         select(ExternalToolServer).options(
-            selectinload(ExternalToolServer.credentials), selectinload(ExternalToolServer.validations)
+            selectinload(ExternalToolServer.credentials),
+            selectinload(ExternalToolServer.validations),
+            selectinload(ExternalToolServer.tools).selectinload(ExternalToolVersion.listings),
         ).where(*filters).order_by(ExternalToolServer.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
     )).scalars().all()
     return [_safe_server(row) for row in rows], total

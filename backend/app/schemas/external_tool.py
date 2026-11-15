@@ -91,6 +91,7 @@ class ExternalServerOut(BaseModel):
     last_validated_at: datetime | None
     current_validation_status: str | None
     credentials: list[CredentialOut] = Field(default_factory=list)
+    tools: list[dict[str, Any]] = Field(default_factory=list)
     last_validation: ValidationSummary | None = None
 
 
@@ -123,7 +124,7 @@ class ListingOut(BaseModel):
     permissions: list[str] = Field(default_factory=list)
     restrictions: dict[str, Any] = Field(default_factory=dict)
     status: str
-    validated_at: str | None = None
+    validated_at: datetime | None = None
 
 
 class ListingList(BaseModel):

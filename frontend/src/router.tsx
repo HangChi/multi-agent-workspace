@@ -13,6 +13,7 @@ import { BoardPage } from './pages/BoardPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { GroupPage } from './pages/GroupPage'
 import { LoginPage } from './pages/LoginPage'
+import { MarketplacePage } from './pages/MarketplacePage'
 import { RegisterPage } from './pages/RegisterPage'
 import { RunDetailPage } from './pages/RunDetailPage'
 
@@ -87,6 +88,7 @@ export function AppRouter() {
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="agents" element={<AgentPage />} />
         <Route path="groups" element={<GroupPage />} />
+        <Route path="marketplace" element={<MarketplacePage />} />
         <Route path="runs/:runId" element={<RunDetailPage />} />
         <Route
           path="admin"

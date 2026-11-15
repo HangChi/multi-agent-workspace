@@ -78,6 +78,112 @@ export async function fetchTools(): Promise<ToolList> {
   return data
 }
 
+// ---------- 外部 MCP 工具市场（003 US2）----------
+
+export interface MarketplaceListing {
+  listing_id: string
+  tool_version_id: string
+  stable_name: string
+  display_name: string
+  description: string
+  server_name: string
+  version: string
+  permissions: string[]
+  restrictions: Record<string, unknown>
+  status: 'published' | 'paused' | 'rejected' | 'revoked' | 'pending_review'
+  validated_at: string | null
+}
+
+export interface MarketplaceList {
+  items: MarketplaceListing[]
+  total: number
+}
+
+export interface MarketplaceQuery {
+  q?: string
+  category?: string
+  capability?: string
+  maintainer?: string
+  version?: string
+  page?: number
+  page_size?: number
+}
+
+export interface ReviewDecision {
+  reason: string
+}
+
+export async function fetchMarketplaceTools(query: MarketplaceQuery = {}): Promise<MarketplaceList> {
+  const { data } = await apiClient.get<MarketplaceList>('/marketplace/tools', { params: query })
+  return data
+}
+
+export async function fetchMarketplaceTool(listingId: string): Promise<MarketplaceListing> {
+  const { data } = await apiClient.get<MarketplaceListing>(`/marketplace/tools/${listingId}`)
+  return data
+}
+
+export async function approveExternalTool(
+  serverId: string,
+  versionId: string,
+  payload: ReviewDecision,
+): Promise<MarketplaceListing> {
+  const { data } = await apiClient.post<MarketplaceListing>(
+    `/external-tool-servers/${serverId}/tools/${versionId}/approve`,
+    payload,
+  )
+  return data
+}
+
+export async function rejectExternalTool(
+  serverId: string,
+  versionId: string,
+  payload: ReviewDecision,
+): Promise<MarketplaceListing> {
+  const { data } = await apiClient.post<MarketplaceListing>(
+    `/external-tool-servers/${serverId}/tools/${versionId}/reject`,
+    payload,
+  )
+  return data
+}
+
+export async function pauseMarketplaceTool(listingId: string, payload: ReviewDecision): Promise<MarketplaceListing> {
+  const { data } = await apiClient.post<MarketplaceListing>(`/marketplace/tools/${listingId}/pause`, payload)
+  return data
+}
+
+export async function revokeMarketplaceTool(listingId: string, payload: ReviewDecision): Promise<MarketplaceListing> {
+  const { data } = await apiClient.post<MarketplaceListing>(`/marketplace/tools/${listingId}/revoke`, payload)
+  return data
+}
+
+export interface ExternalToolVersion {
+  id: string
+  external_name: string
+  stable_name: string
+  version: string
+  description: string
+  availability: string
+  required_permissions: string[]
+  listing_id: string | null
+  listing_status: string | null
+}
+
+export interface ExternalServer {
+  id: string
+  name: string
+  endpoint_url: string
+  maintainer: string
+  status: string
+  current_validation_status: string | null
+  tools: ExternalToolVersion[]
+}
+
+export async function fetchExternalServers(): Promise<{ items: ExternalServer[]; total: number }> {
+  const { data } = await apiClient.get<{ items: ExternalServer[]; total: number }>('/external-tool-servers')
+  return data
+}
+
 // ---------- Agent（T037）----------
 
 export interface Agent {

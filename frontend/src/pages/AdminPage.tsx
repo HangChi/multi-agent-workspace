@@ -12,6 +12,7 @@ import {
   fetchBlacklist,
   fetchEgressAccesses,
 } from '../api/endpoints'
+import { ExternalToolServers } from '../components/admin/ExternalToolServers'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Card, IconTile } from '../components/ui/Card'
@@ -360,6 +361,8 @@ export function AdminPage() {
           </div>
         </div>
       </Card>
+
+      <ExternalToolServers />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>

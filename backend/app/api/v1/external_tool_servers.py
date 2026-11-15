@@ -10,8 +10,10 @@ from app.schemas.external_tool import (
     ExternalServerList,
     ExternalServerOut,
     ExternalServerUpdate,
+    ListingOut,
+    ReviewDecision,
 )
-from app.services import external_tool_service
+from app.services import external_tool_service, marketplace_service
 from app.tasks.validate_external_server import validate_external_server
 
 router = APIRouter(prefix="/external-tool-servers", tags=["external-tools"])
@@ -59,3 +61,31 @@ async def validate_external_server_endpoint(server_id: str, user: CurrentUser, _
     await external_tool_service.get_server(db, server_id=server_id, owner_id=user.id, is_admin=True)
     task = validate_external_server.delay(server_id, user.id)
     return {"status": "queued", "task_id": getattr(task, "id", None)}
+
+
+@router.post("/{server_id}/tools/{tool_version_id}/approve", response_model=ListingOut)
+async def approve_external_tool(
+    server_id: str,
+    tool_version_id: str,
+    payload: ReviewDecision,
+    _reviewer: AdminUser,
+    db: DB,
+    user: CurrentUser,
+):
+    return await marketplace_service.approve_listing(
+        db, server_id=server_id, tool_version_id=tool_version_id, reviewer_id=user.id, reason=payload.reason
+    )
+
+
+@router.post("/{server_id}/tools/{tool_version_id}/reject", response_model=ListingOut)
+async def reject_external_tool(
+    server_id: str,
+    tool_version_id: str,
+    payload: ReviewDecision,
+    _reviewer: AdminUser,
+    db: DB,
+    user: CurrentUser,
+):
+    return await marketplace_service.reject_listing(
+        db, server_id=server_id, tool_version_id=tool_version_id, reviewer_id=user.id, reason=payload.reason
+    )
