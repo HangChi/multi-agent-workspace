@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.api.errors import AppError
-from app.models.agent import Agent
 from app.models.external_credential import ExternalCredential
 from app.models.external_tool import (
     ExternalToolGrant,
@@ -15,6 +14,7 @@ from app.models.external_tool import (
     MarketplaceListing,
     ToolInstallation,
 )
+from app.services.agent_service import get_agent
 from app.services.external_audit_service import write_external_audit
 
 
@@ -107,11 +107,7 @@ async def create_grant(
     credential_id: str | None,
     permissions: list[str],
 ) -> ExternalToolGrant:
-    agent = await db.get(Agent, agent_id)
-    if agent is None:
-        raise AppError("NOT_FOUND", "Agent 不存在")
-    if agent.owner_id != user_id:
-        raise AppError("FORBIDDEN", "无权授权他人的 Agent")
+    await get_agent(db, agent_id, user_id)
     installation = await db.scalar(
         select(ToolInstallation)
         .options(joinedload(ToolInstallation.listing).joinedload(MarketplaceListing.tool_version))
@@ -186,11 +182,7 @@ async def get_grant(db: AsyncSession, *, grant_id: str) -> ExternalToolGrant:
 
 
 async def list_agent_grants(db: AsyncSession, *, agent_id: str, user_id: str) -> list[dict]:
-    agent = await db.get(Agent, agent_id)
-    if agent is None:
-        raise AppError("NOT_FOUND", "Agent 不存在")
-    if agent.owner_id != user_id:
-        raise AppError("FORBIDDEN", "无权查看他人的 Agent 授权")
+    await get_agent(db, agent_id, user_id)
     rows = (await db.execute(
         select(ExternalToolGrant)
         .options(joinedload(ExternalToolGrant.tool_version), joinedload(ExternalToolGrant.credential), joinedload(ExternalToolGrant.installation))
@@ -211,11 +203,7 @@ async def list_agent_grants(db: AsyncSession, *, agent_id: str, user_id: str) ->
 
 
 async def revoke_grant(db: AsyncSession, *, agent_id: str, grant_id: str, user_id: str) -> None:
-    agent = await db.get(Agent, agent_id)
-    if agent is None:
-        raise AppError("NOT_FOUND", "Agent 不存在")
-    if agent.owner_id != user_id:
-        raise AppError("FORBIDDEN", "无权撤销他人的 Agent 授权")
+    await get_agent(db, agent_id, user_id)
     grant = await db.scalar(select(ExternalToolGrant).where(
         ExternalToolGrant.id == grant_id,
         ExternalToolGrant.agent_id == agent_id,
