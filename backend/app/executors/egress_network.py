@@ -681,9 +681,16 @@ class NetworkCapture:
             )
             return result if isinstance(result, bytes) else bytes(result or b"")
         except ContainerError as exc:
-            token = _finite_network_failure(
-                getattr(exc, "stderr", None) or getattr(exc, "output", None), self.execution_id,
-            )
+            # Docker SDK 7.x may expose stderr as an empty-but-truthy log
+            # generator while retaining the bounded event on ``output``.
+            # Consume each trusted stream at most once; never stringify the
+            # exception or propagate helper output.
+            token = None
+            for stream in (getattr(exc, "stderr", None), getattr(exc, "output", None)):
+                if stream is not None:
+                    token = _finite_network_failure(stream, self.execution_id)
+                    if token:
+                        break
             if token:
                 raise NetworkPolicyError(token) from exc
             raise NetworkPolicyError(f"network policy command failed: {command[0]}") from exc
