@@ -18,7 +18,6 @@ x-app-env: &app-env
   LLM_API_KEY: mock-only
   LLM_MODEL: gpt-4o-mini
   LLM_BASE_URL: http://llm-gateway:4000/v1
-  DB_POOL: 'null'
   SEARCH_API_URL: http://llm-gateway:4000/search
   AW_VERIFY_CI: ${AW_VERIFY_CI:-0}
   AW_VERIFY_USER_PASSWORD: ${AW_VERIFY_USER_PASSWORD:-}
@@ -106,7 +105,10 @@ services:
   worker: &worker
     image: aw-worker:latest
     command: celery -A app.tasks.celery_app:celery_app worker --loglevel=warning --concurrency=${AW_VERIFY_WORKERS:-2} --prefetch-multiplier=1
-    environment: *app-env
+    environment: &worker-env
+      <<: *app-env
+      # Tasks create a fresh asyncio loop; only Workers must disable pooling.
+      DB_POOL: 'null'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     group_add:
@@ -123,14 +125,14 @@ services:
     <<: *worker
     profiles: [faults]
     environment:
-      <<: *app-env
+      <<: *worker-env
       SBX_IMAGE: aw-verify-deliberately-missing:002
       SBX_ALLOWED_IMAGES: aw-verify-deliberately-missing:002
   worker-quota:
     <<: *worker
     profiles: [faults]
     environment:
-      <<: *app-env
+      <<: *worker-env
       SBX_MAX_CONCURRENCY: '1'
   frontend:
     image: aw-frontend:latest
