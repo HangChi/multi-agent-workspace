@@ -54,6 +54,20 @@ class SafeFailureEvidenceTests(unittest.TestCase):
             self.assertIn(facts['error_code'], runtime.ERROR_CODES)
             self.assertNotIn('SECRET', json.dumps(facts))
 
+    def test_network_precondition_failures_have_finite_codes(self):
+        for message, code in (
+            ('DNS proxy has no address on sandbox network', 'dns_endpoint_missing'),
+            ('Docker network has no bridge interface', 'bridge_unavailable'),
+            ('domain DNS mediator requires execution bridge IPv4 gateway', 'gateway_missing'),
+            ('IPv6-enabled network has no observable DNS endpoint for source reservation', 'ipv6_endpoint_missing'),
+        ):
+            with self.subTest(code=code):
+                facts = runtime.failure_evidence(RuntimeError(message + ' SECRET'))
+                self.assertEqual(facts['error_stage'], 'policy_install')
+                self.assertEqual(facts['error_code'], code)
+                self.assertIn(code, runtime.ERROR_CODES)
+                self.assertNotIn('SECRET', json.dumps(facts))
+
     def test_exception_names_and_status_are_allowlisted(self):
         failure = type('secret_exception_type', (RuntimeError,), {})('secret-message')
         failure.status_code = 503

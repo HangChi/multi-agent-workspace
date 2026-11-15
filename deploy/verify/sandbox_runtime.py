@@ -40,6 +40,7 @@ ERROR_CODES = frozenset({
     'nft_feature_unavailable', 'nft_transaction_failed', 'helper_exited',
     'helper_not_ready', 'health_expired', 'helper_paused', 'helper_oom', 'diagnostic_invalid',
     'capture_exited', 'capture_incomplete', 'capture_truncated',
+    'dns_endpoint_missing', 'bridge_unavailable', 'gateway_missing', 'ipv6_endpoint_missing',
 })
 ERROR_TYPES = frozenset({
     'SandboxInfraError', 'NetworkPolicyError', 'APIError', 'DockerException',
@@ -89,6 +90,17 @@ def failure_evidence(failure: BaseException | str) -> dict[str, Any]:
         ('connection refused' in text, 'connection_refused'),
         (bool(statuses), 'docker_api_error'),
     ) if matched), 'unknown')
+    # Known preconditions have no chained daemon/helper exception. Classify only
+    # fixed application messages, never copy target/network/credential details.
+    for marker, value in (
+        ('dns proxy has no address on sandbox network', 'dns_endpoint_missing'),
+        ('docker network has no bridge interface', 'bridge_unavailable'),
+        ('domain dns mediator requires execution bridge ipv4 gateway', 'gateway_missing'),
+        ('ipv6-enabled network has no observable dns endpoint for source reservation', 'ipv6_endpoint_missing'),
+    ):
+        if marker in text:
+            stage, code = 'policy_install', value
+            break
     # Trusted helper diagnostics survive persisted/chained localized failures.
     # Both fields must be finite enums; arbitrary marker contents never escape.
     for pattern in (r'dns_failure\[([a-z_]{1,40}),([a-z_]{1,40})\]',
