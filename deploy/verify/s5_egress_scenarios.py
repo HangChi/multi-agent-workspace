@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import uuid
 
 from sandbox_runtime import docker_client, probe, report
@@ -32,6 +33,8 @@ def main() -> int:
     client = docker_client()
     fixture_id = str(uuid.uuid4())
     labels = {"aw.verify": "002-egress", "aw.execution": fixture_id}
+    if os.environ.get("AW_VERIFY_RUN_ID"):
+        labels["aw.verify_run"] = os.environ["AW_VERIFY_RUN_ID"]
     networks, containers, results = [], [], []
     try:
         import docker

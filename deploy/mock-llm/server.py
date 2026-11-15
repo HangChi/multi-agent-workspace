@@ -41,6 +41,71 @@ SANDBOX_CALLS = {
     ),
     # Deliberately absent from the advertised schemas in the denial scenario.
     "denied": ("run_shell", {"command": "printf 'UNAUTHORIZED_EXECUTION\\n'"}),
+    "denied_threshold": ("run_shell", {"command": "printf 'UNAUTHORIZED_EXECUTION\\n'"}),
+    "calculate": ("calculate", {"expression": "(100 * 101 * 201) / 6"}),
+    "web_search": ("web_search", {"query": "002 controlled search fixture"}),
+    "read_url": ("read_url", {"url": "https://example.com"}),
+    "output": ("run_python", {"code": (
+        "import os\n"
+        "os.write(1, b'X' * (3 * 1024 * 1024) + b'OUTPUT_TAIL\\n')\n"
+        "os.write(2, b'\\xff\\xfe' + b'BINARY_STDERR\\n')\n"
+    )}),
+    "artifact_files": ("run_python", {"code": (
+        "from pathlib import Path\n"
+        "for n in range(60):\n"
+        " Path(f'/workspace/output/file-{n:02}.txt').write_text(str(n))\n"
+        "print('artifact-files-written')\n"
+    )}),
+    "artifact_file_size": ("run_python", {"code": (
+        "from pathlib import Path\n"
+        "Path('/workspace/output/large.bin').write_bytes(b'A' * (21 * 1024 * 1024))\n"
+        "print('artifact-file-size-written')\n"
+    )}),
+    "artifact_total_size": ("run_python", {"code": (
+        "from pathlib import Path\n"
+        "for n in range(3):\n"
+        " Path(f'/workspace/output/total-{n}.bin').write_bytes(b'T' * (18 * 1024 * 1024))\n"
+        "print('artifact-total-written')\n"
+    )}),
+    "artifact_duplicate": ("run_python", {"code": (
+        "from pathlib import Path\n"
+        "for n in (1, 2):\n"
+        " p=Path(f'/workspace/output/dir{n}/same.bin'); p.parent.mkdir()\n"
+        " p.write_bytes(bytes([n]) * 128)\n"
+        "print('artifact-duplicates-written')\n"
+    )}),
+    "timeout": ("run_python", {"code": "import time\ntime.sleep(30)", "timeout_s": 2}),
+    "oom": ("run_python", {"code": (
+        "import time\nblocks=[]\n"
+        "for _ in range(96):\n blocks.append(bytearray(4 * 1024 * 1024)); time.sleep(.01)\n"
+    )}),
+    "disk": ("run_python", {"code": (
+        "with open('/workspace/output/full.bin','wb') as stream:\n"
+        " for _ in range(128): stream.write(b'X' * (1024 * 1024))\n"
+    )}),
+    "pids": ("run_python", {"code": (
+        "import subprocess\nchildren=[]\n"
+        "for _ in range(256): children.append(subprocess.Popen(['sleep','30']))\n"
+    )}),
+    "policy": ("run_python", {"code": (
+        "import socket\ns=socket.socket(); s.settimeout(.3)\n"
+        "s.connect(('169.254.169.254',80))\n"
+    )}),
+    "egress_domain": ("run_python", {"code": (
+        "import urllib.request\n"
+        "with urllib.request.urlopen('https://pypi.org/simple/pip/',timeout=10) as response:\n"
+        " assert response.status == 200; assert response.read(64)\n"
+        "print('domain-allowed')\n"
+    )}),
+    "egress_domain_denied": ("run_python", {"code": (
+        "import urllib.request\n"
+        "urllib.request.urlopen('https://example.com',timeout=5).read(64)\n"
+    )}),
+    "infra": ("run_python", {"code": "print('MUST_NOT_EXECUTE_INFRA')"}),
+    "sleep": ("run_python", {"code": "import time\ntime.sleep(3)\nprint('sleep-completed')"}),
+    "quota": ("run_python", {"code": "import time\ntime.sleep(65)\nprint('quota-completed')"}),
+    "cancel": ("run_python", {"code": "import time\nprint('cancel-started', flush=True)\ntime.sleep(60)"}),
+    "ws": ("run_python", {"code": "print('ws-output-evidence', flush=True)"}),
 }
 SANDBOX_MARKER = re.compile(r"\[sandbox:([a-z_]+)\]")
 
@@ -59,9 +124,13 @@ def sandbox_reply(messages, tools, last_user):
                 else "SANDBOX_SCENARIO_ERROR: unexpected tools"), None
     name, arguments = SANDBOX_CALLS[scenario]
     advertised = {tool.get("function", {}).get("name") for tool in tools}
-    if scenario != "denied" and name not in advertised:
-        return "SANDBOX_SCENARIO_ERROR: required tool not advertised", None
-    if not tool_messages:
+    if scenario not in {"denied", "denied_threshold"} and advertised != {name}:
+        return "SANDBOX_SCENARIO_ERROR: grants differ from requested singleton", None
+    if not tool_messages or scenario == "denied_threshold":
+        if scenario in {"ws", "cancel"} and not tool_messages:
+            # Gives the HTTP client time to finish the real WS subscription.
+            import time
+            time.sleep(1)
         return "", [{
             "id": f"call_sandbox_{scenario}_1",
             "type": "function",
@@ -88,9 +157,26 @@ def sandbox_reply(messages, tools, last_user):
                 "arguments": json.dumps({"code": "print('sandbox-recovered')"}),
             },
         }]
-    if output.get("ok") is not True or output.get("exit_code") != 0:
+    if scenario == "calculate":
+        confirmed = output.get("result") == 338350
+    elif scenario == "web_search":
+        confirmed = any(item.get("title") == "002 controlled search result"
+                        for item in output.get("results", []))
+    elif scenario == "read_url":
+        confirmed = output.get("status") == 200 and "Example Domain" in output.get("text", "")
+    elif scenario in {"timeout", "oom", "pids", "disk", "policy", "infra"}:
+        confirmed = output.get("ok") is False and output.get("error_category") == scenario
+    elif scenario == "egress_domain_denied":
+        confirmed = output.get("ok") is False and output.get("error_category") == "policy"
+    elif scenario == "quota" and output.get("error_category") == "resource_busy":
+        confirmed = output.get("ok") is False
+    else:
+        confirmed = output.get("ok") is True and output.get("exit_code") == 0
+    if not confirmed:
         return "SANDBOX_SCENARIO_ERROR: tool execution unsuccessful", None
-    return f"SANDBOX_{scenario.upper()}_OK: {output.get('stdout', '').strip()}", None
+    # Keep the final answer bounded even when stdout deliberately exceeds 3 MiB.
+    observed = str(output.get('stdout', output.get('result', ''))) [-256:].strip()
+    return f"SANDBOX_{scenario.upper()}_OK: {observed}", None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -100,6 +186,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             self._json(200, {"status": "ok"})
+        elif self.path.split("?", 1)[0] == "/search":
+            self._json(200, {"results": [{"title": "002 controlled search result",
+                                         "url": "https://example.com", "snippet": "fixture response"}]})
         else:
             self._json(404, {"error": "not found"})
 
@@ -112,7 +201,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length) or b"{}")
-        except Exception:
+        except (ValueError, TypeError, OSError):
             self._json(400, {"error": "bad json"})
             return
 

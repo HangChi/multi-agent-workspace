@@ -5,7 +5,7 @@ import argparse
 import time
 import uuid
 
-from sandbox_runtime import docker_client, report
+from sandbox_runtime import docker_client, record_execution_id, report
 
 DISK_CODE = '''
 import errno, pathlib
@@ -23,6 +23,8 @@ assert 0 < size <= 16 * 1048576, size
 p.unlink()
 pathlib.Path('/tmp/alias').write_text('shared')
 assert pathlib.Path('/workspace/alias').read_text() == 'shared'
+assert pathlib.Path('/dev/shm/alias').read_text() == 'shared'
+assert pathlib.Path('/dev/shm').stat().st_dev == pathlib.Path('/workspace').stat().st_dev
 try:
     pathlib.Path('/code/main.py').write_text('changed')
 except OSError as exc:
@@ -59,6 +61,7 @@ def main() -> int:
         for name, code in [('bounded workspace/output/tmp and readonly script', DISK_CODE),
                            ('live bounded stdout/stderr with exact byte counts', OUTPUT_CODE)]:
             eid = str(uuid.uuid4())
+            record_execution_id(eid)
             evidence = {'execution_id': eid}
             seen = {'stdout': 0, 'stderr': 0}
             started = time.monotonic()

@@ -156,7 +156,10 @@ class Verifier:
         require(names == {"web_search", "read_url", "calculate", "run_python", "run_shell"},
                 "enabled tool catalog does not match the five 002 tools")
 
-    async def execute(self, scenario: str, tools: list[str]) -> dict[str, Any]:
+    async def create_run(
+        self, scenario: str, tools: list[str], *, agent_options: dict[str, Any] | None = None,
+        egress_rules: list[dict[str, Any]] | None = None,
+    ) -> str:
         agent = (await self.request(
             "POST", "/agents", status=201, json={
                 "name": f"sandbox-verify-{scenario}-{uuid.uuid4().hex[:8]}",
@@ -164,9 +167,12 @@ class Verifier:
                 "model": self.args.model, "temperature": 0, "tools": tools,
                 "max_steps": 8, "max_run_seconds": max(60, int(self.args.timeout)),
                 "cost_limit_cents": 10000,
+                **(agent_options or {}),
             },
         )).json()
         require(agent["tools"] == tools, "agent tool grant was not persisted")
+        for rule in egress_rules or []:
+            await self.request("POST", f"/agents/{agent['id']}/egress-rules", status=201, json=rule)
         request = (await self.request(
             "POST", "/requests", status=201, json={
                 "title": f"002 sandbox {scenario} {uuid.uuid4().hex[:8]}",
@@ -181,15 +187,24 @@ class Verifier:
         run_id = assigned["run_id"]
         self.run_ids.append(run_id)
         print(f"INFO {scenario}: run={run_id}", flush=True)
+        return run_id
+
+    async def execute(self, scenario: str, tools: list[str]) -> dict[str, Any]:
+        run_id = await self.create_run(scenario, tools)
+        return await self.wait_run(run_id)
+
+    async def wait_run(
+        self, run_id: str, *, expected_status: str = "completed",
+    ) -> dict[str, Any]:
         deadline = time.monotonic() + self.args.timeout
         while time.monotonic() < deadline:
             run = (await self.request("GET", f"/runs/{run_id}")).json()
             if run["status"] in {"completed", "failed", "timeout", "cancelled", "needs_input"}:
-                require(run["status"] == "completed",
-                        f"{scenario}: terminal run status={run['status']} (inspect run ID above)")
+                require(run["status"] == expected_status,
+                        f"terminal run status={run['status']} expected={expected_status} (inspect run ID above)")
                 return run
             await asyncio.sleep(self.args.poll_interval)
-        raise CheckFailure(f"{scenario}: run poll deadline exceeded (inspect run ID above)")
+        raise CheckFailure("run poll deadline exceeded (inspect run ID above)")
 
     async def executions(self, run: dict[str, Any], count: int, language: str) -> list[dict[str, Any]]:
         summaries = run.get("executions", [])

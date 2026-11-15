@@ -12,18 +12,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  sandbox-images:
-    name: 沙箱基础镜像构建
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  sandbox-native:
+    name: 002 native Linux full-stack acceptance
+    # Full VM is required: ubuntu-slim/container jobs cannot validate host
+    # Docker bridge/netfilter/cgroups. Never use production secrets or .env.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: 构建沙箱执行镜像
-        run: docker build -t aw-sandbox-python:3.12 deploy/sandbox
-      - name: 构建网络规则镜像
-        run: docker build -t aw-sbx-net:1 deploy/sbx-net
-      - name: 构建 DNS 代理镜像
-        run: docker build -t aw-dns-proxy:1 deploy/dns-proxy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install acceptance dependencies
+        run: python -m pip install -e './backend[dev]' 'websockets>=14,<16'
+      - name: Test acceptance controls without application DB fixtures
+        run: python -m unittest discover -s deploy/verify -p 'test_*.py' -v
+      - name: Build own stack and validate real native controls
+        # The entrypoint generates and masks disposable random credentials,
+        # bootstraps ONLY its empty CI DB, and cleans its exact resources in finally.
+        # No raw service/SQL/build logs, JWTs or presigned URLs are uploaded.
+        run: python deploy/verify/native_acceptance.py --output "$RUNNER_TEMP/002-results"
+      - name: Upload bounded sanitized acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 002-native-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/002-results/*.json
+          if-no-files-found: error
+          retention-days: 7
 
   backend:
     name: 后端（lint + 类型 + 测试）
@@ -86,17 +106,20 @@ jobs:
       # services 的 minio 镜像默认命令无法直接当服务跑，单独拉起
       - name: 启动 MinIO（附件测试需要真实预签名 PUT/GET）
         run: |
-          docker run -d --name minio -p 9000:9000 \
+          # Docker Hub's old public minio/minio image is no longer pullable.
+          # Build the official, checksum-pinned release binary (CI-only image).
+          docker build -f deploy/verify/minio.Dockerfile -t aw-verify-minio:2025-09-07 deploy/verify
+          docker run -d --name minio -p 127.0.0.1:9000:9000 \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio:RELEASE.2023-03-20T20-16-18Z server /data
+            aw-verify-minio:2025-09-07 server /data
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:9000/minio/health/live > /dev/null; then
               echo "minio ready"; exit 0
             fi
             sleep 1
           done
-          echo "minio 启动超时"; docker logs minio; exit 1
+          echo "minio 启动超时（不输出可能含凭据的服务日志）"; exit 1
 
       - name: 迁移可达性（Alembic 能在空库上跑通）
         working-directory: backend

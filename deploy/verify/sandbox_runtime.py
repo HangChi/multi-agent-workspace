@@ -33,11 +33,26 @@ def docker_client():
     return docker.from_env()
 
 
+def record_execution_id(execution_id: str) -> None:
+    """Optional CI-only private UUID journal for cleanup after a killed probe."""
+    path = os.environ.get("AW_VERIFY_ID_JOURNAL")
+    if path:
+        value = str(uuid.UUID(execution_id))
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        try:
+            if os.fstat(descriptor).st_size > 65536:
+                raise ValueError("execution journal exceeded bounded CI budget")
+            os.write(descriptor, (value + "\n").encode("ascii"))
+        finally:
+            os.close(descriptor)
+
+
 def probe(client, code: str, *, snapshot=None, timeout_s=10, language="python", abort_check=None):
     from app.executors.sandbox import classify_outcome
     from app.executors.sandbox_client import SandboxRun
 
     eid = str(uuid.uuid4())
+    record_execution_id(eid)
     started = time.monotonic()
     result: dict[str, Any] = {"execution_id": eid}
     try:
@@ -56,7 +71,7 @@ def probe(client, code: str, *, snapshot=None, timeout_s=10, language="python", 
                 {"name": item.name, "size": item.size, "sha256": hashlib.sha256(item.data).hexdigest()}
                 for item in run.iter_output_files()
             ]
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - report probe failure after owned-resource cleanup
         result.update(status="infra", error=f"{type(exc).__name__}: {exc}")
     finally:
         filters = {"label": f"aw.execution={eid}"}
