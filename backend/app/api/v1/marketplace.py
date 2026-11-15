@@ -60,14 +60,7 @@ async def upgrade_marketplace_installation(
         user_id=user.id,
         reason=payload.reason,
     )
-    return {
-        "id": installation.id,
-        "listing_id": installation.listing_id,
-        "owner_id": installation.owner_id,
-        "status": installation.status,
-        "version_policy": installation.version_policy,
-        "installed_at": installation.installed_at,
-    }
+    return external_grant_service.installation_projection(installation)
 
 
 @router.get("/installations")
@@ -91,14 +84,7 @@ async def install_tool(
         installed_by=user.id,
         version_policy=payload.version_policy,
     )
-    return {
-        "id": installation.id,
-        "listing_id": installation.listing_id,
-        "owner_id": installation.owner_id,
-        "status": installation.status,
-        "version_policy": installation.version_policy,
-        "installed_at": installation.installed_at,
-    }
+    return external_grant_service.installation_projection(installation)
 
 
 @router.get("/tools/{listing_id}", response_model=ListingOut)

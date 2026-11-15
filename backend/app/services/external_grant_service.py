@@ -18,7 +18,7 @@ from app.models.external_tool import (
 from app.services.external_audit_service import write_external_audit
 
 
-def _installation_projection(row: ToolInstallation) -> dict:
+def installation_projection(row: ToolInstallation) -> dict:
     return {
         "id": row.id,
         "listing_id": row.listing_id,
@@ -94,7 +94,7 @@ async def list_installations(db: AsyncSession, *, owner_id: str) -> list[dict]:
         select(ToolInstallation).where(ToolInstallation.owner_id == owner_id)
         .order_by(ToolInstallation.installed_at.desc())
     )).scalars().all()
-    return [_installation_projection(row) for row in rows]
+    return [installation_projection(row) for row in rows]
 
 
 async def create_grant(
