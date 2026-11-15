@@ -76,12 +76,13 @@ class Handler(BaseHTTPRequestHandler):
         try:
             message = json.loads(self.rfile.read(length))
             payload = handle_message(message, scenario=self.server.scenario)  # type: ignore[attr-defined]
-            body = json.dumps(payload, ensure_ascii=False).encode()
-            self.send_response(200)
+            notification = message.get("method", "").startswith("notifications/")
+            body = b"" if notification else json.dumps(payload, ensure_ascii=False).encode()
+            self.send_response(202 if notification else 200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            if payload:
+            if body:
                 self.wfile.write(body)
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
             self.send_error(400, str(exc))
