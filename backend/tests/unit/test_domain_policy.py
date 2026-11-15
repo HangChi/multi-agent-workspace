@@ -512,7 +512,7 @@ def test_network_batch_failure_reports_only_finite_execution_bound_diagnostic(mo
     with pytest.raises(command_batch.subprocess.TimeoutExpired):
         command_batch._run_checked(["nft", "-f", "-"], input_data=b"secret-rules",
                                    timeout=1, data=data, stage="policy_install")
-    output = capsys.readouterr().out
+    output = capsys.readouterr().err
     assert json.loads(output) == {
         "aw_net_failure": 1, "execution_id": EID,
         "stage": "policy_install", "code": "operation_timeout",

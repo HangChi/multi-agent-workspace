@@ -54,7 +54,8 @@ def _report_failure(data: dict, stage: str, failure: BaseException) -> None:
     if code not in _FAILURE_CODES:
         code = "nft_transaction_failed"
     print(json.dumps({"aw_net_failure": 1, "execution_id": execution_id,
-                      "stage": stage, "code": code}, separators=(",", ":")), flush=True)
+                      "stage": stage, "code": code}, separators=(",", ":")),
+          file=sys.stderr, flush=True)
 
 
 def _run_checked(argv: list[str], *, input_data: bytes | None, timeout: float,

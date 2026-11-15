@@ -662,7 +662,9 @@ class NetworkCapture:
             )
             return result if isinstance(result, bytes) else bytes(result or b"")
         except ContainerError as exc:
-            token = _finite_network_failure(getattr(exc, "output", None), self.execution_id)
+            token = _finite_network_failure(
+                getattr(exc, "stderr", None) or getattr(exc, "output", None), self.execution_id,
+            )
             if token:
                 raise NetworkPolicyError(token) from exc
             raise NetworkPolicyError(f"network policy command failed: {command[0]}") from exc
