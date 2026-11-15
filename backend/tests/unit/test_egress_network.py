@@ -54,6 +54,28 @@ def test_empty_network_capture_prevents_resource_creation(monkeypatch) -> None:
     assert client.network.removed == 1
 
 
+@pytest.mark.parametrize("reported_ip", ["", "172.30.0.3"])
+def test_capture_uses_reserved_address_before_user_process(reported_ip: str) -> None:
+    from types import SimpleNamespace
+
+    from app.executors.egress_network import NetworkCapture
+
+    client = Mock()
+    capture = NetworkCapture(
+        client=client, network=SimpleNamespace(name="sandbox"),
+        execution_id="f4e784e5-1dd9-4ae1-84ad-a0c66bdb761a", mode="default",
+        global_rules=[], agent_rules=[], builtin_blacklist=[], dns_proxy=Mock(),
+        dns_proxy_ip="172.30.0.2", bridge="br-abc123",
+        install_commands=[], cleanup_commands=[], source_ip="172.30.0.3",
+    )
+    container = SimpleNamespace(attrs={"NetworkSettings": {"Networks": {
+        "sandbox": {"IPAddress": reported_ip, "IPAMConfig": {"IPv4Address": "172.30.0.3"}},
+    }}})
+    capture.start_capture(container)
+    assert capture.source_ip == "172.30.0.3"
+    assert client.containers.run.call_args.kwargs["command"][-1] == "172.30.0.3"
+
+
 def test_runtime_tags_require_safe_uuid() -> None:
     assert validate_execution_id("f4e784e5-1dd9-4ae1-84ad-a0c66bdb761a")
     for unsafe in ("../evil", "abc;touch /tmp/pwn", "exec-1", "a" * 128):

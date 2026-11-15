@@ -94,6 +94,18 @@ class TestContainerLimits:
         assert "no-new-privileges" in kwargs["security_opt"]
         assert kwargs["user"] == "10001:10001"
 
+    def test_create_options_are_accepted_by_real_sdk(self, fake_docker) -> None:
+        from docker.models.containers import _create_container_args
+
+        run = _run()
+        run.execute()
+        # Fake clients accept arbitrary kwargs; exercise the real SDK boundary too.
+        options = dict(fake_docker.container.created_kwargs)
+        options.pop("image", None)
+        options["version"] = "1.44"
+        converted = _create_container_args(options)
+        assert not converted["host_config"].get("AutoRemove", False)
+
     def test_disk_limit_uses_tmpfs_size(self, fake_docker) -> None:
         """磁盘限额只能靠 tmpfs size：实测 storage_opt 在本机不生效。"""
         from app.core.config import settings

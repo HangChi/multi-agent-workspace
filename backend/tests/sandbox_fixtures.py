@@ -206,6 +206,7 @@ class FakeNetworkCapture:
     """
 
     dns_proxy_ip = "172.30.0.2"
+    source_ip = "172.30.0.3"
 
     @classmethod
     def prepare(

@@ -581,10 +581,12 @@ class SandboxRun:
             "command": list(_LANG_SPEC[self.language][1]),
             "name": self.container_name,
             "detach": True,
-            # remove=False：需要在容器退出后仍能 logs/get_archive，
-            # 销毁统一放在 cleanup（R-01 一次性语义）
-            "remove": False,
+            # create() 默认保留容器（不接受 run() 专用的 remove 参数）。
+            # 退出后仍需 logs/get_archive，统一由 cleanup 销毁。
             "network": self.network_name,
+            "networking_config": {
+                self.network_name: {"IPAMConfig": {"IPv4Address": egress.source_ip}},
+            },
             "dns": [egress.dns_proxy_ip],
             "working_dir": WORKSPACE_DIR,
             "user": SANDBOX_UID,

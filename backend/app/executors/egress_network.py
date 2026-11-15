@@ -378,8 +378,13 @@ class NetworkCapture:
                 mode=mode, global_rules=global_rules, agent_rules=agent_rules,
                 builtin_blacklist=builtins,
             )
+            # Reserve an address in this execution-private network at create time.
+            # Docker does not populate IPAddress until start; capture must be ready
+            # before user code, so dynamic allocation cannot be used here. Docker
+            # rejects an occupied/out-of-subnet address rather than running open.
+            source_ip = str(ipaddress.ip_address(dns_ip) + 1)
             obj = cls(client, network, execution_id, mode, global_rules, agent_rules, builtins,
-                      dns_proxy, dns_ip, bridge, install, cleanup)
+                      dns_proxy, dns_ip, bridge, install, cleanup, source_ip=source_ip)
             try:
                 obj._run_commands(install)
             except Exception:
@@ -419,9 +424,9 @@ class NetworkCapture:
         attrs = getattr(container, "attrs", {}) or {}
         networks = (attrs.get("NetworkSettings", {}) or {}).get("Networks", {})
         network_info: dict[str, Any] = networks.get(self.network.name) or next(iter(networks.values()), {})
-        self.source_ip = network_info.get("IPAddress")
-        if not self.source_ip:
-            raise NetworkPolicyError("sandbox container has no network address")
+        address = network_info.get("IPAddress") or (network_info.get("IPAMConfig") or {}).get("IPv4Address")
+        if not self.source_ip or address != self.source_ip:
+            raise NetworkPolicyError("sandbox container has no matching reserved network address")
         self.started_at = int(datetime.now(UTC).timestamp())
         try:
             self.watcher = self.client.containers.run(
