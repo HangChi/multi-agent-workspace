@@ -39,7 +39,22 @@ async def create_rule(agent_id: str, payload: EgressRuleIn, user: CurrentUser, d
 
 @router.delete("/{rule_id}", status_code=204)
 async def delete_rule(agent_id: str, rule_id: str, user: CurrentUser, db: DB):
-    await egress_service.delete_agent_rule(
+    rule = await egress_service.delete_agent_rule(
         db, agent_id=agent_id, rule_id=rule_id, user_id=user.id, role=user.role
+    )
+    await write_audit(
+        db,
+        user_id=user.id,
+        action="egress_rule_delete",
+        strict=True,
+        target_type="agent",
+        target_id=agent_id,
+        detail={
+            "agent_id": agent_id,
+            "rule_id": rule.id,
+            "target_type": rule.target_type,
+            "target": rule.target,
+            "port_range": rule.port_range,
+        },
     )
     await db.commit()

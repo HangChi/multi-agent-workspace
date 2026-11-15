@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import uuid
 
-from app.models.egress import EgressAccess
+import pytest
+from sqlalchemy import select
+
+from app.api.errors import AppError
+from app.models.audit_log import AuditLog
+from app.models.egress import EgressAccess, EgressRule
 
 AGENTS_URL = "/api/v1/agents"
 ADMIN_BLACKLIST_URL = "/api/v1/admin/egress-blacklist"
@@ -63,6 +68,79 @@ async def test_agent_egress_rules_crud_permissions_and_duplicate(
     deleted = await client.delete(f"{endpoint}/{rule['id']}", headers=owner_headers)
     assert deleted.status_code == 204
     assert (await client.get(endpoint, headers=owner_headers)).json()["items"] == []
+
+
+async def test_agent_rule_delete_audits_actor_agent_rule_and_target(
+    client, auth_headers, make_headers, db_session
+):
+    headers, owner = await auth_headers()
+    agent = await _create_agent(client, headers)
+    endpoint = f"{AGENTS_URL}/{agent['id']}/egress-rules"
+    created = await client.post(
+        endpoint, headers=headers,
+        json={"target_type": "domain", "target": "audit.example.test", "port_range": "443"},
+    )
+    assert created.status_code == 201, created.text
+    rule = created.json()
+    url = f"{endpoint}/{rule['id']}"
+    audit_query = select(AuditLog).where(
+        AuditLog.action == "egress_rule_delete", AuditLog.target_id == agent["id"]
+    )
+
+    forbidden = await client.delete(url, headers=await make_headers())
+    assert forbidden.status_code == 403
+    assert (await db_session.execute(audit_query)).scalars().all() == []
+
+    assert (await client.delete(url, headers=headers)).status_code == 204
+    audit = (await db_session.execute(audit_query)).scalar_one()
+    assert audit.user_id == owner.id
+    assert audit.target_type == "agent"
+    assert audit.detail == {
+        "agent_id": agent["id"],
+        "rule_id": rule["id"],
+        "target_type": "domain",
+        "target": "audit.example.test",
+        "port_range": "443",
+    }
+    assert await db_session.get(EgressRule, rule["id"]) is None
+    assert (await client.delete(url, headers=headers)).status_code == 404
+    assert len((await db_session.execute(audit_query)).scalars().all()) == 1
+
+
+@pytest.mark.parametrize("audit_failure", ["raise", "sqlalchemy"])
+async def test_agent_rule_delete_rolls_back_when_audit_fails(
+    client, make_headers, db_session, monkeypatch, audit_failure
+):
+    from app.api.v1 import agent_egress
+    from app.core.audit import write_audit
+
+    headers = await make_headers()
+    agent = await _create_agent(client, headers)
+    endpoint = f"{AGENTS_URL}/{agent['id']}/egress-rules"
+    created = await client.post(
+        endpoint, headers=headers,
+        json={"target_type": "domain", "target": "rollback.example.test"},
+    )
+    assert created.status_code == 201, created.text
+    rule_id = created.json()["id"]
+
+    async def fail_audit(*args, **kwargs):
+        if audit_failure == "sqlalchemy":
+            # 真实 write_audit 的 FK 错误：必须回滚并向路由传播，不能吞错后返回 204。
+            kwargs["user_id"] = str(uuid.uuid4())
+            return await write_audit(*args, **kwargs)
+        raise AppError("INVALID_INPUT", "audit unavailable")
+
+    monkeypatch.setattr(agent_egress, "write_audit", fail_audit)
+    response = await client.delete(f"{endpoint}/{rule_id}", headers=headers)
+    assert response.status_code == 400
+    assert await db_session.get(EgressRule, rule_id) is not None
+    audits = await db_session.execute(
+        select(AuditLog).where(
+            AuditLog.action == "egress_rule_delete", AuditLog.target_id == agent["id"]
+        )
+    )
+    assert audits.scalars().all() == []
 
 
 async def test_builtin_egress_blacklist_is_read_only_and_admin_global_crud(

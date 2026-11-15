@@ -101,13 +101,14 @@ async def create_agent_rule(
 
 async def delete_agent_rule(
     db: AsyncSession, *, agent_id: str, rule_id: str, user_id: str, role: str
-) -> None:
+) -> EgressRule:
     await _ensure_agent_owner(db, agent_id, user_id, role)
     rule = await db.get(EgressRule, rule_id)
     if rule is None or rule.scope != "agent" or rule.agent_id != agent_id:
         raise AppError("NOT_FOUND", "出站规则不存在")
     await db.delete(rule)
     await db.flush()
+    return rule
 
 
 async def list_global_rules(db: AsyncSession) -> list[EgressRule | dict[str, Any]]:

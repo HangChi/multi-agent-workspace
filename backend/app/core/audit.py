@@ -20,10 +20,11 @@ async def write_audit(
     target_type: str | None = None,
     target_id: str | None = None,
     detail: dict | None = None,
+    strict: bool = False,
 ) -> None:
     """写一条审计日志。
 
-    失败不抛出（审计本身不应阻塞业务），但记录 error 级别日志便于排查。
+    默认失败回滚且不抛出；strict=True 时回滚后重新抛出，供强制原子审计的操作使用。
     """
     entry = AuditLog(
         user_id=user_id,
@@ -44,3 +45,5 @@ async def write_audit(
             target_id=target_id,
         )
         await db.rollback()
+        if strict:
+            raise
