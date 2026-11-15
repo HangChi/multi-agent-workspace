@@ -87,6 +87,17 @@ def sanitized_runtime(document: dict[str, Any]) -> dict[str, Any]:
     return {"suite": str(document.get("suite", "runtime"))[:80], "results": safe}
 
 
+def bridge_filtering_status(root: Path = Path('/proc/sys/net/bridge')) -> dict[str, int]:
+    """Verify real per-family bridge hooks; a loaded module alone is insufficient."""
+    values = {}
+    for name in ('bridge-nf-call-iptables', 'bridge-nf-call-ip6tables'):
+        path = root / name
+        require(path.is_file() and path.read_text().strip() == '1',
+                f'native bridge netfilter unavailable/disabled: {name}')
+        values[name] = 1
+    return values
+
+
 class NativeRunner:
     def __init__(self, output: Path):
         require(platform.system() == "Linux" and "linuxkit" not in platform.release().lower(),
@@ -222,11 +233,9 @@ class NativeRunner:
                                                 network_mode="host", cap_add=["NET_ADMIN"],
                                                 labels={"aw.verify": self.project}, mem_limit="64m", pids_limit=16)
             versions[executable] = output.decode("utf-8", "replace").splitlines()[0][:160]
-        bridge_filter = Path('/proc/sys/net/bridge/bridge-nf-call-iptables')
-        require(bridge_filter.is_file() and bridge_filter.read_text().strip() == "1",
-                "native bridge netfilter is unavailable/disabled")
+        bridge_filters = bridge_filtering_status()
         self.results.append({"name": "native_netfilter_preflight", "passed": True,
-                             "versions": versions, "bridge_nf_call_iptables": 1})
+                             "versions": versions, "bridge_filters": bridge_filters})
         self.started_stack = True
         self.compose("up", "-d", "--wait", "--wait-timeout", "120", "postgres", "redis", "minio", "dns-proxy", "llm-gateway")
         # Exercise the real complete Alembic chain with legacy data in between,

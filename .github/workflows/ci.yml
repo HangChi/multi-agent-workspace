@@ -31,6 +31,13 @@ jobs:
         run: python -m pip install -e './backend[dev]' 'websockets>=14,<16'
       - name: Test acceptance controls without application DB fixtures
         run: python -m unittest discover -s deploy/verify -p 'test_*.py' -v
+      - name: Enable native bridge filtering prerequisites
+        # This is the disposable full runner VM, never the developer host.
+        # Keep the entrypoint's independent IPv4/IPv6 read-back gates.
+        run: |
+          sudo modprobe br_netfilter
+          sudo sysctl -w net.bridge.bridge-nf-call-iptables=1
+          sudo sysctl -w net.bridge.bridge-nf-call-ip6tables=1
       - name: Build own stack and validate real native controls
         # The entrypoint generates and masks disposable random credentials,
         # bootstraps ONLY its empty CI DB, and cleans its exact resources in finally.

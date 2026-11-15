@@ -156,6 +156,24 @@ class AcceptanceHarnessTests(unittest.TestCase):
 
 
 class NativeIsolationTests(unittest.TestCase):
+    def test_both_native_bridge_filter_families_must_be_enabled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ipv4, ipv6 = root / 'bridge-nf-call-iptables', root / 'bridge-nf-call-ip6tables'
+            for value4, value6 in ((None, None), ('1', None), ('1', '0'), ('0', '1'), ('1', '1')):
+                for path, value in ((ipv4, value4), (ipv6, value6)):
+                    if value is None:
+                        path.unlink(missing_ok=True)
+                    else:
+                        path.write_text(value + '\n')
+                if value4 == value6 == '1':
+                    self.assertEqual(native.bridge_filtering_status(root), {
+                        'bridge-nf-call-iptables': 1, 'bridge-nf-call-ip6tables': 1,
+                    })
+                else:
+                    with self.assertRaises(native.AcceptanceFailure):
+                        native.bridge_filtering_status(root)
+
     def test_project_name_requires_numeric_ci_run_and_attempt(self):
         self.assertEqual(native.project_name({'GITHUB_RUN_ID': '123', 'GITHUB_RUN_ATTEMPT': '2'}), 'aw002ci-123-2')
         for environ in ({}, {'GITHUB_RUN_ID': '../aw', 'GITHUB_RUN_ATTEMPT': '1'},
