@@ -204,7 +204,7 @@
 
 **Purpose**: 真实栈验证、越权矩阵、数据保留、文档与门禁
 
-- [ ] T068 [P] 真实栈断言（沙箱）：原生 run `43701273368` 实际迁移/历史、denied/no_tools/builtins/denial_threshold 和 infra fault 通过；共同失败定位为 Docker 28 静态端点要求显式子网（HTTP 400）。`d88890d` 已修网络配置，703 项后端回归、真实 I/O 与四并发 VM 探针通过；原生 run `43703079200` 待结果，不提前判完成。CI 仅使用全新隔离身份和数据库，不绕过本地既有拒绝。
+- [ ] T068 [P] 真实栈断言（沙箱）：原生 run `43701273368` 实际迁移/历史、denied/no_tools/builtins/denial_threshold 和 infra fault 通过；共同失败定位为 Docker 28 静态端点要求显式子网（HTTP 400）。`d88890d` 已修网络配置，703 项后端回归、真实 I/O 与四并发 VM 探针通过；最新原生 Linux CI run 见 GitHub Actions，需完整窗口通过后再勾选。CI 仅使用全新隔离身份和数据库，不绕过本地既有拒绝。
 - [ ] T069 [P] 真实栈断言（出站）：VM IP/多连接/IPv6 11/11，最新域名专项 18/18；原生 run `43701273368` 的 IP 场景共同端点故障、域名专项独立早退，仍未通过。`4b9e7ac` 保留 18 项强断言并补齐有限阶段诊断；等待原生 run `43703079200`，不降低双族/HTTPS、权限 API 和审计完整性要求。
 - [x] T070 [P] 越权矩阵自动化：deploy/verify/sbx_escape_matrix.py 已创建；2026-11-15 最终 Docker Desktop Linux VM 运行 13/13 通过，包括 output tmpfs 内核配额、timeout/cancel，无执行资源残留。此任务矩阵通过不等于完整 SC-002 或原生 Linux 云主机安全验收；受保护 API 链路等仍见 T068/T076。
 - [x] T071 数据保留任务：backend/app/tasks/maintenance.py 增 `purge_sandbox_payloads`（90 天后清空 code/stdout/stderr，保留元数据与指纹）+ beat 每日一次
