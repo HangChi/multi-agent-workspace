@@ -29,6 +29,12 @@ const FAILURE_LABEL: Record<string, string> = {
   resource: '资源受限',
 }
 
+const ARTIFACT_LIMIT_LABEL: Record<string, string> = {
+  files: '制品数量达到上限',
+  file_size: '单个制品大小超过上限',
+  total_size: '制品总大小达到上限',
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -109,6 +115,10 @@ export function ExecutionCard({ runId, execution }: { runId: string; execution: 
               <span>内存峰值：{detail.mem_peak_bytes == null ? '未采集' : formatBytes(detail.mem_peak_bytes)}</span>
               {detail.stdout_truncated && <span>stdout 原始字节：{detail.stdout_full_bytes}</span>}
             </div>
+            {detail.artifact_truncated && <p role="status" aria-label="制品截断提示" className="break-words rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+              <span className="font-medium">制品已截断：{ARTIFACT_LIMIT_LABEL[detail.artifact_truncated.reason] ?? '制品回收达到限制'}。</span>
+              {' '}{detail.artifact_truncated.message} 部分文件未回收，已回收的制品仍可下载。
+            </p>}
             {detail.artifacts.length > 0 && <ArtifactList runId={runId} artifacts={detail.artifacts} />}
             <EgressList items={egress} />
           </>}

@@ -139,7 +139,8 @@ async def test_real_execute_persists_stdout_audit_and_artifact(
     code = "print('hello from container')\nopen('/workspace/output/report.txt', 'w').write('report')"
     report = b"artifact from sandbox"
     fake_docker.stdout = b"hello from container\n"
-    fake_docker.output_files = {"output/report.txt": report}
+    fake_docker.output_files = {"output/report.txt": report, "output/omitted.txt": b"not collected"}
+    monkeypatch.setattr(settings, "sbx_artifact_max_files", 1)
     replies = iter(
         [
             LLMResponse(
@@ -219,7 +220,17 @@ async def test_real_execute_persists_stdout_audit_and_artifact(
     assert steps[1].status == "completed"
     assert "_sandbox_payload" not in steps[1].output
     tool_message = next(item for item in llm_messages[-1] if item["role"] == "tool")
-    assert json.loads(tool_message["content"])["stdout"] == execution.stdout
+    model_result = json.loads(tool_message["content"])
+    assert model_result["stdout"] == execution.stdout
+    assert model_result["execution_id"] == execution.id
+    assert model_result["artifact_truncated"]["reason"] == "files"
+    assert steps[1].output["execution_id"] == execution.id
+    assert steps[1].output["artifact_truncated"] == model_result["artifact_truncated"]
+    detail_response = await client.get(
+        f"/api/v1/runs/{run.id}/executions/{execution.id}", headers=headers
+    )
+    assert detail_response.status_code == 200
+    assert detail_response.json()["artifact_truncated"] == model_result["artifact_truncated"]
 
     artifact = (
         await db_session.execute(select(Artifact).where(Artifact.run_id == run.id))

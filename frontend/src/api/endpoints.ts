@@ -446,6 +446,7 @@ export interface ExecutionDetail {
   image: string
   limits: Record<string, unknown>
   artifacts: ExecutionArtifactBrief[]
+  artifact_truncated: { reason: string; message: string } | null
   created_at: string
   finished_at: string | null
 }

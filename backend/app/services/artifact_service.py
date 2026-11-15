@@ -214,4 +214,3 @@ def put_bytes(
 def artifact_get_url(key: str) -> str:
     """制品的预签名下载 URL。与附件走同一套 `presign_get`。"""
     return presign_get(key)
-

@@ -38,6 +38,13 @@ class ExecutionArtifactBrief(BaseModel):
     size_bytes: int
 
 
+class ArtifactTruncation(BaseModel):
+    """制品回收不完整的原因，不等同于脚本执行失败。"""
+
+    reason: str = Field(description="files/file_size/total_size；保留未知原因供兼容")
+    message: str
+
+
 class ExecutionDetail(BaseModel):
     """执行详情。"""
 
@@ -63,6 +70,7 @@ class ExecutionDetail(BaseModel):
     image: str
     limits: dict[str, Any]
     artifacts: list[ExecutionArtifactBrief] = Field(default_factory=list)
+    artifact_truncated: ArtifactTruncation | None = None
     created_at: datetime
     finished_at: datetime | None = None
 

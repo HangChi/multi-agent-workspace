@@ -29,6 +29,7 @@ from app.schemas.run import RunOut
 from app.schemas.sandbox import EgressAccessList, ExecutionDetail, ExecutionSummary
 from app.services import artifact_service
 from app.services.assignment_service import _enqueue
+from app.services.sandbox_service import execution_artifact_truncation
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -106,6 +107,9 @@ async def get_execution(run_id: str, execution_id: str, user: CurrentUser, db: D
         {
             **execution.__dict__,
             "step_seq": step.seq if step else 0,
+            "artifact_truncated": execution_artifact_truncation(
+                step.output if step else None, execution.id
+            ),
             "artifacts": [
                 {
                     "id": artifact.id,

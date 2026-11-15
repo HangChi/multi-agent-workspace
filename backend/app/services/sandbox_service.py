@@ -83,6 +83,21 @@ def finish_payload(result: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def execution_artifact_truncation(
+    step_output: Any, execution_id: str
+) -> dict[str, str] | None:
+    """仅投影属于该次执行的公共截断信息，不推断旧记录的归属。"""
+    if not isinstance(step_output, dict) or step_output.get("execution_id") != execution_id:
+        return None
+    truncated = step_output.get("artifact_truncated")
+    if not isinstance(truncated, dict):
+        return None
+    reason, message = truncated.get("reason"), truncated.get("message")
+    if not isinstance(reason, str) or not isinstance(message, str):
+        return None
+    return {"reason": reason, "message": message}
+
+
 def _sha256_text(value: str) -> str:
     import hashlib
 
@@ -158,17 +173,51 @@ async def finish_execution(
 
 
 def _unique_filename(name: str, used: set[str]) -> str:
-    """同一执行内同名制品追加 -2/-3，避免覆盖对象。"""
-    if name not in used:
-        return name
-    stem, dot, suffix = name.rpartition(".")
+    """Deduplicate storage basenames while retaining the visible relative path."""
+    directory, separator, basename = name.replace("\\", "/").rpartition("/")
+    basename = basename or "unnamed"
+    prefix = f"{directory}/" if separator else ""
+    used_basenames = {item.replace("\\", "/").split("/")[-1] for item in used}
+    if basename not in used_basenames:
+        return f"{prefix}{basename}"
+    stem, dot, suffix = basename.rpartition(".")
     if not dot:
-        stem, suffix = name, ""
+        stem, suffix = basename, ""
     for index in range(2, 10_000):
         candidate = f"{stem}-{index}.{suffix}" if suffix else f"{stem}-{index}"
-        if candidate not in used:
-            return candidate
+        if candidate not in used_basenames:
+            return f"{prefix}{candidate}"
     raise AppError("INVALID_INPUT", "制品重名数量超过上限")
+
+
+def _persist_artifact(
+    db: AsyncSession,
+    *,
+    run_id: str,
+    execution_id: str,
+    step_id: str | None,
+    name: str,
+    data: bytes,
+    size: int,
+    used: set[str],
+) -> Artifact:
+    filename = _unique_filename(name, used)
+    used.add(filename)
+    mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    object_key, sha256 = artifact_service.put_bytes(
+        run_id, execution_id, filename, data, mime=mime
+    )
+    artifact = Artifact(
+        run_id=run_id,
+        step_id=step_id,
+        object_key=object_key,
+        filename=filename,
+        size_bytes=size,
+        mime_type=mime,
+        sha256=sha256,
+    )
+    db.add(artifact)
+    return artifact
 
 
 async def persist_sandbox_result(
@@ -210,27 +259,15 @@ async def persist_sandbox_result(
     for item in payload.get("artifacts") or []:
         if not isinstance(item, dict) or not isinstance(item.get("data"), bytes):
             continue
-        original = str(item.get("name") or "unnamed")
-        filename = _unique_filename(original, used)
-        used.add(filename)
-        mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-        object_key, sha256 = artifact_service.put_bytes(
-            run_id,
-            execution.id,
-            filename,
-            item["data"],
-            mime=mime,
-        )
-        db.add(
-            Artifact(
-                run_id=run_id,
-                step_id=step_id,
-                object_key=object_key,
-                filename=filename,
-                size_bytes=int(item.get("size") or len(item["data"])),
-                mime_type=mime,
-                sha256=sha256,
-            )
+        _persist_artifact(
+            db,
+            run_id=run_id,
+            execution_id=execution.id,
+            step_id=step_id,
+            name=str(item.get("name") or "unnamed"),
+            data=item["data"],
+            size=int(item.get("size") or len(item["data"])),
+            used=used,
         )
 
     truncated = payload.get("artifact_truncated")
@@ -266,23 +303,18 @@ async def collect_artifacts(
             max_total_bytes=settings.sbx_artifact_max_total_mb * 1024 * 1024,
         )
         for item in files:
-            filename = _unique_filename(item.name, used)
-            used.add(filename)
-            mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-            object_key, sha256 = artifact_service.put_bytes(
-                run_id, execution_id, filename, item.data, mime=mime
+            artifacts.append(
+                _persist_artifact(
+                    db,
+                    run_id=run_id,
+                    execution_id=execution_id,
+                    step_id=step_id,
+                    name=item.name,
+                    data=item.data,
+                    size=item.size,
+                    used=used,
+                )
             )
-            artifact = Artifact(
-                run_id=run_id,
-                step_id=step_id,
-                object_key=object_key,
-                filename=filename,
-                size_bytes=item.size,
-                mime_type=mime,
-                sha256=sha256,
-            )
-            db.add(artifact)
-            artifacts.append(artifact)
         await db.flush()
     except SandboxOutputLimit as exc:
         if user_id:
