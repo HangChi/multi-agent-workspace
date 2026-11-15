@@ -15,6 +15,7 @@ from app.models.external_tool import ExternalToolServer, ExternalToolVersion
 from app.schemas.external_tool import ExternalServerCreate, ExternalServerUpdate
 from app.services.external_audit_service import write_external_audit
 from app.services.external_credential_service import create_credential
+from app.services.external_observability import observe_destination_change
 
 
 def _safe_server(server: ExternalToolServer) -> dict:
@@ -184,6 +185,7 @@ async def update_server(
             raise AppError("CONFLICT", "该外部服务器 endpoint 已登记")
         server.endpoint_url = changes["endpoint_url"]
         server.normalized_endpoint_url = endpoint.url
+        observe_destination_change()
         server.status = "draft"
         server.current_validation_status = None
     for field in ("name", "description", "source_url", "maintainer"):

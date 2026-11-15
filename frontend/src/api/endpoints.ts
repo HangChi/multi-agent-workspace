@@ -157,6 +157,61 @@ export async function revokeMarketplaceTool(listingId: string, payload: ReviewDe
   return data
 }
 
+export async function resumeMarketplaceTool(listingId: string, payload: ReviewDecision): Promise<MarketplaceListing> {
+  const { data } = await apiClient.post<MarketplaceListing>(`/marketplace/tools/${listingId}/resume`, payload)
+  return data
+}
+
+export async function upgradeMarketplaceInstallation(
+  installationId: string,
+  payload: { listing_id: string; reason: string },
+): Promise<ToolInstallation> {
+  const { data } = await apiClient.post<ToolInstallation>(`/marketplace/installations/${installationId}/upgrade`, payload)
+  return data
+}
+
+export async function rotateExternalCredential(
+  serverId: string,
+  payload: { label: string; kind?: 'bearer' | 'api_key'; value: string },
+): Promise<{ id: string; label: string; kind: string; status: string; key_version: string }> {
+  const { data } = await apiClient.post(`/external-tool-servers/${serverId}/credentials/rotate`, payload)
+  return data
+}
+
+export async function revokeExternalCredential(serverId: string, credentialId: string): Promise<void> {
+  await apiClient.post(`/external-tool-servers/${serverId}/credentials/${credentialId}/revoke`)
+}
+
+export interface ExternalInvocationAudit {
+  id: string
+  run_id: string
+  owner_id: string
+  agent_id: string | null
+  server_id: string
+  tool_version_id: string
+  call_id: string
+  status: string
+  duration_ms: number
+  policy_result: Record<string, unknown>
+  error_summary: string | null
+  created_at: string
+  completed_at: string | null
+}
+
+export async function fetchExternalInvocationAudit(query: {
+  server_id?: string
+  run_id?: string
+  status?: string
+  page?: number
+  page_size?: number
+} = {}): Promise<{ items: ExternalInvocationAudit[]; total: number }> {
+  const { data } = await apiClient.get<{ items: ExternalInvocationAudit[]; total: number }>(
+    '/audit-logs/external-invocations',
+    { params: query },
+  )
+  return data
+}
+
 export interface ExternalToolVersion {
   id: string
   external_name: string
@@ -176,6 +231,7 @@ export interface ExternalServer {
   maintainer: string
   status: string
   current_validation_status: string | null
+  credentials?: { id: string; label: string; kind: string; status: string; key_version: string }[]
   tools: ExternalToolVersion[]
 }
 

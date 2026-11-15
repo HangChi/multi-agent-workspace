@@ -6,11 +6,13 @@ import {
   type AuditLogItem,
   type BlacklistRule,
   type EgressAccess,
+  type ExternalInvocationAudit,
   createBlacklist,
   deleteBlacklist,
   fetchAuditLogs,
   fetchBlacklist,
   fetchEgressAccesses,
+  fetchExternalInvocationAudit,
 } from '../api/endpoints'
 import { ExternalToolServers } from '../components/admin/ExternalToolServers'
 import { Badge } from '../components/ui/Badge'
@@ -62,6 +64,11 @@ export function AdminPage() {
   const [reloadKey, setReloadKey] = useState(0)
   const [blacklist, setBlacklist] = useState<BlacklistRule[]>([])
   const [accesses, setAccesses] = useState<EgressAccess[]>([])
+  const [externalInvocations, setExternalInvocations] = useState<ExternalInvocationAudit[]>([])
+  const [externalInvocationTotal, setExternalInvocationTotal] = useState(0)
+  const [invocationServerFilter, setInvocationServerFilter] = useState('')
+  const [invocationStatusFilter, setInvocationStatusFilter] = useState('')
+  const [invocationError, setInvocationError] = useState<string | null>(null)
   const [accessSummary, setAccessSummary] = useState<Record<string, number>>({})
   const [egressTarget, setEgressTarget] = useState('')
   const [egressBusy, setEgressBusy] = useState(false)
@@ -106,7 +113,25 @@ export function AdminPage() {
     }
   }
 
-  useEffect(() => { void loadEgress() }, [])
+  useEffect(() => {
+    let cancelled = false
+    setInvocationError(null)
+    fetchExternalInvocationAudit({
+      server_id: invocationServerFilter || undefined,
+      status: invocationStatusFilter || undefined,
+      page: 1,
+      page_size: 20,
+    })
+      .then((data) => {
+        if (cancelled) return
+        setExternalInvocations(data.items)
+        setExternalInvocationTotal(data.total)
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setInvocationError(cause instanceof Error ? cause.message : '加载外部调用审计失败')
+      })
+    return () => { cancelled = true }
+  }, [invocationServerFilter, invocationStatusFilter, reloadKey])
 
   const addBlacklist = async () => {
     const target = egressTarget.trim().toLowerCase()
@@ -363,6 +388,27 @@ export function AdminPage() {
       </Card>
 
       <ExternalToolServers />
+
+      <Card>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold text-ink">外部工具调用审计</h2>
+            <p className="mt-1 text-xs text-ink-muted">显示服务器、版本、运行、结果分类与策略事实；不包含原始参数、结果或凭证。</p>
+          </div>
+          <Input label="服务器 ID" aria-label="外部审计服务器筛选" value={invocationServerFilter} onChange={(event) => setInvocationServerFilter(event.target.value)} wrapperClassName="w-full sm:w-64" />
+          <Input label="状态" aria-label="外部审计状态筛选" value={invocationStatusFilter} onChange={(event) => setInvocationStatusFilter(event.target.value)} placeholder="auth_error" wrapperClassName="w-full sm:w-40" />
+          <Badge tone="slate">共 {externalInvocationTotal} 条</Badge>
+        </div>
+        {invocationError && <ErrorBanner error={invocationError} onDismiss={() => setInvocationError(null)} />}
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-full text-xs">
+            <thead><tr className="border-b border-line text-left text-2xs uppercase tracking-wide text-ink-muted"><th className="px-2 py-2">时间</th><th className="px-2 py-2">运行</th><th className="px-2 py-2">服务器 / 版本</th><th className="px-2 py-2">状态</th><th className="px-2 py-2">耗时</th><th className="px-2 py-2">策略</th></tr></thead>
+            <tbody className="divide-y divide-line-subtle">
+              {externalInvocations.length === 0 ? <tr><td colSpan={6} className="px-2 py-5 text-center text-ink-faint">暂无外部工具调用记录。</td></tr> : externalInvocations.map((item) => <tr key={item.id}><td className="whitespace-nowrap px-2 py-2 text-ink-muted">{formatTime(item.created_at)}</td><td className="px-2 py-2 font-mono text-ink-muted">{item.run_id.slice(0, 8)}…</td><td className="px-2 py-2 font-mono text-ink-muted">{item.server_id.slice(0, 8)}… · {item.tool_version_id.slice(0, 8)}…</td><td className="px-2 py-2"><Badge tone={item.status === 'succeeded' || item.status === 'result_truncated' ? 'emerald' : 'amber'}>{item.status}</Badge></td><td className="px-2 py-2 tabular-nums text-ink-muted">{item.duration_ms} ms</td><td className="max-w-48 truncate px-2 py-2 font-mono text-ink-faint">{JSON.stringify(item.policy_result)}</td></tr>)}
+            </tbody>
+          </table>
+        </div>
+      </Card>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>

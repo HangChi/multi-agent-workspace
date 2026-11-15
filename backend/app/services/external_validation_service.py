@@ -20,6 +20,7 @@ from app.models.external_tool import ExternalToolServer, ExternalToolVersion
 from app.models.external_validation import ServerValidation
 from app.services.external_audit_service import write_external_audit
 from app.services.external_credential_service import credential_cipher
+from app.services.external_observability import observe_validation
 
 
 def _safe_error(exc: Exception) -> tuple[str, str]:
@@ -80,6 +81,18 @@ async def validate_server(
     db.add(record)
     await db.flush()
     discovered: list[Any] = []
+    had_prior_digest = bool(server.last_validated_at)
+    previous_digest = await db.scalar(
+        select(ServerValidation.definition_digest)
+        .where(
+            ServerValidation.server_id == server.id,
+            ServerValidation.status == "passed",
+            ServerValidation.definition_digest.is_not(None),
+        )
+        .order_by(ServerValidation.completed_at.desc())
+        .limit(1)
+    )
+    drift_detected = False
     try:
         endpoint = mcp_security.validate_endpoint(server.endpoint_url)
         headers: dict[str, str] = {}
@@ -107,6 +120,13 @@ async def validate_server(
         record.valid_count = len(valid)
         record.discovery_status = "passed" if len(valid) == len(discovered) else "partial"
         record.definition_digest = _tool_digest(valid)
+        drift_detected = bool(
+            had_prior_digest
+            and previous_digest
+            and record.definition_digest != previous_digest
+        )
+        if drift_detected:
+            record.safe_error = "MCP tool definitions changed; reviewer approval is required"
         for tool in valid:
             definition_hash = hashlib.sha256(
                 json.dumps(
@@ -140,6 +160,18 @@ async def validate_server(
                 )
             )
         record.status = "passed" if len(valid) == len(discovered) else "partial"
+        if drift_detected:
+            versions = (
+                await db.execute(
+                    select(ExternalToolVersion).where(
+                        ExternalToolVersion.server_id == server.id,
+                        ExternalToolVersion.availability == "valid",
+                    )
+                )
+            ).scalars().all()
+            for old_version in versions:
+                old_version.availability = "stale"
+            record.status = "partial"
         server.status = "pending_review" if valid else "validation_failed"
     except Exception as exc:  # noqa: BLE001 - validation must fail closed and persist a safe result
         category, safe_message = _safe_error(exc)
@@ -156,6 +188,7 @@ async def validate_server(
             record.auth_status = "not_checked"
         record.discovery_status = "not_checked"
         server.status = "validation_failed"
+    observe_validation(drift=drift_detected)
     record.completed_at = datetime.now(UTC)
     server.last_validated_at = record.completed_at
     server.current_validation_status = record.status

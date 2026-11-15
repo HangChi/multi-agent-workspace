@@ -8,7 +8,10 @@ import {
   fetchExternalServers,
   pauseMarketplaceTool,
   rejectExternalTool,
+  resumeMarketplaceTool,
+  revokeExternalCredential,
   revokeMarketplaceTool,
+  rotateExternalCredential,
 } from '../../api/endpoints'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
@@ -27,10 +30,19 @@ export function ExternalToolServers() {
     onError: (cause) => setError(cause instanceof Error ? cause.message : '审核操作失败'),
   })
   const lifecycle = useMutation({
-    mutationFn: ({ listingId, revoke }: { listingId: string; revoke: boolean }) =>
-      (revoke ? revokeMarketplaceTool(listingId, { reason }) : pauseMarketplaceTool(listingId, { reason })),
+    mutationFn: ({ listingId, action }: { listingId: string; action: 'pause' | 'resume' | 'revoke' }) => {
+      if (action === 'pause') return pauseMarketplaceTool(listingId, { reason })
+      if (action === 'resume') return resumeMarketplaceTool(listingId, { reason })
+      return revokeMarketplaceTool(listingId, { reason })
+    },
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['external-tool-servers'] }),
     onError: (cause) => setError(cause instanceof Error ? cause.message : '状态变更失败'),
+  })
+  const credentialMutation = useMutation({
+    mutationFn: ({ serverId, credentialId }: { serverId: string; credentialId: string }) =>
+      revokeExternalCredential(serverId, credentialId),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['external-tool-servers'] }),
+    onError: (cause) => setError(cause instanceof Error ? cause.message : '凭证撤销失败'),
   })
 
   if (isLoading) return <Card><p className="text-sm text-ink-muted">正在加载外部工具服务器…</p></Card>
@@ -49,12 +61,42 @@ export function ExternalToolServers() {
           <div key={tool.id} className="flex flex-wrap items-center gap-3 py-3">
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-ink">{server.name} / {tool.external_name}</p><p className="truncate text-xs text-ink-muted">v{tool.version} · {tool.description}</p></div>
             <Badge tone={server.current_validation_status === 'passed' ? 'emerald' : 'amber'}>{server.current_validation_status ?? '待验证'}</Badge>
+            {server.credentials?.map((credential) => (
+              <div key={credential.id} className="flex items-center gap-2 text-xs text-ink-muted">
+                <span>{credential.label} · {credential.status}</span>
+                {credential.status === 'active' && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={credentialMutation.isPending}
+                    onClick={() => credentialMutation.mutate({ serverId: server.id, credentialId: credential.id })}
+                  >
+                    撤销凭证
+                  </Button>
+                )}
+                {credential.status === 'active' && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={review.isPending}
+                    onClick={() => {
+                      const value = window.prompt('输入新凭证值（仅本次提交，不会回显）')
+                      if (value) void rotateExternalCredential(server.id, { label: `${credential.label}-rotated`, kind: credential.kind as 'bearer' | 'api_key', value }).then(() => queryClient.invalidateQueries({ queryKey: ['external-tool-servers'] })).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : '凭证轮换失败'))
+                    }}
+                  >
+                    轮换凭证
+                  </Button>
+                )}
+              </div>
+            ))}
             <div className="flex flex-wrap gap-2">
               {tool.listing_status === 'published' && tool.listing_id ? (
                 <>
-                  <Button size="sm" variant="secondary" disabled={lifecycle.isPending} onClick={() => lifecycle.mutate({ listingId: tool.listing_id!, revoke: false })}>暂停</Button>
-                  <Button size="sm" variant="secondary" disabled={lifecycle.isPending} onClick={() => lifecycle.mutate({ listingId: tool.listing_id!, revoke: true })}>撤销</Button>
+                  <Button size="sm" variant="secondary" disabled={lifecycle.isPending} onClick={() => lifecycle.mutate({ listingId: tool.listing_id!, action: 'pause' })}>暂停</Button>
+                  <Button size="sm" variant="secondary" disabled={lifecycle.isPending} onClick={() => lifecycle.mutate({ listingId: tool.listing_id!, action: 'revoke' })}>撤销</Button>
                 </>
+              ) : tool.listing_status === 'paused' && tool.listing_id ? (
+                <Button size="sm" variant="secondary" disabled={lifecycle.isPending} onClick={() => lifecycle.mutate({ listingId: tool.listing_id!, action: 'resume' })}>恢复</Button>
               ) : (
                 <>
                   <Button size="sm" variant="primary" disabled={review.isPending || server.current_validation_status !== 'passed'} onClick={() => review.mutate({ serverId: server.id, versionId: tool.id, approve: true })}>发布</Button>

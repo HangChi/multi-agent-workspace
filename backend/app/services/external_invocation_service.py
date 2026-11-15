@@ -25,6 +25,7 @@ from app.models.external_tool import (
     ToolInstallation,
 )
 from app.services import external_audit_service, external_concurrency
+from app.services.external_observability import observe_invocation
 
 _SAFE_ERROR_MESSAGES = {
     "parameter_error": "工具参数校验失败",
@@ -88,6 +89,7 @@ async def record_invocation(
     )
     db.add(invocation)
     await db.flush()
+    observe_invocation(status)
     await external_audit_service.write_external_audit(
         db,
         user_id=owner_id,

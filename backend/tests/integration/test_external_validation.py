@@ -153,7 +153,9 @@ async def test_complete_discovery_creates_versions_and_digest_tracks_drift(
     versions = (await db_session.execute(
         select(ExternalToolVersion).where(ExternalToolVersion.server_id == server.id)
     )).scalars().all()
-    assert first.status == second.status == "passed"
+    assert first.status == "passed"
+    assert second.status == "partial"
+    assert second.safe_error == "MCP tool definitions changed; reviewer approval is required"
     assert first.definition_digest != second.definition_digest
     assert len(versions) == 2
-    assert {version.availability for version in versions} == {"valid"}
+    assert {version.availability for version in versions} == {"stale", "valid"}

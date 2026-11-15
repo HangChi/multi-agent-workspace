@@ -146,9 +146,9 @@ description: "Implementation tasks for external MCP tools and governed marketpla
 
 - [X] T055 [US5] Implement credential rotation/revocation and version upgrade services with immediate new-call effect and immutable history in `backend/app/services/external_credential_service.py` and `backend/app/services/marketplace_service.py`.
 - [X] T056 [US5] Add filtered external invocation projections to admin/audit endpoints without exposing raw arguments/results/secrets in `backend/app/api/v1/admin.py`, `backend/app/services/external_invocation_service.py`, and `backend/app/schemas/external_invocation.py`.
-- [ ] T057 [US5] Add operator UI for credential metadata/rotation, version comparison, pause/resume/revoke and invocation filters in `frontend/src/components/admin/ExternalToolServers.tsx` and `frontend/src/pages/AdminPage.tsx`.
-- [ ] T058 [US5] Add release alerts/diagnostic counters for validation drift, repeated auth/policy failures, destination changes, result caps, and audit gaps in `backend/app/services/external_observability.py` and `backend/app/core/log_setup.py`.
-- [ ] T059 [US5] Add lifecycle and audit frontend tests for status transitions, redaction, filters, and historical version display in `frontend/src/tests/external-lifecycle.test.tsx`.
+- [X] T057 [US5] Add operator UI for credential metadata/rotation, version comparison, pause/resume/revoke and invocation filters in `frontend/src/components/admin/ExternalToolServers.tsx` and `frontend/src/pages/AdminPage.tsx`.
+- [X] T058 [US5] Add release alerts/diagnostic counters for validation drift, repeated auth/policy failures, destination changes, result caps, and audit gaps in `backend/app/services/external_observability.py` and `backend/app/core/log_setup.py`.
+- [X] T059 [US5] Add lifecycle and audit frontend tests for status transitions, redaction, filters, and historical version display in `frontend/src/tests/external-lifecycle.test.tsx`.
 
 **Checkpoint**: US5 independent lifecycle/audit test passes; commit Phase 7.
 

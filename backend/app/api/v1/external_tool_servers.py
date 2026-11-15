@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import select
 
 from app.api.deps import DB, CurrentUser, require_role
+from app.api.errors import AppError
 from app.models.external_credential import ExternalCredential
 from app.schemas.external_tool import (
     CredentialOut,
@@ -93,8 +94,6 @@ async def rotate_external_credential(
         .order_by(ExternalCredential.created_at.desc())
     )
     if credential is None:
-        from app.api.errors import AppError
-
         raise AppError("NOT_FOUND", "没有可轮换的活动凭证")
     replacement = await external_credential_service.rotate_credential(
         db,
@@ -138,8 +137,6 @@ async def revoke_external_credential(
         )
     )
     if credential is None:
-        from app.api.errors import AppError
-
         raise AppError("NOT_FOUND", "外部工具凭证不存在")
     await external_credential_service.revoke_credential(db, credential)
     await write_external_audit(
