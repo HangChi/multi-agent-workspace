@@ -27,6 +27,10 @@ class MCPToolError(MCPError):
     """A valid MCP tools/call result with isError=true."""
 
 
+class MCPAuthError(MCPError):
+    """The remote MCP endpoint rejected its configured authentication."""
+
+
 @dataclass(frozen=True)
 class MCPTool:
     name: str
@@ -46,8 +50,10 @@ class MCPClient:
         max_response_bytes: int | None = None,
         handshake_timeout: float | None = None,
         call_timeout: float | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.endpoint = endpoint
+        self.headers = dict(headers or {})
         self._http = http_client
         self._owned_http: httpx.AsyncClient | None = None
         self._next_id = 0
@@ -83,20 +89,35 @@ class MCPClient:
         if params is not None:
             message["params"] = params
         try:
-            response = await self._http.post(
+            async with self._http.stream(
+                "POST",
                 self.endpoint,
                 json=message,
-                headers={"Accept": "application/json, text/event-stream", "Content-Type": "application/json"},
+                headers={
+                    "Accept": "application/json, text/event-stream",
+                    "Content-Type": "application/json",
+                    **self.headers,
+                },
                 follow_redirects=False,
                 timeout=timeout or self.call_timeout,
-            )
-            response.raise_for_status()
-        except (httpx.HTTPError, TimeoutError) as exc:
+            ) as response:
+                if response.status_code in {401, 403}:
+                    raise MCPAuthError("MCP server authentication rejected")
+                response.raise_for_status()
+                content_length = response.headers.get("content-length")
+                if content_length and int(content_length) > self.max_response_bytes:
+                    raise MCPTransportError("MCP server response exceeded the size limit")
+                body = bytearray()
+                async for chunk in response.aiter_bytes():
+                    body.extend(chunk)
+                    if len(body) > self.max_response_bytes:
+                        raise MCPTransportError("MCP server response exceeded the size limit")
+        except MCPTransportError:
+            raise
+        except (httpx.HTTPError, TimeoutError, ValueError) as exc:
             raise MCPTransportError("MCP server request failed") from exc
-        if len(response.content) > self.max_response_bytes:
-            raise MCPTransportError("MCP server response exceeded the size limit")
         try:
-            payload = response.json()
+            payload = json.loads(body)
         except (ValueError, json.JSONDecodeError) as exc:
             raise MCPProtocolError("MCP server returned invalid JSON") from exc
         if not isinstance(payload, dict) or payload.get("jsonrpc") != "2.0":
@@ -130,7 +151,11 @@ class MCPClient:
                 await self._http.post(
                     self.endpoint,
                     json={"jsonrpc": "2.0", "method": "notifications/initialized"},
-                    headers={"Accept": "application/json, text/event-stream", "Content-Type": "application/json"},
+                    headers={
+                        "Accept": "application/json, text/event-stream",
+                        "Content-Type": "application/json",
+                        **self.headers,
+                    },
                     follow_redirects=False,
                     timeout=self.handshake_timeout,
                 )
@@ -184,7 +209,11 @@ class MCPClient:
             await self._http.post(
                 self.endpoint,
                 json={"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": request_id, "reason": "run cancelled"}},
-                headers={"Accept": "application/json, text/event-stream", "Content-Type": "application/json"},
+                headers={
+                    "Accept": "application/json, text/event-stream",
+                    "Content-Type": "application/json",
+                    **self.headers,
+                },
                 follow_redirects=False,
                 timeout=1.0,
             )

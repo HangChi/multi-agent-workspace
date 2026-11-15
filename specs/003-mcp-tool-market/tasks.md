@@ -47,16 +47,16 @@ description: "Implementation tasks for external MCP tools and governed marketpla
 
 ### Tests first
 
-- [ ] T017 [P] [US1] Add API contract tests for server create/list/detail/update/validate, status codes, role checks, and write-only credentials in `backend/tests/integration/test_external_tool_servers.py`.
-- [ ] T018 [P] [US1] Add integration tests for failed connection/auth/partial discovery, duplicate endpoint, schema incompleteness, and validation audit records in `backend/tests/integration/test_external_validation.py`.
+- [X] T017 [P] [US1] Add API contract tests for server create/list/detail/update/validate, status codes, role checks, and write-only credentials in `backend/tests/integration/test_external_tool_servers.py`.
+- [X] T018 [P] [US1] Add integration tests for failed connection/auth/partial discovery, duplicate endpoint, schema incompleteness, and validation audit records in `backend/tests/integration/test_external_validation.py`.
 
 ### Implementation
 
-- [ ] T019 [US1] Implement server and validation services with lifecycle transitions, full pagination, digest/version creation, safe failure categories, and strict audit in `backend/app/services/external_validation_service.py` and `backend/app/services/external_tool_service.py`.
-- [ ] T020 [US1] Implement validation worker task and bounded test-mode path in `backend/app/tasks/validate_external_server.py` and `backend/app/tasks/celery_app.py`.
-- [ ] T021 [US1] Implement admin/maintainer server endpoints and validation endpoint in `backend/app/api/v1/external_tool_servers.py`, register it in `backend/app/main.py`.
-- [ ] T022 [US1] Add server/validation response projections and safe error mapping in `backend/app/schemas/external_tool.py`.
-- [ ] T023 [US1] Add server registration and validation integration coverage for pagination completeness, duplicate tools, drift digest, and no secret leakage.
+- [X] T019 [US1] Implement server and validation services with lifecycle transitions, full pagination, digest/version creation, safe failure categories, and strict audit in `backend/app/services/external_validation_service.py` and `backend/app/services/external_tool_service.py`.
+- [X] T020 [US1] Implement validation worker task and bounded test-mode path in `backend/app/tasks/validate_external_server.py` and `backend/app/tasks/celery_app.py`.
+- [X] T021 [US1] Implement admin/maintainer server endpoints and validation endpoint in `backend/app/api/v1/external_tool_servers.py`, register it in `backend/app/main.py`.
+- [X] T022 [US1] Add server/validation response projections and safe error mapping in `backend/app/schemas/external_tool.py`.
+- [X] T023 [US1] Add server registration and validation integration coverage for pagination completeness, duplicate tools, drift digest, and no secret leakage.
 
 **Checkpoint**: US1 independent test passes; commit Phase 3 before proceeding.
 

@@ -46,4 +46,4 @@ celery_app.conf.beat_schedule = {
 celery_app.autodiscover_tasks(["app.tasks"])
 
 # 显式导入任务模块，确保 Worker 注册（兜底 autodiscover 不递归的局限）
-from app.tasks import execute_run, maintenance  # noqa: F401  (must be after celery_app is defined)
+from app.tasks import execute_run, maintenance, validate_external_server  # noqa: F401  (must be after celery_app is defined)

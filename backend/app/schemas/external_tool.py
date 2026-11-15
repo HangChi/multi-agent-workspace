@@ -1,5 +1,6 @@
 """Safe request/response models for governed external MCP tools."""
 
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
@@ -19,7 +20,7 @@ class CredentialOut(BaseModel):
     header_name: str
     status: Literal["active", "revoked", "superseded"]
     key_version: str
-    last_used_at: str | None = None
+    last_used_at: datetime | None = None
 
 
 class ExternalServerCreate(BaseModel):
@@ -69,8 +70,8 @@ class ValidationSummary(BaseModel):
     discovered_count: int = Field(ge=0)
     valid_count: int = Field(ge=0)
     safe_error: str | None = None
-    started_at: str
-    completed_at: str | None = None
+    started_at: datetime
+    completed_at: datetime | None = None
 
 
 class ExternalServerOut(BaseModel):
@@ -85,9 +86,9 @@ class ExternalServerOut(BaseModel):
     maintainer: str
     auth_mode: str
     status: str
-    created_at: str
-    updated_at: str
-    last_validated_at: str | None
+    created_at: datetime
+    updated_at: datetime
+    last_validated_at: datetime | None
     current_validation_status: str | None
     credentials: list[CredentialOut] = Field(default_factory=list)
     last_validation: ValidationSummary | None = None
@@ -108,7 +109,7 @@ class ExternalToolVersionOut(BaseModel):
     required_permissions: list[str]
     definition_hash: str
     availability: str
-    discovered_at: str
+    discovered_at: datetime
 
 
 class ListingOut(BaseModel):
