@@ -1,19 +1,12 @@
-"""统计服务（T078）：仪表盘聚合查询（按用户隔离）。
+"""统计服务（T078）：用户隔离、实时 SQL 聚合的仪表盘查询。
 
-对齐 tasks.md T078：
-- running / queued：当前非终态计数
-- completed_today / failed_today：今日终态计数
-- success_rate_7d：近 7 日成功率 = completed / (completed + failed)
-- cost_today_cents：今日成本（非 cancelled）
-- cost_trend_7d：近 7 日每日成本序列（[d6, d5, ..., d0]，今日在最后）
-
-实现：单次查询 runs 全部行（按用户 + 状态 + 时间窗口），Python 侧聚合。
-数据量受「每用户配额」约束，单用户 runs 行数有限，无需复杂 SQL 窗口。
+近 7 日成本按 UTC 自然日统计；非终态计数不受日期窗口限制。
+运行和沙箱分别在数据库聚合后合并为一行，不加载结果 JSON 或代码/输出。
 """
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent import Agent
@@ -31,97 +24,72 @@ def _day_start(dt: datetime) -> datetime:
 
 
 async def overview(db: AsyncSession, owner_id: str) -> dict:
-    """用户仪表盘聚合。
-
-    Returns:
-        dict: running/queued/completed_today/failed_today/success_rate_7d/
-              cost_today_cents/cost_trend_7d
-    """
-    now = datetime.now(UTC)
-    today_start = _day_start(now)
+    """Return one fresh owner-scoped aggregate, never per-run/per-execution rows."""
+    today_start = _day_start(datetime.now(UTC))
     week_ago = today_start - timedelta(days=6)  # 含今日共 7 天
+    completed = Run.status.in_(_TERMINAL_SUCCESS)
+    failed = Run.status.in_(_TERMINAL_FAIL)
+    billable = Run.status != "cancelled"
+    today = Run.created_at >= today_start
+    this_week = Run.created_at >= week_ago
 
-    # 非终态计数不受时间窗口限制：一个跑了十几天的任务依然是 running，
-    # 若按 7 天窗口过滤会从仪表盘「消失」（用户以为任务丢了）。
-    active_rows = (
-        await db.execute(
-            select(Run.status).where(
-                Run.owner_id == owner_id,
-                Run.status.in_(_NON_TERMINAL),
-            )
-        )
-    ).scalars().all()
-    running = sum(1 for s in active_rows if s == "running")
-    queued = sum(1 for s in active_rows if s == "queued")
-
-    rows = (
-        (
-            await db.execute(
-                select(Run).where(
-                    Run.owner_id == owner_id,
-                    Run.created_at >= week_ago,
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-    completed_today = failed_today = 0
-    cost_today = 0
-    success_7d = fail_7d = 0
-
-    # 近 7 日成本序列（key: UTC 日期字符串 YYYY-MM-DD → cost）
-    trend: dict[str, int] = {}
+    columns = [
+        func.count().filter(Run.status == "running").label("running"),
+        func.count().filter(Run.status == "queued").label("queued"),
+        func.count().filter(today, completed).label("completed_today"),
+        func.count().filter(today, failed).label("failed_today"),
+        func.count().filter(this_week, completed).label("success_7d"),
+        func.count().filter(this_week, failed).label("fail_7d"),
+        func.coalesce(func.sum(Run.cost_cents).filter(today, billable), 0).label("cost_today_cents"),
+    ]
+    # Fixed-size conditional sums avoid timezone-dependent date casts and keep
+    # the returned result bounded to seven days, regardless of history size.
     for i in range(7):
-        day = (week_ago + timedelta(days=i)).date()
-        trend[day.isoformat()] = 0
-
-    for run in rows:
-        created = run.created_at
-        if created < week_ago:
-            continue
-
-        if run.status in _TERMINAL_SUCCESS:
-            success_7d += 1
-        elif run.status in _TERMINAL_FAIL:
-            fail_7d += 1
-        # cancelled / needs_input / 非终态不计入成功率与今日终态
-
-        if run.status != "cancelled":
-            trend[created.date().isoformat()] += run.cost_cents
-            if created >= today_start:
-                cost_today += run.cost_cents
-
-        if created >= today_start:
-            if run.status in _TERMINAL_SUCCESS:
-                completed_today += 1
-            elif run.status in _TERMINAL_FAIL:
-                failed_today += 1
-
-    total_7d = success_7d + fail_7d
-    success_rate = round(success_7d / total_7d, 4) if total_7d else 0.0
-
-    sandbox_rows = (
-        await db.execute(
-            select(SandboxExecution).where(
-                SandboxExecution.agent_id.in_(
-                    select(Agent.id).where(Agent.owner_id == owner_id)
+        start = week_ago + timedelta(days=i)
+        columns.append(
+            func.coalesce(
+                func.sum(Run.cost_cents).filter(
+                    Run.created_at >= start,
+                    Run.created_at < start + timedelta(days=1),
+                    billable,
                 ),
-                SandboxExecution.created_at >= today_start,
+                0,
+            ).label(f"cost_day_{i}")
+        )
+    run_totals = (
+        select(*columns)
+        .where(Run.owner_id == owner_id, or_(this_week, Run.status.in_(_NON_TERMINAL)))
+        .subquery("run_totals")
+    )
+    sandbox_totals = (
+        select(
+            func.count().label("sandbox_runs_today"),
+            func.coalesce(func.sum(SandboxExecution.duration_ms), 0).label("sandbox_duration_ms"),
+        )
+        .where(
+            SandboxExecution.agent_id.in_(select(Agent.id).where(Agent.owner_id == owner_id)),
+            SandboxExecution.created_at >= today_start,
+        )
+        .subquery("sandbox_totals")
+    )
+    # Each aggregate subquery always returns exactly one row (including empty
+    # inputs). Joining after aggregation cannot multiply runs by executions.
+    row = (
+        await db.execute(
+            select(*run_totals.c, *sandbox_totals.c).select_from(
+                run_totals.join(sandbox_totals, true())
             )
         )
-    ).scalars().all()
-    sandbox_minutes = sum(row.duration_ms for row in sandbox_rows) / 60000
-
+    ).mappings().one()
+    total_7d = row["success_7d"] + row["fail_7d"]
     return {
-        "running": running,
-        "queued": queued,
-        "completed_today": completed_today,
-        "failed_today": failed_today,
-        "success_rate_7d": success_rate,
-        "cost_today_cents": cost_today,
-        "cost_trend_7d": [trend[(week_ago + timedelta(days=i)).date().isoformat()] for i in range(7)],
-        "sandbox_runs_today": len(sandbox_rows),
-        "sandbox_minutes_today": round(sandbox_minutes, 2),
+        "running": row["running"],
+        "queued": row["queued"],
+        "completed_today": row["completed_today"],
+        "failed_today": row["failed_today"],
+        "success_rate_7d": round(row["success_7d"] / total_7d, 4) if total_7d else 0.0,
+        "cost_today_cents": row["cost_today_cents"],
+        "cost_trend_7d": [row[f"cost_day_{i}"] for i in range(7)],
+        "sandbox_runs_today": row["sandbox_runs_today"],
+        "sandbox_minutes_today": round(row["sandbox_duration_ms"] / 60000, 2),
     }

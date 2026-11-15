@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -29,6 +27,12 @@ class FakeResult:
     def scalars(self) -> ScalarResult:
         return self._scalars
 
+    def mappings(self) -> FakeResult:
+        return self
+
+    def one(self) -> dict[str, Any]:
+        return self._scalars.values[0]
+
 
 class FakeSession:
     def __init__(self, responses: list[list[Any]] | None = None) -> None:
@@ -48,12 +52,14 @@ class FakeSession:
         return FakeResult(next(self.responses))
 
 
-def _run(status: str, created_at: datetime, cost_cents: int):
-    return SimpleNamespace(status=status, created_at=created_at, cost_cents=cost_cents)
-
-
-def _execution(created_at: datetime, duration_ms: int):
-    return SimpleNamespace(agent_id="owned-agent", created_at=created_at, duration_ms=duration_ms)
+def _aggregate(**values: int) -> dict[str, int]:
+    return {
+        'running': 0, 'queued': 0, 'completed_today': 0, 'failed_today': 0,
+        'success_7d': 0, 'fail_7d': 0, 'cost_today_cents': 0,
+        'sandbox_runs_today': 0, 'sandbox_duration_ms': 0,
+        **{f'cost_day_{i}': 0 for i in range(7)},
+        **values,
+    }
 
 
 @pytest.mark.asyncio
@@ -114,19 +120,11 @@ async def test_start_and_finish_execution_store_payload_and_audit():
 
 @pytest.mark.asyncio
 async def test_overview_aggregates_sandbox_runs_and_minutes_for_owner():
-    now = datetime.now(UTC)
-    db = FakeSession(
-        [
-            ["running", "running", "queued", "needs_input"],
-            [
-                _run("completed", now, 23),
-                _run("failed", now, 7),
-                _run("cancelled", now, 100),
-                _run("queued", now, 0),
-            ],
-            [_execution(now, 30_000), _execution(now, 90_000)],
-        ]
-    )
+    db = FakeSession([[_aggregate(
+        running=2, queued=1, completed_today=1, failed_today=1,
+        success_7d=1, fail_7d=1, cost_today_cents=30, cost_day_6=30,
+        sandbox_runs_today=2, sandbox_duration_ms=120_000,
+    )]])
 
     result = await overview(db, "owner-id")
 
@@ -140,12 +138,12 @@ async def test_overview_aggregates_sandbox_runs_and_minutes_for_owner():
     assert result["sandbox_minutes_today"] == 2.0
     assert len(result["cost_trend_7d"]) == 7
     assert result["cost_trend_7d"][-1] == 30
-    assert len(db.statements) == 3
+    assert len(db.statements) == 1
 
 
 @pytest.mark.asyncio
 async def test_overview_empty_sandbox_data_returns_zero_metrics():
-    db = FakeSession([[], [], []])
+    db = FakeSession([[_aggregate()]])
 
     result = await overview(db, "another-owner")
 
