@@ -107,6 +107,10 @@ backend/.venv/bin/python deploy/verify/mcp_fixture_server.py --host 127.0.0.1 --
 
 此 fixture 使用本地 HTTP，仅用于协议单测/受控测试 transport；它**不能**作为生产 endpoint，也不能通过降低 HTTPS 或 SSRF 策略来连接。正式集成验证使用测试内注入的 TLS transport/fixture。服务器凭证的开发密钥通过 `MCP_CREDENTIAL_KEY` 配置；生产必须显式替换为独立高熵密钥，并按部署密钥轮换流程管理。
 
+003 的可观测性 API 提供管理员诊断用的计数器和近期告警；当前实现是进程内有界计数，不是持久化或跨 worker 聚合的生产指标。上线前应通过目标部署的 metrics/log collector 验证告警阈值与聚合行为。Fixture 并发测试不代表真实 Worker/API 栈验收，也未测量核心 API P95。
+
+当前 003 release gate 状态和已验证结果见 [`specs/003-mcp-tool-market/release-status.md`](../specs/003-mcp-tool-market/release-status.md)。截至该报告日期，真实部署并发/P95 smoke、disposable DB migration downgrade/upgrade 尚未完成；Feature 002 native Linux/full-stack acceptance 仍是独立前置条件，不能由 003 测试替代。
+
 ## HTTPS 入口（可选）
 
 `Caddyfile` 是另一种入口方案（自动 HTTPS + WS 透传），适合公网部署：把

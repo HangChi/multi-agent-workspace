@@ -157,10 +157,10 @@ description: "Implementation tasks for external MCP tools and governed marketpla
 **Purpose**: Verify the complete feature and record truthful release status.
 
 - [ ] T060 [P] Run backend migration upgrade/downgrade, lint, type checks, unit and integration suites; fix only 003 regressions in `backend/`.
-- [ ] T061 [P] Run frontend lint, typecheck, Vitest, and production build; fix only 003 regressions in `frontend/`.
-- [ ] T062 [P] Run SSRF, credential canary, prompt-injection-like output, malformed schema, oversized response, drift, cancellation, and repeated denial security matrix in `backend/tests/`.
+- [X] T061 [P] Run frontend lint, typecheck, Vitest, and production build; fix only 003 regressions in `frontend/`.
+- [X] T062 [P] Run SSRF, credential canary, prompt-injection-like output, malformed schema, oversized response, drift, cancellation, and repeated denial security matrix in `backend/tests/`.
 - [ ] T063 Run 20-success + 20-failure/timeout concurrency acceptance and verify core API P95/error behavior in `deploy/verify/` and `backend/tests/integration/`.
-- [ ] T064 Update `docs/architecture.md`, `deploy/README.md`, `specs/003-mcp-tool-market/quickstart.md`, and `specs/003-mcp-tool-market/tasks.md` with verified behavior and known 002 acceptance blocker.
+- [X] T064 Update `docs/architecture.md`, `deploy/README.md`, `specs/003-mcp-tool-market/quickstart.md`, and `specs/003-mcp-tool-market/tasks.md` with verified behavior and known 002 acceptance blocker.
 - [ ] T065 Run `git diff --check`, `git status`, and final scope review; ensure no secrets, fixture credentials, generated artifacts, or 002 fixes are included.
 
 ## Dependencies & Execution Order

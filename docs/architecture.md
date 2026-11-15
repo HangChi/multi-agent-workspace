@@ -83,7 +83,13 @@ User 1─N Schedule ─N Request(模板化)
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### 3.1 分层职责
+### 3.1 Feature 003 外部 MCP 边界
+
+外部 MCP 工具不写入内置 `CATALOG` 或 `Agent.tools`。服务器、发现版本、市场 listing、安装、Agent grant 与 `RunExternalToolSnapshot` 使用独立模型；Worker 在 ReActRunner 中注入快照版本的 `ExternalToolExecutor`。调用前重新校验发布、安装、授权、凭证、endpoint 和权限状态，凭证只在 Worker 请求边界解密。调用结果和错误分类通过同一 Run timeline、invocation projection 与管理员审计查询呈现，原始参数、远端结果和凭证值不会进入通用步骤、事件、日志或 UI。服务器并发使用 Redis 租约，取消和终态 Run 丢弃迟到结果。
+
+003 v1 仅支持经过 HTTPS/SSRF 校验的 Streamable HTTP MCP；不支持 stdio、任意第三方代码或公开应用商店。Feature 002 的 native Linux/full-stack acceptance 仍是独立前置依赖，本特性不包含其修复。
+
+### 3.2 分层职责
 
 1. **Web 层**：React SPA，核心交互是「需求卡片拖到 Agent/组卡片」触发分配；运行详情页通过 WebSocket 看实时日志。
 2. **API 层**：FastAPI，无状态 REST + JWT；业务校验、权限校验、配额检查；入队请求只写"创建 Run + 发事件"，重活全部交给执行引擎，保证 API 快速响应。
