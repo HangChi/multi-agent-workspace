@@ -23,7 +23,7 @@
 
 ### GET /tools
 
-返回**已启用**的工具目录（FR-001）。任何登录用户可读。
+返回**代码 CATALOG 与 DB 中显式 enabled=true 行的交集**（FR-001）。缺行或禁用均不暴露，任何登录用户可读。定义/schema 仍由代码统一提供；禁用/删除工具时修剪 Agent 当前勾选，已有运行的历史快照不改写。运行中每次派发前仍检查当前授权与启用状态。
 
 ```json
 {"items": [
@@ -71,7 +71,7 @@
 
 → 201。校验：`target_type` ∈ domain/cidr/ip；domain 支持单个前导 `*.`；`port_range` 形如 `443` 或 `8000-8100`；同一 Agent 内重复目标 → 409 `CONFLICT`。
 
-**当前实现限制（未满足原始 restricted-domain 验收）**：规则 API 会接收并保存 `domain` 目标，但执行时的 Linux 内核规则目前只支持 IP/CIDR。restricted 模式含 domain allow 时，执行策略安装 fail-closed，沙箱不会启动；不得将其宣传为域名放行可用。Quickstart S5 将此作为未完成验收，需先实现安全的 DNS 响应与内核允许集绑定，并在 Linux 上验证。
+**域名规则的运行时边界**：执行私有可信 DNS mediator 验证精确/通配域名及完整 CNAME 链，在答复前原子写入按规则、IP 族、端口与 TTL 隔离的 nft 允许/拒绝集合。全局黑名单优先，绑定过期、helper 健康租约失效或不安全/无法验证的答案均 fail-closed，已建立连接也重查。默认模式存在全局域名 deny 时，未受控解析绑定的直连 IP 拒绝。授权是目的 IP+端口，不是 TLS/SNI/HTTP Host 身份验证，共享 IP 和未观察别名的限制仍存在。Docker Desktop Linux VM 专项 18 项已通过；原生 GitHub 整栈结果另行记录，不以 VM 专项代替。
 
 **不允许**通过本端点放宽全局黑名单：若 `target` 命中黑名单（如同一网段），返回 400 `INVALID_INPUT`，`detail` 说明「该目标被全局黑名单覆盖」。
 
@@ -83,8 +83,10 @@
 
 ### GET /runs/{id}（响应新增）
 
+`tool_grants_snapshot` 为初始授权工具名数组，`[]` 表示无工具，SQL NULL 经 API 表示 `null`（历史未记录或 router 待选）。直接/子运行在入队前捕获，router 首次确定 Agent 时捕获；非 NULL 快照不可改写，重试保留。实际调用权限只能进一步收窄，不因 Agent 后续新增勾选而升级。
+
 ```json
-{"id": "...", "status": "running",
+{"id": "...", "status": "running", "tool_grants_snapshot": ["run_python"],
  "executions": [
    {"id": "...", "step_seq": 4, "language": "python", "status": "ok",
     "exit_code": 0, "duration_ms": 1820, "stdout_truncated": false, "artifacts": 2}
@@ -207,14 +209,14 @@
 
 ## 当前实现与原验收契约差异（2026-11-15）
 
-上文仍保留原验收目标；下列差异没有因文档记录而自动视为满足，T074 保持未完成。真实容器证据见 `../docker-verification.md`。
+下列项目区分原验收目标、当前实际安全边界与验证范围；契约同步本身不替代 T076 整栈验收，也不把已知限制自动豁免。真实容器及原生 CI 证据见 `../docker-verification.md`。
 
 - **身份与归属**：当前 Run、执行详情、制品下载只允许 owner，其他用户（包括非 owner admin）返回 404，匿名 401；不是上文 owner/admin + 403。后端集成测试已覆盖；本轮受保护 HTTP 验收因测试管理员/邀请码授权被拒而未运行。
 - **空 restricted 规则 warning（已对齐）**：Agent POST/PATCH 保存时，restricted 且无启用 allow 规则返回 `warning`；保存不被阻止。存在启用 allow 或 default 模式时 warning 为 null。
 - **内置黑名单**：来自服务端配置常量，GET 返回合成 `builtin:*` 项，不是首次迁移写入的 DB 行。删除内置项返回 400；其访问记录 `matched_rule_id=null`，自定义规则命中使用真实 UUID。
 - **访问检索（已对齐）**：支持 run_id、agent_id、action、`from`、`to`、page、page_size。时间区间为半开 `[from,to)`，时间必须带时区，summary 与 items 使用相同筛选，且 summary 不受分页影响。
-- **出网事实（部分对齐）**：bridge TCP/UDP 包头 watcher 在用户进程启动前就绪；按 TCP 连接区分源端口/序号与生命周期，UDP 按五元组流归并；支持实际 IPv4/IPv6 源地址和目标采集。真实 Docker Desktop Linux VM 已验证同目标多次 TCP 连接分别记录及 IPv6 allow/deny。`bytes_out` 仍为 null；UDP 同五元组 socket 重开、ICMP/分片/扩展头、丢包/高吞吐 100% 覆盖仍有限，不能声称 SC-009 完全满足。
-- **域名策略**：restricted domain allow 和实际生效的全局 domain deny 都在内核安装阶段 fail-closed；默认模式能解析域名并不等于支持 domain allow。
+- **出网事实**：固定 AF_PACKET 包头 watcher 在用户进程前就绪，以内核 source-IP BPF 和 bridge-master/veth 归属校验捕获 pre-defrag 出站。TCP 按源端口/初始序号与生命周期区分连接；UDP 按五元组流归并，不声称能从无连接协议识别同五元组 socket 重开。IPv4/IPv6 目标均记录；分片、扩展链及不支持的路由协议在内核拒绝，并记录真实 IP、port=0。丢包、事件预算耗尽或日志截断不能静默当作成功。`bytes_out` 仍为 null，不采正文、不伪造传输字节。
+- **域名策略**：精确/通配/CNAME 域名策略已由执行私有 DNS 与 TTL/端口 nft 集合实现；共享 dnsmasq 日志不作为授权依据。DNS 策略拒绝也产生归属明确的 DNS 目标端口 53 事实，不伪造从未发生的后续 TCP 连接。原生整栈结果与专项 VM 结果分开，且不承诺 TLS/共享 IP 身份识别或任意高负载下的零丢包。
 - **拒绝事件**：`egress_denied` 带 execution_id、target_ip、target_domain、port、matched_rule_id，以及通用可读 reason（不披露具体内部规则细节）。
 - **输出事件（实现已接线，端到端仍待验）**：容器运行时 attach 后增量发布；按 UTF-8 字节切片，每条不超过 4096 bytes；输出尾部与实时发布预算均有界。集成测试验证 started/output/finished 的顺序与 started 唯一，但跨服务 WebSocket protected live E2E 尚未执行。
 - **制品截断提示（已对齐）**：执行详情增加 `artifact_truncated: {reason,message} | null`；仅当 Step.output 中 execution_id 与详情匹配时投影，旧数据不猜测归属。LLM/Step/API/前端均能看到截断原因，执行成功状态不因此改为失败。

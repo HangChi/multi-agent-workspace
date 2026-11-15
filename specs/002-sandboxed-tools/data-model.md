@@ -28,6 +28,14 @@
 | 新增 | egress_mode | enum('default','restricted') | NOT NULL, DEFAULT 'default' | `default`=放行并记录；`restricted`=仅允许 `egress_rules` 中该 Agent 的 allow 项 |
 | 不变 | tools | jsonb | 仍是工具名数组（spec 的 ToolGrant 语义由它承担，见 D-2） |
 
+### runs（变更）
+
+| 变更 | 字段 | 类型 | 说明 |
+|---|---|---|---|
+| 新增 | tool_grants_snapshot | json, NULL | 初始工具名数组；`[]` 表示无工具，SQL `NULL` 表示历史未记录或 router 尚未选定 Agent |
+
+`0004_tool_grant_history` 不回填旧记录。直接/子运行在入队前捕获，router 在首次选中 Agent 执行时捕获，纯编排父运行记录 `[]`。非 NULL 后由 PostgreSQL 触发器禁止改写，重试也保留。实际调度取「快照 ∩ 当前 Agent 授权 ∩ 已启用目录」，并在每次工具调用前重查，因此后续配置只能收窄已有运行权限。下线/删除工具的触发器在同一事务中修剪 Agent 当前授权，但不改历史 Run/Step。
+
 ### sandbox_executions（新增）
 
 一次脚本执行的事实记录，与 `steps` 1:1。
@@ -48,8 +56,8 @@
 | stdout_truncated | boolean | NOT NULL, DEFAULT false | |
 | stdout_full_bytes | bigint | NOT NULL, DEFAULT 0 | 原始长度，供「已截断」提示 |
 | duration_ms | int | NOT NULL, DEFAULT 0 | |
-| cpu_ms | int | NULL | 资源峰值（从 cgroup 读取，读不到为 NULL） |
-| mem_peak_bytes | bigint | NULL | |
+| cpu_ms | int | NULL | 存活期 cgroup 已观察 CPU 累计值（纳秒转毫秒），缺失为 NULL |
+| mem_peak_bytes | bigint | NULL | 优先内核峰值；不可得时保留存活期已观察 usage 最大值，不冒充精确 lifetime peak |
 | image | varchar(120) | NOT NULL | 实际使用的镜像 tag |
 | limits | jsonb | NOT NULL | `{timeout_s, cpu, mem_mb, disk_mb, pids}` 快照 |
 | error_category | varchar(40) | NULL | `timeout / oom / pids / disk / policy / infra / exit_code` |
@@ -92,12 +100,12 @@
 | agent_id | UUID | FK→agents, NOT NULL | |
 | user_id | UUID | FK→users, NOT NULL | 归属校验与审计 |
 | target_ip | inet | NOT NULL | 真实连接目标 IP |
-| target_domain | varchar(255) | NULL | DNS 反查结果；`ip-direct` 表示直连 IP 未反查到域名 |
-| port | int | NOT NULL | |
-| protocol | varchar(10) | NOT NULL, DEFAULT 'tcp' | tcp / udp |
+| target_domain | varchar(255) | NULL | 域名策略使用执行私有 DNS 有效期绑定归因；其他模式可补共享 DNS 观测。`ip-direct` 表示没有可信可用域名 |
+| port | int | NOT NULL | TCP/UDP 目的端口；拒绝的无端口协议、分片/扩展链记录 0 |
+| protocol | varchar(10) | NOT NULL, DEFAULT 'tcp' | tcp / udp，或拒绝的 ICMP/分片/扩展链等协议事实 |
 | action | enum('allow','deny') | NOT NULL | |
-| matched_rule_id | UUID | FK→egress_rules, NULL | 命中的规则（deny 时必填） |
-| bytes_out | bigint | NULL | conntrack 快照的出口字节数 |
+| matched_rule_id | UUID | FK→egress_rules, NULL | 命中的持久化规则；内置策略、无匹配 allow 或协议 guard 拒绝可为 NULL |
+| bytes_out | bigint | NULL | 当前包头观测不推算应用出口字节数，保持 NULL |
 | occurred_at | timestamptz | NOT NULL | |
 
 **索引**: `(run_id)`、`(agent_id, occurred_at)`、`(action, occurred_at)`。
@@ -115,9 +123,9 @@
 4. `egress_rules`：`scope='agent'` 必须有 `agent_id` 且 `action='allow'`；`scope='global'` 必须 `agent_id IS NULL` 且 `action='deny'`。
 5. **求值顺序固定**：全局 deny 优先于任何 agent allow；`egress_mode='restricted'` 且无匹配 allow → deny。任何 Agent 配置都不能放宽全局黑名单（FR-022）。
 6. `egress_rules.target` 为 `cidr` 时必须能被解析为合法网段；`ip` 时必须合法 IP。
-7. `egress_accesses.target_domain` 为 `ip-direct` 时 `matched_rule_id` 为 NULL 且 `action` 只能为 `allow`（直连 IP 本身不拦截，除非命中 cidr 黑名单）。
+7. `ip-direct` 只说明域名不可归因，不代表允许。IP/CIDR 黑名单、restricted 无匹配授权、存在全局域名 deny 时的未绑定目标，以及协议 guard 均可拒绝；只有命中持久化规则时才有对应 `matched_rule_id`。
 8. 同一 `(execution_id, object_key)` 在 artifacts 中唯一：同名文件由执行器追加序号，不覆盖。
-9. 并发占用：同一时刻 `status='running'` 的 `sandbox_executions` 数量 ≤ `SBX_MAX_CONCURRENCY`（Redis 信号量保证，DB 侧作为校验断言）。
+9. 并发占用：同一时刻实际持有 Redis 租约并运行的用户容器数 ≤ `SBX_MAX_CONCURRENCY`；DB 的 `running` 事实可包含等待配额的执行，不能用其数量冒充容器并发数。原生验收独立采样 Docker 存活容器校验实际重叠和上限。
 10. `tools.enabled=false` 的工具不出现在 `GET /tools`，且在运行期按「未授权」处理（不是「未知工具」）。
 
 ## 状态迁移
@@ -149,7 +157,7 @@ default ⇄ restricted   （成员任意切换；切换不影响进行中的执�
 | FR-001 目录真实性 | tools（由 catalog.py seed） | 每个可选项都有执行器 |
 | FR-002/004 按勾选注入 | agents.tools → 运行时 executors 字典 | 空集即无工具 |
 | FR-003 越权拒绝 | steps.output.error + audit_logs(action='tool_denied') | 拒绝记录 |
-| FR-005 下线兼容 | 迁移日志 + 历史 steps 不改写 | 快照不可追溯 |
+| FR-005 下线兼容 | tools enabled gate + Agent 生命周期触发器 + runs.tool_grants_snapshot + 历史 steps 不改写 | 已知初始授权不可改写；旧历史保留 NULL，不按当前配置伪造 |
 | FR-006~011 执行 | sandbox_executions（language/code/stdout/exit_code/limits） | |
 | FR-009/010 超时与配额 | status=timeout/resource + error_category | |
 | FR-012 输出截断 | stdout_truncated / stdout_full_bytes | |

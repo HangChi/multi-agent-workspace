@@ -49,7 +49,7 @@ docker compose -p aw -f deploy/docker-compose.yml --profile mock up -d --build
 
 ## 沙箱镜像与网络运维
 
-Compose 中的沙箱执行镜像由 Worker 启动，网络规则镜像只在每次执行时短暂启动，DNS 代理长期运行但不向宿主机发布端口。三者的镜像 tag 必须与后端配置及 Compose 一致：`aw-sandbox-python:3.12`、`aw-sbx-net:1`、`aw-dns-proxy:1`。
+Compose 中的沙箱执行镜像由 Worker 启动；网络规则镜像用于执行级固定命令批处理、包头观测，以及需要域名策略时的独立 DNS mediator。共享 DNS 代理长期运行但不向宿主机发布端口，只作为受控上游。三者的镜像 tag 必须与后端配置及 Compose 一致：`aw-sandbox-python:3.12`、`aw-sbx-net:1`、`aw-dns-proxy:1`。
 
 ```bash
 # 从仓库根目录分别构建（CI 也会逐个构建验证）
@@ -64,7 +64,7 @@ docker compose -p aw -f deploy/docker-compose.yml up -d
 
 Beat 每天 03:00（`Asia/Shanghai`）清空创建时间超过 90 天的沙箱代码、stdout 和 stderr；代码以空字符串保留以满足非空约束。`code_sha256`、状态、资源限额和其他执行元数据不删除。
 
-沙箱的网络隔离和 iptables/conntrack 观测**要求 Linux Docker 主机**。Docker Desktop 的 Linux VM 不等同于已验证的 Linux 主机环境；macOS/Windows 本机运行不能作为网络隔离正确性的验证。生产上线前应在目标 Linux 主机执行项目沙箱验证脚本，并确认 Worker 记录到的 egress 数据与预期一致。
+沙箱的网络隔离和包头观测**要求 Linux Docker 主机**：iptables/ip6tables、nftables、bridge netfilter、AF_PACKET 与 cgroup 必须实际可用。Docker Desktop Linux VM 的专项结果与原生 Linux 验收分开记录。GitHub Actions 使用完整 `ubuntu-24.04` VM 执行 `deploy/verify/native_acceptance.py`，实测这些前置条件并创建独立临时栈；不使用 slim/container job 代替宿主验证。生产上线前仍应在目标 Linux 主机复验，CI 不构成对所有发行版或已攻陷宿主的隔离保证。
 
 ### DNS 故障排查
 
@@ -78,19 +78,22 @@ docker inspect aw-dns-proxy --format '{{json .Mounts}}'
 docker inspect aw-dns-proxy --format '{{json .NetworkSettings.Networks}}'
 ```
 
-确认 `deploy/dns-proxy/blacklist.conf` 中规则格式为 `address=/domain/`，且 `dnsmasq.conf` 中指定的上游 DNS 能从主机网络访问。修改全局黑名单后重启代理使挂载的配置生效：
+确认 `deploy/dns-proxy/blacklist.conf` 中静态规则格式为 `address=/domain/`，且 `dnsmasq.conf` 中指定的上游 DNS 可达。应用管理端的全局规则在下一次执行冻结进策略快照，不需要重启共享代理；只有手工修改共享上游的挂载配置后，才需要使其重新加载：
 
 ```bash
 docker compose -p aw -f deploy/docker-compose.yml restart dns-proxy
 ```
 
-`dns-proxy` 仅负责域名解析与查询日志，不是访问控制的唯一边界；沙箱网络出口规则由 Linux iptables 强制执行。若解析失败，先查代理健康检查、日志和上游连通性，再查 Worker 为独立执行网络设置 DNS 的日志。DNS 日志缺失不等于网络访问被阻止：沙箱可直接连接 IP；可观测的目标和域名归因也会受 DNS 缓存、直连 IP 影响。
+需要域名策略时，每次执行独立的可信 mediator 验证原始域名、完整 CNAME 链、地址与端口规则，并在发送 DNS 答案前原子更新执行私有 nft 超时集合。共享 dnsmasq 日志不是授权依据。全局 deny 优先；TTL 过期或健康租约失效后，已建立连接也不能绕过当前规则。mediator 死亡、暂停、绑定失败、不可安全处理的短 TTL/截断答案或预算耗尽均 fail-closed。默认模式存在全局域名 deny 时，未通过该执行受控 DNS 建立安全绑定的直连 IP 同样拒绝。
+
+排障时先查共享上游，再按 `aw.execution` 标签定位本次执行的 mediator/包头 helper，检查就绪、受信心跳和 Worker 错误分类；不要清理其他执行或全局刷新规则。用户容器不持有网络管理能力、Docker socket 或 helper 参数控制权。
 
 ### 安全边界与观测限制
 
 - Worker 连接 Docker Engine 需要访问 Docker socket。**可访问该 socket 的进程通常等价于宿主机 root**，能够创建特权容器、挂载宿主文件系统或控制其他容器。当前部署对 Worker 挂载 socket 是高权限信任边界，不是抵御已攻陷 Worker 的隔离措施；应限制主机访问、管理组成员和 Worker 镜像来源，并评估专用主机/受限 Docker API 等隔离方案。不要把 socket 暴露给不可信网络。
 - 网络审计只记录 DNS 查询与连接目标等元数据；不解密 TLS，也看不到 HTTPS URL 路径或请求/响应正文。CDN、反向代理和共享 IP 会让 IP 到域名的映射不唯一，域名归因可能缺失或不准确；直接 IP 连接也可能只显示 `ip-direct`。不能将审计结果描述为完整 URL 级追踪。
-- 网络规则和流量观测依赖 Linux 主机的 iptables、独立容器网络和 conntrack 行为。macOS/Windows Docker Desktop 及其他未验证运行时不能代替 Linux 部署验收。TLS/CDN 可观测性限制同样适用于生产 Linux 主机。
+- 路由流量的片段、IPv6 扩展链及其他不支持的协议在 defrag 之前由执行私有 nft guard 拒绝；记录真实 IP 目标，无法使用 TCP/UDP 端口时 `port=0`。固定 AF_PACKET helper 仅采集包头，并校验执行源 IP、bridge/veth 归属、丢包统计与日志完整性；不能把丢失的审计静默当作成功。正常邻居发现控制流量不作为应用连接记录。
+- 域名授权的内核边界仍是「目的 IP + 端口」，不是 HTTP Host/SNI/证书身份检查。已观察的黑名单别名优先阻断共享地址；未查询过的别名不能仅凭 IP 推断。Docker Desktop 专项结果不能代替原生 Linux 和目标部署机验收。
 
 ## HTTPS 入口（可选）
 

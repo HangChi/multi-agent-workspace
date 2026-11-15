@@ -21,6 +21,72 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
 
 
+ERROR_STAGES = frozenset({
+    'unknown', 'docker_connect', 'image_check', 'network_create', 'volume_create',
+    'storage_start', 'storage_ready', 'policy_install', 'container_create',
+    'script_inject', 'output_capture', 'container_start', 'container_wait', 'audit_collect',
+})
+ERROR_CODES = frozenset({
+    'unknown', 'ipv6_pool_unavailable', 'address_pool_overlap', 'ipv6_unavailable',
+    'permission_denied', 'address_in_use', 'address_unavailable', 'missing_executable',
+    'invalid_argument', 'no_space_left', 'connection_refused', 'docker_api_error',
+})
+ERROR_TYPES = frozenset({
+    'SandboxInfraError', 'NetworkPolicyError', 'APIError', 'DockerException',
+    'ImageNotFound', 'NotFound', 'ContainerError', 'ConnectionError', 'ReadTimeout',
+    'Timeout', 'TimeoutError', 'OSError', 'PermissionError', 'FileNotFoundError',
+    'ValueError', 'RuntimeError', 'ExecutionError', 'OtherError',
+})
+
+
+def failure_evidence(failure: BaseException | str) -> dict[str, Any]:
+    """Classify privately; return only finite enums, class names and HTTP status."""
+    chain, messages, statuses = [], [], []
+    current: BaseException | None = failure if isinstance(failure, BaseException) else None
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited and len(chain) < 8:
+        visited.add(id(current))
+        kind = type(current).__name__
+        chain.append(kind if kind in ERROR_TYPES else 'OtherError')
+        messages.append(str(current)[:8192])
+        status = getattr(current, 'status_code', None)
+        if isinstance(status, int) and 400 <= status <= 599:
+            statuses.append(status)
+        current = current.__cause__ or current.__context__
+    if isinstance(failure, str):
+        chain, messages = ['ExecutionError'], [failure[:8192]]
+    text = '\n'.join(messages).lower()
+    stage = next((value for marker, value in (
+        ('无法连接 docker', 'docker_connect'), ('沙箱镜像', 'image_check'),
+        ('创建沙箱网络失败', 'network_create'), ('创建有界沙箱卷', 'volume_create'),
+        ('无法启动有界沙箱存储', 'storage_start'), ('有界沙箱存储未就绪', 'storage_ready'),
+        ('安装沙箱出站策略失败', 'policy_install'), ('创建沙箱容器失败', 'container_create'),
+        ('写入脚本失败', 'script_inject'), ('输出采集', 'output_capture'),
+        ('启动沙箱容器失败', 'container_start'), ('等待沙箱容器失败', 'container_wait'),
+        ('出站记录采集失败', 'audit_collect'),
+    ) if marker in text), 'unknown')
+    code = next((value for matched, value in (
+        ('ipv6' in text and 'pool' in text and 'available' in text, 'ipv6_pool_unavailable'),
+        ('pool overlaps' in text, 'address_pool_overlap'),
+        ('ipv6' in text and any(word in text for word in ('disabled', 'not enabled', 'not configured')), 'ipv6_unavailable'),
+        (any(word in text for word in ('permission denied', 'operation not permitted')), 'permission_denied'),
+        ('address already in use' in text, 'address_in_use'),
+        ('cannot assign requested address' in text, 'address_unavailable'),
+        ('executable file not found' in text, 'missing_executable'),
+        ('invalid argument' in text, 'invalid_argument'),
+        ('no space left on device' in text, 'no_space_left'),
+        ('connection refused' in text, 'connection_refused'),
+        (bool(statuses), 'docker_api_error'),
+    ) if matched), 'unknown')
+    result: dict[str, Any] = {
+        'error_stage': stage, 'error_code': code, 'error_type': chain[0] if chain else 'OtherError',
+        'error_chain': chain,
+    }
+    if statuses:
+        result['daemon_status'] = statuses[-1]
+    return result
+
+
 def docker_client():
     import docker
 
@@ -72,7 +138,7 @@ def probe(client, code: str, *, snapshot=None, timeout_s=10, language="python", 
                 for item in run.iter_output_files()
             ]
     except Exception as exc:  # noqa: BLE001 - report probe failure after owned-resource cleanup
-        result.update(status="infra", error=f"{type(exc).__name__}: {exc}")
+        result.update(status="infra", **failure_evidence(exc))
     finally:
         filters = {"label": f"aw.execution={eid}"}
         result["residual"] = {

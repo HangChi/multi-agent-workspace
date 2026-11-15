@@ -5,7 +5,7 @@ import argparse
 import time
 import uuid
 
-from sandbox_runtime import docker_client, record_execution_id, report
+from sandbox_runtime import docker_client, failure_evidence, record_execution_id, report
 
 DISK_CODE = '''
 import errno, pathlib
@@ -95,7 +95,7 @@ def main() -> int:
                     if not passed:
                         evidence['stderr_tail'] = outcome.stderr.decode('utf-8', 'replace')
             except Exception as exc:  # noqa: BLE001 - report probe failure after cleanup
-                evidence['error'] = f'{type(exc).__name__}: {exc}'
+                evidence.update(failure_evidence(exc))
             filters = {'label': f'aw.execution={eid}'}
             residual = {'containers': len(client.containers.list(all=True, filters=filters)),
                         'networks': len(client.networks.list(filters=filters)),

@@ -6,9 +6,9 @@
 
 **Decision**: 复用宿主 Docker 守护进程，Worker 通过 Docker SDK（`docker` Python 包）以「一次性容器」方式创建/执行/销毁沙箱，Worker 容器挂载 `/var/run/docker.sock`。
 
-**Rationale**: 宪法已定「Docker 一次性容器」为沙箱形态，不引入第二套隔离设施。SDK 相对 CLI 的三个实质优势：① 不存在 shell 字符串拼接，用户脚本走 `environment`/`command` 或文件写入，杜绝参数注入；② 资源限制（`nano_cpus`/`mem_limit`/`pids_limit`/`read_only`+`tmpfs`）以结构化参数下发，不依赖易错的 CLI 参数拼装；③ `wait(timeout=)`、`kill(signal='SIGKILL')`、`logs()`、`get_archive()` 覆盖超时终止、输出采集、产物回收全链路，且是流式接口，不需要落临时文件。
+**Rationale**: 宪法已定「Docker 一次性容器」为沙箱形态，不引入第二套隔离设施。Docker 参数和入口 argv 均为服务端常量；用户脚本只作为数据写入独立有界 `/code` 卷，用户侧只读，不拼进宿主命令。CPU/内存/PID、只读 rootfs、capabilities 与卷上限由服务端固定。SDK 的 attach、wait、SIGKILL 和 archive 接口支持有界采集与回收。
 
-一次性语义：每次执行 `networks.create()` 独立 bridge 网络 → `containers.run(detach=True, remove=False)` → `wait()` → 采集 → `remove(force=True)` + `networks.remove()`。`remove=True` 不用于 run，因为需要在容器退出后仍能 `get_archive()` 取产物，销毁放在 finally。
+2026-11-15 的真实生命周期：受限卷/无网络 keeper 准备并写入脚本 → 独立网络与内核策略 → `containers.create()` → 包头 watcher/输出 attach 就绪、检查取消和策略健康 → `start()` → 存活期有界输出/资源采样 → 退出后从 keeper 回收产物 → finally 删除用户容器、helper、卷、规则与网络。`/workspace`、`/tmp`、`/dev/shm` 共用同一受限 tmpfs，避免独立 output 或默认 shm 绕过总磁盘预算。Docker 用户容器日志落盘关闭，不能以事后截断替代运行期有界性。
 
 **Alternatives considered**:
 - Docker-in-Docker（`--privileged` + 内部 dockerd）：隔离更强，但 Worker 需特权模式，且镜像层重复拉取，单机内存开销翻倍；宪法的「资源上限」约束下不划算。
@@ -19,29 +19,24 @@
 
 ## R-02 出站可见性与黑名单强制（spec 标记的最高风险）
 
-**Decision**: 三层组合，**拦截用内核规则、记录用 DNS + 连接跟踪**，不做 TLS 解密：
+**Decision（2026-11-15 实现修订）**：内核强制 + 执行私有 DNS 绑定 + pre-defrag 包头事实，不做 TLS 解密。
 
-1. **拦截层**：每个执行一个独立 bridge 网络。执行前用一个**系统短命 init 容器**（`--net=host --cap-add=NET_ADMIN`，固定镜像，不接收用户输入）向该网络的 `FORWARD` 链插入规则：`DROP` 发往 RFC1918 网段、`169.254.0.0/16`（云元数据）、`127.0.0.0/8` 与内部服务网段；先 `ACCEPT` 到 DNS 代理的 53 端口，其余放行。规则按网络名打标签（`aw-sbx-{exec_id}`），执行结束一并删除。
-2. **域名层**：容器 `dns` 指向受控 DNS 代理（compose 内新增 `dns-proxy` 服务）。它记录每次查询的 `(domain, 时刻, 来源执行)`；黑名单域名在此直接返回 `NXDOMAIN`（第二道闸，比 iptables 更快给出可读失败）。同时 `iptables` 把「53 端口只允许到 dns-proxy」固定住，容器无法换用外部 DNS 绕过记录。
-3. **记录层**：执行结束时用同一个 init 容器镜像 `conntrack -L` 快照该容器 IP 的全部连接，得到真实目标 `IP:port` 与流量字节数；用第 2 层的 DNS 查询表在该时间窗内把 IP 反查为域名。
+1. **内核层**：独立 bridge 与固定 argv-only 批处理 helper 安装/回收 iptables/ip6tables 规则和执行私有 nft 表。所有执行均有 `PREROUTING priority -450` 协议 guard，在 conntrack defrag 之前拒绝分片、IPv6 扩展链和不支持的路由协议。已真实复现 FORWARD 才检查分片会被预先重组绕过，不能退回该方案。
+2. **域名层**：存在域名策略时启动执行私有可信 mediator，仅监听本执行 bridge gateway:53；共享 dnsmasq 只是上游。原始域名和完整有界 CNAME 链都检查黑名单，拒绝私网/元数据/转换地址重绑定。DNS 答复前在单个 nft 事务内安装按规则、IP 族、端口及 TTL 隔离的集合；原始 TTL 不因链查询/锁等待而重置。全局 deny 优先，当前 TTL/健康状态对 established 流仍有效。
+3. **失效边界**：内核健康租约 ≤1 秒；Worker 再检查 Running/Paused 和可信提交后心跳，识别死亡及 SIGSTOP/挂起。不可验证、截断、过短 TTL、上游/内核失败或请求/绑定/审计预算耗尽均 fail-closed。默认模式含全局域名 deny 时，未受控解析绑定的直连 IP 也拒绝。
+4. **记录层**：固定 AF_PACKET watcher 在用户进程前就绪，内核经典 BPF 过滤源 IP，再校验 execution bridge-master/veth ingress，只解析固定包头并使用内核时间戳。TCP 按连接代际/源端口区分，UDP 按五元组流归并；无端口拒绝事实记录 `port=0`。丢包、日志截断、事件上限或非正常 helper 退出不得伪装成完整成功审计。DNS 拒绝记录真实 DNS 传输目标/端口，不伪造未发生的后续连接。
 
-**Rationale**: spec 的 SC-009 要求「直连 IP、长连接、非常规端口都算数」，SC-010 要求黑名单 100% 拦截。纯 DNS 方案挡不住直连 IP；纯代理方案需要注入 CA 才能看 HTTPS 目标，且容器内进程可无视 `HTTP_PROXY` 环境变量直连。内核 DROP 不依赖容器内任何配合，是唯一能同时满足两条 SC 的做法；DNS 负责给 IP 补上可读域名，conntrack 负责覆盖「绕过 DNS 的那部分」。
+**被替代的原计划**：执行后 `conntrack -L` 快照无法覆盖已被 DROP 的 SYN、已消失的短连接或 pre-defrag 事实，已弃用；共享 DNS 日志也不能提供执行级安全授权。`bytes_out` 当前保持 NULL，不用包头长度猜测应用流量。
 
-**Known gaps（写进 quickstart 与运维文档，不隐藏）**：
-- 不做 TLS 解密 → 只能到「目标域名/IP + 端口」粒度，**看不到具体 URL 路径与请求体**。
-- 域名反查依赖 DNS 查询表：CDN 共享 IP 或 IP 直连场景下域名会缺失，此时记录为 `ip-direct`（该行为本身可疑，审计时天然是红旗）。
-- `conntrack` 快照在长连接跨执行存活时有遗漏可能；对 `TIME_WAIT` 条目仍可读，实测覆盖足够。
+**已知边界**：授权仍是目的 IP+端口，不是 SNI/HTTP Host/证书身份校验；已观察的黑名单别名可压过共享 IP 上的 allow，但无法推断未查询的别名。无 TLS 正文或 URL 路径；UDP 同五元组 socket 重开不能等价识别为新连接；有界观察不等于任意吞吐下永不丢包。发生观察缺失必须失败，不能宣称 100% 成功。Docker Desktop Linux VM 的 18 项专项结果与原生 GitHub 整栈/负载结果分开。
 
-**Alternatives considered**:
-- 透明代理（mitmproxy/squid）按 SNI 转发：能拿域名但拿不到 IP 直连目标，且需劫持 443，运维复杂度高。
-- 仅记录 DNS：实现最省事，但违背 SC-009 的「直连 IP 也算」。
-- 全禁网：spec 修订时已被用户否决（装包与调接口不可用）。
+**未采用**：仅 DNS 无法阻止直连 IP；依赖用户 HTTP_PROXY 可被忽略；TLS 解密超出范围；全禁网不满足装包/接口访问目标。
 
 ## R-03 工具目录的单一事实源与授权注入
 
 **Decision**: 新建 `backend/app/executors/catalog.py` 作为**唯一事实源**：每个工具声明 `name / display_name / description / kind(builtin|sandbox) / param_schema / timeout_seconds`。后端 schema 校验、`GET /tools` 接口、Worker 注入、前端工具选择全部读它；`tools` 表由 seed 迁移写入同一份清单，仅承载「是否启用」与展示文案的可运营部分。
 
-执行侧改造点（`app/tasks/execute_run.py` 第 88、97 行）：把无条件 `executors=default_executors()` 改为 `executors=build_executors(agent.tools)`——按 Agent 勾选项从注册表取执行器，空集则传空字典。
+执行侧在 `app/tasks/execute_run.py` 取「不可变初始 Run 快照 ∩ 当前 Agent 勾选 ∩ 代码目录中显式启用的 DB 工具」，空集即无工具；每次工具派发前再读取当前 DB 标量，避免长寿命 ORM 缓存掩盖撤权。`0004_tool_grant_history` 在禁用/删除时原子修剪 Agent 授权，并禁止已知 Run 快照改写；旧历史保持 SQL NULL，不按今日配置回填。
 
 **Rationale**: 当前三处不一致（前端常量、后端 `ALLOWED_TOOLS`、真实执行器）根因是「清单有三份」。收敛到一份 + 一张派生表，是唯一能防止再次漂移的做法。`GET /tools` 供前端拉取，使前端不再持有硬编码清单。
 
