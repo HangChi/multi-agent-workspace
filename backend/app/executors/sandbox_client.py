@@ -59,7 +59,11 @@ import requests
 from docker.errors import APIError, DockerException, ImageNotFound
 
 from app.core.config import settings
-from app.executors.egress_network import NetworkCapture, NetworkPolicyError
+from app.executors.egress_network import (
+    NetworkCapture,
+    NetworkPolicyError,
+    finite_error_token,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -438,6 +442,7 @@ class SandboxRun:
         self.egress_snapshot = egress_snapshot
         self._client = client
         self._network: Any = None
+        self._network_lock: Any = None
         self._egress: NetworkCapture | None = None
         self._volumes: list[Any] = []
         self._container: Any = None
@@ -650,6 +655,44 @@ class SandboxRun:
             raise SandboxInfraError(f"无法校验沙箱镜像：{exc}") from exc
 
     def _create_network(self, client: docker.DockerClient) -> Any:
+        try:
+            self._network_lock = self._acquire_network_lock(client)
+            return self._materialize_network(client)
+        except (APIError, DockerException) as exc:
+            raise SandboxInfraError(f"创建沙箱网络失败：{exc}") from exc
+        finally:
+            if self._network_lock is not None:
+                try:
+                    self._network_lock.remove(force=True)
+                    self._network_lock = None
+                except (APIError, DockerException) as exc:
+                    # Keep the exact handle for execute()/context cleanup retry.
+                    raise SandboxInfraError("创建沙箱网络失败：无法释放地址池分配锁") from exc
+
+    def _acquire_network_lock(self, client: docker.DockerClient) -> Any:
+        # Docker container names are daemon-atomic, unlike network names. A
+        # never-started, networkless container serializes pool materialization
+        # across Worker processes/containers without host mounts or Redis trust.
+        # Never inspect/adopt/remove a lock created by another execution.
+        deadline = time.monotonic() + 5
+        for attempt in range(32):
+            try:
+                return client.containers.create(
+                    image=settings.sbx_image, name="aw-sandbox-ipam-lock-v1",
+                    command=["python", "-I", "-c", "pass"], network_mode="none",
+                    user=SANDBOX_UID, read_only=True, cap_drop=["ALL"],
+                    security_opt=["no-new-privileges"], mem_limit="16m", memswap_limit="16m",
+                    nano_cpus=10_000_000, pids_limit=8,
+                    labels={**self._labels(), "aw.role": "ipam-lock"},
+                    log_config=docker.types.LogConfig(type="none"),
+                )
+            except APIError as exc:
+                if exc.status_code != 409 or attempt == 31 or time.monotonic() >= deadline:
+                    raise
+                time.sleep(min(0.02 * 2 ** min(attempt, 3), 0.16))
+        raise SandboxInfraError("创建沙箱网络失败：地址池分配锁等待预算耗尽")
+
+    def _materialize_network(self, client: docker.DockerClient) -> Any:
         # Docker 28 rejects static endpoint addresses in automatically allocated
         # pools. Preserve daemon pool selection (including host route avoidance),
         # then materialize those SAME pools as explicit IPAM before any endpoint,
@@ -718,7 +761,9 @@ class SandboxRun:
         except NetworkPolicyError as exc:
             # Lost evidence is an infrastructure failure, not a proven deny.
             # Never publish a successful execution with silently missing audit.
-            raise SandboxInfraError("出站记录采集失败，无法确认完整审计") from exc
+            token = finite_error_token(exc)
+            suffix = f"：{token}" if token else ""
+            raise SandboxInfraError(f"出站记录采集失败，无法确认完整审计{suffix}") from exc
 
     def _create_volumes(self, client: docker.DockerClient) -> None:
         """Create bounded, execution-private tmpfs volumes; never fall back to disk."""
@@ -1055,6 +1100,13 @@ class SandboxRun:
             except (APIError, DockerException) as exc:
                 logger.warning("清理卷失败：%s", exc)
         self._volumes = []
+
+        if self._network_lock is not None:
+            try:
+                self._network_lock.remove(force=True)
+                self._network_lock = None
+            except (APIError, DockerException) as exc:
+                logger.warning("清理执行 %s 的网络分配锁失败：%s", self.execution_id, exc)
 
         if self._network is not None:
             try:

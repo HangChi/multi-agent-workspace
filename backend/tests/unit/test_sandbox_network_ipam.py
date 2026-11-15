@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import requests
 from docker.errors import APIError
 
+from app.executors.egress_network import NetworkPolicyError
 from app.executors.sandbox_client import SandboxInfraError, SandboxRun
 
 
@@ -53,7 +54,9 @@ class Networks:
 class ExplicitDaemonIpamTests(unittest.TestCase):
     def setUp(self):
         self.networks = Networks()
-        self.client = SimpleNamespace(networks=self.networks)
+        self.lock = SimpleNamespace(remove=Mock())
+        self.client = SimpleNamespace(networks=self.networks,
+                                      containers=SimpleNamespace(create=Mock(return_value=self.lock)))
         self.run = SandboxRun(execution_id="native-compatibility", language="python",
                               code="print(1)", client=self.client)
         self.addCleanup(self.run.cleanup)
@@ -107,13 +110,88 @@ class ExplicitDaemonIpamTests(unittest.TestCase):
             with self.subTest(config=config):
                 networks = Networks()
                 networks.config = config
-                client = SimpleNamespace(networks=networks)
+                client = SimpleNamespace(networks=networks,
+                                         containers=SimpleNamespace(create=Mock(return_value=self.lock)))
                 with self.assertRaises(SandboxInfraError), SandboxRun(
                     execution_id="invalid-ipam", language="python", code="print(1)", client=client,
                 ) as run:
                     run._create_network(client)
                 self.assertEqual(len(networks.calls), 1)
                 networks.reservations[0].remove.assert_called_once()
+
+    def test_atomic_daemon_lock_covers_the_entire_pool_reservation_gap(self):
+        held = False
+        original_create = self.networks.create
+
+        def acquire(**options):
+            nonlocal held
+            self.assertEqual(options['name'], 'aw-sandbox-ipam-lock-v1')
+            self.assertEqual(options['network_mode'], 'none')
+            self.assertEqual(options['labels']['aw.role'], 'ipam-lock')
+            self.assertEqual(options['labels']['aw.execution'], 'native-compatibility')
+            held = True
+            return self.lock
+
+        def release(**options):
+            nonlocal held
+            self.assertEqual(options, {'force': True})
+            held = False
+
+        def create(name, **options):
+            self.assertTrue(held, 'daemon-selected pools must not race another sandbox allocator')
+            return original_create(name, **options)
+
+        self.client.containers.create.side_effect = acquire
+        self.lock.remove.side_effect = release
+        self.networks.create = create
+        self.run._create_network(self.client)
+        self.assertFalse(held)
+        self.client.containers.create.assert_called_once()
+        self.lock.remove.assert_called_once_with(force=True)
+
+    def test_existing_lock_is_never_adopted_or_deleted_and_wait_is_bounded(self):
+        self.client.containers.create.side_effect = daemon_error('container name already in use', 409)
+        with patch('app.executors.sandbox_client.time.sleep'), self.assertRaises(SandboxInfraError):
+            self.run._create_network(self.client)
+        self.assertLessEqual(self.client.containers.create.call_count, 64)
+        self.assertEqual(self.networks.calls, [])
+        self.lock.remove.assert_not_called()
+
+    def test_lock_conflict_can_clear_without_retrying_other_errors(self):
+        self.client.containers.create.side_effect = [daemon_error('name in use', 409), self.lock]
+        with patch('app.executors.sandbox_client.time.sleep'):
+            self.run._create_network(self.client)
+        self.assertEqual(self.client.containers.create.call_count, 2)
+        self.lock.remove.assert_called_once_with(force=True)
+        self.networks.calls.clear()
+        self.client.containers.create.reset_mock(side_effect=True)
+        self.client.containers.create.side_effect = daemon_error('permission denied', 403)
+        with self.assertRaises(SandboxInfraError):
+            self.run._create_network(self.client)
+        self.client.containers.create.assert_called_once()
+        self.assertEqual(self.networks.calls, [])
+
+    def test_failed_release_is_retried_only_for_our_exact_lock_handle(self):
+        self.lock.remove.side_effect = [daemon_error('temporary removal failure', 500), None]
+        with self.assertRaises(SandboxInfraError):
+            self.run._create_network(self.client)
+        self.assertIs(self.run._network_lock, self.lock)
+        self.run.cleanup()
+        self.assertEqual(self.lock.remove.call_count, 2)
+        self.assertIsNone(self.run._network_lock)
+
+    def test_persisted_audit_error_preserves_only_canonical_finite_diagnostic(self):
+        token = 'dns_failure[packet_audit,capture_incomplete]'
+        for message, expected in ((token, True), ('SECRET ' + token, False),
+                                  ('dns_failure[SECRET,SECRET]', False)):
+            with self.subTest(message=message):
+                self.run._egress = SimpleNamespace(
+                    collect=Mock(side_effect=NetworkPolicyError(message)), cleanup=Mock())
+                with self.assertRaises(SandboxInfraError) as raised:
+                    self.run._collect_egress()
+                self.assertEqual(token in str(raised.exception), expected)
+                self.assertNotIn('SECRET', str(raised.exception))
+                self.assertIn('出站记录采集失败', str(raised.exception))
 
     def test_removal_failure_does_not_recreate_or_adopt_another_network(self):
         original_create = self.networks.create

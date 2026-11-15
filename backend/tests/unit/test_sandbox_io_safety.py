@@ -30,7 +30,7 @@ def test_all_user_writable_working_paths_share_a_bounded_filesystem(fake_docker)
 def test_archive_keeper_retains_only_execution_files_and_is_cleaned(fake_docker):
     run = make_run()
     run.execute()
-    keeper = fake_docker.containers.created[0]
+    keeper = fake_docker.storage
     assert keeper.created_kwargs["network_mode"] == "none"
     assert keeper.created_kwargs["cap_drop"] == ["ALL"]
     assert keeper.created_kwargs["read_only"] is True
@@ -90,5 +90,8 @@ def test_storage_failure_does_not_fall_back_to_unbounded_volume(fake_docker, mon
     monkeypatch.setattr(fake_docker.volumes, "create", fail_bounded_volume)
     with pytest.raises(SandboxInfraError):
         make_run().execute()
-    assert not fake_docker.containers.created
+    # The network allocation lock is never started and is already released;
+    # bounded-volume failure must still create neither keeper nor user container.
+    assert all(c.created_kwargs["labels"].get("aw.role") == "ipam-lock"
+               and not c.started and c.removed == [True] for c in fake_docker.containers.created)
     assert all(v.removed == 1 for v in fake_docker.volumes.created)
