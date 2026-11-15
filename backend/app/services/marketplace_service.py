@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -83,12 +83,13 @@ async def browse_listings(
     )
     rows = (await db.execute(query.offset((page - 1) * page_size).limit(page_size))).scalars().all()
     count_query = (
-        select(MarketplaceListing.id)
+        select(func.count())
+        .select_from(MarketplaceListing)
         .join(MarketplaceListing.tool_version)
         .join(ExternalToolVersion.server)
         .where(*filters)
     )
-    total = len((await db.execute(count_query)).scalars().all())
+    total = (await db.execute(count_query)).scalar_one()
     return [listing_projection(row) for row in rows], total
 
 
