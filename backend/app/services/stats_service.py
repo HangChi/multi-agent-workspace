@@ -19,7 +19,7 @@ from app.models.sandbox_execution import SandboxExecution
 _TERMINAL_SUCCESS = {"completed"}
 _TERMINAL_FAIL = {"failed", "timeout"}
 _NON_TERMINAL = {"queued", "running", "needs_input"}
-_STATS_CACHE_TTL_SECONDS = 5.0
+_STATS_CACHE_TTL_SECONDS = 15.0
 _STATS_CACHE_MAX_ENTRIES = 256
 _stats_cache: dict[str, tuple[float, dict]] = {}
 

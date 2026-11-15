@@ -228,17 +228,33 @@ class Mediator:
         kind = socket.AF_INET6 if ":" in upstream else socket.AF_INET
         wire = q.wire()
         last_timeout: TimeoutError | None = None
-        # A single lost UDP request must not turn a healthy mediator into a
-        # failure while keeping the total resolver budget bounded by the query
-        # deadline. Every attempt remains finite and fail-closed on exhaustion.
-        for _ in range(2):
+        # Prefer UDP, then fall back to one bounded TCP exchange when the
+        # upstream drops a datagram. The total resolver budget remains bounded
+        # by the caller's deadline and every failure stays fail-closed.
+        for stream in (False, True):
             remaining = min(1.0, deadline - time.monotonic())
             if remaining <= 0:
                 break
             try:
-                with socket.socket(kind, socket.SOCK_DGRAM) as conn:
+                family = socket.SOCK_STREAM if stream else socket.SOCK_DGRAM
+                with socket.socket(kind, family) as conn:
                     conn.settimeout(remaining)
                     conn.connect((upstream, 53))
+                    if stream:
+                        conn.sendall(len(wire).to_bytes(2, "big") + wire)
+                        header = conn.recv(2)
+                        if len(header) != 2:
+                            raise PolicyError("upstream DNS TCP response is truncated")
+                        length = int.from_bytes(header, "big")
+                        if length > MAX_WIRE:
+                            raise PolicyError("upstream DNS TCP response is oversized")
+                        data = bytearray()
+                        while len(data) < length:
+                            chunk = conn.recv(length - len(data))
+                            if not chunk:
+                                raise PolicyError("upstream DNS TCP response is truncated")
+                            data.extend(chunk)
+                        return bytes(data)
                     conn.send(wire)
                     return conn.recv(MAX_WIRE + 1)
             except TimeoutError as exc:

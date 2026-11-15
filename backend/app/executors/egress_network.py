@@ -674,6 +674,10 @@ class NetworkCapture:
                 detach=False, remove=True, labels={"aw.managed": "true", "aw.execution": self.execution_id},
                 cap_drop=["ALL"], read_only=True, security_opt=["no-new-privileges"],
                 mem_limit="64m", memswap_limit="64m", pids_limit=32,
+                # Keep the trusted helper's finite stderr event available to the
+                # Docker SDK ContainerError stream. The bounded json-file log is
+                # only for this short-lived helper and contains no raw command output.
+                log_config=LogConfig(type="json-file", config={"max-size": "256k", "max-file": "1"}),
             )
             return result if isinstance(result, bytes) else bytes(result or b"")
         except ContainerError as exc:
