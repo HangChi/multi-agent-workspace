@@ -127,6 +127,7 @@ async def validate_server(
         )
         if drift_detected:
             record.safe_error = "MCP tool definitions changed; reviewer approval is required"
+        discovered_versions: list[ExternalToolVersion] = []
         for tool in valid:
             definition_hash = hashlib.sha256(
                 json.dumps(
@@ -136,16 +137,7 @@ async def validate_server(
                 ).encode()
             ).hexdigest()
             version = f"1.0.0+{definition_hash[:12]}"
-            existing = await db.scalar(
-                select(ExternalToolVersion.id).where(
-                    ExternalToolVersion.server_id == server.id,
-                    ExternalToolVersion.external_name == tool.name,
-                    ExternalToolVersion.version == version,
-                )
-            )
-            if existing:
-                continue
-            db.add(
+            discovered_versions.append(
                 ExternalToolVersion(
                     server_id=server.id,
                     external_name=tool.name,
@@ -159,6 +151,20 @@ async def validate_server(
                     availability="valid",
                 )
             )
+        existing_versions = set(
+            (
+                await db.execute(
+                    select(ExternalToolVersion.external_name, ExternalToolVersion.version).where(
+                        ExternalToolVersion.server_id == server.id
+                    )
+                )
+            ).all()
+        )
+        db.add_all(
+            version
+            for version in discovered_versions
+            if (version.external_name, version.version) not in existing_versions
+        )
         record.status = "passed" if len(valid) == len(discovered) else "partial"
         if drift_detected:
             versions = (
