@@ -18,6 +18,16 @@ def test_merge_uses_nearest_dns_query_for_shared_ip() -> None:
     assert [item["target_domain"] for item in merged] == ["two.example", "one.example"]
 
 
+def test_merge_preserves_distinct_connections_to_the_same_destination() -> None:
+    connections = [
+        {"target_ip": "203.0.113.7", "port": 443, "source_port": 41001, "timestamp": 19.5},
+        {"target_ip": "203.0.113.7", "port": 443, "source_port": 41002, "timestamp": 19.6},
+    ]
+    merged = merge_connection_records([], connections, window_seconds=5)
+    assert len(merged) == 2
+    assert [r["source_port"] for r in merged] == [41001, 41002]
+
+
 def test_merge_marks_direct_ip_and_ignores_queries_outside_window() -> None:
     queries = [
         {"domain": "stale.example", "resolved_ip": "198.51.100.8", "timestamp": 1.0}

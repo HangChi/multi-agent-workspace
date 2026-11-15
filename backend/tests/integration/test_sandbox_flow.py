@@ -80,9 +80,12 @@ def fake_docker(monkeypatch: pytest.MonkeyPatch) -> FakeDockerClient:
         container = create_container(image, **kwargs)
         container.stdout = fake.stdout
         container.archived = make_tar_bytes(fake.output_files)
-        container.attrs["NetworkSettings"] = {
-            "Networks": {kwargs["network"]: {"IPAddress": "172.30.0.3"}}
-        }
+        container.attrs["NetworkSettings"] = {"Networks": {}}
+        if "network" in kwargs:
+            container.attrs["NetworkSettings"]["Networks"][kwargs["network"]] = {
+                "IPAddress": "172.30.0.3",
+                "IPAMConfig": kwargs["networking_config"][kwargs["network"]]["IPAMConfig"],
+            }
         return container
 
     def get_container(name):
@@ -96,10 +99,13 @@ def fake_docker(monkeypatch: pytest.MonkeyPatch) -> FakeDockerClient:
             return SimpleNamespace(
                 stop=lambda **kwargs: None,
                 logs=lambda **kwargs: (
-                    b"tcpdump: listening on br-integration\n" if kwargs.get("stderr") else
+                    (b"tcpdump: listening on br-integration\n"
+                     b"1 packet captured\n1 packet received by filter\n0 packets dropped by kernel\n")
+                    if kwargs.get("stderr") else
                     b"1763170000.123 IP 172.30.0.3.42222 > 203.0.113.44.443: Flags [S], length 0\n"
                 ),
                 remove=lambda **kwargs: None,
+                wait=lambda **kwargs: {"StatusCode": 0},
             )
         return b""
 
@@ -123,6 +129,12 @@ async def test_real_execute_persists_stdout_audit_and_artifact(
     client, make_headers, db_session, fake_docker, fake_object_store, monkeypatch
 ):
     """No fake runner/executor/service: only LLM transport and Docker SDK are replaced."""
+    event_types = []
+    for event_name in ("sandbox_started", "sandbox_output", "sandbox_finished"):
+        def record_event(*_args, _name=event_name, **_kwargs):
+            event_types.append(_name)
+
+        monkeypatch.setattr(f"app.tasks.execute_run.run_events.{event_name}", record_event)
     headers = await make_headers(role="member")
     code = "print('hello from container')\nopen('/workspace/output/report.txt', 'w').write('report')"
     report = b"artifact from sandbox"
@@ -244,6 +256,10 @@ async def test_real_execute_persists_stdout_audit_and_artifact(
     assert fake_docker.network.removed == 1
     assert all(volume.removed == 1 for volume in fake_docker.volumes.created)
     assert any(command["command"][0] == "iptables" for command in fake_docker.helper_commands)
-    script_tar = fake_docker.container.put_archives[0][1]
+    assert event_types.count("sandbox_started") == 1
+    assert event_types.count("sandbox_finished") == 1
+    assert event_types.index("sandbox_started") < event_types.index("sandbox_output")
+    assert event_types.index("sandbox_output") < event_types.index("sandbox_finished")
+    script_tar = fake_docker.storage.put_archives[0][1]
     with tarfile.open(fileobj=io.BytesIO(script_tar)) as archive:
         assert archive.extractfile("main.py").read().decode() == code

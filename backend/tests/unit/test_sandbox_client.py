@@ -20,7 +20,6 @@ import pytest
 
 from app.executors.sandbox_client import (
     CODE_DIR,
-    OUTPUT_DIR,
     SandboxInfraError,
     SandboxOutputLimit,
     SandboxRun,
@@ -112,8 +111,9 @@ class TestContainerLimits:
 
         run = _run()
         run.execute()
-        tmpfs = fake_docker.container.created_kwargs["tmpfs"]
-        assert f"size={settings.sbx_disk_mb}m" in tmpfs["/workspace"]
+        volume = fake_docker.volumes.created[1]
+        assert volume.created_kwargs["driver_opts"]["type"] == "tmpfs"
+        assert f"size={settings.sbx_disk_mb}m" in volume.created_kwargs["driver_opts"]["o"]
 
     def test_zero_nano_cpus_would_mean_unlimited(self, fake_docker) -> None:
         """0 在 docker 里表示「不限制」，所以换算绝不能截断成 0。"""
@@ -165,7 +165,7 @@ class TestScriptInjection:
     def test_script_written_via_put_archive(self, fake_docker) -> None:
         run = _run(language="python", code="print('payload')")
         run.execute()
-        container = fake_docker.container
+        container = fake_docker.storage
         assert len(container.put_archives) == 1
         path, data = container.put_archives[0]
         assert path == CODE_DIR
@@ -174,7 +174,7 @@ class TestScriptInjection:
     def test_shell_script_uses_run_sh(self, fake_docker) -> None:
         run = _run(language="shell", code="echo hi")
         run.execute()
-        _path, data = fake_docker.container.put_archives[0]
+        _path, data = fake_docker.storage.put_archives[0]
         assert b"run.sh" in data
 
     def test_unsupported_language_rejected(self) -> None:
@@ -195,15 +195,15 @@ class TestOutputVolumes:
         run = _run()
         run.execute()
         volumes = fake_docker.container.created_kwargs["volumes"]
-        bind_targets = {cfg["bind"] for cfg in volumes.values()}
-        assert OUTPUT_DIR in bind_targets
+        assert f"{run.output_volume_name}:/workspace:rw" in volumes
+        assert f"{run.output_volume_name}:/tmp:rw" in volumes
 
     def test_code_dir_is_a_volume(self, fake_docker) -> None:
         """read_only=True 时 daemon 拒绝 put_archive 到 rootfs，只能写卷。"""
         run = _run()
         run.execute()
         volumes = fake_docker.container.created_kwargs["volumes"]
-        assert CODE_DIR in {cfg["bind"] for cfg in volumes.values()}
+        assert f"{run.code_volume_name}:{CODE_DIR}:ro" in volumes
 
     def test_two_volumes_created_and_cleaned(self, fake_docker) -> None:
         run = _run()
@@ -451,7 +451,7 @@ class TestOutputCollection:
 
     def test_reads_files_from_output(self, fake_docker) -> None:
         run = self._executed(fake_docker)
-        fake_docker.container.archived = make_tar_bytes(
+        fake_docker.storage.archived = make_tar_bytes(
             {"output/a.txt": b"hello", "output/sub/b.txt": b"world"}
         )
         files = {f.name: f.data for f in run.iter_output_files()}
@@ -460,17 +460,17 @@ class TestOutputCollection:
     def test_missing_output_dir_is_not_an_error(self, fake_docker) -> None:
         """脚本没产出任何文件是正常情况，不该报错。"""
         run = self._executed(fake_docker)
-        fake_docker.container.archive_missing = True
+        fake_docker.storage.archive_missing = True
         assert list(run.iter_output_files()) == []
 
     def test_skips_directories(self, fake_docker) -> None:
         run = self._executed(fake_docker)
-        fake_docker.container.archived = make_tar_bytes({"output/only.txt": b"x"})
+        fake_docker.storage.archived = make_tar_bytes({"output/only.txt": b"x"})
         assert [f.name for f in run.iter_output_files()] == ["only.txt"]
 
     def test_file_count_limit(self, fake_docker) -> None:
         run = self._executed(fake_docker)
-        fake_docker.container.archived = make_tar_bytes(
+        fake_docker.storage.archived = make_tar_bytes(
             {f"output/f{i}.txt": b"x" for i in range(5)}
         )
         with pytest.raises(SandboxOutputLimit) as exc:
@@ -479,14 +479,14 @@ class TestOutputCollection:
 
     def test_single_file_size_limit(self, fake_docker) -> None:
         run = self._executed(fake_docker)
-        fake_docker.container.archived = make_tar_bytes({"output/big.bin": b"x" * 2048})
+        fake_docker.storage.archived = make_tar_bytes({"output/big.bin": b"x" * 2048})
         with pytest.raises(SandboxOutputLimit) as exc:
             list(run.iter_output_files(max_file_bytes=1024))
         assert exc.value.reason == "file_size"
 
     def test_total_size_limit(self, fake_docker) -> None:
         run = self._executed(fake_docker)
-        fake_docker.container.archived = make_tar_bytes(
+        fake_docker.storage.archived = make_tar_bytes(
             {"output/a.bin": b"x" * 800, "output/b.bin": b"y" * 800}
         )
         with pytest.raises(SandboxOutputLimit) as exc:
@@ -500,7 +500,7 @@ class TestOutputCollection:
         和**中间** `..`（只有真正逐段过滤才拦得住）。
         """
         run = self._executed(fake_docker)
-        fake_docker.container.archived = make_tar_bytes(
+        fake_docker.storage.archived = make_tar_bytes(
             {
                 "output/../../etc/passwd": b"root",
                 "output/./ok.txt": b"ok",

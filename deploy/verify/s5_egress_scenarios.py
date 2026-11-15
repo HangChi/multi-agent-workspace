@@ -18,7 +18,7 @@ from sandbox_runtime import docker_client, probe, report
 def connect_code(address: str, port: int = 8000) -> str:
     return (
         "import json,socket\n"
-        "s=socket.socket(); s.settimeout(1)\n"
+        f"s=socket.socket({'socket.AF_INET6' if ':' in address else 'socket.AF_INET'}); s.settimeout({3 if ':' in address else 1})\n"
         f"rc=s.connect_ex(({address!r},{port})); s.close()\n"
         "print(json.dumps({'connected':rc==0,'errno':rc}))\n"
     )
@@ -83,6 +83,81 @@ def main() -> int:
             passed = (
                 outcome.get("exit_code") == 0 and observed is connected
                 and any(r["action"] == expected_action for r in access)
+                and not any(outcome["residual"].values())
+            )
+            results.append({"name": name, "passed": passed, "runtime": outcome})
+        for name, snapshot, connected in [
+            ("same target three allowed TCP connections", None, True),
+            ("same target three denied TCP connections", {"mode": "restricted"}, False),
+        ]:
+            code = (
+                "import json,socket\nresults=[]\n"
+                "for port in [41001,41002,41003]:\n"
+                " s=socket.socket(); s.settimeout(0.25); s.bind(('',port))\n"
+                f" results.append(s.connect_ex(({public_ip!r},8000))==0); s.close()\n"
+                "print(json.dumps(results))\n"
+            )
+            outcome = probe(client, code, snapshot=snapshot)
+            access = [r for r in outcome.get("egress", []) if r["target_ip"] == public_ip and r["port"] == 8000]
+            try:
+                observed = json.loads(outcome.get("stdout", ""))
+            except ValueError:
+                observed = None
+            passed = (
+                outcome.get("exit_code") == 0 and observed == [connected] * 3
+                and len(access) == 3
+                and {r.get("source_port") for r in access} == {41001, 41002, 41003}
+                and all(r["action"] == ("allow" if connected else "deny") for r in access)
+                and not any(outcome["residual"].values())
+            )
+            results.append({"name": name, "passed": passed, "runtime": outcome})
+        # Documentation-prefix IPv6 listener on another owned bridge; no public
+        # IPv6 service is probed. The sandbox's *actual* reserved IPv6 source must
+        # appear in the audit, not merely a successful connection result.
+        segment = fixture_id.replace("-", "")[:4]
+        ipv6_network = client.networks.create(
+            f"aw-verify-{fixture_id}-ipv6", driver="bridge", enable_ipv6=True, labels=labels,
+            ipam=docker.types.IPAMConfig(pool_configs=[
+                docker.types.IPAMPool(subnet="198.18.253.0/24"),
+                docker.types.IPAMPool(subnet=f"2001:db8:{segment}::/64"),
+            ]),
+        )
+        networks.append(ipv6_network)
+        ipv6_server = client.containers.run(
+            settings.sbx_image, command=["python", "-m", "http.server", "8000", "--bind", "::"],
+            network=ipv6_network.name, detach=True, labels=labels, read_only=True,
+            cap_drop=["ALL"], security_opt=["no-new-privileges"], mem_limit="64m", pids_limit=16,
+        )
+        containers.append(ipv6_server)
+        ipv6_server.reload()
+        ipv6_target = ipv6_server.attrs["NetworkSettings"]["Networks"][ipv6_network.name]["GlobalIPv6Address"]
+        ready = ipv6_server.exec_run([
+            "python", "-c",
+            (
+                "import socket,time\n"
+                "for _ in range(100):\n"
+                " try: socket.create_connection(('::1',8000),timeout=0.1).close(); break\n"
+                " except OSError: time.sleep(0.02)\n"
+                "else: raise RuntimeError('IPv6 fixture listener did not start')\n"
+            ),
+        ])
+        assert ready.exit_code == 0, ready.output.decode()
+        v6_allow = {"id": str(uuid.uuid4()), "action": "allow", "target_type": "ip", "target": ipv6_target, "port_range": "8000"}
+        for name, snapshot, connected in [
+            ("actual source IPv6 default allow audit", None, True),
+            ("actual source IPv6 restricted deny audit", {"mode": "restricted"}, False),
+            ("actual source IPv6 global deny precedence", {"mode": "restricted", "agent_rules": [v6_allow], "global_rules": [{**v6_allow, "action": "deny"}]}, False),
+        ]:
+            outcome = probe(client, connect_code(ipv6_target), snapshot=snapshot)
+            access = [r for r in outcome.get("egress", []) if r["target_ip"] == ipv6_target and r["port"] == 8000]
+            try:
+                observed = json.loads(outcome.get("stdout", ""))["connected"]
+            except (ValueError, KeyError):
+                observed = None
+            passed = (
+                outcome.get("exit_code") == 0 and observed is connected and len(access) == 1
+                and ":" in access[0].get("source_ip", "")
+                and access[0]["action"] == ("allow" if connected else "deny")
                 and not any(outcome["residual"].values())
             )
             results.append({"name": name, "passed": passed, "runtime": outcome})

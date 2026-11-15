@@ -55,7 +55,13 @@ def sandbox_started(run_id: str, execution_id: str, step_seq: int, language: str
 
 
 def sandbox_output(run_id: str, execution_id: str, stream: str, chunk: str) -> None:
-    _publish(run_id, {"type": "sandbox_output", "execution_id": execution_id, "stream": stream, "chunk": chunk[:4096]})
+    data = chunk.encode("utf-8", errors="replace")
+    offset = 0
+    while offset < len(data):
+        text = data[offset:offset + 4096].decode("utf-8", errors="ignore")
+        offset += len(text.encode("utf-8"))
+        _publish(run_id, {"type": "sandbox_output", "execution_id": execution_id,
+                          "stream": stream, "chunk": text})
 
 
 def sandbox_finished(run_id: str, execution_id: str, status: str, exit_code: int | None, duration_ms: int, artifacts: int = 0) -> None:
@@ -80,6 +86,7 @@ def egress_denied(
             "target_domain": target_domain,
             "port": port,
             "matched_rule_id": matched_rule_id,
+            "reason": "出网策略拒绝该连接",
         },
     )
 

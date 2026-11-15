@@ -169,6 +169,34 @@ class TestModes:
         assert d.matched_rule_id is None
 
 
+class TestDomainBindingSafety:
+    def test_rebinding_to_private_address_cannot_inherit_domain_allow(self) -> None:
+        rule = RuleView("a1", "allow", "domain", "*.example.com", "443")
+        for address, expected in [("1.1.1.1", "allow"), ("10.1.2.3", "deny"), ("::ffff:10.1.2.3", "deny")]:
+            assert evaluate(
+                address, "cdn.example.com", 443, mode="restricted",
+                agent_rules=[rule], builtin_blacklist=BLACKLIST,
+            ).action == expected
+
+    def test_global_domain_deny_wins_over_exact_or_wildcard_allow(self) -> None:
+        for allow_target in ["cdn.example.com", "*.example.com"]:
+            decision = evaluate(
+                "1.1.1.1", "cdn.example.com", 443, mode="restricted",
+                global_rules=[RuleView("g1", "deny", "domain", "*.example.com")],
+                agent_rules=[RuleView("a1", "allow", "domain", allow_target)],
+                builtin_blacklist=BLACKLIST,
+            )
+            assert (decision.action, decision.matched_rule_id) == ("deny", "g1")
+
+    def test_domain_suffix_does_not_match_a_sibling_or_attacker_suffix(self) -> None:
+        for domain in ["notexample.com", "example.com.attacker.invalid"]:
+            assert evaluate(
+                "1.1.1.1", domain, 443, mode="restricted",
+                agent_rules=[RuleView("a1", "allow", "domain", "*.example.com")],
+                builtin_blacklist=BLACKLIST,
+            ).action == "deny"
+
+
 class TestDomainMatching:
     def test_wildcard_matches_base_domain_too(self) -> None:
         d = evaluate(

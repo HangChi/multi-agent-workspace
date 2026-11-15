@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from docker.errors import APIError, DockerException
+from docker.types import LogConfig
 
 from app.core.config import settings
 from app.executors.egress import RuleView, evaluate
@@ -42,6 +43,7 @@ class NetworkPolicyError(RuntimeError):
 _UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
 )
+_PACKET_RE = re.compile(r"\bIP6?\s+(\S+)\.(\d+)\s+>\s+(\S+)\.(\d+):\s+(.*)")
 _FIELD_RE = re.compile(
     r"src=(?P<src>[^\s]+)\s+dst=(?P<dst>[^\s]+)\s+"
     r"sport=(?P<sport>\d+)\s+dport=(?P<dport>\d+)"
@@ -202,6 +204,12 @@ def _family_commands(
         commands.append([executable, "-A", forward_chain, "-j", "ACCEPT"])
 
     # INPUT is separate from FORWARD: a bridge peer must not reach host services.
+    # IPv6 nevertheless needs on-link neighbor discovery for its gateway. Without
+    # this narrow control-plane exception TCP never reaches FORWARD at all.
+    if family == 6:
+        for kind in ("neighbor-solicitation", "neighbor-advertisement"):
+            commands.append([executable, "-A", input_chain, "-p", "ipv6-icmp",
+                             "--icmpv6-type", kind, "-m", "hl", "--hl-eq", "255", "-j", "ACCEPT"])
     commands.append([executable, "-A", input_chain, "-j", "DROP"])
     commands.append([executable, "-I", "FORWARD", "-i", bridge, "-j", forward_chain])
     commands.append([executable, "-I", "INPUT", "-i", bridge, "-j", input_chain])
@@ -271,59 +279,115 @@ def compile_runtime_commands(
     return install, cleanup
 
 
-def parse_conntrack_output(output: str | bytes, *, source_ip: str) -> list[dict[str, Any]]:
-    """Parse NEW/UPDATE conntrack lines into outbound facts.
+def _connection_record(
+    source_ip: str, source_port: int, target_ip: str, port: int, protocol: str,
+    timestamp: str | None = None,
+) -> dict[str, Any]:
+    record = {
+        "source_ip": source_ip, "source_port": source_port,
+        "target_ip": target_ip, "domain": "ip-direct", "port": port,
+        "protocol": protocol, "action": "allow", "matched_rule_id": None,
+        "bytes_out": None,
+    }
+    if timestamp is not None:
+        try:
+            record["occurred_at"] = datetime.fromtimestamp(float(timestamp), UTC).isoformat()
+        except (ValueError, OverflowError, OSError):
+            pass
+    return record
 
-    This is intentionally tolerant of `conntrack -E` and `conntrack -L` output.
-    Reverse-direction tuples are ignored by selecting the tuple whose source is
-    the sandbox IP.  Repeated updates are deduplicated by target/protocol/port.
+
+def parse_conntrack_output(output: str | bytes, *, source_ip: str) -> list[dict[str, Any]]:
+    """Keep original-direction five-tuples and conntrack lifetimes, not targets.
+
+    UPDATE/DESTROY counters update the corresponding record. A fresh NEW event
+    (or a different conntrack id) starts a new record even if the tuple is reused.
+    A snapshot without event/id evidence cannot disambiguate tuple reuse.
     """
     text = output.decode("utf-8", "replace") if isinstance(output, bytes) else output
-    records: dict[tuple[str, str, int], dict[str, Any]] = {}
+    records: list[dict[str, Any]] = []
+    source_ip = str(ipaddress.ip_address(source_ip))
+    current: dict[tuple[str, str, int, str, int, str | None], dict[str, Any]] = {}
+    finished: set[tuple[str, str, int, str, int, str | None]] = set()
     for line in text.splitlines():
-        protocol = "tcp" if re.search(r"\btcp(?:\s|$)", line) else "udp" if re.search(r"\budp(?:\s|$)", line) else "unknown"
-        for match in _FIELD_RE.finditer(line):
-            if match.group("src") != source_ip:
-                continue
-            target, port = match.group("dst"), int(match.group("dport"))
-            key = (protocol, target, port)
-            current = records.get(key)
-            bytes_out = int(match.group("bytes")) if match.group("bytes") else None
-            if current is None or (bytes_out is not None and (current["bytes_out"] or 0) < bytes_out):
-                records[key] = {
-                    "target_ip": target,
-                    "domain": "ip-direct",
-                    "port": port,
-                    "protocol": protocol,
-                    "action": "allow",
-                    "matched_rule_id": None,
-                    "bytes_out": bytes_out,
-                }
-    return list(records.values())
+        protocol_match = re.search(r"\b(tcp|udp)(?:\s|$)", line)
+        match = _FIELD_RE.search(line)
+        # Only the FIRST tuple establishes initiation direction. An inbound
+        # connection's reply tuple also has src=sandbox and must not be counted.
+        if not protocol_match or not match:
+            continue
+        try:
+            source = str(ipaddress.ip_address(match.group("src")))
+            target = str(ipaddress.ip_address(match.group("dst")))
+        except ValueError:
+            continue
+        if source != source_ip:
+            continue
+        protocol, port = protocol_match.group(1), int(match.group("dport"))
+        source_port = int(match.group("sport"))
+        id_match = re.search(r"\bid=(\d+)\b", line)
+        identity = id_match.group(1) if id_match else None
+        key = (protocol, source_ip, source_port, target, port, identity)
+        record = current.get(key)
+        is_new = "[NEW]" in line
+        if record is None or (is_new and (identity is None or key in finished)):
+            record = _connection_record(source_ip, source_port, target, port, protocol)
+            records.append(record)
+            current[key] = record
+            finished.discard(key)
+        if match.group("bytes"):
+            record["bytes_out"] = max(record["bytes_out"] or 0, int(match.group("bytes")))
+        if "[DESTROY]" in line:
+            finished.add(key)
+    return records
 
 
 def parse_packet_output(output: str | bytes, *, source_ip: str) -> list[dict[str, Any]]:
-    """Observe attempted TCP/UDP destinations before FORWARD can drop them.
+    """Observe outbound TCP connection attempts / UDP five-tuple flows.
 
-    Dropped SYNs never become confirmed conntrack entries, so conntrack alone
-    cannot supply deny audits. The trusted helper emits line-buffered headers
-    only (no payload); user containers never receive packet-capture privileges.
+    TCP SYN retransmissions retain one fact; a fresh absolute initial sequence
+    or a SYN after closure starts another, including reuse of the same source
+    port. UDP has no handshake: same-five-tuple socket reuse is not distinguishable
+    from more datagrams on one flow. ICMP/fragments/non-port traffic are not
+    connection facts in this parser. No payload or byte-count estimate is stored.
     """
     text = output.decode("utf-8", "replace") if isinstance(output, bytes) else output
-    pattern = re.compile(r"\bIP6?\s+(\S+)\.(\d+)\s+>\s+(\S+)\.(\d+):\s+(.*)")
-    records: dict[tuple[str, str, int], dict[str, Any]] = {}
+    records: list[dict[str, Any]] = []
+    flows: dict[tuple[str, int, str, int], dict[str, Any]] = {}
+    source_ip = str(ipaddress.ip_address(source_ip))
     for line in text.splitlines():
-        match = pattern.search(line)
-        if not match or match.group(1) != source_ip:
+        match = _PACKET_RE.search(line)
+        if not match:
             continue
-        target, port = match.group(3), int(match.group(4))
-        protocol = "tcp" if "Flags [" in match.group(5) else "udp"
-        records.setdefault((protocol, target, port), {
-            "target_ip": target, "domain": "ip-direct", "port": port,
-            "protocol": protocol, "action": "allow", "matched_rule_id": None,
-            "bytes_out": None,
-        })
-    return list(records.values())
+        try:
+            source = str(ipaddress.ip_address(match.group(1)))
+            target = str(ipaddress.ip_address(match.group(3)))
+        except ValueError:
+            continue
+        if source != source_ip:
+            continue
+        port = int(match.group(4))
+        source_port, detail = int(match.group(2)), match.group(5)
+        flags_match = re.match(r"Flags \[([^]]*)\]", detail)
+        protocol = "tcp" if flags_match else "udp"
+        key = (protocol, source_port, target, port)
+        flow = flows.get(key)
+        flags = flags_match.group(1) if flags_match else ""
+        initial_syn = "S" in flags and "." not in flags
+        seq_match = re.search(r"\bseq (\d+)", detail) if initial_syn else None
+        sequence = seq_match.group(1) if seq_match else None
+        if flow is None or (initial_syn and (flow["closed"] or flow["sequence"] != sequence)):
+            timestamp_match = re.match(r"(\d+(?:\.\d+)?)\s", line)
+            record = _connection_record(
+                source_ip, source_port, target, port, protocol,
+                timestamp_match.group(1) if timestamp_match else None,
+            )
+            records.append(record)
+            flow = {"sequence": sequence, "closed": False}
+            flows[key] = flow
+        if "R" in flags or "F" in flags:
+            flow["closed"] = True
+    return records
 
 
 def _dns_ip_domains(logs: bytes | str, source_ip: str) -> dict[str, str]:
@@ -375,6 +439,7 @@ class NetworkCapture:
     cleanup_commands: list[list[str]]
     watcher: Any = None
     source_ip: str | None = None
+    source_ipv6: str | None = None
     started_at: int = 0
 
     @classmethod
@@ -414,8 +479,13 @@ class NetworkCapture:
             # before user code, so dynamic allocation cannot be used here. Docker
             # rejects an occupied/out-of-subnet address rather than running open.
             source_ip = str(ipaddress.ip_address(dns_ip) + 1)
+            dns_ipv6 = address.get("GlobalIPv6Address")
+            source_ipv6 = str(ipaddress.IPv6Address(dns_ipv6) + 1) if dns_ipv6 else None
+            if attrs.get("EnableIPv6") and source_ipv6 is None:
+                raise NetworkPolicyError("IPv6-enabled network has no observable DNS endpoint for source reservation")
             obj = cls(client, network, execution_id, mode, global_rules, agent_rules, builtins,
-                      dns_proxy, dns_ip, bridge, install, cleanup, source_ip=source_ip)
+                      dns_proxy, dns_ip, bridge, install, cleanup,
+                      source_ip=source_ip, source_ipv6=source_ipv6)
             try:
                 obj._run_commands(install)
             except Exception:
@@ -458,15 +528,35 @@ class NetworkCapture:
         address = network_info.get("IPAddress") or (network_info.get("IPAMConfig") or {}).get("IPv4Address")
         if not self.source_ip or address != self.source_ip:
             raise NetworkPolicyError("sandbox container has no matching reserved network address")
+        ipv6_address = network_info.get("GlobalIPv6Address") or (network_info.get("IPAMConfig") or {}).get("IPv6Address")
+        network_attrs = getattr(self.network, "attrs", {}) or {}
+        if (network_attrs.get("EnableIPv6") or self.source_ipv6) and not ipv6_address:
+            # Docker may only assign dynamic v6 on start, which is too late for
+            # the pre-user-code capture contract. Require a reserved endpoint.
+            raise NetworkPolicyError("IPv6-enabled network requires a known prestart sandbox IPv6 address")
+        if ipv6_address:
+            try:
+                actual_ipv6 = str(ipaddress.IPv6Address(ipv6_address))
+                if self.source_ipv6 and actual_ipv6 != self.source_ipv6:
+                    raise NetworkPolicyError("sandbox container has no matching reserved IPv6 address")
+                self.source_ipv6 = actual_ipv6
+            except ipaddress.AddressValueError as exc:
+                raise NetworkPolicyError("sandbox IPv6 address is invalid") from exc
+        sources = ["src", "host", self.source_ip]
+        if self.source_ipv6:
+            sources = ["(", *sources, "or", "src", "host", self.source_ipv6, ")"]
         self.started_at = int(datetime.now(UTC).timestamp())
         try:
             self.watcher = self.client.containers.run(
                 NET_IMAGE,
-                command=["tcpdump", "--immediate-mode", "-l", "-n", "-tt", "-i", self.bridge,
-                         "src", "host", self.source_ip, "and", "(tcp or udp)"],
+                command=["tcpdump", "--immediate-mode", "-l", "-nn", "-S", "-tt", "-i", self.bridge,
+                         *sources, "and", "(tcp or udp)"],
                 network_mode="host", cap_add=["NET_ADMIN", "NET_RAW"], detach=True, remove=False,
                 name=f"aw-egress-{self.execution_id}",
                 labels={"aw.managed": "true", "aw.execution": self.execution_id},
+                read_only=True, cap_drop=["ALL"], security_opt=["no-new-privileges"],
+                mem_limit="64m", pids_limit=16,
+                log_config=LogConfig(type="local", config={"max-size": "4m", "max-file": "1", "compress": "false"}),
             )
             deadline = time.monotonic() + 3
             while time.monotonic() < deadline:
@@ -486,16 +576,33 @@ class NetworkCapture:
                 self.watcher.stop(timeout=3)
             except TypeError:
                 self.watcher.stop()
+            status = self.watcher.wait(timeout=3)
+            stderr = self.watcher.logs(stdout=False, stderr=True)
+            diagnostics = stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else stderr
+            drops = re.findall(r"(\d+) packets? dropped by (?:kernel|interface)", diagnostics)
+            # A killed/OOM'd watcher or missing final statistics cannot prove a
+            # complete audit. Never return a misleading empty/successful capture.
+            if not isinstance(status, dict) or status.get("StatusCode") != 0:
+                raise NetworkPolicyError("packet capture exited unsuccessfully")
+            if not re.search(r"\d+ packets? dropped by kernel", diagnostics) or any(int(n) for n in drops):
+                raise NetworkPolicyError("packet capture is incomplete (missing statistics or dropped packets)")
             events = self.watcher.logs(stdout=True, stderr=False)
-            records = parse_packet_output(events, source_ip=self.source_ip)
+            packet_text = events.decode("utf-8", "replace") if isinstance(events, bytes) else events
+            captured = re.search(r"(\d+) packets? captured", diagnostics)
+            if captured is None or int(captured.group(1)) != len(_PACKET_RE.findall(packet_text)):
+                raise NetworkPolicyError("packet capture log is truncated or contains unparseable packets")
+            records = parse_packet_output(packet_text, source_ip=self.source_ip)
+            if self.source_ipv6:
+                records.extend(parse_packet_output(events, source_ip=self.source_ipv6))
+            records.sort(key=lambda record: record.get("occurred_at", ""))
             dns_logs = self.dns_proxy.logs(since=self.started_at)
             ip_domains = _dns_ip_domains(dns_logs, self.source_ip)
             for record in records:
                 record["domain"] = ip_domains.get(record["target_ip"], "ip-direct")
             for record in records:
                 if record["target_ip"] == self.dns_proxy_ip and record["port"] == 53:
-                    record.update(action="allow", matched_rule_id=None, domain="dns-proxy",
-                                  occurred_at=datetime.now(UTC).isoformat())
+                    record.update(action="allow", matched_rule_id=None, domain="dns-proxy")
+                    record.setdefault("occurred_at", datetime.now(UTC).isoformat())
                     continue
                 decision = evaluate(
                     record["target_ip"], record.get("domain"), record["port"],
@@ -509,7 +616,7 @@ class NetworkCapture:
                 )
                 record["action"] = decision.action
                 record["matched_rule_id"] = decision.matched_rule_id
-                record["occurred_at"] = datetime.now(UTC).isoformat()
+                record.setdefault("occurred_at", datetime.now(UTC).isoformat())
             denied = any(record["action"] == "deny" for record in records)
             return records, denied
         finally:

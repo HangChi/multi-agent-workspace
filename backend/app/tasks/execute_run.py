@@ -424,19 +424,6 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
                 matched_rule_id=access_detail["matched_rule_id"],
             )
         await db.commit()
-        run_events.sandbox_started(
-            run.id,
-            execution.id,
-            int(detail["step_seq"]),
-            execution.language,
-            execution.limits,
-        )
-        for stream_name in ("stdout", "stderr"):
-            text = str(result.get(stream_name) or "")
-            for offset in range(0, len(text), 4096):
-                run_events.sandbox_output(
-                    run.id, execution.id, stream_name, text[offset : offset + 4096]
-                )
         run_events.sandbox_finished(
             run.id,
             execution.id,
@@ -450,6 +437,17 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
         if agent is None:
             raise RuntimeError("沙箱执行缺少 Agent 归属")
         executor = runner.executors.get(str(detail["tool_name"]))
+        set_output_callback = getattr(executor, "set_output_callback", None)
+        if callable(set_output_callback):
+            loop = asyncio.get_running_loop()
+            run_id, execution_id = str(run.id), str(detail["execution_id"])
+
+            def publish_output(stream: str, text: str) -> None:
+                loop.call_soon_threadsafe(
+                    run_events.sandbox_output, run_id, execution_id, stream, text
+                )
+
+            set_output_callback(publish_output)
         set_egress_snapshot = getattr(executor, "set_egress_snapshot", None)
         if callable(set_egress_snapshot):
             mode, global_rules, agent_rules = await egress_service.snapshot_for_execution(

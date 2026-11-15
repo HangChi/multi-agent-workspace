@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import AsyncGenerator, Callable, Iterator
 from typing import Any
 
@@ -43,7 +44,7 @@ class FakeContainer:
         self.killed: list[str] = []
         self.removed: list[bool] = []
         self.started = False
-        self.archived: bytes = b""
+        self.archived: bytes = make_tar_bytes({})
         self.archive_missing = False
         self.stdout: bytes = b""
         self.stderr: bytes = b""
@@ -54,6 +55,8 @@ class FakeContainer:
         self.stats_raises: Exception | None = None
         self.put_archives: list[tuple[str, bytes]] = []
         self.wait_calls: list[float | None] = []
+        self.attach_calls: list[dict[str, Any]] = []
+        self.start_event = threading.Event()
 
     # --- SDK 形状的方法 ---
 
@@ -63,6 +66,7 @@ class FakeContainer:
 
     def start(self) -> None:
         self.started = True
+        self.start_event.set()
         self.status = "running"
         # 让分段等待至少走一轮，避免测试里循环立即退出掩盖轮询逻辑
         self._fake.remaining_polls = max(1, self._fake.remaining_polls)
@@ -91,7 +95,21 @@ class FakeContainer:
         self.exit_code = 137
         self.attrs["State"]["ExitCode"] = 137
 
-    def logs(self, stdout: bool = True, stderr: bool = True) -> bytes:
+    def attach(self, **kwargs: Any) -> Iterator[tuple[bytes | None, bytes | None]]:
+        self.attach_calls.append(kwargs)
+
+        def chunks() -> Iterator[tuple[bytes | None, bytes | None]]:
+            assert self.start_event.wait(timeout=2)
+            for offset in range(0, len(self.stdout), 65536):
+                yield self.stdout[offset:offset + 65536], None
+            for offset in range(0, len(self.stderr), 65536):
+                yield None, self.stderr[offset:offset + 65536]
+
+        return chunks()
+
+    def logs(self, stdout: bool = True, stderr: bool = True, **kwargs: Any) -> bytes:
+        if self.created_kwargs.get("labels", {}).get("aw.role") == "storage":
+            return b"storage-ready\n"
         if stderr and not stdout:
             return self.stderr
         if stdout and not stderr:
@@ -207,6 +225,7 @@ class FakeNetworkCapture:
 
     dns_proxy_ip = "172.30.0.2"
     source_ip = "172.30.0.3"
+    source_ipv6 = None
 
     @classmethod
     def prepare(
@@ -253,6 +272,11 @@ class FakeDockerClient:
     def container(self) -> FakeContainer:
         assert self.containers.created, "没有创建任何容器"
         return self.containers.created[-1]
+
+    @property
+    def storage(self) -> FakeContainer:
+        return next(c for c in reversed(self.containers.created)
+                    if c.created_kwargs.get("labels", {}).get("aw.role") == "storage")
 
     @property
     def network(self) -> FakeNetwork:

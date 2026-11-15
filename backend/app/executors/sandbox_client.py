@@ -27,32 +27,26 @@
    （实测 `put_archive` 报 404 NotFound），所以只能
    `create → put_archive → start`。计划写的 `containers.run(...)` 改为 create/start。
 
-3. **`/workspace` 用 tmpfs 时产物取不回来**：容器退出后 tmpfs 随之卸载，
-   `get_archive('/workspace/output')` 只剩一个空目录项。而产物回收（SC-007）
-   必须发生在容器退出之后。→ 解法：`/workspace` 仍是**有 size 上限的 tmpfs**
-   （磁盘配额真实生效：写 400MB 时 `ENOSPC`），但 `/workspace/output`
-   单独挂一个**命名卷**，退出后仍可归档。两者嵌套挂载实测共存。
+3. tmpfs 随最后一个容器卸载而丢失。现在采用有 size 上限的 local-driver
+   tmpfs 卷，由无网络、无用户脚本的短命存储容器保持挂载，脚本退出后从它归档。
+   `/workspace` 与 `/tmp` 是同一有界文件系统的两个挂载点，output 没有额外
+   的普通磁盘卷。`/code` 单独有界、仅通过存储容器注入，用户侧只读。
 
-4. **`storage_opt={"size": ...}` 在本机不生效**（写 400MB 全部成功，
-   底层 overlay2 未开 project quota）。所以磁盘限额只能靠 tmpfs size，
-   不能用 storage_opt 假装有配额。
+4. 不依赖未启用 project quota 的 `storage_opt`；tmpfs 不可用时拒绝执行。
+   用户容器关闭 Docker 日志落盘，启动前 attach 输出，以有界尾部缓冲实时采集，
+   同时保留原始字节计数。
 
-5. **`wait(timeout=1)` 抛的是 `requests.exceptions.ConnectionError`**
-   （"Read timed out" 被 urllib3 包了一层），不是 `ReadTimeout`。
-   只捕获 `ReadTimeout` 会让超时轮询第一次就炸出去。这里按 `RequestException` 捕获。
-
-已知缺口（写进文档，不隐藏）：
-- `output/` 命名卷没有内核级大小上限（Docker 卷不支持 size）。脚本狂写
-  `output/` 仍可能撑爆宿主盘。缓解：产物采集侧按文件数/单文件/总量硬上限
-  中断（`iter_output_files`），且卷在采集后立即删除。这条留给 T044 收口，
-  在 P3 安全复核中作为已知项记录。
+5. `wait(timeout=1)` 可能抛 `requests.exceptions.ConnectionError`，
+   因此按 `RequestException` 捕获并轮询，而非只捕获 `ReadTimeout`。
 """
 
 from __future__ import annotations
 
+import codecs
 import io
 import logging
 import tarfile
+import threading
 import time
 import types
 from collections.abc import Callable, Iterator
@@ -268,6 +262,107 @@ class _ChunkReader(io.RawIOBase):
         return size
 
 
+# Only trusted, constant code runs in the storage keeper. It has no network,
+# no user script, and no application credentials. Keeping the bounded tmpfs
+# mounted lets us archive artifacts after the user container has exited.
+_STORAGE_KEEPER = (
+    "import pathlib,time; "
+    "pathlib.Path('/workspace/output').mkdir(exist_ok=True); "
+    "print('storage-ready',flush=True); time.sleep(1800)"
+)
+
+
+class _OutputTail:
+    """Count every byte while retaining at most the configured tail."""
+
+    def __init__(self, limit: int) -> None:
+        self.limit = max(1, limit)
+        self.data = bytearray()
+        self.full_bytes = 0
+
+    def add(self, chunk: bytes) -> None:
+        self.full_bytes += len(chunk)
+        if len(chunk) >= self.limit:
+            self.data = bytearray(chunk[-self.limit:])
+        else:
+            self.data.extend(chunk)
+            if len(self.data) > self.limit:
+                del self.data[:-self.limit]
+
+    def snapshot(self) -> tuple[bytes, bool, int]:
+        return bytes(self.data), self.full_bytes > self.limit, self.full_bytes
+
+
+class _OutputCapture:
+    """Attach before start: no Docker log backlog and bounded Worker memory."""
+
+    def __init__(
+        self, container: Any, limit: int,
+        callback: Callable[[str, str], None] | None = None,
+    ) -> None:
+        self.stdout = _OutputTail(limit)
+        self.stderr = _OutputTail(limit)
+        self.error: Exception | None = None
+        self.callback = callback
+        self._published = {"stdout": 0, "stderr": 0}
+        self._publish_limit = max(1, limit)
+        try:
+            self.stream = container.attach(
+                stream=True, stdout=True, stderr=True, logs=False, demux=True
+            )
+        except (APIError, DockerException, requests.exceptions.RequestException) as exc:
+            raise SandboxInfraError("无法建立沙箱输出采集，拒绝启动脚本") from exc
+        self.thread = threading.Thread(target=self._consume, daemon=True)
+        self.thread.start()
+
+    def _emit(self, name: str, text: str) -> None:
+        if self.callback is None or not text:
+            return
+        remaining = self._publish_limit - self._published[name]
+        if remaining <= 0:
+            return
+        # Live transport has its own finite budget. Full byte counts and the
+        # final tail still come from _OutputTail, not the published prefix.
+        text = text.encode("utf-8")[:remaining].decode("utf-8", "ignore")
+        if text:
+            self._published[name] += len(text.encode("utf-8"))
+            self.callback(name, text)
+
+    def _consume(self) -> None:
+        decoders = {name: codecs.getincrementaldecoder("utf-8")(errors="replace")
+                    for name in ("stdout", "stderr")}
+        try:
+            for out, err in self.stream:
+                for name, data in (("stdout", out), ("stderr", err)):
+                    if not data:
+                        continue
+                    buffer = self.stdout if name == "stdout" else self.stderr
+                    buffer.add(data)
+                    text = decoders[name].decode(data)
+                    self._emit(name, text)
+            if self.callback is not None:
+                for name, decoder in decoders.items():
+                    text = decoder.decode(b"", final=True)
+                    self._emit(name, text)
+        except Exception as exc:  # noqa: BLE001 - propagate capture failures to executor
+            self.error = exc
+
+    def finish(self) -> None:
+        self.thread.join(timeout=3)
+        if self.thread.is_alive():
+            self.close()
+            raise SandboxInfraError("沙箱输出采集未完成，无法确认完整输出")
+        if self.error is not None:
+            raise SandboxInfraError("沙箱输出采集失败，无法确认完整输出") from self.error
+
+    def close(self) -> None:
+        try:
+            self.stream.close()
+        except (OSError, ValueError):
+            pass
+        self.thread.join(timeout=1)
+
+
 class SandboxRun:
     """一次沙箱执行的上下文管理器。
 
@@ -292,6 +387,7 @@ class SandboxRun:
         abort_check: Callable[[], bool] | None = None,
         egress_snapshot: dict[str, Any] | None = None,
         client: docker.DockerClient | None = None,
+        output_callback: Callable[[str, str], None] | None = None,
     ) -> None:
         if language not in _LANG_SPEC:
             # 白名单式校验：新增语言必须显式加进 _LANG_SPEC，不接受任意字符串
@@ -316,6 +412,9 @@ class SandboxRun:
         self._egress: NetworkCapture | None = None
         self._volumes: list[Any] = []
         self._container: Any = None
+        self._storage: Any = None
+        self._capture: _OutputCapture | None = None
+        self._output_callback = output_callback
         self._executed = False
         # Filled after the process exits. These are facts for the caller to persist,
         # not a substitute for the kernel policy decision.
@@ -377,9 +476,10 @@ class SandboxRun:
             if self._egress is None:
                 raise SandboxInfraError("出站网络策略未就绪，拒绝启动沙箱")
             self._create_volumes(client)
+            self._start_storage(client)
+            self._put_script(self._storage)
             container = self._create_container(client)
             self._container = container
-            self._put_script(container)
             self._egress.start_capture(container)
             try:
                 return self._start_and_wait(container)
@@ -430,7 +530,7 @@ class SandboxRun:
         )
 
         try:
-            stream, _stat = self._container.get_archive(OUTPUT_DIR)
+            stream, _stat = self._storage.get_archive(OUTPUT_DIR)
         except APIError as exc:
             # 目录不存在（脚本没产出任何东西）是正常情况，不是故障
             logger.info("执行 %s 无 output 目录可归档：%s", self.execution_id, exc)
@@ -548,34 +648,68 @@ class SandboxRun:
         try:
             self.egress_accesses, self.policy_denied = self._egress.collect()
         except NetworkPolicyError as exc:
-            # Recording loss must not turn a completed user process into a false
-            # success; retain a conservative denied marker for the caller.
-            logger.error("执行 %s 出站记录失败：%s", self.execution_id, exc)
-            self.policy_denied = True
+            # Lost evidence is an infrastructure failure, not a proven deny.
+            # Never publish a successful execution with silently missing audit.
+            raise SandboxInfraError("出站记录采集失败，无法确认完整审计") from exc
 
     def _create_volumes(self, client: docker.DockerClient) -> None:
-        """建两个命名卷：`/code`（脚本）与 `/workspace/output`（产物）。
-
-        为什么必须用卷而不是 tmpfs：
-        - `/code`：`read_only=True` 时 daemon 不允许 `put_archive` 到 rootfs，
-          卷挂载点不受该限制（实测）。tmpfs 在 start 前不存在，也写不进去。
-        - `/workspace/output`：tmpfs 随容器退出卸载，产物就没了（实测），
-          而归档只能在退出后做。
-        """
-        for name in (self.code_volume_name, self.output_volume_name):
+        """Create bounded, execution-private tmpfs volumes; never fall back to disk."""
+        code_bytes = settings.sbx_code_max_bytes + 1024 * 1024
+        for name, size in (
+            (self.code_volume_name, str(code_bytes)),
+            (self.output_volume_name, f"{self.limits.disk_mb}m"),
+        ):
             try:
                 self._volumes.append(
-                    client.volumes.create(name=name, labels=self._labels())
+                    client.volumes.create(
+                        name=name, driver="local", labels=self._labels(),
+                        driver_opts={
+                            "type": "tmpfs", "device": "tmpfs",
+                            "o": f"size={size},uid=10001,gid=10001,mode=1777,nosuid,nodev",
+                        },
+                    )
                 )
             except (APIError, DockerException) as exc:
-                raise SandboxInfraError(f"创建沙箱卷 {name} 失败：{exc}") from exc
+                raise SandboxInfraError(f"创建有界沙箱卷 {name} 失败：{exc}") from exc
+
+    def _start_storage(self, client: docker.DockerClient) -> None:
+        """Hold tmpfs mounts without granting the keeper network or user code."""
+        try:
+            self._storage = client.containers.create(
+                image=settings.sbx_image,
+                command=["python", "-I", "-u", "-c", _STORAGE_KEEPER],
+                name=f"{self.container_name}-storage",
+                network_mode="none", user=SANDBOX_UID, read_only=True,
+                cap_drop=["ALL"], security_opt=["no-new-privileges"],
+                mem_limit="32m", memswap_limit="32m",
+                nano_cpus=100_000_000, pids_limit=16, init=True,
+                labels={**self._labels(), "aw.role": "storage"},
+                log_config=docker.types.LogConfig(
+                    type="json-file", config={"max-size": "16k", "max-file": "1"}
+                ),
+                volumes={
+                    self.code_volume_name: {"bind": CODE_DIR, "mode": "rw"},
+                    self.output_volume_name: {"bind": WORKSPACE_DIR, "mode": "rw"},
+                },
+            )
+            self._storage.start()
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if b"storage-ready" in self._storage.logs(tail=1):
+                    return
+                time.sleep(0.02)
+            raise SandboxInfraError("有界沙箱存储未就绪，拒绝启动脚本")
+        except (APIError, DockerException) as exc:
+            raise SandboxInfraError("无法启动有界沙箱存储，拒绝启动脚本") from exc
 
     def _container_kwargs(self) -> dict[str, Any]:
         """从配置推导容器参数。**唯一的参数来源**，不接受外部覆盖。"""
-        disk = self.limits.disk_mb
         if self._egress is None:
             raise SandboxInfraError("出站网络策略未就绪，拒绝创建沙箱容器")
         egress = self._egress
+        endpoint = {"IPv4Address": egress.source_ip}
+        if egress.source_ipv6:
+            endpoint["IPv6Address"] = egress.source_ipv6
         return {
             "image": settings.sbx_image,
             "command": list(_LANG_SPEC[self.language][1]),
@@ -585,22 +719,21 @@ class SandboxRun:
             # 退出后仍需 logs/get_archive，统一由 cleanup 销毁。
             "network": self.network_name,
             "networking_config": {
-                self.network_name: {"IPAMConfig": {"IPv4Address": egress.source_ip}},
+                self.network_name: {"IPAMConfig": endpoint},
             },
             "dns": [egress.dns_proxy_ip],
             "working_dir": WORKSPACE_DIR,
             "user": SANDBOX_UID,
             # 根文件系统只读：脚本只能写显式挂载的目录，避免篡改镜像内工具链
             "read_only": True,
-            "volumes": {
-                self.code_volume_name: {"bind": CODE_DIR, "mode": "rw"},
-                self.output_volume_name: {"bind": OUTPUT_DIR, "mode": "rw"},
-            },
-            "tmpfs": {
-                # /workspace 用带 size 的 tmpfs：磁盘配额真实生效（实测 ENOSPC）
-                WORKSPACE_DIR: f"size={disk}m,mode=1777",
-                TMP_DIR: f"size={min(disk, 64)}m,mode=1777",
-            },
+            # Both writable paths alias ONE size-limited filesystem. Neither
+            # output nor /tmp can escape the execution's total disk budget.
+            "volumes": [
+                f"{self.code_volume_name}:{CODE_DIR}:ro",
+                f"{self.output_volume_name}:{WORKSPACE_DIR}:rw",
+                f"{self.output_volume_name}:{TMP_DIR}:rw",
+            ],
+            "log_config": docker.types.LogConfig(type="none"),
             # CPU 用 nano 精度，避免浮点转 int 时把 0.5 核截成 0（0 = 不限制）
             "nano_cpus": int(self.limits.cpu * 1_000_000_000),
             "mem_limit": f"{self.limits.mem_mb}m",
@@ -646,6 +779,9 @@ class SandboxRun:
             raise SandboxInfraError(f"写入脚本失败：{exc}") from exc
 
     def _start_and_wait(self, container: Any) -> SandboxOutcome:
+        self._capture = _OutputCapture(
+            container, settings.sbx_stdout_max_bytes, self._output_callback
+        )
         try:
             container.start()
         except (APIError, DockerException) as exc:
@@ -658,6 +794,9 @@ class SandboxRun:
         deadline = started + self.limits.timeout_s
 
         while True:
+            if self._capture.error is not None:
+                self._kill(container)
+                raise SandboxInfraError("沙箱输出采集失败，已终止脚本") from self._capture.error
             if self._abort_check is not None and self._abort_check():
                 cancelled = True
                 self._kill(container)
@@ -685,12 +824,9 @@ class SandboxRun:
         if exit_code is None:
             exit_code = self._wait_after_kill(container)
 
-        stdout, stdout_truncated, stdout_full = truncate_output(
-            self._logs(container, stderr=False), settings.sbx_stdout_max_bytes
-        )
-        stderr, stderr_truncated, stderr_full = truncate_output(
-            self._logs(container, stderr=True), settings.sbx_stdout_max_bytes
-        )
+        self._capture.finish()
+        stdout, stdout_truncated, stdout_full = self._capture.stdout.snapshot()
+        stderr, stderr_truncated, stderr_full = self._capture.stderr.snapshot()
 
         # wait() returns an exit code but does not refresh the SDK's cached attrs.
         # Without reload, OOMKilled remains the value from container creation.
@@ -743,15 +879,6 @@ class SandboxRun:
             logger.warning("执行 %s 取退出码失败：%s", self.execution_id, exc)
             return None
 
-    def _logs(self, container: Any, *, stderr: bool) -> bytes:
-        try:
-            data = container.logs(stdout=not stderr, stderr=stderr)
-        except (APIError, DockerException) as exc:
-            # 日志取不到不该让整次执行失败：脚本可能连一行都没输出
-            logger.warning("执行 %s 读取日志失败：%s", self.execution_id, exc)
-            return b""
-        return data if isinstance(data, bytes) else bytes(data)
-
     def _sample_stats(self, container: Any) -> tuple[int | None, int | None]:
         """采一次 cgroup 快照。
 
@@ -794,6 +921,17 @@ class SandboxRun:
             except (APIError, DockerException) as exc:
                 logger.warning("清理容器 %s 失败：%s", self.execution_id, exc)
             self._container = None
+
+        if self._capture is not None:
+            self._capture.close()
+            self._capture = None
+
+        if self._storage is not None:
+            try:
+                self._storage.remove(force=True)
+            except (APIError, DockerException) as exc:
+                logger.warning("清理存储容器 %s 失败：%s", self.execution_id, exc)
+            self._storage = None
 
         if self._egress is not None:
             try:

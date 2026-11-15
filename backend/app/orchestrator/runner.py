@@ -354,6 +354,7 @@ class ReActRunner:
                         for key in (
                             "ok", "status", "error_category", "exit_code", "message",
                             "duration_ms", "stdout_truncated", "stdout_full_bytes",
+                            "execution_id", "artifact_truncated", "policy_denied",
                         )
                         if sandbox_payload is not None and key in output
                     }

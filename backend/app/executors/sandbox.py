@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 import redis
@@ -97,6 +98,10 @@ class SandboxExecutor(ToolExecutor):
         self.last_execution_id = self.execution_id
         self.last_code = ""
         self.last_limits: dict[str, Any] = {}
+        self.output_callback: Callable[[str, str], None] | None = None
+
+    def set_output_callback(self, callback: Callable[[str, str], None]) -> None:
+        self.output_callback = callback
 
     def set_abort_check(self, abort_check: Any | None) -> None:
         """更新执行中的取消探针（由 ReAct runner 在工具调用前注入）。"""
@@ -239,6 +244,8 @@ class SandboxExecutor(ToolExecutor):
                 }
             payload["artifacts"] = result.pop("_sandbox_artifacts", [])
             payload["artifact_truncated"] = result.pop("_sandbox_artifact_truncated", None)
+            result["execution_id"] = self.execution_id
+            result["artifact_truncated"] = payload["artifact_truncated"]
             result["_sandbox_payload"] = payload
             return result
         finally:
@@ -250,6 +257,8 @@ class SandboxExecutor(ToolExecutor):
                     logger.warning("sandbox_slot_release_failed: %s", exc)
 
     def _with_payload(self, result: dict[str, Any], code: str) -> dict[str, Any]:
+        result["execution_id"] = self.execution_id
+        result["artifact_truncated"] = None
         result["_sandbox_payload"] = {
             "execution_id": self.execution_id,
             "language": self.language,
@@ -279,12 +288,16 @@ class SandboxExecutor(ToolExecutor):
             abort_check=self.abort_check,
             client=self.client,
             egress_snapshot=self.egress_snapshot,
+            output_callback=self.output_callback,
         )
         try:
             with run:
                 outcome = run.execute()
                 status, category = classify_outcome(outcome)
-                if run.policy_denied and status == "ok":
+                # A denied request commonly raises in user code and exits nonzero.
+                # Preserve cancellation/timeout/OOM, but do not hide a confirmed
+                # policy rejection behind a generic exit-code classification.
+                if run.policy_denied and category in (None, "exit_code"):
                     status, category = "policy", "policy"
                 result: dict[str, Any] = {
                     "ok": status == "ok",
@@ -302,6 +315,7 @@ class SandboxExecutor(ToolExecutor):
                     "mem_peak_bytes": outcome.mem_peak_bytes,
                     "limits": run.limits.as_dict(),
                     "message": _message(category, outcome),
+                    "policy_denied": run.policy_denied,
                     "_sandbox_egress_accesses": list(run.egress_accesses),
                     "_sandbox_policy_denied": run.policy_denied,
                 }

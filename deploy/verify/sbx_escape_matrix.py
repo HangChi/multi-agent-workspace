@@ -2,8 +2,8 @@
 
 backend/.venv/bin/python deploy/verify/sbx_escape_matrix.py --output /tmp/002-matrix.json
 All load is inside one resource-limited sandbox at a time. The disk probe writes
-only to size-limited /workspace, never fills the known-unbounded output volume.
-A separate failing row explicitly records that output-volume quota limitation.
+only to bounded tmpfs. The output-specific regression uses a 16 MiB test
+quota and at most 18 MiB of writes, never attempts to fill the host disk.
 """
 from __future__ import annotations
 
@@ -87,8 +87,32 @@ except PermissionError: print('no-privilege-gain')
             outcome = probe(client, "import time; time.sleep(30)", **kwargs)
             passed = outcome.get("error_category") == expected and outcome.get("duration_ms", 999999) <= 5000 and not any(outcome["residual"].values())
             results.append({"name": name, "passed": passed, "runtime": outcome})
-        # Do not claim a safe workspace test covers the distinct output mount.
-        results.append({"name": "output volume kernel disk quota", "passed": False, "known_gap": "/workspace/output uses an unbounded named volume; no destructive fill test attempted"})
+        original_disk = settings.sbx_disk_mb
+        settings.sbx_disk_mb = 16
+        try:
+            outcome = probe(client, '''import errno,pathlib
+p=pathlib.Path('/workspace/output/limit.bin')
+written=0
+try:
+ with p.open('wb',buffering=0) as f:
+  for _ in range(18): written+=f.write(b'x'*1048576)
+ raise AssertionError('output quota missing')
+except OSError as exc:
+ assert exc.errno==errno.ENOSPC
+ assert 0 < written <= 16*1048576
+finally:
+ p.unlink(missing_ok=True)
+pathlib.Path('/workspace/output/quota.txt').write_text('bounded')
+print('output-quota-enforced',written)
+''', timeout_s=10)
+        finally:
+            settings.sbx_disk_mb = original_disk
+        passed = (outcome.get("exit_code") == 0
+                  and "output-quota-enforced" in outcome.get("stdout", "")
+                  and any(f["name"] == "quota.txt" for f in outcome.get("artifacts", []))
+                  and not any(outcome["residual"].values()))
+        results.append({"name": "output volume kernel disk quota",
+                        "passed": passed, "runtime": outcome})
         return report(results, args.output)
     finally:
         client.close()
