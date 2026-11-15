@@ -95,6 +95,18 @@ docker compose -p aw -f deploy/docker-compose.yml restart dns-proxy
 - 路由流量的片段、IPv6 扩展链及其他不支持的协议在 defrag 之前由执行私有 nft guard 拒绝；记录真实 IP 目标，无法使用 TCP/UDP 端口时 `port=0`。固定 AF_PACKET helper 仅采集包头，并校验执行源 IP、bridge/veth 归属、丢包统计与日志完整性；不能把丢失的审计静默当作成功。正常邻居发现控制流量不作为应用连接记录。
 - 域名授权的内核边界仍是「目的 IP + 端口」，不是 HTTP Host/SNI/证书身份检查。已观察的黑名单别名优先阻断共享地址；未查询过的别名不能仅凭 IP 推断。Docker Desktop 专项结果不能代替原生 Linux 和目标部署机验收。
 
+## 外部 MCP 工具（003）
+
+MCP v1 仅允许通过 Worker 访问 Streamable HTTP 服务器；生产 endpoint 必须为 HTTPS，不能在 URL 中携带凭证。外部服务器登记会在应用层校验主机解析结果和端口，拒绝 loopback、私网、link-local、云元数据及重定向目标。该连接器与 002 的沙箱出网规则是不同的边界，不能假设 Worker 的 HTTP 请求自动经过沙箱防火墙。
+
+开发示例 fixture（仅用于测试）：
+
+```bash
+backend/.venv/bin/python deploy/verify/mcp_fixture_server.py --host 127.0.0.1 --port 8765 --scenario normal
+```
+
+此 fixture 使用本地 HTTP，仅用于协议单测/受控测试 transport；它**不能**作为生产 endpoint，也不能通过降低 HTTPS 或 SSRF 策略来连接。正式集成验证使用测试内注入的 TLS transport/fixture。服务器凭证的开发密钥通过 `MCP_CREDENTIAL_KEY` 配置；生产必须显式替换为独立高熵密钥，并按部署密钥轮换流程管理。
+
 ## HTTPS 入口（可选）
 
 `Caddyfile` 是另一种入口方案（自动 HTTPS + WS 透传），适合公网部署：把

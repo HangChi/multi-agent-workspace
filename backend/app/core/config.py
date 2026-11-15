@@ -109,6 +109,22 @@ class Settings(BaseSettings):
     # 是否记录出站访问（默认开）。关掉等于放弃 SC-009，仅用于排障时临时降噪。
     egress_record_enabled: bool = True
 
+    # ===== 外部 MCP 工具（003-mcp-tool-market） =====
+    # v1 只允许 Streamable HTTP；连接发生在 Worker，不在 API 请求处理中。
+    mcp_transport: str = "streamable_http"
+    mcp_connect_timeout_seconds: float = 5.0
+    mcp_handshake_timeout_seconds: float = 10.0
+    mcp_call_timeout_seconds: float = 30.0
+    mcp_max_response_bytes: int = 262_144
+    mcp_max_result_chars: int = 65_536
+    mcp_max_tools_per_server: int = 200
+    mcp_max_concurrency_per_server: int = 8
+    mcp_allowed_ports: str = "443"
+    mcp_require_https: bool = True
+    mcp_max_redirects: int = 0
+    # 003 的静态凭证密文由独立密钥保护；生产必须显式设置。
+    mcp_credential_key: str = "dev-only-mcp-credential-key-change-me"
+
     # ===== 工具越权 =====
     # 同一 Run 内连续越权调用达到该次数即中止该步（data-model D-6）
     tool_deny_threshold: int = 5
@@ -204,6 +220,8 @@ class Settings(BaseSettings):
             problems.append(f"JWT_SECRET（需 ≥{_MIN_JWT_SECRET_LEN} 字符且非默认值）")
         if self.invite_code in _WEAK_DEFAULT_SECRETS or len(self.invite_code) < _MIN_INVITE_CODE_LEN:
             problems.append(f"INVITE_CODE（需 ≥{_MIN_INVITE_CODE_LEN} 字符且非默认值）")
+        if self.mcp_credential_key == "dev-only-mcp-credential-key-change-me" or len(self.mcp_credential_key) < 32:
+            problems.append("MCP_CREDENTIAL_KEY（需 ≥32 字符且非默认值）")
         if problems:
             raise ValueError(
                 f"APP_ENV={self.app_env} 下必须显式配置安全项：" + "、".join(problems)
