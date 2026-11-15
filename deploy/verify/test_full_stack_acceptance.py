@@ -58,6 +58,177 @@ class PerformanceControlTests(unittest.TestCase):
         self.assertEqual(full.interval_overlap(samples), 2)
 
 
+class S6OutcomeTests(unittest.TestCase):
+    async def exercise(self, failed=(), task_errors=(), detail_errors=(), request_error=False):
+        original_sleep = asyncio.sleep
+        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(500))) as client:
+            verifier = full.FullVerifier(full.parser().parse_args([]), client)
+            run_ids = [str(full.uuid.UUID(int=index + 1)) for index in range(20)]
+            execution_ids = [str(full.uuid.UUID(int=index + 101)) for index in range(20)]
+            submitted, detail_reads, requests = [], [], []
+            class UnprintableError(RuntimeError):
+                def __str__(self):
+                    raise AssertionError('exception text must never be rendered')
+            async def execute(scenario, tools):
+                index = len(submitted)
+                submitted.append((scenario, tools))
+                verifier.s6_task_run_ids[asyncio.current_task()] = run_ids[index]
+                await original_sleep(0)
+                if index in task_errors:
+                    raise UnprintableError('Bearer SECRET X-Amz-Signature=SECRET')
+                return {'id': run_ids[index], 'status': 'completed', 'error': 'SECRET',
+                        'result': {'answer': 'SECRET'}, 'executions': [{'id': execution_ids[index],
+                        'status': 'infra' if index in failed else 'ok'}]}
+            async def execution(run, count, language):
+                self.assertEqual((count, language), (1, 'python'))
+                index = run_ids.index(run['id'])
+                detail_reads.append(index)
+                if index in detail_errors:
+                    raise UnprintableError('Bearer SECRET X-Amz-Signature=SECRET')
+                return [{'id': execution_ids[index], 'status': 'infra' if index in failed else 'ok',
+                         'exit_code': None if index in failed else 0,
+                         'error_category': 'infra' if index in failed else None,
+                         'error_message': '创建沙箱网络失败: pool overlaps with other one SECRET',
+                         'code': 'SECRET' if index in failed else "import time\ntime.sleep(3)\nprint('sleep-completed')",
+                         'stdout': 'Bearer SECRET' if index in failed else 'sleep-completed',
+                         'stderr': 'X-Amz-Signature=SECRET', 'url': 'https://SECRET',
+                         'created_at': '2026-11-15T00:00:00Z', 'finished_at': '2026-11-15T00:00:03Z'}]
+            async def request(method, path):
+                requests.append((method, path))
+                if request_error and len(requests) == 150:
+                    raise httpx.ReadTimeout('Bearer SECRET')
+                return httpx.Response(200, json={'sandbox_runs_today': 20})
+            async def pace(delay):
+                self.assertEqual(delay, .05)
+                await original_sleep(0)
+            verifier.execute, verifier.executions, verifier.request = execute, execution, request
+            with patch.object(full.asyncio, 'sleep', side_effect=pace), \
+                    patch.object(full.time, 'perf_counter', side_effect=(float(value) for value in range(1000))):
+                try:
+                    await verifier.performance()
+                except full.CheckFailure:
+                    self.assertTrue(failed or task_errors or detail_errors or request_error)
+                else:
+                    self.assertFalse(failed or task_errors or detail_errors or request_error)
+            return verifier.metrics['s6'], submitted, detail_reads, requests, run_ids, execution_ids
+
+    def test_all_twenty_failure_facts_persist_and_failures_beyond_eight_are_retained(self):
+        for failed in (tuple(range(14, 20)), tuple(range(20))):
+            with self.subTest(failed=len(failed)):
+                result, submitted, detail_reads, requests, run_ids, execution_ids = asyncio.run(self.exercise(failed=failed))
+                self.assertEqual(len(result['outcomes']), 20)
+                self.assertEqual(result['run_failures'], len(failed))
+                self.assertEqual(result['completed_executions'], 20 - len(failed))
+                self.assertFalse(result['passed'])
+                self.assertEqual(submitted, [('sleep', ['run_python'])] * 20)
+                self.assertEqual(detail_reads, list(range(20)))
+                self.assertEqual(requests, [('GET', '/stats/overview')] * 200)
+                self.assertEqual(result['baseline_samples_ms'], [1000.] * 100)
+                self.assertEqual(result['load_samples_ms'], [1000.] * 100)
+                self.assertEqual(result['p95_ratio'], 1)
+                for index in range(20):
+                    fact = result['outcomes'][index]
+                    self.assertEqual(fact['submission'], index + 1)
+                    self.assertEqual(fact['run_id'], run_ids[index])
+                    self.assertEqual(fact['execution_id'], execution_ids[index])
+                    self.assertEqual(fact['outcome'], 'execution_error' if index in failed else 'ok')
+                    if index in failed:
+                        self.assertEqual(fact['execution_status'], 'infra')
+                        self.assertEqual(fact['error_category'], 'infra')
+                        self.assertEqual(fact['error_stage'], 'network_create')
+                        self.assertEqual(fact['error_code'], 'address_pool_overlap')
+                self.assertNotIn('SECRET', json.dumps(result))
+                self.assertLess(len(json.dumps(result['outcomes'])), 20000)
+
+    def test_twenty_unprintable_task_errors_keep_assigned_ids_without_rendering_them(self):
+        result, submitted, detail_reads, requests, run_ids, _ = asyncio.run(self.exercise(task_errors=tuple(range(20))))
+        self.assertEqual(len(submitted), 20)
+        self.assertEqual(detail_reads, [])
+        self.assertEqual(len(requests), 200)
+        self.assertEqual(result['run_failures'], 20)
+        self.assertEqual(len(result['outcomes']), 20)
+        for index, fact in enumerate(result['outcomes']):
+            self.assertEqual(fact['run_id'], run_ids[index])
+            self.assertEqual(fact['outcome'], 'task_error')
+            self.assertEqual(fact['exception_type'], 'OtherError')
+        self.assertNotIn('SECRET', json.dumps(result))
+
+    def test_late_detail_read_failure_keeps_known_ids_and_is_never_retried(self):
+        result, _, detail_reads, requests, run_ids, execution_ids = asyncio.run(self.exercise(detail_errors=(18, 19)))
+        self.assertEqual(result['run_failures'], 2)
+        self.assertEqual(len(result['outcomes']), 20)
+        self.assertEqual(detail_reads, list(range(20)))
+        self.assertEqual(len(requests), 200)
+        for index in (18, 19):
+            fact = result['outcomes'][index]
+            self.assertEqual(fact['run_id'], run_ids[index])
+            self.assertEqual(fact['execution_id'], execution_ids[index])
+            self.assertEqual(fact['outcome'], 'execution_error')
+        self.assertNotIn('SECRET', json.dumps(result))
+
+    def test_original_sleep_http_path_keeps_assigned_id_if_polling_raises(self):
+        async def check():
+            async with httpx.AsyncClient() as client:
+                verifier = full.FullVerifier(full.parser().parse_args([]), client)
+                run_id = str(full.uuid.UUID(int=123))
+                verifier.create_run = AsyncMock(return_value=run_id)
+                verifier.wait_run = AsyncMock(side_effect=RuntimeError('Bearer SECRET'))
+                with self.assertRaises(RuntimeError):
+                    await verifier.execute('sleep', ['run_python'])
+                verifier.create_run.assert_awaited_once_with('sleep', ['run_python'])
+                verifier.wait_run.assert_awaited_once_with(run_id)
+                self.assertEqual(verifier.s6_task_run_ids[asyncio.current_task()], run_id)
+        asyncio.run(check())
+
+    def test_failed_sample_is_kept_and_all_twenty_run_facts_survive(self):
+        result, _, _, requests, _, _ = asyncio.run(self.exercise(request_error=True))
+        self.assertFalse(result['passed'])
+        self.assertEqual(result['request_failures'], 1)
+        self.assertEqual(result['run_failures'], 0)
+        self.assertEqual(len(requests), 200)
+        self.assertEqual(result['baseline_samples_ms'], [1000.] * 100)
+        self.assertEqual(result['load_samples_ms'], [1000.] * 100)
+        self.assertEqual(len(result['outcomes']), 20)
+        self.assertTrue(all(item['outcome'] == 'ok' for item in result['outcomes']))
+
+    def test_outcome_allowlist_drops_noncanonical_identifiers_and_arbitrary_values(self):
+        run_id = '43178B0F8D8346ECAD3BAFD26ED5FD1A'
+        execution_id = 'A3E4D9CA-BF99-4670-8C03-145A41285289'
+        fact = full.s6_outcome_fact(20, {'id': run_id, 'status': ['SECRET'], 'result': {'answer': 'SECRET'}},
+            execution={'id': execution_id, 'status': 'SECRET', 'error_category': {'SECRET': True},
+                       'stdout': 'SECRET', 'code': 'SECRET', 'error_message': 'Bearer SECRET',
+                       'error_stage': 'SECRET', 'error_code': 'SECRET'})
+        self.assertEqual(fact['run_id'], str(full.uuid.UUID(run_id)))
+        self.assertEqual(fact['execution_id'], str(full.uuid.UUID(execution_id)))
+        self.assertEqual(fact['error_stage'], 'unknown')
+        self.assertNotIn('SECRET', json.dumps(fact))
+        invalid = full.s6_outcome_fact(1, {'id': 'Bearer SECRET', 'status': 'SECRET', 'executions': [
+            {'id': 'https://SECRET', 'status': 'SECRET'}]})
+        self.assertNotIn('run_id', invalid)
+        self.assertNotIn('execution_id', invalid)
+        self.assertNotIn('SECRET', json.dumps(invalid))
+
+    def test_main_reuses_all_twenty_facts_without_eight_run_refetch_or_error_rendering(self):
+        class UnprintableError(RuntimeError):
+            def __str__(self):
+                raise AssertionError('exception text must never be rendered')
+        async def performance(verifier):
+            verifier.metrics['s6'] = {'outcomes': [full.s6_outcome_fact(index + 1, UnprintableError())
+                                                  for index in range(20)]}
+            raise UnprintableError('Bearer SECRET')
+        async def check(path):
+            with patch.object(full.FullVerifier, 'setup', new=AsyncMock()), \
+                    patch.object(full.FullVerifier, 'performance', new=performance), \
+                    patch.object(full.FullVerifier, 'diagnostic_facts', new=AsyncMock(side_effect=AssertionError('no diagnostic I/O'))):
+                status = await full.main(['--suite', 'performance', '--output', str(path)])
+            self.assertEqual(status, 1)
+            report = json.loads(path.read_text())
+            self.assertEqual(len(report['results'][0]['diagnostics']), 20)
+            self.assertNotIn('SECRET', path.read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            asyncio.run(check(Path(directory) / 's6.json'))
+
+
 class GatewayControlTests(unittest.TestCase):
     def reply(self, scenario, output, available=None):
         messages = [{"role": "user", "content": f"[sandbox:{scenario}]"},

@@ -24,7 +24,7 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import httpx
 from s3_sandbox_scenarios import CheckFailure, Verifier, parser, require
-from sandbox_runtime import failure_evidence
+from sandbox_runtime import ERROR_CODES, ERROR_STAGES, ERROR_TYPES, failure_evidence
 from websockets.asyncio.client import connect
 from websockets.exceptions import InvalidStatus
 
@@ -62,12 +62,67 @@ def interval_overlap(executions: list[dict[str, Any]]) -> int:
     return peak
 
 
+def canonical_identifier(value: Any) -> str | None:
+    if type(value) is not str or len(value) not in {32, 36}:
+        return None
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        return None
+
+
+def finite_exception_type(exc: BaseException) -> str:
+    # Never render exceptions: HTTP exceptions may embed credentials/URLs, and
+    # custom __str__ implementations can themselves fail or have side effects.
+    name = type(exc).__name__
+    return name if name in ERROR_TYPES else "OtherError"
+
+
+def s6_outcome_fact(index: int, outcome: Any, *, execution: dict[str, Any] | None = None,
+                    run_id: str | None = None) -> dict[str, Any]:
+    """One small finite fact per submission, using already fetched private data."""
+    fact: dict[str, Any] = {"submission": index, "outcome": "unverified",
+                            "error_stage": "unknown", "error_code": "unknown"}
+    if isinstance(outcome, BaseException):
+        fact.update(outcome="task_error", exception_type=finite_exception_type(outcome))
+    run = outcome if isinstance(outcome, dict) else {}
+    identifier = canonical_identifier(run.get("id")) or canonical_identifier(run_id)
+    if identifier is not None:
+        fact["run_id"] = identifier
+    if type(run.get("status")) is str and run["status"] in TERMINAL | {"running", "queued"}:
+        fact["run_status"] = run["status"]
+    summaries = run.get("executions")
+    if isinstance(summaries, list) and len(summaries) == 1 and isinstance(summaries[0], dict):
+        summary = summaries[0]
+    else:
+        summary = {}
+    detail = execution if isinstance(execution, dict) else summary
+    identifier = canonical_identifier(detail.get("id")) or canonical_identifier(summary.get("id"))
+    if identifier is not None:
+        fact["execution_id"] = identifier
+    if type(detail.get("status")) is str and detail["status"] in {"running", "ok", "failed", "timeout", "oom", "infra", "cancelled"}:
+        fact["execution_status"] = detail["status"]
+    if type(detail.get("error_category")) is str and detail["error_category"] in {
+        "exit_code", "timeout", "oom", "pids", "disk", "policy", "infra", "cancelled", "resource_busy"
+    }:
+        fact["error_category"] = detail["error_category"]
+    # This is a persisted execution classification, not str(task/HTTP error).
+    message = detail.get("error_message")
+    if type(message) is str and message:
+        evidence = failure_evidence(message)
+        for key, allowed in (("error_stage", ERROR_STAGES), ("error_code", ERROR_CODES)):
+            if evidence.get(key) in allowed:
+                fact[key] = evidence[key]
+    return fact
+
+
 class FullVerifier(Verifier):
     def __init__(self, args: argparse.Namespace, http: httpx.AsyncClient):
         super().__init__(args, http)
         self.evidence: list[dict[str, Any]] = []
         self.metrics: dict[str, Any] = {}
         self.observed_steps: dict[str, dict[int, dict[str, Any]]] = {}
+        self.s6_task_run_ids: dict[asyncio.Task[Any], str] = {}
 
     def observe_tool_event(self, run_id: str, event: dict[str, Any]) -> None:
         # RunOut.steps deliberately has no input/output. The supported real WS
@@ -108,6 +163,14 @@ class FullVerifier(Verifier):
         return await self.wait_run(run_id, expected_status=expected_status)
 
     async def execute(self, scenario: str, tools: list[str]) -> dict[str, Any]:
+        if scenario == "sleep":
+            # Same create_run -> wait_run HTTP calls as Verifier.execute. Keep
+            # only the known ID if polling later raises; no diagnostic I/O here.
+            run_id = await self.create_run(scenario, tools)
+            task = asyncio.current_task()
+            if task is not None:
+                self.s6_task_run_ids[task] = run_id
+            return await self.wait_run(run_id)
         if scenario not in OBSERVED_SCENARIOS:
             # In particular S6 keeps its original HTTP-only load path/workload.
             return await super().execute(scenario, tools)
@@ -500,19 +563,28 @@ class FullVerifier(Verifier):
         # execution cannot erase the failed load measurement from CI evidence.
         result = performance_verdict(baseline, loaded, failed)
         self.metrics["s6"] = result
+        # All twenty placeholders exist before any validation assertion. Failed
+        # tasks/details cannot erase evidence or hide later submissions (>8).
+        facts = [s6_outcome_fact(index + 1, run, run_id=self.s6_task_run_ids.get(tasks[index]))
+                 for index, run in enumerate(outcomes)]
+        result["outcomes"] = facts
         executions = []
-        for run in outcomes:
+        for index, run in enumerate(outcomes):
+            fact = facts[index]
             if isinstance(run, BaseException):
                 continue
             try:
                 execution, = await self.executions(run, 1, "python")
+                fact.update(s6_outcome_fact(index + 1, run, execution=execution))
                 require(execution["status"] == "ok" and execution["exit_code"] == 0
                         and execution["code"] == "import time\ntime.sleep(3)\nprint('sleep-completed')"
                         and (execution.get("stdout") or "").strip() == "sleep-completed",
                         "S6 sleep execution failed or its immutable three-second workload source differs")
                 executions.append(execution)
-            except Exception:
+                fact["outcome"] = "ok"
+            except Exception as exc:
                 failures += 1
+                fact.update(outcome="execution_error", exception_type=finite_exception_type(exc))
         result.update({"submitted_runs": 20, "run_failures": failures,
                        "completed_executions": len(executions),
                        "execution_window_peak": interval_overlap(executions)})
@@ -552,12 +624,17 @@ async def main(argv: list[str] | None = None) -> int:
                 try:
                     await getattr(verifier, name)()
                 except Exception as exc:
-                    result = {"name": name, "passed": False, **failure_evidence(exc)}
-                    if isinstance(exc, InvalidStatus):
-                        status = exc.response.status_code
-                        if type(status) is int and 100 <= status <= 599:
-                            result["websocket_http_status"] = status
-                    result["diagnostics"] = await verifier.diagnostic_facts(verifier.run_ids[previous_runs:])
+                    if name == "performance":
+                        result = {"name": name, "passed": False, "error_type": finite_exception_type(exc),
+                                  "error_stage": "unknown", "error_code": "unknown",
+                                  "diagnostics": verifier.metrics.get("s6", {}).get("outcomes", [])}
+                    else:
+                        result = {"name": name, "passed": False, **failure_evidence(exc)}
+                        if isinstance(exc, InvalidStatus):
+                            status = exc.response.status_code
+                            if type(status) is int and 100 <= status <= 599:
+                                result["websocket_http_status"] = status
+                        result["diagnostics"] = await verifier.diagnostic_facts(verifier.run_ids[previous_runs:])
                 else:
                     result = {"name": name, "passed": True}
                 result["elapsed_ms"] = round((time.monotonic() - started) * 1000)

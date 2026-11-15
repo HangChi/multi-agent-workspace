@@ -30,7 +30,9 @@ def test_missing_docker_lookup_does_not_skip_network_policy(monkeypatch) -> None
     with pytest.raises(SandboxInfraError, match="missing lookup"):
         run.execute()
     prepare.assert_called_once_with(client, client.network, run.execution_id, None)
-    assert client.containers.created == []
+    assert all(container.created_kwargs.get("labels", {}).get("aw.role") == "ipam-lock"
+               and not container.started and container.removed == [True]
+               for container in client.containers.created)
     assert client.volumes.created == []
     assert client.network.removed == 1
 
@@ -49,7 +51,9 @@ def test_empty_network_capture_prevents_resource_creation(monkeypatch) -> None:
     )
     with pytest.raises(SandboxInfraError, match="出站网络策略未就绪"):
         run.execute()
-    assert client.containers.created == []
+    assert all(container.created_kwargs.get("labels", {}).get("aw.role") == "ipam-lock"
+               and not container.started and container.removed == [True]
+               for container in client.containers.created)
     assert client.volumes.created == []
     assert client.network.removed == 1
 

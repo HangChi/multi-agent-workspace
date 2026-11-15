@@ -352,3 +352,152 @@ def test_allow_kernel_timeout_reserves_bounded_transaction_latency():
     binder = Binder(cfg, Policy(cfg), execute=calls.append, clock=lambda: 5)
     binder.bind(["93.184.216.34"], ["www.example.com"], "www.example.com", 30, valid_until=7)
     assert "timeout 1500ms" in calls[0]
+
+
+@pytest.mark.parametrize("stderr,code", [
+    (b"Operation not permitted secret-address", "permission_denied"),
+    (b"syntax error, unexpected secret-rule", "nft_syntax"),
+    (b"Operation not supported secret-feature", "nft_feature_unavailable"),
+    (b"Could not process rule: No such file or directory secret-set", "nft_feature_unavailable"),
+    (b"unrecognized secret-message", "nft_transaction_failed"),
+])
+def test_nft_failure_retains_finite_cause_not_stderr(monkeypatch, stderr, code):
+    import dns_mediator
+    monkeypatch.setattr(dns_mediator.subprocess, "run", Mock(return_value=SimpleNamespace(returncode=1, stderr=stderr)))
+    with pytest.raises(PolicyError) as failure:
+        dns_mediator.nft("trusted-policy")
+    assert getattr(failure.value, "code", None) == code
+    assert "secret" not in str(failure.value)
+
+
+def test_startup_worker_preserves_matching_trusted_failure_before_destroying_helper():
+    from app.executors.egress_network import NetworkCapture, NetworkPolicyError
+    helper = Mock(attrs={"State": {"Running": False}})
+    helper.logs.return_value = json.dumps({"aw_dns_failure": 1, "execution_id": EID,
+                                          "stage": "dns_nft_install", "code": "nft_syntax"}).encode()
+    capture = NetworkCapture(client=Mock(), network=Mock(), execution_id=EID, mode="default",
+                             global_rules=[], agent_rules=[], builtin_blacklist=[], dns_proxy=Mock(),
+                             dns_proxy_ip="172.30.0.1", bridge="br-abc123", install_commands=[],
+                             cleanup_commands=[], domain_config=config())
+    capture.client.containers.run.return_value = helper
+    with pytest.raises(NetworkPolicyError, match=r"dns_failure\[dns_nft_install,nft_syntax\]"):
+        capture._start_domain_gateway()
+    helper.logs.assert_called_with(tail=32, stdout=True, stderr=False)
+
+
+def diagnostic_capture(helper):
+    from app.executors.egress_network import NetworkCapture
+    return NetworkCapture(client=Mock(), network=Mock(), execution_id=EID, mode="default",
+                          global_rules=[], agent_rules=[], builtin_blacklist=[], dns_proxy=Mock(),
+                          dns_proxy_ip="172.30.0.1", bridge="br-abc123", install_commands=[],
+                          cleanup_commands=[], source_ip="172.30.0.3", domain_gateway=helper)
+
+
+@pytest.mark.parametrize("stage,code", [
+    ("dns_socket_bind", "address_in_use"), ("dns_nft_install", "nft_syntax"),
+    ("dns_nft_heartbeat", "permission_denied"), ("dns_health_write", "no_space_left"),
+])
+def test_helper_startup_failure_reports_exact_stage_and_closes_sockets(monkeypatch, capsys, stage, code):
+    import errno
+
+    import dns_mediator
+    sockets = [Mock(), Mock()]
+    monkeypatch.setattr(dns_mediator.socket, "socket", Mock(side_effect=sockets))
+    binder = Mock()
+    med = Mediator(config(), binder=binder)
+    med.mark_healthy = Mock()
+    if stage == "dns_socket_bind":
+        sockets[0].bind.side_effect = OSError(errno.EADDRINUSE, "secret-listener")
+    elif stage == "dns_nft_install":
+        binder.install.side_effect = dns_mediator.GatewayFailure(code)
+    elif stage == "dns_nft_heartbeat":
+        binder.heartbeat.side_effect = PermissionError(errno.EPERM, "secret-kernel")
+    else:
+        med.mark_healthy.side_effect = OSError(errno.ENOSPC, "secret-health-path")
+    with pytest.raises((PolicyError, OSError)):
+        med.serve()
+    output = capsys.readouterr()
+    assert json.loads(output.out) == {"aw_dns_failure": 1, "execution_id": EID, "stage": stage, "code": code}
+    assert "secret" not in output.out and not output.err
+    assert med.dead.is_set()
+    for sock in sockets:
+        sock.close.assert_called_once()
+    assert "aw_dns_ready" not in output.out
+
+
+@pytest.mark.parametrize("kind,code", [("missing", "missing_executable"), ("timeout", "operation_timeout")])
+def test_nft_spawn_and_timeout_errors_remain_finite(monkeypatch, kind, code):
+    import subprocess
+
+    import dns_mediator
+    failure = FileNotFoundError(2, "secret-nft-path") if kind == "missing" else subprocess.TimeoutExpired("secret-argv", 0.5)
+    execute = Mock(side_effect=failure)
+    monkeypatch.setattr(dns_mediator.subprocess, "run", execute)
+    with pytest.raises(PolicyError) as raised:
+        dns_mediator.nft("secret-rules")
+    assert raised.value.code == code
+    assert "secret" not in str(raised.value)
+    assert execute.call_args.kwargs["timeout"] == 0.5
+
+
+@pytest.mark.parametrize("raw", [
+    b'{"aw_dns_failure":', b"{" + b"secret" * 30000,
+    json.dumps({"aw_dns_failure": 1, "execution_id": EID, "stage": "secret-stage", "code": "nft_syntax"}).encode(),
+    json.dumps({"aw_dns_failure": 1, "execution_id": "another-execution", "stage": "dns_nft_install", "code": "nft_syntax"}).encode(),
+    json.dumps({"aw_dns_failure": 1, "execution_id": EID, "stage": "dns_nft_install", "code": "secret-code"}).encode(),
+])
+def test_untrusted_or_malformed_diagnostic_fields_are_not_reflected(raw):
+    from app.executors.egress_network import NetworkPolicyError
+    helper = Mock()
+    helper.logs.return_value = raw
+    capture = diagnostic_capture(helper)
+    with pytest.raises(NetworkPolicyError, match=r"dns_failure\[dns_startup,diagnostic_invalid\]") as raised:
+        capture._gateway_records()
+    assert "secret" not in str(raised.value)
+
+
+def test_failed_health_preserves_kernel_failure_instead_of_generic_staleness():
+    from app.executors.egress_network import NetworkPolicyError
+    helper = Mock(attrs={"State": {"Running": True}})
+    helper.exec_run.return_value = SimpleNamespace(exit_code=1, output=b"secret-health-output")
+    helper.logs.return_value = json.dumps({"aw_dns_failure": 1, "execution_id": EID,
+                                          "stage": "dns_nft_heartbeat", "code": "operation_timeout"}).encode()
+    capture = diagnostic_capture(helper)
+    with pytest.raises(NetworkPolicyError, match=r"dns_failure\[dns_nft_heartbeat,operation_timeout\]"):
+        capture.assert_healthy()
+
+
+def test_diagnostic_schemas_match_and_public_extractor_returns_only_finite_tokens():
+    import dns_mediator
+
+    from app.executors import egress_network
+    assert dns_mediator.DIAGNOSTIC_STAGES == egress_network._DNS_DIAGNOSTIC_STAGES
+    assert dns_mediator.DIAGNOSTIC_CODES == egress_network._DNS_DIAGNOSTIC_CODES
+    for stage in dns_mediator.DIAGNOSTIC_STAGES:
+        for code in dns_mediator.DIAGNOSTIC_CODES:
+            error = egress_network.NetworkCapture._dns_error(stage, code)
+            assert egress_network.finite_error_token(error) == f"dns_failure[{stage},{code}]"
+    for error in (RuntimeError("dns_failure[dns_nft_install,nft_syntax]"),
+                  egress_network.NetworkPolicyError("secret-error"),
+                  egress_network.NetworkPolicyError("dns_failure[secret-stage,nft_syntax]"),
+                  egress_network.NetworkPolicyError("dns_failure[dns_nft_install,nft_syntax] secret-tail")):
+        assert egress_network.finite_error_token(error) is None
+
+
+@pytest.mark.parametrize("status,stats,code", [
+    (1, b"secret-output", "capture_exited"),
+    (0, b"secret-output", "capture_incomplete"),
+    (0, b"0 packets dropped by kernel\n1 packets captured\n", "capture_truncated"),
+])
+def test_packet_audit_failure_is_distinct_from_gateway_health(status, stats, code):
+    from app.executors.egress_network import NetworkPolicyError
+    capture = diagnostic_capture(Mock())
+    watcher = Mock()
+    watcher.wait.return_value = {"StatusCode": status}
+    watcher.logs.side_effect = lambda **kwargs: stats if kwargs.get("stderr") else b""
+    capture.watcher = watcher
+    with pytest.raises(NetworkPolicyError, match=rf"dns_failure\[packet_audit,{code}\]") as raised:
+        capture.collect()
+    assert "secret" not in str(raised.value)
+    watcher.remove.assert_called_once_with(force=True)
+    assert capture.watcher is None

@@ -10,6 +10,7 @@ only already-authorized traffic can pass until its existing lease expires.
 from __future__ import annotations
 
 import base64
+import errno
 import ipaddress
 import json
 import os
@@ -21,6 +22,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 
 from domain_policy import (
     MAX_BINDINGS,
@@ -42,10 +44,68 @@ MAX_EVENTS = 8192
 MAX_WORKERS = 8
 
 
+DIAGNOSTIC_STAGES = frozenset({
+    "dns_startup", "dns_socket_bind", "dns_nft_install", "dns_nft_heartbeat",
+    "dns_health_write", "dns_runtime", "dns_health_check", "dns_audit", "packet_audit",
+})
+DIAGNOSTIC_CODES = frozenset({
+    "unknown", "permission_denied", "address_in_use", "address_unavailable",
+    "missing_executable", "invalid_argument", "no_space_left", "operation_timeout",
+    "nft_syntax", "nft_feature_unavailable", "nft_transaction_failed", "helper_exited",
+    "helper_not_ready", "health_expired", "helper_paused", "helper_oom", "diagnostic_invalid",
+    "capture_exited", "capture_incomplete", "capture_truncated",
+})
+
+
+class GatewayFailure(PolicyError):
+    """Finite trusted cause; never retain a failed command's output."""
+
+    def __init__(self, code: str):
+        self.code = code if code in DIAGNOSTIC_CODES else "unknown"
+        super().__init__(self.code)
+
+
+def failure_code(failure: BaseException) -> str:
+    if isinstance(failure, GatewayFailure):
+        return failure.code
+    if isinstance(failure, (TimeoutError, subprocess.TimeoutExpired)):
+        return "operation_timeout"
+    if isinstance(failure, OSError):
+        return {errno.EPERM: "permission_denied", errno.EACCES: "permission_denied",
+                errno.EADDRINUSE: "address_in_use", errno.EADDRNOTAVAIL: "address_unavailable",
+                errno.ENOENT: "missing_executable", errno.EINVAL: "invalid_argument",
+                errno.ENOSPC: "no_space_left"}.get(failure.errno, "unknown")
+    return "unknown"
+
+
+def report_failure(config: dict, stage: str, failure: BaseException) -> None:
+    """Only fixed enums plus validated execution identity may cross this boundary."""
+    try:
+        execution_id = str(uuid.UUID(config["execution_id"]))
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return
+    print(json.dumps({"aw_dns_failure": 1, "execution_id": execution_id,
+                      "stage": stage if stage in DIAGNOSTIC_STAGES else "dns_startup",
+                      "code": failure_code(failure)}, separators=(",", ":")), flush=True)
+
+
 def nft(script: str) -> None:
-    result = subprocess.run(["nft", "-f", "-"], input=script.encode(), capture_output=True, timeout=0.5, check=False)
+    try:
+        result = subprocess.run(["nft", "-f", "-"], input=script.encode(), capture_output=True, timeout=0.5, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise GatewayFailure(failure_code(exc)) from None
     if result.returncode:
-        raise PolicyError("kernel domain policy transaction failed")
+        # Classify privately; stderr can contain addresses, domain names and the
+        # entire generated ruleset, so never attach it to an exception or event.
+        text = (result.stderr or b"")[:8192].decode("utf-8", "replace").lower()
+        code = next((code for markers, code in (
+            (("operation not permitted", "permission denied"), "permission_denied"),
+            (("syntax error",), "nft_syntax"),
+            (("operation not supported", "not supported", "no such file or directory"), "nft_feature_unavailable"),
+            (("invalid argument",), "invalid_argument"),
+            (("no space left",), "no_space_left"),
+        ) if any(marker in text for marker in markers)), "nft_transaction_failed")
+        raise GatewayFailure(code)
 
 
 class Binder:
@@ -144,6 +204,15 @@ class Mediator:
         self.lock = threading.Lock()
         self.requests = self.events = 0
         self.started = time.monotonic()
+        self.failure_lock = threading.Lock()
+        self.failure_reported = False
+
+    def fail(self, stage: str, failure: BaseException) -> None:
+        self.dead.set()
+        with self.failure_lock:
+            if not self.failure_reported:
+                self.failure_reported = True
+                report_failure(self.config, stage, failure)
 
     def event(self, **values) -> None:
         with self.lock:
@@ -236,10 +305,10 @@ class Mediator:
             if self.dead.is_set():
                 return None
             return sanitized if allowed else response(q, [], rcode=5)
-        except (PolicyError, OSError, TimeoutError, subprocess.SubprocessError, ValueError, struct.error):
+        except (PolicyError, OSError, TimeoutError, subprocess.SubprocessError, ValueError, struct.error) as exc:
             # A binding failure is fatal: all existing authorizations close when
             # the <=1s health lease expires; never continue in a degraded mode.
-            self.dead.set()
+            self.fail("dns_runtime", exc)
             if q is not None:
                 self.event(domain=q.domain, action="deny", reason="dns-policy-failure", matched_rule_id=None, **transport)
             return None
@@ -252,36 +321,45 @@ class Mediator:
         os.replace("/run/aw-dns-health.tmp", "/run/aw-dns-health")
 
     def heartbeat(self) -> None:
+        stage = "dns_nft_heartbeat"
         try:
             while not self.dead.is_set():
                 if time.monotonic() - self.started > 660:
                     raise PolicyError("execution gateway lifetime exceeded")
                 refreshed_after = time.monotonic()
+                stage = "dns_nft_heartbeat"
                 self.binder.heartbeat()
+                stage = "dns_health_write"
                 self.mark_healthy(refreshed_after)
                 self.dead.wait(0.2)
-        except (PolicyError, OSError, subprocess.SubprocessError):
-            self.dead.set()
+        except (PolicyError, OSError, subprocess.SubprocessError) as exc:
+            self.fail(stage, exc)
 
     def serve(self) -> None:
-        address = str(ipaddress.IPv4Address(self.config["listen_ip"]))
-        udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # Do NOT use REUSEADDR/REUSEPORT: a conflicting listener fails startup.
-        udp.bind((address, 53))
-        tcp.bind((address, 53))
-        tcp.listen(MAX_WORKERS)
-        self.binder.install()
-        refreshed_after = time.monotonic()
-        self.binder.heartbeat()
-        self.mark_healthy(refreshed_after)
-        thread = threading.Thread(target=self.heartbeat, daemon=True)
-        thread.start()
-        selector = selectors.DefaultSelector()
-        selector.register(udp, selectors.EVENT_READ, "udp")
-        selector.register(tcp, selectors.EVENT_READ, "tcp")
-        print(json.dumps({"aw_dns_ready": self.config["execution_id"]}), flush=True)
+        udp = tcp = selector = thread = None
+        stage = "dns_socket_bind"
         try:
+            address = str(ipaddress.IPv4Address(self.config["listen_ip"]))
+            udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            # Do NOT use REUSEADDR/REUSEPORT: a conflicting listener fails startup.
+            udp.bind((address, 53))
+            tcp.bind((address, 53))
+            tcp.listen(MAX_WORKERS)
+            stage = "dns_nft_install"
+            self.binder.install()
+            refreshed_after = time.monotonic()
+            stage = "dns_nft_heartbeat"
+            self.binder.heartbeat()
+            stage = "dns_health_write"
+            self.mark_healthy(refreshed_after)
+            thread = threading.Thread(target=self.heartbeat, daemon=True)
+            thread.start()
+            selector = selectors.DefaultSelector()
+            selector.register(udp, selectors.EVENT_READ, "udp")
+            selector.register(tcp, selectors.EVENT_READ, "tcp")
+            stage = "dns_runtime"
+            print(json.dumps({"aw_dns_ready": self.config["execution_id"]}), flush=True)
             while not self.dead.is_set():
                 for key, _ in selector.select(timeout=0.1):
                     if key.data == "udp":
@@ -297,14 +375,18 @@ class Mediator:
                         else:
                             conn.close()
                             self.dead.set()
+        except Exception as exc:  # Emit only finite trusted diagnostics, then re-raise.
+            self.fail(stage, exc)
+            raise
         finally:
             self.dead.set()
-            udp.close()
-            tcp.close()
-            selector.close()
+            for resource in (udp, tcp, selector):
+                if resource is not None:
+                    resource.close()
             # This process never deletes the policy on death: empty health lease
             # leaves a fail-closed table until the owner cleans up after sandbox.
-            thread.join(timeout=1)
+            if thread is not None:
+                thread.join(timeout=1)
         raise PolicyError("execution DNS gateway stopped")
 
     def handle_udp(self, conn, wire, peer) -> None:
@@ -344,11 +426,23 @@ class Mediator:
 
 
 def main() -> None:
-    if len(sys.argv) != 2 or len(sys.argv[1]) > 131072:
-        raise PolicyError("invalid gateway configuration")
-    config = json.loads(base64.b64decode(sys.argv[1], validate=True))
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    Mediator(config).serve()
+    config = {}
+    mediator = None
+    try:
+        if len(sys.argv) != 2 or len(sys.argv[1]) > 131072:
+            raise PolicyError("invalid gateway configuration")
+        config = json.loads(base64.b64decode(sys.argv[1], validate=True))
+        if not isinstance(config, dict):
+            raise PolicyError("invalid gateway configuration")
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+        mediator = Mediator(config)
+        mediator.serve()
+    except Exception as exc:  # noqa: BLE001 - never print raw tracebacks/config/rules
+        if mediator is not None:
+            mediator.fail("dns_runtime", exc)
+        elif isinstance(config, dict):
+            report_failure(config, "dns_startup", exc)
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -28,12 +29,17 @@ ERROR_STAGES = frozenset({
     'fixture_config', 'fixture_network_create', 'fixture_container_create',
     'fixture_listener_ready', 'fixture_ipv6_create', 'fixture_probe',
     'fixture_cleanup', 'fixture_client_close',
+    'dns_startup', 'dns_socket_bind', 'dns_nft_install', 'dns_nft_heartbeat',
+    'dns_health_write', 'dns_runtime', 'dns_health_check', 'dns_audit', 'packet_audit',
 })
 ERROR_CODES = frozenset({
     'unknown', 'ipv6_pool_unavailable', 'address_pool_overlap', 'ipv6_unavailable',
     'permission_denied', 'address_in_use', 'address_unavailable', 'missing_executable',
     'invalid_argument', 'no_space_left', 'connection_refused', 'docker_api_error',
-    'static_ip_requires_subnet',
+    'static_ip_requires_subnet', 'operation_timeout', 'nft_syntax',
+    'nft_feature_unavailable', 'nft_transaction_failed', 'helper_exited',
+    'helper_not_ready', 'health_expired', 'helper_paused', 'helper_oom', 'diagnostic_invalid',
+    'capture_exited', 'capture_incomplete', 'capture_truncated',
 })
 ERROR_TYPES = frozenset({
     'SandboxInfraError', 'NetworkPolicyError', 'APIError', 'DockerException',
@@ -83,6 +89,12 @@ def failure_evidence(failure: BaseException | str) -> dict[str, Any]:
         ('connection refused' in text, 'connection_refused'),
         (bool(statuses), 'docker_api_error'),
     ) if matched), 'unknown')
+    # Trusted helper diagnostics survive persisted/chained localized failures.
+    # Both fields must be finite enums; arbitrary marker contents never escape.
+    for match in re.finditer(r'dns_failure\[([a-z_]{1,40}),([a-z_]{1,40})\]', text):
+        if match[1] in ERROR_STAGES and match[2] in ERROR_CODES:
+            stage, code = match[1], match[2]
+            break
     result: dict[str, Any] = {
         'error_stage': stage, 'error_code': code, 'error_type': chain[0] if chain else 'OtherError',
         'error_chain': chain,

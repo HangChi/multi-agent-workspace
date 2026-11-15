@@ -36,6 +36,24 @@ class SafeFailureEvidenceTests(unittest.TestCase):
         self.assertIn(facts['error_code'], runtime.ERROR_CODES)
         self.assertNotIn('private', json.dumps(facts))
 
+    def test_finite_dns_diagnostic_survives_wrapped_and_persisted_failures(self):
+        message = '出站记录采集失败 SECRET dns_failure[dns_nft_install,nft_syntax]'
+        for failure in (message, RuntimeError(message)):
+            with self.subTest(failure_type=type(failure).__name__):
+                facts = runtime.failure_evidence(failure)
+                self.assertEqual(facts['error_stage'], 'dns_nft_install')
+                self.assertEqual(facts['error_code'], 'nft_syntax')
+                self.assertNotIn('SECRET', json.dumps(facts))
+
+    def test_unrecognized_dns_diagnostic_tokens_cannot_escape_allowlists(self):
+        for token in ('dns_failure[SECRET,permission_denied]',
+                      'dns_failure[dns_startup,SECRET]',
+                      'dns_failure[' + 'x' * 100 + ',helper_exited]'):
+            facts = runtime.failure_evidence(token)
+            self.assertIn(facts['error_stage'], runtime.ERROR_STAGES)
+            self.assertIn(facts['error_code'], runtime.ERROR_CODES)
+            self.assertNotIn('SECRET', json.dumps(facts))
+
     def test_exception_names_and_status_are_allowlisted(self):
         failure = type('secret_exception_type', (RuntimeError,), {})('secret-message')
         failure.status_code = 503

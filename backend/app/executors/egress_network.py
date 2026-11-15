@@ -38,9 +38,32 @@ logger = logging.getLogger(__name__)
 NET_IMAGE = os.environ.get("AW_SBX_NET_IMAGE", "aw-sbx-net:1")
 EGRESS_DNS_PROXY = settings.egress_dns_proxy
 
+# Kept identical to the standalone helper's wire schema; checked by unit tests.
+_DNS_DIAGNOSTIC_STAGES = frozenset({
+    "dns_startup", "dns_socket_bind", "dns_nft_install", "dns_nft_heartbeat",
+    "dns_health_write", "dns_runtime", "dns_health_check", "dns_audit", "packet_audit",
+})
+_DNS_DIAGNOSTIC_CODES = frozenset({
+    "unknown", "permission_denied", "address_in_use", "address_unavailable",
+    "missing_executable", "invalid_argument", "no_space_left", "operation_timeout",
+    "nft_syntax", "nft_feature_unavailable", "nft_transaction_failed", "helper_exited",
+    "helper_not_ready", "health_expired", "helper_paused", "helper_oom", "diagnostic_invalid",
+    "capture_exited", "capture_incomplete", "capture_truncated",
+})
+
 
 class NetworkPolicyError(RuntimeError):
     """A policy could not be installed safely; the sandbox must not start."""
+
+
+def finite_error_token(failure: BaseException) -> str | None:
+    """Return only a canonical allowlisted diagnostic, never exception text."""
+    if not isinstance(failure, NetworkPolicyError):
+        return None
+    match = re.fullmatch(r"dns_failure\[([a-z_]{1,40}),([a-z_]{1,40})\]", str(failure)[:128])
+    if match and match[1] in _DNS_DIAGNOSTIC_STAGES and match[2] in _DNS_DIAGNOSTIC_CODES:
+        return f"dns_failure[{match[1]},{match[2]}]"
+    return None
 
 
 _UUID_RE = re.compile(
@@ -624,6 +647,48 @@ class NetworkCapture:
         }, separators=(",", ":")).encode()).decode()
         self._run_command(["python3", "/opt/aw/command_batch.py", payload])
 
+    @staticmethod
+    def _dns_error(stage: str, code: str) -> NetworkPolicyError:
+        if stage not in _DNS_DIAGNOSTIC_STAGES or code not in _DNS_DIAGNOSTIC_CODES:
+            stage, code = "dns_startup", "diagnostic_invalid"
+        return NetworkPolicyError(f"dns_failure[{stage},{code}]")
+
+    def _check_dns_failure(self, event: dict[str, Any]) -> None:
+        if "aw_dns_failure" not in event:
+            return
+        stage, code = event.get("stage"), event.get("code")
+        if (event.get("aw_dns_failure") != 1 or event.get("execution_id") != self.execution_id
+                or not isinstance(stage, str) or not isinstance(code, str)
+                or stage not in _DNS_DIAGNOSTIC_STAGES or code not in _DNS_DIAGNOSTIC_CODES
+                or set(event) != {"aw_dns_failure", "execution_id", "stage", "code"}):
+            raise self._dns_error("dns_startup", "diagnostic_invalid")
+        raise self._dns_error(stage, code)
+
+    def _gateway_records(self) -> list[dict[str, Any]]:
+        # Trusted helper only, stdout only, bounded tail. Never propagate raw
+        # helper logs or failed nft command output across the worker boundary.
+        raw = self.domain_gateway.logs(tail=32, stdout=True, stderr=False)
+        if not isinstance(raw, (bytes, str)) or len(raw) > 131072:
+            raise self._dns_error("dns_startup", "diagnostic_invalid")
+        try:
+            text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+            records = []
+            for line in text.splitlines():
+                if not line.startswith("{"):
+                    continue
+                event = json.loads(line)
+                if not isinstance(event, dict):
+                    raise self._dns_error("dns_startup", "diagnostic_invalid")
+                self._check_dns_failure(event)
+                records.append(event)
+            return records
+        except (ValueError, UnicodeError) as exc:
+            raise self._dns_error("dns_startup", "diagnostic_invalid") from exc
+
+    def _raise_gateway_failure(self, stage: str, code: str) -> None:
+        self._gateway_records()  # A precise trusted helper cause takes priority.
+        raise self._dns_error(stage, code)
+
     def _start_domain_gateway(self) -> None:
         payload = base64.b64encode(json.dumps(self.domain_config, separators=(",", ":")).encode()).decode()
         self.domain_gateway = self.client.containers.run(
@@ -638,18 +703,17 @@ class NetworkCapture:
         )
         deadline = time.monotonic() + 4
         while time.monotonic() < deadline:
-            logs = self.domain_gateway.logs()
-            text = logs.decode("utf-8", "replace") if isinstance(logs, bytes) else str(logs)
-            if any(json.loads(line).get("aw_dns_ready") == self.execution_id
-                   for line in text.splitlines() if line.startswith("{")):
+            records = self._gateway_records()
+            if any(event.get("aw_dns_ready") == self.execution_id for event in records):
                 self.assert_healthy()
                 return
             self.domain_gateway.reload()
             state = (getattr(self.domain_gateway, "attrs", {}) or {}).get("State") or {}
             if state.get("Running") is not True:
-                raise NetworkPolicyError("execution DNS mediator failed before readiness")
+                code = "helper_oom" if state.get("OOMKilled") is True else "helper_exited"
+                self._raise_gateway_failure("dns_startup", code)
             time.sleep(0.02)
-        raise NetworkPolicyError("execution DNS mediator did not become ready")
+        self._raise_gateway_failure("dns_startup", "helper_not_ready")
 
     def assert_healthy(self) -> None:
         """Worker-side liveness complements the independent <=1s kernel lease."""
@@ -659,7 +723,9 @@ class NetworkCapture:
             self.domain_gateway.reload()
             state = (getattr(self.domain_gateway, "attrs", {}) or {}).get("State") or {}
             if state.get("Running") is not True or state.get("Paused") is True:
-                raise NetworkPolicyError("execution DNS mediator died; network fails closed")
+                code = ("helper_paused" if state.get("Paused") is True else
+                        "helper_oom" if state.get("OOMKilled") is True else "helper_exited")
+                self._raise_gateway_failure("dns_health_check", code)
             # Docker Running alone misses SIGSTOP/deadlocks. Read the trusted
             # heartbeat INSIDE the helper; no host path or payload is exposed.
             # The marker is written only AFTER successful kernel lease refresh.
@@ -670,9 +736,9 @@ class NetworkCapture:
                 self.execution_id,
             ])
             if result.exit_code != 0:
-                raise NetworkPolicyError("execution DNS mediator stalled or kernel health lease expired")
+                self._raise_gateway_failure("dns_health_check", "health_expired")
         except (APIError, DockerException, OSError) as exc:
-            raise NetworkPolicyError("cannot confirm execution DNS mediator health") from exc
+            raise self._dns_error("dns_health_check", "unknown") from exc
 
     def start_capture(self, container: Any) -> None:
         """Wait for header capture readiness before the user process starts."""
@@ -733,16 +799,19 @@ class NetworkCapture:
                 if not line.startswith("{"):
                     continue
                 event = json.loads(line)
+                if not isinstance(event, dict):
+                    raise self._dns_error("dns_audit", "diagnostic_invalid")
+                self._check_dns_failure(event)
                 if event.get("aw_dns_ready") == self.execution_id:
                     ready = True
                 elif event.get("aw_dns") == 1:
                     if event.get("execution_id") != self.execution_id or event.get("seq") != len(events) + 1:
-                        raise NetworkPolicyError("execution DNS audit is truncated or misattributed")
+                        raise self._dns_error("dns_audit", "diagnostic_invalid")
                     events.append(event)
             if not ready:
-                raise NetworkPolicyError("execution DNS audit readiness record missing (truncated log)")
+                raise self._dns_error("dns_audit", "diagnostic_invalid")
         except (ValueError, UnicodeError) as exc:
-            raise NetworkPolicyError("execution DNS audit is malformed") from exc
+            raise self._dns_error("dns_audit", "diagnostic_invalid") from exc
         return events
 
     def collect(self) -> tuple[list[dict[str, Any]], bool]:
@@ -760,14 +829,14 @@ class NetworkCapture:
             # A killed/OOM'd watcher or missing final statistics cannot prove a
             # complete audit. Never return a misleading empty/successful capture.
             if not isinstance(status, dict) or status.get("StatusCode") != 0:
-                raise NetworkPolicyError("packet capture exited unsuccessfully")
+                raise self._dns_error("packet_audit", "capture_exited")
             if not re.search(r"\d+ packets? dropped by kernel", diagnostics) or any(int(n) for n in drops):
-                raise NetworkPolicyError("packet capture is incomplete (missing statistics or dropped packets)")
+                raise self._dns_error("packet_audit", "capture_incomplete")
             events = self.watcher.logs(stdout=True, stderr=False)
             packet_text = events.decode("utf-8", "replace") if isinstance(events, bytes) else events
             captured = re.search(r"(\d+) packets? captured", diagnostics)
             if captured is None or int(captured.group(1)) != len(_IP_HEADER_RE.findall(packet_text)):
-                raise NetworkPolicyError("packet capture log is truncated or contains unparseable packets")
+                raise self._dns_error("packet_audit", "capture_truncated")
             records = parse_packet_output(packet_text, source_ip=self.source_ip)
             if self.source_ipv6:
                 records.extend(parse_packet_output(events, source_ip=self.source_ipv6))
