@@ -305,21 +305,13 @@ async def build_external_executors(
     return executors
 
 
-async def ensure_external_snapshots(
+async def _snapshot_active_grants(
     db: AsyncSession,
     *,
     run_id: str,
     owner_id: str,
     agent_id: str,
 ) -> None:
-    """Capture router-selected Agent grants exactly once at execution start."""
-    existing = await db.scalar(
-        select(RunExternalToolSnapshot.id)
-        .where(RunExternalToolSnapshot.run_id == run_id)
-        .limit(1)
-    )
-    if existing is not None:
-        return
     grants = (
         await db.execute(
             select(ExternalToolGrant)
@@ -355,7 +347,39 @@ async def ensure_external_snapshots(
                 credential_id=grant.credential_id,
             )
         )
+
+
+async def ensure_external_snapshots(
+    db: AsyncSession,
+    *,
+    run_id: str,
+    owner_id: str,
+    agent_id: str,
+) -> None:
+    """Capture router-selected Agent grants exactly once at execution start."""
+    existing = await db.scalar(
+        select(RunExternalToolSnapshot.id)
+        .where(RunExternalToolSnapshot.run_id == run_id)
+        .limit(1)
+    )
+    if existing is None:
+        await _snapshot_active_grants(
+            db, run_id=run_id, owner_id=owner_id, agent_id=agent_id
+        )
     await db.flush()
+
+
+async def snapshot_external_grants(
+    db: AsyncSession,
+    *,
+    run_id: str,
+    owner_id: str,
+    agent_id: str,
+) -> None:
+    """Freeze active external grants for a newly assigned Agent run."""
+    await _snapshot_active_grants(
+        db, run_id=run_id, owner_id=owner_id, agent_id=agent_id
+    )
 
 
 def invocation_projection(invocation: ExternalToolInvocation) -> dict[str, Any]:
