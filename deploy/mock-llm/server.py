@@ -6,6 +6,8 @@ OpenAI 兼容 /v1/chat/completions，供 LiteLLMClient 真实调用：
 - 路径 /fail → 始终返回 500（验证失败→重试路径）
 - 路径 /needs-input → 返回 __NEEDS_INPUT__ 前缀（验证 needs_input 挂起）
 - usage 返回固定 token 数（成本累计验证，SC-006）
+- 显式 [sandbox:<scenario>] 标记驱动 002 验收；仅返回固定工具调用，不执行代码。
+  场景：python_sum / shell / failure / artifacts / denied / no_tools。
 
 仅用于本地验证栈，不打包进生产镜像。
 """
@@ -17,6 +19,78 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MODEL = os.getenv("MOCK_LLM_MODEL", "gpt-4o-mini")
 MODE = os.getenv("MOCK_LLM_MODE", "auto")  # auto | fail | needs_input
+
+# These are model responses, never commands run by this HTTP gateway. Only the
+# application's normal authorization/executor path may run them in a sandbox.
+SANDBOX_CALLS = {
+    "python_sum": ("run_python", {"code": "print(sum(i * i for i in range(1, 101)))"}),
+    "shell": ("run_shell", {"command": "printf 'sandbox-shell-ok\\n'"}),
+    "failure": ("run_python", {"code": "raise RuntimeError('sandbox-controlled-error')"}),
+    "artifacts": (
+        "run_python",
+        {"code": (
+            "import csv\n"
+            "from pathlib import Path\n"
+            "path = Path('/workspace/output/sales.csv')\n"
+            "with path.open('w', newline='') as stream:\n"
+            "    writer = csv.writer(stream)\n"
+            "    writer.writerow(['day', 'sales'])\n"
+            "    writer.writerows((day, day * 10) for day in range(1, 21))\n"
+            "print('sales.csv: 20 rows')\n"
+        )},
+    ),
+    # Deliberately absent from the advertised schemas in the denial scenario.
+    "denied": ("run_shell", {"command": "printf 'UNAUTHORIZED_EXECUTION\\n'"}),
+}
+SANDBOX_MARKER = re.compile(r"\[sandbox:([a-z_]+)\]")
+
+
+def sandbox_reply(messages, tools, last_user):
+    """Return fixed 002 responses, or None for the existing 001 mock behavior."""
+    marker = SANDBOX_MARKER.search(last_user)
+    if marker is None:
+        return None
+    scenario = marker.group(1)
+    if scenario not in {*SANDBOX_CALLS, "no_tools"}:
+        raise ValueError("unknown sandbox scenario")
+    tool_messages = [message for message in messages if message.get("role") == "tool"]
+    if scenario == "no_tools":
+        return ("SANDBOX_NO_TOOLS_OK" if not tools and not tool_messages
+                else "SANDBOX_SCENARIO_ERROR: unexpected tools"), None
+    name, arguments = SANDBOX_CALLS[scenario]
+    advertised = {tool.get("function", {}).get("name") for tool in tools}
+    if scenario != "denied" and name not in advertised:
+        return "SANDBOX_SCENARIO_ERROR: required tool not advertised", None
+    if not tool_messages:
+        return "", [{
+            "id": f"call_sandbox_{scenario}_1",
+            "type": "function",
+            "function": {"name": name, "arguments": json.dumps(arguments)},
+        }]
+    try:
+        output = json.loads(tool_messages[-1].get("content", ""))
+    except (TypeError, ValueError):
+        return "SANDBOX_SCENARIO_ERROR: invalid tool result", None
+    if not isinstance(output, dict):
+        return "SANDBOX_SCENARIO_ERROR: invalid tool result", None
+    if scenario == "denied":
+        confirmed = output.get("denied") is True and output.get("ok") is False
+        return ("SANDBOX_DENIED_CONFIRMED" if confirmed
+                else "SANDBOX_SCENARIO_ERROR: tool was not denied"), None
+    if scenario == "failure" and len(tool_messages) == 1:
+        if output.get("status") != "failed" or output.get("error_category") != "exit_code":
+            return "SANDBOX_SCENARIO_ERROR: expected controlled failure", None
+        return "", [{
+            "id": "call_sandbox_failure_2",
+            "type": "function",
+            "function": {
+                "name": "run_python",
+                "arguments": json.dumps({"code": "print('sandbox-recovered')"}),
+            },
+        }]
+    if output.get("ok") is not True or output.get("exit_code") != 0:
+        return "SANDBOX_SCENARIO_ERROR: tool execution unsuccessful", None
+    return f"SANDBOX_{scenario.upper()}_OK: {output.get('stdout', '').strip()}", None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -49,6 +123,19 @@ class Handler(BaseHTTPRequestHandler):
             "",
         )
         has_tool_call = any(m.get("tool_calls") for m in messages)
+
+        # Route explicit acceptance markers before broad FAIL keyword matching.
+        # In particular, [sandbox:failure] is a tool failure, not an LLM HTTP 500.
+        try:
+            scenario_reply = sandbox_reply(messages, tools, last_user)
+        except ValueError:
+            self._json(400, {"error": "unknown sandbox scenario"})
+            return
+        if scenario_reply is not None:
+            content, tool_calls = scenario_reply
+            usage = {"prompt_tokens": 100, "completion_tokens": 50}
+            self._json(200, self._completion(content, usage, tools, has_tool_call, tool_calls))
+            return
 
         mode = MODE
         # 支持按需求关键词路由（验证不同场景）
@@ -107,7 +194,8 @@ class Handler(BaseHTTPRequestHandler):
             "object": "chat.completion",
             "created": 1700000000,
             "model": MODEL,
-            "choices": [{"index": 0, "message": message, "finish_reason": "stop"}],
+            "choices": [{"index": 0, "message": message,
+                         "finish_reason": "tool_calls" if tool_calls else "stop"}],
             "usage": usage,
         }
 
