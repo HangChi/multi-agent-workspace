@@ -64,6 +64,17 @@ def classify_outcome(outcome: Any) -> tuple[str, str | None]:
         # 137 只能在 daemon OOM 标记缺失时作为资源兜底；被执行器 kill 的超时已提前返回。
         if outcome.exit_code == 137:
             return "resource", "oom"
+        # These are user-facing diagnostics, not a replacement for kernel limits.
+        # Require the OS failure plus process-creation context for EAGAIN: a
+        # nonblocking network connect can return the same errno as a full cgroup.
+        stderr = getattr(outcome, "stderr", b"")
+        text = (stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else str(stderr)).lower()
+        if "no space left on device" in text or "[errno 28]" in text:
+            return "resource", "disk"
+        if ("resource temporarily unavailable" in text or "[errno 11]" in text) and any(
+            marker in text for marker in ("fork:", "os.fork(", "_fork_exec", "posix_spawn")
+        ):
+            return "resource", "pids"
         return "failed", "exit_code"
     return "ok", None
 

@@ -246,6 +246,12 @@ def _run_id_for_log(run: Run) -> str:
     return run.id[:8]
 
 
+async def _is_cancelled(db, run_id: str) -> bool:
+    """Read committed state, never a stale object from the long-lived Worker session."""
+    status = await db.scalar(select(Run.status).where(Run.id == run_id))
+    return status == "cancelled"
+
+
 async def _execute(db, run: Run, agent: Agent | None) -> None:
     """真正的执行链：状态机 → runner → 持久化。"""
     # 已取消/终态：不再执行（Worker 发现取消直接跳过）
@@ -362,8 +368,7 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
 
     async def check_cancelled() -> bool:
         """FR-018 取消检查：每轮循环前查 DB 最新状态，外部 cancel 则终止执行。"""
-        fresh = await db.get(Run, run.id)
-        return fresh is not None and fresh.status == "cancelled"
+        return await _is_cancelled(db, run.id)
 
     async def persist_sandbox_result(detail: dict) -> None:
         """执行完成时写入沙箱事实、制品和审计，并发布运行详情事件。"""
