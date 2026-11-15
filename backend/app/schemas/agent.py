@@ -92,6 +92,12 @@ class AgentOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AgentSaveOut(AgentOut):
+    """Agent 保存响应；warning 不阻止保存。"""
+
+    warning: str | None = None
+
+
 class AgentList(BaseModel):
     """Agent 列表响应。"""
 

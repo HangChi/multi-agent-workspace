@@ -14,12 +14,28 @@ from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import DB, CurrentUser, require_role
 from app.core.audit import write_audit
-from app.schemas.agent import AgentCreate, AgentList, AgentOut, AgentUpdate
-from app.services import agent_service
+from app.models.agent import Agent
+from app.schemas.agent import (
+    AgentCreate,
+    AgentList,
+    AgentOut,
+    AgentSaveOut,
+    AgentUpdate,
+)
+from app.services import agent_service, egress_service
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
 MemberUser = Annotated[object, Depends(require_role("admin", "member"))]
+
+
+async def _agent_save_response(db: DB, agent: Agent) -> AgentSaveOut:
+    response = AgentSaveOut.model_validate(agent)
+    if agent.egress_mode == "restricted":
+        rules = await egress_service.list_agent_rules(db, agent.id)
+        if not any(rule.enabled and rule.action == "allow" for rule in rules):
+            response.warning = "限制模式下尚无启用的允许规则，运行时全部出站被拒。"
+    return response
 
 
 @router.get("", response_model=AgentList)
@@ -35,7 +51,7 @@ async def list_agents(
     return {"items": [AgentOut.model_validate(r) for r in rows], "total": len(rows)}
 
 
-@router.post("", response_model=AgentOut, status_code=201)
+@router.post("", response_model=AgentSaveOut, status_code=201)
 async def create_agent(
     payload: AgentCreate, _m: MemberUser, user: CurrentUser, db: DB
 ):
@@ -52,10 +68,10 @@ async def create_agent(
         detail={"name": agent.name, "model": agent.model},
     )
     await db.commit()
-    return AgentOut.model_validate(agent)
+    return await _agent_save_response(db, agent)
 
 
-@router.patch("/{agent_id}", response_model=AgentOut)
+@router.patch("/{agent_id}", response_model=AgentSaveOut)
 async def update_agent(
     agent_id: str,
     payload: AgentUpdate,
@@ -77,7 +93,7 @@ async def update_agent(
         detail={"name": agent.name},
     )
     await db.commit()
-    return AgentOut.model_validate(agent)
+    return await _agent_save_response(db, agent)
 
 
 @router.post("/{agent_id}/archive", response_model=AgentOut)

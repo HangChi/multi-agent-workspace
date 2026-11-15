@@ -285,10 +285,27 @@ async def list_accesses(
     run_id: str | None = None,
     agent_id: str | None = None,
     action: str | None = None,
+    from_time: datetime | None = None,
+    to_time: datetime | None = None,
     page: int = 1,
     page_size: int = 50,
 ) -> tuple[list[EgressAccess], int, dict[str, int]]:
+    """按 [from_time, to_time) 检索；分页不影响 total/summary 的筛选范围。"""
+    for bound in (from_time, to_time):
+        if bound is not None and (bound.tzinfo is None or bound.utcoffset() is None):
+            raise AppError("INVALID_INPUT", "时间筛选必须包含时区")
+    if from_time is not None:
+        from_time = from_time.astimezone(UTC)
+    if to_time is not None:
+        to_time = to_time.astimezone(UTC)
+    if from_time is not None and to_time is not None and from_time >= to_time:
+        raise AppError("INVALID_INPUT", "from 必须早于 to")
+
     filters: list[Any] = []
+    if from_time is not None:
+        filters.append(EgressAccess.occurred_at >= from_time)
+    if to_time is not None:
+        filters.append(EgressAccess.occurred_at < to_time)
     if run_id:
         filters.append(EgressAccess.run_id == run_id)
     if agent_id:

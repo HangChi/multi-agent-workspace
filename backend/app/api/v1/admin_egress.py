@@ -3,6 +3,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import AwareDatetime
 
 from app.api.deps import DB, CurrentUser, require_role
 from app.core.audit import write_audit
@@ -44,10 +45,18 @@ async def list_egress_accesses(
     run_id: str | None = None,
     agent_id: str | None = None,
     action: str | None = Query(default=None, pattern="^(allow|deny)$"),
+    from_time: Annotated[
+        AwareDatetime | None, Query(alias="from", description="包含此时刻；必须含 Z 或时区偏移")
+    ] = None,
+    to_time: Annotated[
+        AwareDatetime | None,
+        Query(alias="to", description="不包含此时刻；必须含 Z 或时区偏移，且晚于 from"),
+    ] = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
 ):
     rows, total, summary = await egress_service.list_accesses(
-        db, run_id=run_id, agent_id=agent_id, action=action, page=page, page_size=page_size
+        db, run_id=run_id, agent_id=agent_id, action=action,
+        from_time=from_time, to_time=to_time, page=page, page_size=page_size
     )
     return {"items": rows, "total": total, "summary": summary}

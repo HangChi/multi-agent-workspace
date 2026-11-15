@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -172,6 +173,104 @@ async def test_builtin_egress_blacklist_is_read_only_and_admin_global_crud(
     assert duplicate.status_code == 409
     deleted = await client.delete(f"{ADMIN_BLACKLIST_URL}/{rule_id}", headers=admin_headers)
     assert deleted.status_code == 204
+
+
+async def test_admin_access_time_window_is_half_open_and_summary_ignores_pagination(
+    client, make_headers, make_user, sandbox_factory, db_session
+):
+    owner, _ = await make_user()
+    execution = await sandbox_factory(owner=owner, status="ok", exit_code=0)
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    for minutes, action, domain in [
+        (-1, "deny", "ip-direct"), (0, "allow", "api.example.test"),
+        (30, "deny", "ip-direct"), (60, "allow", "ip-direct"),
+        (61, "deny", "api.example.test"),
+    ]:
+        db_session.add(EgressAccess(
+            run_id=execution.run_id, execution_id=execution.id, agent_id=execution.agent_id,
+            user_id=owner.id, target_ip="203.0.113.10", target_domain=domain,
+            port=443, protocol="tcp", action=action, occurred_at=start + timedelta(minutes=minutes),
+        ))
+    await db_session.commit()
+    headers = await make_headers(role="admin")
+    params = {
+        "run_id": execution.run_id, "agent_id": execution.agent_id,
+        "from": "2026-01-01T08:00:00+08:00", "to": "2026-01-01T01:00:00Z",
+        "page_size": 1,
+    }
+    for page, expected_actions in [(1, ["deny"]), (2, ["allow"]), (3, [])]:
+        response = await client.get(
+            "/api/v1/admin/egress-accesses", headers=headers, params={**params, "page": page}
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["total"] == 2
+        assert data["summary"] == {"allow": 1, "deny": 1, "ip_direct": 1}
+        assert [item["action"] for item in data["items"]] == expected_actions
+    allowed = await client.get(
+        "/api/v1/admin/egress-accesses", headers=headers, params={**params, "action": "allow"}
+    )
+    assert allowed.json()["total"] == 1
+    assert allowed.json()["summary"] == {"allow": 1, "deny": 0, "ip_direct": 0}
+    for bound, expected_total in [("from", 4), ("to", 3)]:
+        response = await client.get(
+            "/api/v1/admin/egress-accesses", headers=headers,
+            params={"run_id": execution.run_id, bound: params[bound]},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["total"] == expected_total
+
+
+@pytest.mark.parametrize("bounds,status", [
+    ({"from": "not-a-date"}, 422),
+    ({"from": "2026-01-01T00:00:00"}, 422),
+    ({"to": "2026-01-01T00:00:00"}, 422),
+    ({"from": "2026-01-01T00:00:00Z", "to": "2026-01-01T00:00:00Z"}, 400),
+    ({"from": "2026-01-01T01:00:00Z", "to": "2026-01-01T08:00:00+08:00"}, 400),
+])
+async def test_admin_access_time_window_rejects_invalid_bounds(client, make_headers, bounds, status):
+    response = await client.get(
+        "/api/v1/admin/egress-accesses", headers=await make_headers(role="admin"), params=bounds
+    )
+    assert response.status_code == status, response.text
+
+
+async def test_restricted_agent_create_warns_without_preventing_save(client, make_headers):
+    response = await client.post(
+        AGENTS_URL, headers=await make_headers(),
+        json={"name": "restricted-empty", "system_prompt": "test", "egress_mode": "restricted"},
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["egress_mode"] == "restricted"
+    assert "全部出站" in response.json()["warning"]
+
+
+async def test_restricted_agent_save_warning_tracks_enabled_rules(
+    client, make_headers, db_session
+):
+    headers = await make_headers()
+    agent = await _create_agent(client, headers)
+    assert agent["warning"] is None
+    url = f"{AGENTS_URL}/{agent['id']}"
+    response = await client.patch(url, headers=headers, json={"egress_mode": "restricted"})
+    assert response.status_code == 200, response.text
+    assert "全部出站" in response.json()["warning"]
+    response = await client.patch(url, headers=headers, json={"name": "still-restricted"})
+    assert "全部出站" in response.json()["warning"]
+    rule_response = await client.post(
+        f"{url}/egress-rules", headers=headers,
+        json={"target_type": "ip", "target": "203.0.113.10"},
+    )
+    assert rule_response.status_code == 201, rule_response.text
+    response = await client.patch(url, headers=headers, json={"egress_mode": "restricted"})
+    assert response.json()["warning"] is None
+    rule = await db_session.get(EgressRule, rule_response.json()["id"])
+    rule.enabled = False
+    await db_session.commit()
+    response = await client.patch(url, headers=headers, json={"egress_mode": "restricted"})
+    assert "全部出站" in response.json()["warning"]
+    response = await client.patch(url, headers=headers, json={"egress_mode": "default"})
+    assert response.json()["warning"] is None
 
 
 async def test_egress_accesses_are_visible_by_execution_and_admin(
