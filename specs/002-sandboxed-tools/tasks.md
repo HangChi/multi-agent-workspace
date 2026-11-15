@@ -182,7 +182,7 @@
 ### Tests for User Story 5（先写，先红后绿）⚠️
 
 - [x] T057 [P] [US5] 策略求值单元测试 backend/tests/unit/test_egress_eval.py：内置黑名单命中→deny；全局 deny 优先于 agent allow（同一目标同时命中时）；`restricted` 无规则→全 deny；`default` 无规则→allow；cidr/域名通配/端口区间各自命中；`ip-direct` 未命中任何规则→allow 但记 `ip-direct`
-- [x] T058 [US5] 记录归并/连接事实单元测试 backend/tests/unit/test_egress_record.py、backend/tests/unit/test_egress_network.py：DNS 查询表 + conntrack 事件 → 归并出 `target_domain`；同 IP 多域名按时间窗取最近；反查失败标 `ip-direct`；批量写入条数与快照条数一致
+- [x] T058 [US5] 记录归并/连接事实单元测试：固定 AF_PACKET watcher 的 TCP 连接代际、UDP 流、IPv4/IPv6 与 pre-defrag 拒绝包头；执行私有 DNS 绑定按有效期归因，无域名策略时才使用共享上游日志；无可信域名标 `ip-direct`。计数、丢包、截断、畸形与资源预算均有反向控制，不再以事后 conntrack 快照证明拒绝连接覆盖（backend/tests/unit/test_egress_record.py、test_egress_network.py、test_packet_headers.py、test_domain_policy.py）。
 - [x] T059 [P] [US5] 出站 API 集成测试 backend/tests/integration/test_egress_api.py：agent rules CRUD（owner/admin、重复 409、被黑名单覆盖 400）；admin 黑名单 CRUD（内置项删除 400、成员调用 403）；`GET /admin/egress-accesses` 筛选与 `summary` 计数正确
 
 ### Implementation for User Story 5
@@ -204,8 +204,8 @@
 
 **Purpose**: 真实栈验证、越权矩阵、数据保留、文档与门禁
 
-- [ ] T068 [P] 真实栈断言（沙箱）：deploy/verify/s3_sandbox_scenarios.py 已创建（确定性 Mock + HTTP S1/S3/S4，13 项脚本自测通过）。S2 由 runtime matrix 补充；受保护 API 验收因创建测试管理员/邀请码被权限策略拒绝而未执行，不能判完成。
-- [ ] T069 [P] 真实栈断言（出站）：deploy/verify/s5_egress_scenarios.py 已创建，Docker Desktop Linux VM 的 IP/CIDR 策略与默认 HTTPS/DNS 7/7 通过。域名规则、规则管理权限 API 与完整访问覆盖未过，保持未完成。
+- [ ] T068 [P] 真实栈断言（沙箱）：原生 GitHub CI 已在全新独立栈执行受保护 HTTP 验收、真实迁移和历史保留校验；run `43699286675` 迁移通过，但共同沙箱准备故障及 harness 的 WS/结果读取缺陷导致整栈失败。`f698fe5` 已修正 harness 并增加有限脱敏诊断，等待重跑；本地创建身份的既有拒绝未被绕过，CI 不使用开发身份或数据库。
+- [ ] T069 [P] 真实栈断言（出站）：Docker Desktop Linux VM IP/多连接/IPv6 11/11、域名专项 18/18；原生 run `43699286675` 的 S5 fixture 提前失败且没有生成报告，后续域名矩阵未执行。已修有界 listener readiness 和 setup/cleanup 报告，不降低 IPv6/HTTPS、规则管理权限及审计完整性要求，等待原生重跑。
 - [x] T070 [P] 越权矩阵自动化：deploy/verify/sbx_escape_matrix.py 已创建；2026-11-15 最终 Docker Desktop Linux VM 运行 13/13 通过，包括 output tmpfs 内核配额、timeout/cancel，无执行资源残留。此任务矩阵通过不等于完整 SC-002 或原生 Linux 云主机安全验收；受保护 API 链路等仍见 T068/T076。
 - [x] T071 数据保留任务：backend/app/tasks/maintenance.py 增 `purge_sandbox_payloads`（90 天后清空 code/stdout/stderr，保留元数据与指纹）+ beat 每日一次
 - [x] T072 [P] 前端单测：frontend/src/components/agent/__tests__/EgressRules.test.tsx、frontend/src/components/run/__tests__/ExecutionCard.test.tsx、tools 目录渲染用例（vitest）
@@ -312,7 +312,7 @@ US1 是能力、US2 是这能力的正确开关。**两者必须同批交付**�
 - 测试未过前禁止勾选实现任务（TDD 纪律）
 - **必须反向验证的三处**：T020（失败不抛异常）、T034（越权阈值）、T049（信号量释放）——去掉判断后测试应变红，否则是假绿
 - **环境范围**：内核策略需要 Linux；2026-11-15 已通过 Docker Desktop Linux VM 运行 helper 和 bridge 采集，不能再笼统以 macOS 为由跳过。VM 上的运行时证据与原生 Linux 全量验收分开，见 docker-verification.md。
-- 已知未覆盖：SC-004 的 P95 对比需压测（P3 才做全量压测），本特性用手工 20 并发观察并记录
+- SC-004 属于本特性强制门禁：原生 CI 同时提交 20 个固定 `time.sleep(3)` 任务，实际活容器并发须在 2~4；100 个 baseline 与全部 load 样本使用 nearest-rank P95，比例 ≤1.2，零请求/运行失败。不重试测量请求、不剔除 outlier，不以手工观察或未来 P3 压测替代。
 - 未决项（宪法 Follow-up）：gVisor/seccomp 加固归 P3；本特性只在 deploy/README 记录 socket 风险
 
 ---

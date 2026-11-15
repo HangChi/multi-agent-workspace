@@ -2,7 +2,7 @@
 
 ## 结论
 
-**部分通过，不能宣布 002 完整验收完成或可上线。** 本记录包含历史快照与 2026-11-15 本轮追加验证；最新证据已补齐 output 内核配额、实时有界输出、真实 IPv6 包头事实和同目标多连接留痕。受保护的 API→Celery→沙箱整链路仍被身份授权阻塞；domain allow、S6 并发/P95、部分协议覆盖和原生 Linux 全量验收仍未完成。Quickstart S1–S6 继续保留 ⏳。
+**部分通过，不能宣布 002 完整验收完成或可上线。** 下文保留历史失败快照；最新本地门禁为后端 697 项、前端 43 项，Docker Desktop Linux VM 的 I/O 2/2、越权矩阵 13/13、域名专项 18/18。原生 GitHub CI 已在全新隔离栈实际执行迁移和受保护 HTTP 用例，当前不再是仅有身份阻塞：run `43699286675` 因共同沙箱准备故障及验收 harness 缺陷失败，后续 S6 等未执行。已提交 `f698fe5` 修复真实 WS/结果读取、fixture readiness 和有界脱敏诊断，仍须原生重跑取得通过证据。Quickstart S1–S6 继续保留 ⏳。
 
 ## 环境与隔离
 
@@ -95,11 +95,19 @@
 
 工作区测试使用专用 integration PostgreSQL/Redis/MinIO；未读取 `deploy/.env`，未重启既有开发服务，未创建或伪造验收身份。尝试运行本轮可选公网 HTTPS smoke 时被权限策略拒绝，因此未执行、不记作通过。
 
-## 继续验收所需条件与剩余缺口
+## 上轮验收条件与缺口（历史快照，已由下节进展更新）
 
-1. 需要明确授权在独立验收栈预置测试管理员/成员邀请码，或提供该栈已存在且获准使用的 owner/other/admin 凭据；不需要因此授权修改现有开发服务。
-2. 完成 protected API→Celery→真实沙箱→持久化/审计/下载与 WS 验收。
-3. 修复 output 卷内核配额；完成 domain→内核规则安全绑定、完整 IPv6/访问覆盖、错误分类/事件契约收口。
-4. 完成五种工具真实可用性、制品上限、存量迁移/历史快照、20 并发与 P95、原生 Linux 目标环境验收。
+当时受保护身份不可用，output 内核配额和域名内核绑定未完成，完整工具、制品、迁移历史及 S6 尚待验收。此为历史状态，不代表当前实现仍缺少这些功能；原始失败证据保留在上文。
 
-`.specify/extensions.yml` 不存在，本轮无 after_implement hook 可执行。
+## 2026-11-15 原生 GitHub CI 与最终本地门禁
+
+- `4330b63`：数据库 enabled 目录 gate、工具撤权与不可变运行授权快照，真实 PostgreSQL 测试；历史运行保留 SQL NULL，不按当前配置补写。
+- `937d61c`：执行私有 DNS/TTL/端口内核绑定、pre-defrag 协议 guard、AF_PACKET 审计，以及 `/dev/shm` 与 workspace/tmp 共用有界卷。域名专项 VM 18/18，含 TTL、CNAME、IPv6/UDP、deny 优先、helper 死亡/挂起及残留检查。
+- 最终本地后端 **697 passed in 65.78s**，Ruff app/tests 和 Mypy 85 文件通过；前端 **43 passed**、typecheck/build 通过，ESLint 0 errors/2 个既有 warnings。最终实际 I/O **2/2**、越权矩阵 **13/13**。这些是 Desktop Linux VM 或专用测试库证据，不冒充原生整栈成功。
+- GitHub run `43698802253`（`937d61c`）：独立前后端门禁与全部镜像构建通过，原生前置检查因 bridge netfilter 未启用失败；未进入应用验收。`2171e70` 在临时 runner VM 明确加载 br_netfilter 并启用双族过滤，入口独立读取两个 sysctl，未绕过检查。
+- GitHub run `43699286675`（`2171e70`）：原生 Ubuntu/Docker 28、cgroup v2，双族 bridge/netfilter 前置实测通过；真实迁移、工具目录与旧历史 SQL NULL 校验通过。HTTP 14 项仅 denied/no_tools 通过，I/O 2 项及越权矩阵 13 项失败；S5 fixture 未产出报告导致 runner 中止，域名、S6 与 fault suites 未执行。执行资源和本次 project 清理通过。不可把后续未执行项目算成功。
+- `f97012d`、`f698fe5`：失败诊断仅保留有限 stage/code/type/HTTP status；修复 harness 把 summary 当工具输出、错误 WS 路径、取消观察顺序，以及 fixture listener readiness/setup/cleanup 报告。全量 harness 自测 **61/61**、scoped Ruff/diff check 通过；诊断重跑不能替代实际故障修复。
+
+剩余门禁：根据真实脱敏诊断修复共同沙箱准备故障；原生完整 HTTP/I/O/越权/IP+IPv6+HTTPS/域名矩阵、SC-001 完整窗口、严格 20 并发 P95，以及 infra/quota fault suites 全部通过后，才能完成 T068/T069/T076。只上传有界脱敏 JSON，不输出或提交 `deploy/.env` 凭据，不重启既有本地开发服务。
+
+`.specify/extensions.yml` 在上轮检查时不存在；最终完成前仍需复核 after_implement hooks。

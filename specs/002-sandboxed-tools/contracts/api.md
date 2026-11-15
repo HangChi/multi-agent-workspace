@@ -211,12 +211,12 @@
 
 下列项目区分原验收目标、当前实际安全边界与验证范围；契约同步本身不替代 T076 整栈验收，也不把已知限制自动豁免。真实容器及原生 CI 证据见 `../docker-verification.md`。
 
-- **身份与归属**：当前 Run、执行详情、制品下载只允许 owner，其他用户（包括非 owner admin）返回 404，匿名 401；不是上文 owner/admin + 403。后端集成测试已覆盖；本轮受保护 HTTP 验收因测试管理员/邀请码授权被拒而未运行。
+- **身份与归属**：当前 Run、执行详情、制品下载只允许 owner，其他用户（包括非 owner admin）返回 404，匿名 401；不是上文 owner/admin + 403。后端集成测试已覆盖；原生 GitHub CI 已在全新隔离栈实际运行受保护 HTTP 用例，但整体尚未通过，不能再表述为未执行或仅有身份阻塞。本地既有身份创建被拒的历史不变。
 - **空 restricted 规则 warning（已对齐）**：Agent POST/PATCH 保存时，restricted 且无启用 allow 规则返回 `warning`；保存不被阻止。存在启用 allow 或 default 模式时 warning 为 null。
 - **内置黑名单**：来自服务端配置常量，GET 返回合成 `builtin:*` 项，不是首次迁移写入的 DB 行。删除内置项返回 400；其访问记录 `matched_rule_id=null`，自定义规则命中使用真实 UUID。
 - **访问检索（已对齐）**：支持 run_id、agent_id、action、`from`、`to`、page、page_size。时间区间为半开 `[from,to)`，时间必须带时区，summary 与 items 使用相同筛选，且 summary 不受分页影响。
 - **出网事实**：固定 AF_PACKET 包头 watcher 在用户进程前就绪，以内核 source-IP BPF 和 bridge-master/veth 归属校验捕获 pre-defrag 出站。TCP 按源端口/初始序号与生命周期区分连接；UDP 按五元组流归并，不声称能从无连接协议识别同五元组 socket 重开。IPv4/IPv6 目标均记录；分片、扩展链及不支持的路由协议在内核拒绝，并记录真实 IP、port=0。丢包、事件预算耗尽或日志截断不能静默当作成功。`bytes_out` 仍为 null，不采正文、不伪造传输字节。
 - **域名策略**：精确/通配/CNAME 域名策略已由执行私有 DNS 与 TTL/端口 nft 集合实现；共享 dnsmasq 日志不作为授权依据。DNS 策略拒绝也产生归属明确的 DNS 目标端口 53 事实，不伪造从未发生的后续 TCP 连接。原生整栈结果与专项 VM 结果分开，且不承诺 TLS/共享 IP 身份识别或任意高负载下的零丢包。
 - **拒绝事件**：`egress_denied` 带 execution_id、target_ip、target_domain、port、matched_rule_id，以及通用可读 reason（不披露具体内部规则细节）。
-- **输出事件（实现已接线，端到端仍待验）**：容器运行时 attach 后增量发布；按 UTF-8 字节切片，每条不超过 4096 bytes；输出尾部与实时发布预算均有界。集成测试验证 started/output/finished 的顺序与 started 唯一，但跨服务 WebSocket protected live E2E 尚未执行。
+- **输出事件（实现已接线，端到端仍待验）**：容器运行时 attach 后增量发布；按 UTF-8 字节切片，每条不超过 4096 bytes；输出尾部与实时发布预算均有界。集成测试验证 started/output/finished 的顺序与 started 唯一；原生 CI 首轮受保护 WS 验收暴露了 harness 错误路由，已改为真实 `/ws/runs/{id}` 并以 `step_update` 读取工具结果。须以修正后整栈结果确认，不能用 harness 自测代替。
 - **制品截断提示（已对齐）**：执行详情增加 `artifact_truncated: {reason,message} | null`；仅当 Step.output 中 execution_id 与详情匹配时投影，旧数据不猜测归属。LLM/Step/API/前端均能看到截断原因，执行成功状态不因此改为失败。

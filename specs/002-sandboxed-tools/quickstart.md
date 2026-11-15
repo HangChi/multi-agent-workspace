@@ -85,14 +85,13 @@ docker exec aw-worker python -c 'import docker; print(docker.from_env().version(
 | 元数据拦截 | `curl http://169.254.169.254/latest/meta-data/` | 失败且原因可读（策略拦截）；记录 `deny` + `matched_rule_id` |
 | 直连 IP | 直接连某公网 IP:443 | 记录 `target_domain=ip-direct`，`action=allow` |
 | 内网拦截 | 连 `10.0.0.4:5432` | `deny` |
-| 限制模式（IP/CIDR 已支持） | Agent 设为 `restricted`，只加目标 IP/CIDR；脚本访问白名单目标后再访问未授权公网 | 白名单目标成功，第二个拒绝且留痕；域名 allow 当前 fail-closed |
-
+| 限制模式（IP/CIDR/域名） | Agent 设为 `restricted`，只加目标 IP/CIDR 或精确/通配域名及端口；访问白名单目标后再访问未授权目标 | 白名单目标成功，未授权目标拒绝且留痕；域名答复前必须完成 TTL/IP 族/端口内核绑定 |
 | 成员不能绕过 | 普通成员调用 `DELETE /admin/egress-blacklist/{内置项}` | 403；内置项本身不可删（400） |
 
-> **当前安全偏差**：API 仍接受 `domain` 规则，但动态/wildcard DNS→内核允许集绑定未实现；restricted domain allow 与全局 domain deny 均 fail-closed。默认模式 HTTPS 的 DNS 解析/归因已实测通过，不等于域名 allow 功能通过。内置 deny 记录的 `matched_rule_id` 当前为 null；内置项不是数据库规则行。
+> **域名与审计边界**：有域名规则时使用执行私有可信 DNS mediator；完整 CNAME 链、全局 deny 优先、TTL 过期及 helper 健康失效均需实测，失败时 fail-closed。共享 dnsmasq 日志不授权。策略约束目的 IP+端口，不识别 TLS/SNI/HTTP Host 身份，不能推断未观察的共享 IP 别名。内置 deny 的 `matched_rule_id` 为 null（非数据库规则行）；`bytes_out` 为 null（不采集 payload）。专项 VM 结果不替代原生整栈验收。
 
 ```bash
-# 一次性核对记录覆盖率（SC-009）：本次执行的每条 conntrack 目标都应有对应记录
+# 核对本次执行的包头连接/流事实与拒绝事实；不能只看总数或事后 conntrack
 curl -s -H "Authorization: Bearer $TOKEN" \
   http://localhost:8080/api/v1/runs/$RUN/executions/$EXEC/egress | jq '.items | length'
 ```
@@ -139,11 +138,11 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 | 场景 | 状态 | 记录 |
 |---|---|---|
-| S1 脚本执行 | ⏳ | 2026-11-15 真实容器平方和 338350；API 持久化/WS/全链路延迟待凭据验收 |
-| S2 超时与资源 | ⏳ | Docker Desktop Linux VM 有界矩阵 13/13，含 workspace/output 内核配额、timeout/cancel/OOM/pids；整体 S2 仍需 protected API/UI 分类和完整场景验收 |
-| S3 工具授权 | ⏳ | 确定性 HTTP 验收脚本及 13 项自测已补齐；创建验收管理员/邀请码被权限策略拒绝，未执行受保护场景 |
-| S4 制品 | ⏳ | 实测沙箱 CSV→真实 MinIO→预签名 HTTP GET，20 行/153B/hash 一致；API 归属和上限场景未完成 |
-| S5 出站策略 | ⏳ | 最新独立 runtime fixture：IP/多连接/IPv6 场景 11/11；此前版本另有默认 HTTPS/DNS 证据。域名 allow、完整协议/高负载覆盖和规则管理 protected API 未完整验收 |
+| S1 脚本执行 | ⏳ | 真实容器曾输出 338350；原生 run `43699286675` 实际 HTTP 验收遇共同沙箱准备故障，WS harness 缺陷已修，等待重跑完整窗口 |
+| S2 超时与资源 | ⏳ | 最终 Docker Desktop Linux VM I/O 2/2、越权矩阵 13/13，含 `/dev/shm` 共享配额；原生同组失败，不能用 VM 结果代替 |
+| S3 工具授权 | ⏳ | 原生 run `43699286675` denied/no_tools 通过、真实迁移和旧历史 SQL NULL 通过；五种工具及精确 5 次拒绝需修正 harness 后重跑 |
+| S4 制品 | ⏳ | 曾实测沙箱→MinIO→原预签名 HTTP GET，20 行/153B/hash 一致；原生 API 制品/归属/上限尚未全部通过 |
+| S5 出站策略 | ⏳ | VM IP/多连接/IPv6 11/11、域名专项 18/18；原生 S5 fixture 早退，已修 readiness/报告，权限 API 与原生完整覆盖待重跑 |
 | S6 配额并发 | ⏳ | 未执行 20 并发/P95 测量 |
 
 > 状态只允许在真实容器栈上跑通后改成 ✅，并附 commit 与关键输出摘要；未跑过一律留 ⏳。
@@ -175,4 +174,8 @@ docker exec -i aw-002-verify-worker-1 python - < deploy/verify/s4_artifact_runti
 
 最新 `sbx_escape_matrix.py` 在 Docker Desktop Linux VM 上 13/13 通过，包含有界 output 内核配额探针；不会为验证而写满宿主磁盘。最新出网探针 11/11 覆盖 IP/CIDR、多 TCP 连接和 IPv6 fixture，不含可选 public HTTPS；此前版本的 HTTPS 证据不替代当前版本重跑。它们均不证明域名规则、权限 API、受保护整链路或 100% 访问覆盖。
 
-**已知不可自动化的部分**：SC-004 的 P95 对比需要压测脚本（P3 才做全量压测），本特性先用手工 20 并发 + 观察，记录在案。
+### 原生 Linux CI（强制完整验收）
+
+`.github/workflows/ci.yml` 在全新 GitHub Ubuntu VM 上运行 `native_acceptance.py`，仅该入口负责创建随机凭据和全新独立验收数据库；本地执行会被拒绝。它不加载 `deploy/.env`，不使用本地既有身份，不重启开发服务，只回收本次 project/UUID 资源。
+
+SC-004 已自动化，不能推迟到 P3：同时提交 20 个固定 `time.sleep(3)` 工作负载，独立采样实际活容器须观察并行且不超过 4；先收集 100 个 baseline，再保留全部 load 样本，以 nearest-rank P95 比较，`load/base ≤1.2`，请求与运行均须零失败。不重试测量请求，不剔除异常值，不改变工作负载，不用缩短进程耗时冒充 SC-001 完整执行窗口。CI 仅上传有界脱敏 JSON，不上传原始服务日志、环境变量、凭据或预签名 URL。
