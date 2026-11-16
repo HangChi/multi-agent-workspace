@@ -87,8 +87,8 @@ npm run test -- --run
 npm run build
 ```
 
-并发验收：使用 20 个成功与 20 个失败/超时外部调用，确认核心 API 无请求失败、所有调用有结构化终态，且对同一 server 的并发和重试不超过配置上限。当前仓库已验证的是确定性 fixture transport 上的 20 成功、10 `tool_error`、10 timeout 场景（并发峰值 8）；这不能替代真实 Worker/HTTP/API 部署验收，也不能证明核心 API P95。部署验收完成前不得将 T063 标记为完成。
+并发验收：使用 20 个成功与 20 个失败/超时外部调用，确认核心 API 无请求失败、所有调用有结构化终态，且对同一 server 的并发和重试不超过配置上限。2026-11-16 已在真实容器栈（API + Worker×8 + PostgreSQL + Redis + MinIO + 真实 HTTPS MCP fixture）完整跑通：invocation 状态分布 21 succeeded（含 1 次预热）/ 10 `tool_error` / 10 timeout，时长 19–10007 ms；无重试（40 次调用对应 40 个 MCP session、fixture 请求数恰为 3×）；单 server 并发峰值 8，与 `MCP_MAX_CONCURRENCY_PER_SERVER` 一致；核心 API 请求失败 0，两项 P95 均通过（`/runs/{run_id}` 比值 0.9938，`/stats/overview` 比值 1.085，各 100 基线 + 178 负载样本）。fixture 位于 192.88.99.0/24（RFC 7526 已废弃 6to4 anycast 前缀，非私有/保留段），因此 Worker 是经未修改的生产 SSRF 与 TLS 策略完成真实网络连接，没有为通过验收而放宽 HTTPS 校验或注入测试 transport。复跑入口为 `python deploy/verify/external_concurrency_acceptance.py --output <dir>`，CI job `external-native` 在专用 ubuntu VM 上执行同一入口；harness 反向控制见 `deploy/verify/test_external_concurrency_acceptance.py`。注意：P95 门槛在毫秒级，共用宿主上的调度噪声足以让 `ratio` 在 1.08–1.44 间摆动（API 容器本身仅有约 12% CPU、无 throttling、无 OOM），因此单次失败不构成产品缺陷证据，应以专用宿主复跑为准。
 
-发布状态：当前报告明确标记为尚不适合生产发布；真实 Worker/HTTP/API 部署并发与 P95 验收、生产部署 smoke/告警阈值验证尚未完成，Feature 002 native/full-stack acceptance 仍是独立门槛。详见 [`release-status.md`](release-status.md)。
+发布状态：当前报告明确标记为尚不适合生产发布；生产部署 smoke 与告警阈值验证尚未完成，Feature 002 native/full-stack acceptance 仍是独立门槛。003 自身的真实部署并发与核心 API P95 验收已于 2026-11-16 通过。详见 [`release-status.md`](release-status.md)。
 
 详细字段和状态见 [`data-model.md`](data-model.md)，HTTP/WS 形状见 [`contracts/api.md`](contracts/api.md)。

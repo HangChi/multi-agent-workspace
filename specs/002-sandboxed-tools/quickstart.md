@@ -147,6 +147,12 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 > 状态只允许在真实容器栈上跑通后改成 ✅，并附 commit 与关键输出摘要；未跑过一律留 ⏳。
 
+### 两个未通过 gate 的定位（尚未修复，不据此改动产品）
+
+- `egress_api`（HTTP 功能 13/14 中唯一失败项）：它是唯一一次必须从沙箱**内部**发起真实公网 HTTPS 抓取的用例（`https://pypi.org/simple/pip/`），同一次 run 也记录了「一次公网 HTTPS 探测超时」。脱敏公开证据里没有该断言的消息体，因此这只是**首要怀疑方向，不是已证实的根因**；下一步只能在原生环境重跑并保留未脱敏的断言详情来确认，不能在证据不足时改产品。
+- 严格 API P95（比值 2.4531 > 1.2）：`_stats_cache` 是 15 秒的进程内缓存，即使跨 2 个 uvicorn worker，每个 15 秒窗口也只有约 2 个请求会打到数据库，因此测到的 P95 基本是**缓存命中延迟**；2.45 倍劣化来自 20 次三秒沙箱负载下的服务路径/CPU 争用，而不是统计聚合本身。曾评估改为 Redis 共享缓存：那会在热路径上多一次网络往返，大概率让比值更差，故不做。以上均为推断，未在原生环境验证前不提交任何 002 性能或 DNS 改动。
+- 工作区里有一个**未提交、未验证**的迁移 `backend/alembic/versions/0006_artifact_run_step_index.py`，其说明声称 `artifacts.run_id`/`step_id` 自 0001 起没有索引，`GET /runs/{id}` 每次轮询都会退化成顺序扫描。它与上一条是**不同的假设**（上一条认为测到的是缓存命中延迟、劣化在服务路径；该迁移认为劣化在数据库扫描），二者都未在原生环境证实。该迁移只加/删两个索引、 downgrade 可逆，`upgrade head → downgrade base → upgrade head` 已在全新空库上跑通（7 上 / 7 下 / 7 上，head 为 `0006_artifact_run_step_index`），但**没有任何原生 run 证明它能改善 P95 比值**；在原生复跑给出证据前，不把它当作 002 的修复，也不据此改动 T068/T069 的状态。
+
 ## 复现脚本
 
 2026-11-15 证据、适用边界与未完成项见 [Docker 验证记录](docker-verification.md)。测试环境是 Docker Desktop Linux VM，不冒充原生 Linux 云主机验收。`deploy/docker-compose.verify.yml` 使用独立项目 `aw-002-verify`，不加载开发 `.env`、不共用开发数据库。
