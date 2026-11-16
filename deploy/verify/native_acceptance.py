@@ -293,9 +293,13 @@ class NativeRunner:
         print(f"{'PASS' if passed else 'FAIL'} suite {name}", flush=True)
 
     def http_suite(self, suite: str) -> None:
+        # The performance suite records database-free control samples beside its
+        # verdict; the functional suite must keep its exact request stream.
+        extra = ["--diagnose-tail"] if suite == "performance" else []
         self.run_suite("http_" + suite, [str(VERIFY / "full_stack_acceptance.py"),
                        "--base", f"http://127.0.0.1:{self.env['AW_VERIFY_PORT']}",
-                       "--suite", suite, "--timeout", "240", "--poll-interval", "0.5"], timeout=900)
+                       "--suite", suite, "--timeout", "240", "--poll-interval", "0.5", *extra],
+                       timeout=900)
 
     def dns_diagnostics(self, *, acceptance_target: bool = False) -> None:
         """Observe fixed public upstreams, never warm the pypi acceptance cache.

@@ -447,10 +447,15 @@ class ExternalVerifier(Verifier):
         baseline: dict[str, list[float]] = {path: [] for path in MEASURED_ENDPOINTS}
         loaded: dict[str, list[float]] = {path: [] for path in MEASURED_ENDPOINTS}
         loop_lag: list[float] = []
+        control_baseline: list[float] = []
+        control_loaded: list[float] = []
+        # Opt-in attribution probe: one extra request per sample, never gated.
+        diagnose_tail = bool(getattr(self.args, "diagnose_tail", False))
+        control_failures = 0
         failures = 0
 
-        async def sample(destination: dict[str, list[float]]) -> None:
-            nonlocal failures
+        async def sample(destination: dict[str, list[float]], control: list[float]) -> None:
+            nonlocal failures, control_failures
             for path in MEASURED_ENDPOINTS:
                 started = time.perf_counter()
                 try:
@@ -460,6 +465,16 @@ class ExternalVerifier(Verifier):
                 finally:
                     destination[path].append((time.perf_counter() - started) * 1000)
                 await asyncio.sleep(.05)
+            if diagnose_tail:
+                # Same HTTP stack, no database: separates "the query path
+                # stalled" from "the server or host stalled".
+                started = time.perf_counter()
+                try:
+                    await self.request("GET", "/health", identity=None)
+                except Exception:
+                    control_failures += 1
+                finally:
+                    control.append((time.perf_counter() - started) * 1000)
 
         async def probe_loop_lag() -> None:
             loop = asyncio.get_running_loop()
@@ -477,13 +492,13 @@ class ExternalVerifier(Verifier):
         lag_probe = asyncio.create_task(probe_loop_lag())
         try:
             for _ in range(BASELINE_SAMPLES):
-                await sample(baseline)
+                await sample(baseline, control_baseline)
             tasks = [asyncio.create_task(self.load_run(index, outcome))
                      for index, outcome in enumerate(
                          ["success"] * SUCCESS_RUNS + ["tool_error"] * FAILURE_RUNS
                          + ["timeout"] * TIMEOUT_RUNS)]
             while not all(task.done() for task in tasks) or len(loaded[MEASURED_ENDPOINTS[0]]) < BASELINE_SAMPLES:
-                await sample(loaded)
+                await sample(loaded, control_loaded)
             outcomes = await asyncio.gather(*tasks, return_exceptions=True)
         finally:
             lag_probe.cancel()
@@ -499,7 +514,13 @@ class ExternalVerifier(Verifier):
                 "run_failures": sum(isinstance(item, BaseException) for item in outcomes),
                 # Evidence only; no verdict reads this.
                 "event_loop_lag_ms": distribution(loop_lag) if loop_lag else {},
-                "loop_lag_samples": len(loop_lag)}
+                "loop_lag_samples": len(loop_lag),
+                "control_probe": ({
+                    "endpoint": "/health", "failures": control_failures,
+                    "baseline_distribution": distribution(control_baseline),
+                    "load_distribution": distribution(control_loaded),
+                } if diagnose_tail else {}),
+                "control_load_samples": len(control_loaded)}
 
     async def verify_outcomes(self, measurement: dict[str, Any]) -> None:
         facts = measurement["endpoints"][MEASURED_ENDPOINTS[0]]["outcomes"]
@@ -1048,6 +1069,8 @@ async def run(args: argparse.Namespace) -> int:
         # Diagnostic companion to the verdict, recorded for the same reason: a
         # failed ratio must say whether the deployment stalled or the sampler did.
         acceptance.metrics["core_api_event_loop_lag_ms"] = measurement["event_loop_lag_ms"]
+        if measurement.get("control_probe"):
+            acceptance.metrics["core_api_control_probe"] = measurement["control_probe"]
         await verifier.verify_outcomes(measurement)
         await verifier.verify_invocations()
         # Publish how the invocations themselves were classified. The run
@@ -1117,6 +1140,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Attach to an already-running acceptance deployment")
     result.add_argument("--keep", action="store_true", help="Keep the stack for inspection")
     result.add_argument("--rebuild", action="store_true", help="Rebuild images even if present")
+    result.add_argument("--diagnose-tail", action="store_true",
+                        help="Record database-free control samples beside the P95 verdicts")
     return result
 
 

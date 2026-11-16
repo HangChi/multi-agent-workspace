@@ -552,10 +552,16 @@ class FullVerifier(Verifier):
     async def performance(self) -> None:
         baseline, loaded = [], []
         loop_lag: list[float] = []
+        control_baseline: list[float] = []
+        control_loaded: list[float] = []
+        # Opt-in attribution probe: it issues one extra request per sample, so it
+        # stays off unless the caller asks for it and never touches the verdict.
+        diagnose_tail = bool(getattr(self.args, "diagnose_tail", False))
+        control_failed = 0
         failed = 0
 
-        async def sample(destination: list[float]) -> None:
-            nonlocal failed
+        async def sample(destination: list[float], control: list[float]) -> None:
+            nonlocal failed, control_failed
             started = time.perf_counter()
             try:
                 await self.request("GET", "/stats/overview")
@@ -564,6 +570,16 @@ class FullVerifier(Verifier):
             finally:
                 # Every attempt is measured, including errors and timeouts.
                 destination.append((time.perf_counter() - started) * 1000)
+            if diagnose_tail:
+                # Same HTTP stack, no database: it separates "the query path
+                # stalled" from "the server or host stalled".
+                started = time.perf_counter()
+                try:
+                    await self.request("GET", "/health", identity=None)
+                except Exception:
+                    control_failed += 1
+                finally:
+                    control.append((time.perf_counter() - started) * 1000)
 
         async def probe_loop_lag() -> None:
             # The sampler shares one event loop and connection pool with the 20
@@ -584,11 +600,11 @@ class FullVerifier(Verifier):
         lag_probe = asyncio.create_task(probe_loop_lag())
         try:
             for _ in range(100):
-                await sample(baseline)
+                await sample(baseline, control_baseline)
                 await asyncio.sleep(.05)
             tasks = [asyncio.create_task(self.execute("sleep", ["run_python"])) for _ in range(20)]
             while not all(task.done() for task in tasks) or len(loaded) < 100:
-                await sample(loaded)
+                await sample(loaded, control_loaded)
                 await asyncio.sleep(.05)
             outcomes = await asyncio.gather(*tasks, return_exceptions=True)
         finally:
@@ -602,6 +618,12 @@ class FullVerifier(Verifier):
         # Diagnostic only, never read by the verdict: how late this process's
         # timers resumed while the load was running.
         result["event_loop_lag_ms"] = distribution(loop_lag)
+        if diagnose_tail:
+            result["control_probe"] = {
+                "endpoint": "/health", "failures": control_failed,
+                "baseline_distribution": distribution(control_baseline),
+                "load_distribution": distribution(control_loaded),
+            }
         self.metrics["s6"] = result
         # All twenty placeholders exist before any validation assertion. Failed
         # tasks/details cannot erase evidence or hide later submissions (>8).
@@ -641,6 +663,10 @@ async def main(argv: list[str] | None = None) -> int:
     ap.description = __doc__
     ap.add_argument("--suite", choices=["functional", "infra", "quota", "performance"], default="functional")
     ap.add_argument("--output", required=True)
+    # Attribution probe for a failed strict P95 gate: adds one database-free
+    # request per sample. Off by default so the unit controls keep pinning the
+    # exact measured request stream; the native acceptance opts in.
+    ap.add_argument("--diagnose-tail", action="store_true")
     args = ap.parse_args(argv)
     require(not args.skip_audit_check and not args.artifact_fetch_container,
             "full acceptance forbids audit skips and internal download workarounds")
