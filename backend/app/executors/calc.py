@@ -19,6 +19,9 @@ from app.executors.base import ToolExecutor
 _MAX_EXPR_LEN = 200
 _MAX_POW_EXPONENT = 1000
 _MAX_ABS_OPERAND = 1e12
+# 指数上限挡不住「幂塔」：每层指数都 <= 1000 时，(9**1000)**1000 已近百万位，
+# 再套一层就是十亿位。限制每一步的整数位宽，运算一产生就拒绝，代价才有界。
+_MAX_INT_BITS = 4096
 
 _BIN_OPS: dict[type[Any], Any] = {
     ast.Add: operator.add,
@@ -73,7 +76,13 @@ def _eval_node(node: ast.AST) -> float:
             raise ExpressionError(f"指数过大（上限 {_MAX_POW_EXPONENT}）")
         if op_type in (ast.Div, ast.FloorDiv, ast.Mod) and right == 0:
             raise ExpressionError("除数不能为 0")
-        return _BIN_OPS[op_type](left, right)
+        try:
+            value = _BIN_OPS[op_type](left, right)
+        except (OverflowError, ZeroDivisionError) as exc:
+            raise ExpressionError("结果超出可计算范围") from exc
+        if isinstance(value, int) and value.bit_length() > _MAX_INT_BITS:
+            raise ExpressionError(f"计算结果过大（上限 {_MAX_INT_BITS} 位）")
+        return value
 
     if isinstance(node, ast.UnaryOp):
         unary_type: type[Any] = type(node.op)
@@ -89,7 +98,11 @@ def _eval_node(node: ast.AST) -> float:
             raise ExpressionError(f"不支持的函数: {node.func.id}")
         if node.keywords:
             raise ExpressionError("不支持关键字参数")
-        return func(*(_eval_node(arg) for arg in node.args))
+        try:
+            return func(*(_eval_node(arg) for arg in node.args))
+        except (OverflowError, ZeroDivisionError, ValueError) as exc:
+            # math.exp(1e12) 之类会抛 OverflowError，不是 ExpressionError
+            raise ExpressionError("函数参数超出可计算范围") from exc
 
     if isinstance(node, ast.Name):
         if node.id in _CONSTS:
@@ -112,7 +125,14 @@ def safe_eval(expression: str) -> float:
         raise ExpressionError(f"表达式语法错误: {exc.msg}") from exc
 
     value = _eval_node(tree.body)
-    if isinstance(value, complex) or not math.isfinite(value):
+    if isinstance(value, int) and value.bit_length() > _MAX_INT_BITS:
+        raise ExpressionError(f"计算结果过大（上限 {_MAX_INT_BITS} 位）")
+    try:
+        finite = math.isfinite(value)
+    except (OverflowError, TypeError):
+        # 超大 int 无法转 float：比例有限性更严格，直接拒绝
+        raise ExpressionError("结果不是有限实数") from None
+    if isinstance(value, complex) or not finite:
         raise ExpressionError("结果不是有限实数")
     return value
 
