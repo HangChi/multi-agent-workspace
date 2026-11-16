@@ -13,8 +13,8 @@ T074：run_cancel / run_retry / run_reply 审计挂接（detail 含 from_status�
 from collections import Counter
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import load_only
 
@@ -241,11 +241,21 @@ async def download_artifact(
     artifact_id: str,
     user: CurrentUser,
     db: DB,
+    redirect: Annotated[bool, Query(description="false 时返回 JSON URL 而不是 302")] = True,
 ):
-    """制品下载（归属校验）→ 302 预签名 GET URL（FR-016）。"""
+    """制品下载（归属校验）→ 302 预签名 GET URL（FR-016）。
+
+    ``redirect=false`` 返回 ``{"url": ...}``：浏览器里的 ``<a href>`` 无法附加
+    Bearer 头，链接直连本端点只会拿到 401。前端先用带鉴权的请求换取签名 URL，
+    再跳转，才能既保留归属校验又不把 token 交给对象存储。
+    """
     run = await _get_owned_run(db, run_id, user)
     artifact = await db.get(Artifact, artifact_id)
     if artifact is None or artifact.run_id != run.id:
         raise AppError("NOT_FOUND", "制品不存在")
     url = artifact_service.presign_get(artifact.object_key)
+    if not redirect:
+        return JSONResponse(
+            {"url": url, "filename": artifact.filename, "size_bytes": artifact.size_bytes}
+        )
     return RedirectResponse(url, status_code=302)

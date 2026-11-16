@@ -5,11 +5,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { extractError } from '../api/client'
 import {
-  attachmentDownloadUrl,
   createRequest,
   fetchAgents,
   fetchGroups,
   fetchRequests,
+  openDownloadUrl,
+  resolveAttachmentDownloadUrl,
   RoutingStrategy,
   WorkRequest,
 } from '../api/endpoints'
@@ -56,6 +57,16 @@ export function BoardPage() {
   const [showForm, setShowForm] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [detail, setDetail] = useState<WorkRequest | null>(null)
+
+  /** 附件下载：先带鉴权换预签名 URL，再跳转（直链会 401）。 */
+  const downloadAttachment = async (requestId: string, key: string) => {
+    try {
+      const { url } = await resolveAttachmentDownloadUrl(requestId, key)
+      openDownloadUrl(url)
+    } catch (e) {
+      toast.error('下载失败', extractError(e))
+    }
+  }
 
   const pending = useBoardStore((s) => s.pending)
   const openAssign = useBoardStore((s) => s.openAssign)
@@ -277,14 +288,14 @@ export function BoardPage() {
                       <span className="shrink-0 text-2xs tabular-nums text-ink-faint">
                         {(att.size / 1024).toFixed(1)} KB
                       </span>
-                      <a
-                        href={attachmentDownloadUrl(currentDetail.id, att.key)}
-                        download={att.name}
+                      <button
+                        type="button"
+                        onClick={() => void downloadAttachment(currentDetail.id, att.key)}
                         aria-label={`下载 ${att.name}`}
                         className="shrink-0 rounded-md p-1 text-ink-faint transition-colors hover:bg-surface-subtle hover:text-accent"
                       >
                         <Icon name="download" className="h-3.5 w-3.5" />
-                      </a>
+                      </button>
                     </li>
                   ))}
                 </ul>

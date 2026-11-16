@@ -14,7 +14,7 @@ T049：request_create 审计挂接。T059：assign 审计挂接。
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.api.deps import DB, CurrentUser, require_role
 from app.core.audit import write_audit
@@ -130,11 +130,20 @@ async def download_attachment(
     key: str,
     user: CurrentUser,
     db: DB,
+    redirect: Annotated[bool, Query(description="false 时返回 JSON URL 而不是 302")] = True,
 ):
-    """附件下载（归属校验）→ 302 预签名 GET URL。"""
+    """附件下载（归属校验）→ 302 预签名 GET URL。
+
+    ``redirect=false`` 返回 ``{"url": ...}``，供浏览器端先用带鉴权的请求换签名
+    URL 再跳转（``<a href>`` 无法携带 Bearer 头，直连只会 401）。
+    """
     request = await request_service.get_request(db, request_id, user.id)
     normalized = artifact_service.normalize_key(key)
     url = artifact_service.download_url(request, normalized)
+    if not redirect:
+        return JSONResponse(
+            {"url": url, "filename": normalized.rsplit("/", 1)[-1]}
+        )
     return RedirectResponse(url, status_code=302)
 
 

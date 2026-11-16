@@ -298,6 +298,17 @@ export function RunDetailPage() {
     }
   }
 
+  /** 制品下载：先带鉴权换预签名 URL，再跳转（直链会 401）。 */
+  const downloadArtifact = async (artifactId: string) => {
+    if (!run) return
+    try {
+      const { url } = await api.resolveArtifactDownloadUrl(run.id, artifactId)
+      api.openDownloadUrl(url)
+    } catch (e) {
+      toast.error('下载失败', extractError(e))
+    }
+  }
+
   if (loading) {
     return (
       <Page width="medium">
@@ -585,15 +596,14 @@ export function RunDetailPage() {
                 <span className="shrink-0 text-2xs tabular-nums text-ink-faint">
                   {formatBytes(art.size_bytes)}
                 </span>
-                <a
-                  href={api.artifactDownloadUrl(run.id, art.id)}
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  type="button"
+                  onClick={() => void downloadArtifact(art.id)}
                   className="inline-flex shrink-0 items-center gap-1 rounded-md border border-line-strong bg-surface px-2 py-1 text-2xs font-medium text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
                 >
                   <Icon name="download" className="h-3 w-3" />
                   下载
-                </a>
+                </button>
               </li>
             ))}
           </ul>

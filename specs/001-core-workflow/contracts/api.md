@@ -132,6 +132,11 @@
 ### GET /runs/{id}/artifacts/{artifact_id}
 下载制品（FR-016）→ 302 到预签名 URL。
 
+`?redirect=false` → 200 `{"url": "...", "filename": "...", "size_bytes": N}`。
+浏览器里的 `<a href>` 无法携带 `Authorization` 头，直连本端点只会 401；前端先用
+带鉴权的请求换取签名 URL 再跳转，对象存储始终只看到签名。
+附件下载端点 `GET /requests/{id}/attachments/{key}` 提供同样的 `redirect` 参数。
+
 ## WebSocket
 
 ### WS /ws/runs/{id}

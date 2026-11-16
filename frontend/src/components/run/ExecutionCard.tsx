@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import {
-  artifactDownloadUrl,
   fetchExecution,
   fetchExecutionEgress,
   type EgressAccess,
   type ExecutionDetail as ExecutionDetailType,
+  openDownloadUrl,
+  resolveArtifactDownloadUrl,
 } from '../../api/endpoints'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
@@ -124,7 +125,31 @@ export function ExecutionCard({ runId, execution }: { runId: string; execution: 
 }
 
 function ArtifactList({ runId, artifacts }: { runId: string; artifacts: ExecutionDetailType['artifacts'] }) {
-  return <section aria-label="执行制品" className="space-y-1.5"><h3 className="text-xs font-medium text-ink-soft">执行制品</h3><ul className="space-y-1">{artifacts.map((artifact) => <li key={artifact.id} className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-xs"><span className="min-w-0 flex-1 truncate text-ink" title={artifact.filename}>{artifact.filename}</span><span className="text-ink-faint">{formatBytes(artifact.size_bytes)}</span><a className="rounded border border-line-strong px-2 py-1 text-ink-soft hover:text-ink" href={artifactDownloadUrl(runId, artifact.id)} target="_blank" rel="noreferrer">下载</a></li>)}</ul></section>
+  // 直链拿不到鉴权：先换预签名 URL 再跳转
+  const download = async (artifactId: string) => {
+    const { url } = await resolveArtifactDownloadUrl(runId, artifactId)
+    openDownloadUrl(url)
+  }
+  return (
+    <section aria-label="执行制品" className="space-y-1.5">
+      <h3 className="text-xs font-medium text-ink-soft">执行制品</h3>
+      <ul className="space-y-1">
+        {artifacts.map((artifact) => (
+          <li key={artifact.id} className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-xs">
+            <span className="min-w-0 flex-1 truncate text-ink" title={artifact.filename}>{artifact.filename}</span>
+            <span className="text-ink-faint">{formatBytes(artifact.size_bytes)}</span>
+            <button
+              type="button"
+              className="rounded border border-line-strong px-2 py-1 text-ink-soft hover:text-ink"
+              onClick={() => void download(artifact.id)}
+            >
+              下载
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
 }
 
 function EgressList({ items }: { items: EgressAccess[] }) {

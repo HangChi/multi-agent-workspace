@@ -41,6 +41,16 @@ async def test_owner_downloads_artifact_with_redirect_and_sha256(
     assert response.status_code == 302
     assert response.headers["location"].endswith(artifact.object_key)
 
+    # 浏览器链接无法带 Bearer 头：前端用同一端点取回 URL 再跳转
+    resolved = await client.get(
+        f"{RUNS_URL}/{execution.run_id}/artifacts/{artifact.id}",
+        headers=headers,
+        params={"redirect": "false"},
+    )
+    assert resolved.status_code == 200
+    assert resolved.json()["url"].endswith(artifact.object_key)
+    assert resolved.json()["filename"] == "result.txt"
+
     other_headers = await make_headers()
     hidden = await client.get(
         f"{RUNS_URL}/{execution.run_id}/artifacts/{artifact.id}",

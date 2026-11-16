@@ -147,6 +147,15 @@ async def test_download_returns_presigned_get_url(client, make_headers):
         get_url = resp.headers["location"]
         assert "X-Amz-Signature" in get_url
 
+        # 浏览器链接带不了 Bearer 头：同一端点 + redirect=false 取回 URL
+        resolved = await client.get(
+            f"{REQUESTS_URL}/{req['id']}/attachments/{key_q}",
+            headers=headers,
+            params={"redirect": "false"},
+        )
+        assert resolved.status_code == 200
+        assert "X-Amz-Signature" in resolved.json()["url"]
+
         # 预签名 GET URL 可真实取回内容
         get_resp = await http.get(get_url)
         assert get_resp.status_code == 200

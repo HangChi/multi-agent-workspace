@@ -832,9 +832,44 @@ export async function replyRun(id: string, message: string): Promise<{ status: s
   return data
 }
 
-/** 制品下载 URL（302 预签名）。 */
-export function artifactDownloadUrl(runId: string, artifactId: string): string {
-  return `/api/v1/runs/${runId}/artifacts/${artifactId}`
+/**
+ * 换取制品/附件的预签名下载地址。
+ *
+ * 直接用 `<a href>` 指向下载端点是拿不到 401 之后的 302 的：普通链接不会带
+ * `Authorization` 头。这里用带鉴权的请求换 URL，再由浏览器跳转，对象存储始终
+ * 只看到签名而不看到用户 token。
+ */
+export async function resolveArtifactDownloadUrl(
+  runId: string,
+  artifactId: string,
+): Promise<{ url: string; filename: string }> {
+  const { data } = await apiClient.get<{ url: string; filename: string }>(
+    `/runs/${runId}/artifacts/${artifactId}`,
+    { params: { redirect: false } },
+  )
+  return data
+}
+
+export async function resolveAttachmentDownloadUrl(
+  requestId: string,
+  key: string,
+): Promise<{ url: string; filename: string }> {
+  const { data } = await apiClient.get<{ url: string; filename: string }>(
+    `/requests/${requestId}/attachments/${encodeURIComponent(key)}`,
+    { params: { redirect: false } },
+  )
+  return data
+}
+
+/** 用隐藏链接打开预签名地址（不把 access token 交给对象存储）。 */
+export function openDownloadUrl(url: string): void {
+  const link = document.createElement('a')
+  link.href = url
+  link.rel = 'noreferrer'
+  link.target = '_blank'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
 }
 
 // ---------- 统计（T078，Phase 8）----------
