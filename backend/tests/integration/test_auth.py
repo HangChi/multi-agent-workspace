@@ -49,6 +49,31 @@ async def test_register_success(client, db_session):
     assert body["tokens"]["refresh"]
 
 
+async def test_one_time_invite_code_cannot_be_used_twice_concurrently(client, db_session):
+    """一次性邀请码的消耗必须是原子的：并发注册只能成功一个。"""
+    import asyncio
+
+    from sqlalchemy import select
+
+    from app.models.invite_code import InviteCode
+
+    await _make_invite_code(db_session, code="RACE-CODE-1", max_uses=1)
+    payloads = [
+        {"email": f"race{index}@test.com", "password": "StrongPass123!",
+         "invite_code": "RACE-CODE-1"}
+        for index in range(2)
+    ]
+    responses = await asyncio.gather(*(client.post(REGISTER_URL, json=body) for body in payloads))
+    codes = sorted(response.status_code for response in responses)
+    assert codes == [201, 400], [response.text for response in responses]
+
+    db_session.expire_all()
+    invite = (
+        await db_session.execute(select(InviteCode).where(InviteCode.code == "RACE-CODE-1"))
+    ).scalar_one()
+    assert invite.used_count == 1
+
+
 async def test_register_invalid_invite_code(client, db_session):
     resp = await client.post(
         REGISTER_URL,

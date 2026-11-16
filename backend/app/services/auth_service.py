@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 
 from jose import JWTError
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
@@ -60,12 +60,25 @@ async def register(
     if existing is not None:
         raise AppError("CONFLICT", "邮箱已被注册")
 
-    # 事务内：消耗邀请码 + 建用户
-    invite.used_count += 1
+    # 消耗邀请码必须是单条原子语句：先读 used_count 再写回，两个并发注册会都读到
+    # 旧值、各自 +1，最终只记一次，一次性邀请码因此能被用两次。条件更新同时把
+    # 「是否用尽」的判断交给数据库。
+    consumed = (
+        await db.execute(
+            update(InviteCode)
+            .where(InviteCode.id == invite.id, InviteCode.used_count < InviteCode.max_uses)
+            .values(used_count=InviteCode.used_count + 1)
+            .returning(InviteCode.role)
+        )
+    ).first()
+    if consumed is None:
+        raise AppError("INVALID_INPUT", "邀请码已用尽")
+    role = consumed[0]
+
     user = User(
         email=email,
         password_hash=hash_password(password),
-        role=invite.role,
+        role=role,
         invite_code_id=invite.id,
     )
     db.add(user)
