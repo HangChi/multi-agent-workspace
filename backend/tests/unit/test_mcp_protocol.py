@@ -63,3 +63,32 @@ async def test_rejects_json_rpc_error_and_unsupported_protocol_version():
         client = MCPClient("https://mcp.example.test/mcp", http_client=http)
         with pytest.raises(MCPProtocolError):
             await client.initialize()
+
+
+class _DeadlineTransport(httpx.AsyncBaseTransport):
+    """ transport that always exceeds the caller's deadline. """
+
+    def __init__(self, error):
+        self.error = error
+
+    async def handle_async_request(self, request):
+        raise self.error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [
+    httpx.ReadTimeout("read deadline exceeded"),
+    httpx.ConnectTimeout("connect deadline exceeded"),
+    httpx.PoolTimeout("pool deadline exceeded"),
+    TimeoutError("deadline exceeded"),
+])
+async def test_deadlines_are_not_reported_as_transport_failures(error):
+    """部署验收发现的缺陷回归：超时必须保持 `timeout` 分类。
+
+    `transport_error` 的契约含义是 DNS/连接/协议/可用性故障；把截止时间
+    揉成传输错误会让同一次超时按竞争结果被归类，`timeout` 类别不可达。
+    """
+    async with httpx.AsyncClient(transport=_DeadlineTransport(error)) as http:
+        client = MCPClient("https://mcp.example.test/mcp", http_client=http, call_timeout=0.01)
+        with pytest.raises((httpx.TimeoutException, TimeoutError)):
+            await client._request("tools/call", {"name": "search", "arguments": {}})

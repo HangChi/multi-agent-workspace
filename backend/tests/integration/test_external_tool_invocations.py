@@ -1,19 +1,41 @@
 """Invocation persistence and safe Run projection contract tests."""
 
 import asyncio
+import json
+import sys
+import uuid
+from pathlib import Path
 
+import httpx
 import pytest
 from sqlalchemy import event, select
 from sqlalchemy.engine import Engine
 
+from app.executors.llm import LLMResponse, ToolCall
+from app.executors.mcp_client import MCPClient
+from app.models.agent import Agent
 from app.models.external_invocation import ExternalToolInvocation
-from app.models.external_tool import ExternalToolServer, ExternalToolVersion
+from app.models.external_tool import (
+    ExternalToolGrant,
+    ExternalToolServer,
+    ExternalToolVersion,
+    MarketplaceListing,
+    ToolInstallation,
+)
 from app.models.run import Run
+from app.models.step import Step
 from app.services import quota_service
 from app.services.external_invocation_service import (
     list_run_invocations,
     record_invocation,
 )
+from app.tasks.execute_run import _execute
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from deploy.verify.mcp_fixture_server import handle_message
+
+AGENTS_URL = "/api/v1/agents"
+REQUESTS_URL = "/api/v1/requests"
 
 
 async def _run_fixture(client, db_session, headers, owner):
@@ -264,3 +286,217 @@ async def test_external_invocation_uses_existing_user_quota_gate(
 
     with pytest.raises(quota_service.QuotaExceeded):
         await quota_service.assert_user_quota(db_session, owner.id)
+
+
+# ---------- 真实执行链：调用记录的 step_id 必须指向已存在的步骤 ----------
+
+
+class _FakeRedis:
+    """最小 Redis 替身：仅覆盖并发租约用到的命令。"""
+
+    def __init__(self) -> None:
+        self.store: dict[str, str] = {}
+
+    def set(self, key: str, value: str, nx: bool = False, ex: int | None = None):
+        if nx and key in self.store:
+            return None
+        self.store[key] = value
+        return True
+
+    def eval(self, _script: str, _numkeys: int, key: str, token: str) -> int:
+        if self.store.get(key) == token:
+            del self.store[key]
+            return 1
+        return 0
+
+    def close(self) -> None:
+        return None
+
+
+def _fixture_transport() -> httpx.MockTransport:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        message = json.loads(request.content)
+        payload = await asyncio.to_thread(handle_message, message, scenario="normal")
+        return httpx.Response(200, json=payload)
+
+    return httpx.MockTransport(handler)
+
+
+class _ScriptedLLM:
+    """第一次请求外部工具，第二次给出最终答案。"""
+
+    def __init__(self, tool_name: str):
+        self.tool_name = tool_name
+        self.calls = 0
+
+    async def chat(self, _messages, **_kwargs) -> LLMResponse:
+        self.calls += 1
+        if self.calls == 1:
+            return LLMResponse(
+                content="",
+                tool_calls=[ToolCall(name=self.tool_name, arguments={"query": "fixture"})],
+                cost_cents=1,
+            )
+        return LLMResponse(content="外部结果已消费", cost_cents=1)
+
+
+@pytest.mark.asyncio
+async def test_external_invocation_records_a_step_that_already_exists(
+    client, db_session, make_headers, make_user, monkeypatch
+):
+    """部署验收发现的缺陷回归：调用记录先于步骤行落库 → 外键冲突 → Run 失败。
+
+    执行器是在调用过程中写入 ``external_tool_invocations`` 的，而该行以
+    ``step_id`` 引用步骤；因此 Worker 必须在外置工具执行**之前**先落步骤行
+    （与沙箱路径同序），runner 的终态再回填同一行。
+    """
+    from app.services import external_concurrency, external_invocation_service
+
+    suffix = uuid.uuid4().hex[:8]
+    owner, _ = await make_user(role="member")
+    headers = await make_headers(user=owner)
+    agent = (
+        await client.post(
+            AGENTS_URL,
+            headers=headers,
+            json={
+                "name": f"external-step-{suffix}",
+                "description": "external step ordering",
+                "system_prompt": "use the authorized tool",
+                "model": "test-model",
+            },
+        )
+    ).json()
+    request = (
+        await client.post(
+            REQUESTS_URL,
+            headers=headers,
+            json={"title": "external step order", "description": "regression"},
+        )
+    ).json()
+
+    stable_name = f"mcp_step_order_lookup_{suffix}"
+    server = ExternalToolServer(
+        owner_id=owner.id,
+        created_by=owner.id,
+        name=f"Step Order Server {suffix}",
+        description="fixture",
+        endpoint_url="https://8.8.8.8/step-order",
+        normalized_endpoint_url="https://8.8.8.8/step-order",
+        maintainer="Platform",
+        auth_mode="none",
+        status="published",
+        current_validation_status="passed",
+    )
+    db_session.add(server)
+    await db_session.flush()
+    version = ExternalToolVersion(
+        server_id=server.id,
+        external_name="search",
+        stable_name=stable_name,
+        version="1.0.0+step-order",
+        description="Search approved content",
+        input_schema={"type": "object", "properties": {"query": {"type": "string"}}},
+        required_permissions=["records.read"],
+        definition_hash=f"step-order-{suffix}",
+        availability="valid",
+    )
+    db_session.add(version)
+    await db_session.flush()
+    listing = MarketplaceListing(
+        tool_version_id=version.id,
+        status="published",
+        usage_summary="Search approved content",
+        data_handling="Queries are sent to the approved server",
+        restrictions={},
+    )
+    db_session.add(listing)
+    await db_session.flush()
+    installation = ToolInstallation(
+        listing_id=listing.id,
+        owner_id=owner.id,
+        installed_by=owner.id,
+        status="installed",
+        version_policy="pinned",
+    )
+    db_session.add(installation)
+    await db_session.flush()
+    db_session.add(
+        ExternalToolGrant(
+            agent_id=agent["id"],
+            installation_id=installation.id,
+            tool_version_id=version.id,
+            permission_snapshot=["records.read"],
+            schema_snapshot={"input": version.input_schema, "output": None},
+            status="active",
+            granted_by=owner.id,
+        )
+    )
+    await db_session.commit()
+
+    assigned = await client.post(
+        f"{REQUESTS_URL}/{request['id']}/assign",
+        headers=headers,
+        json={"assignee_type": "agent", "assignee_id": agent["id"]},
+    )
+    assert assigned.status_code == 202, assigned.text
+    run_id = assigned.json()["run_id"]
+
+    http = httpx.AsyncClient(transport=_fixture_transport())
+    monkeypatch.setattr(external_concurrency, "_redis_client", _FakeRedis)
+    monkeypatch.setattr("app.tasks.execute_run.LiteLLMClient.chat", _ScriptedLLM(stable_name).chat)
+
+    # The executor binds its real MCP client as a constructor default, so inject
+    # the fixture transport where the Worker builds the executors.
+    real_executor = external_invocation_service.ExternalToolExecutor
+
+    def _executor_with_fixture_transport(**kwargs):
+        kwargs["client_factory"] = (
+            lambda endpoint, **client_kwargs: MCPClient(
+                endpoint, http_client=http, **client_kwargs
+            )
+        )
+        return real_executor(**kwargs)
+
+    monkeypatch.setattr(
+        external_invocation_service, "ExternalToolExecutor", _executor_with_fixture_transport
+    )
+
+    run = await db_session.get(Run, run_id)
+    assert run is not None
+    agent_row = await db_session.get(Agent, agent["id"])
+    assert agent_row is not None
+    try:
+        await _execute(db_session, run, agent_row)
+    finally:
+        await http.aclose()
+
+    db_session.expire_all()
+    await db_session.refresh(run)
+    assert run.status == "completed", run.error
+
+    invocation = await db_session.scalar(
+        select(ExternalToolInvocation).where(ExternalToolInvocation.run_id == run_id)
+    )
+    assert invocation is not None
+    assert invocation.status == "succeeded"
+    assert invocation.step_id is not None
+
+    step = await db_session.get(Step, invocation.step_id)
+    assert step is not None, "调用记录引用了一个不存在的步骤行"
+    assert step.run_id == run_id
+    assert step.kind == "tool"
+    assert step.tool_name == stable_name
+    # 终态由 runner 回填：预置的 running 占位不能残留。
+    assert step.status == "completed"
+    assert step.input == {"argument_keys": ["query"]}
+    assert step.output["status"] == "succeeded"
+    assert step.output["error_category"] is None
+
+    steps = (
+        (await db_session.execute(select(Step.id).where(Step.run_id == run_id)))
+        .scalars()
+        .all()
+    )
+    assert invocation.step_id in steps
+    assert [s for s in steps if s == invocation.step_id].count(invocation.step_id) == 1

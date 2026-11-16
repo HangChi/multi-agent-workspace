@@ -1,6 +1,7 @@
 """Marketplace browse and reviewer lifecycle contract tests."""
 
 import pytest
+from sqlalchemy import select
 
 from app.models.external_tool import (
     ExternalToolServer,
@@ -129,3 +130,79 @@ async def test_published_listing_can_be_paused_then_revoked_with_reasons(
     )
     assert revoked.status_code == 200
     assert revoked.json()["status"] == "revoked"
+
+
+@pytest.mark.asyncio
+async def test_approving_a_tool_publishes_its_server_and_grants_can_snapshot(
+    client, db_session, make_headers, make_user
+):
+    """Approval must advance the server, not only the listing.
+
+    Grant snapshotting and listing resume both require a published server, so a
+    server that stays ``pending_review`` after its tool is approved makes every
+    external tool unusable and every pause permanent. This walks the real
+    governance path -- register, validate, approve -- instead of inserting a
+    published server, because the gap only exists on that path.
+    """
+    from app.tasks.validate_external_server import validate_external_server
+
+    original_delay = validate_external_server.delay
+    validate_external_server.delay = lambda server_id, requested_by: None
+    try:
+        admin, _ = await make_user(role="admin")
+        admin_headers = await make_headers(user=admin)
+        created = await client.post(
+            "/api/v1/external-tool-servers",
+            headers=admin_headers,
+            json={
+                "name": "Governance Path Server",
+                "description": "Registered through the real API",
+                "endpoint_url": "https://8.8.8.8/governance",
+                "maintainer": "Platform",
+                "auth_mode": "none",
+            },
+        )
+        assert created.status_code == 201
+        assert created.json()["status"] == "pending_review"
+        server_id = created.json()["id"]
+    finally:
+        validate_external_server.delay = original_delay
+
+    from app.executors.mcp_client import MCPTool
+    from app.services import external_validation_service
+
+    class _FixtureClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def initialize(self):
+            return {"protocolVersion": "2025-06-18"}
+
+        async def list_tools(self):
+            return [MCPTool(name="search", description="Find records",
+                            input_schema={"type": "object"})]
+
+    server = await db_session.get(ExternalToolServer, server_id)
+    await external_validation_service.validate_server(
+        db_session, server=server, requested_by=admin.id,
+        client_factory=lambda *args, **kwargs: _FixtureClient(),
+    )
+    await db_session.refresh(server)
+    assert server.status == "pending_review"
+    tool_version = (await db_session.execute(
+        select(ExternalToolVersion).where(ExternalToolVersion.server_id == server_id)
+    )).scalars().first()
+    assert tool_version is not None
+
+    approved = await client.post(
+        f"/api/v1/external-tool-servers/{server_id}/tools/{tool_version.id}/approve",
+        headers=admin_headers,
+        json={"reason": "Reviewed and approved for deployment"},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "published"
+    await db_session.refresh(server)
+    assert server.status == "published"

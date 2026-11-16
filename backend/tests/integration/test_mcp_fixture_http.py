@@ -62,7 +62,9 @@ async def test_real_https_fixture_handshake_discovery_success_and_tool_error(htt
     ):
         await client.initialize()
         tools = await client.list_tools()
-        assert {tool.name for tool in tools} >= {"search", "error_search"}
+        # Exact set: the fixture paginates over three pages, so a client that
+        # stops at the first cursor silently loses a tool.
+        assert {tool.name for tool in tools} == {"search", "slow_search", "error_search"}
         result = await client.call_tool("search", {"query": "owned fixture"})
         assert result["isError"] is False
         with pytest.raises(MCPToolError):

@@ -84,3 +84,69 @@ async def test_duplicate_normalized_endpoint_is_conflict(client, make_headers, m
     second = await client.post("/api/v1/external-tool-servers", headers=headers, json=SERVER)
     assert second.status_code == 409
     assert "canary-secret-value" not in second.text
+
+
+@pytest.mark.asyncio
+async def test_server_detail_projection_reads_tool_listings_without_lazy_io(db_session, make_user):
+    """GET detail must not lazy-load a tool's listing.
+
+    The server projection reads ``tool.listings`` for every discovered tool, so
+    ``get_server`` has to eager-load that relationship. When it does not, the
+    detail endpoint raises ``MissingGreenlet`` for any server that has tools --
+    which is invisible to a test that builds the whole graph in one session,
+    because SQLAlchemy then serves the relationship from the identity map.
+    """
+    from app.models.external_tool import (
+        ExternalToolServer,
+        ExternalToolVersion,
+        MarketplaceListing,
+    )
+    from app.services import external_tool_service
+
+    user, _ = await make_user(role="admin")
+    server = ExternalToolServer(
+        owner_id=user.id,
+        created_by=user.id,
+        name="Detail Projection Fixture",
+        description="Fixture",
+        endpoint_url="https://8.8.8.8/mcp",
+        normalized_endpoint_url="https://8.8.8.8/mcp",
+        maintainer="Test",
+        auth_mode="none",
+        status="pending_review",
+    )
+    db_session.add(server)
+    await db_session.flush()
+    tool = ExternalToolVersion(
+        server_id=server.id,
+        external_name="search",
+        stable_name="mcp_search",
+        version="1.0.0",
+        description="Fixture tool",
+        input_schema={"type": "object"},
+        definition_hash="0" * 64,
+        availability="valid",
+    )
+    db_session.add(tool)
+    await db_session.flush()
+    listing = MarketplaceListing(
+        tool_version_id=tool.id,
+        status="published",
+        usage_summary="Fixture usage",
+        data_handling="Fixture handling",
+    )
+    db_session.add(listing)
+    await db_session.flush()
+    listing_id = listing.id
+    # Force the projection to read the relationship from the database rather
+    # than from the objects this session just constructed.
+    db_session.expunge_all()
+
+    loaded = await external_tool_service.get_server(
+        db_session, server_id=server.id, owner_id=user.id, is_admin=True
+    )
+    projection = external_tool_service.server_projection(loaded)
+
+    assert len(projection["tools"]) == 1
+    assert projection["tools"][0]["listing_id"] == listing_id
+    assert projection["tools"][0]["listing_status"] == "published"

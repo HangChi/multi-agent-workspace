@@ -195,10 +195,20 @@ class Verifier:
 
     async def wait_run(
         self, run_id: str, *, expected_status: str = "completed",
+        identity: str | None = None,
     ) -> dict[str, Any]:
+        """Poll a run to a terminal state.
+
+        ``identity`` selects the account to read the run as, defaulting to this
+        verifier's own request identity. It has to be the account that *owns*
+        the run: the API answers 404 for a run belonging to anyone else rather
+        than disclosing that it exists, so polling a member's run as an
+        administrator looks exactly like a missing run.
+        """
         deadline = time.monotonic() + self.args.timeout
         while time.monotonic() < deadline:
-            run = (await self.request("GET", f"/runs/{run_id}")).json()
+            selector = {} if identity is None else {"identity": identity}
+            run = (await self.request("GET", f"/runs/{run_id}", **selector)).json()
             if run["status"] in {"completed", "failed", "timeout", "cancelled", "needs_input"}:
                 require(run["status"] == expected_status,
                         f"terminal run status={run['status']} expected={expected_status} (inspect run ID above)")

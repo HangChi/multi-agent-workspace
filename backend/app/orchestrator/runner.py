@@ -115,6 +115,7 @@ class ReActRunner:
         audit_denied: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
         on_sandbox_started: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
         on_sandbox_result: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
+        on_external_started: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
         authorize_tool: Callable[[str], Awaitable[bool]] | None = None,
     ) -> None:
         self.llm = llm
@@ -125,6 +126,7 @@ class ReActRunner:
         self.audit_denied = audit_denied
         self.on_sandbox_started = on_sandbox_started
         self.on_sandbox_result = on_sandbox_result
+        self.on_external_started = on_external_started
         self.authorize_tool = authorize_tool
         self.system_prompt = system_prompt or (
             "你是一个任务执行助手。你需要：1) 理解用户需求；2) 必要时调用工具获取信息；"
@@ -283,6 +285,19 @@ class ReActRunner:
                                 "version": getattr(executor, "version", None),
                             }
                         )
+                        if self.on_external_started is not None:
+                            # The invocation row is written with this step as its
+                            # foreign key, so the step must exist before the
+                            # executor runs -- same ordering as the sandbox path.
+                            await self.on_external_started(
+                                {
+                                    "run_id": run_id,
+                                    "step_seq": seq,
+                                    "step_id": external_step_id,
+                                    "stable_name": tc.name,
+                                    "version": getattr(executor, "version", None),
+                                }
+                            )
                     denied = executor is None and tc.name in CATALOG
                     if executor is None:
                         if denied:

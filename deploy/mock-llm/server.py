@@ -8,6 +8,9 @@ OpenAI 兼容 /v1/chat/completions，供 LiteLLMClient 真实调用：
 - usage 返回固定 token 数（成本累计验证，SC-006）
 - 显式 [sandbox:<scenario>] 标记驱动 002 验收；仅返回固定工具调用，不执行代码。
   场景：python_sum / shell / failure / artifacts / denied / no_tools。
+- 显式 [external:<outcome>] 标记驱动 003 外部工具并发验收；从本回合 advertised
+  的 mcp_* schema 中选取唯一外部工具并按其 outcome（success/tool_error/timeout）
+  调用，不执行任何代码、不绕过 Worker 的真实执行路径。
 
 仅用于本地验证栈，不打包进生产镜像。
 """
@@ -108,6 +111,53 @@ SANDBOX_CALLS = {
     "ws": ("run_python", {"code": "print('ws-output-evidence', flush=True)"}),
 }
 SANDBOX_MARKER = re.compile(r"\[sandbox:([a-z_]+)\]")
+# 003 acceptance: the Agent grants exactly one external tool, so the model turn
+# is derived from the single advertised mcp_* schema instead of a hardcoded name.
+EXTERNAL_MARKER = re.compile(r"\[external:([a-z_]+)\]")
+EXTERNAL_OUTCOMES = ("success", "tool_error", "timeout")
+EXTERNAL_ARGUMENTS = {
+    # The verify stack runs MCP_CALL_TIMEOUT_SECONDS=10; this call must exceed it.
+    "success": {"query": "003 deterministic fixture"},
+    "tool_error": {},
+    "timeout": {"delay_ms": 20000},
+}
+
+
+def external_reply(messages, tools, last_user):
+    """Return fixed 003 external-tool responses, or None for other scenarios."""
+    marker = EXTERNAL_MARKER.search(last_user)
+    if marker is None:
+        return None
+    scenario = marker.group(1)
+    if scenario not in EXTERNAL_OUTCOMES:
+        raise ValueError("unknown external scenario")
+    tool_messages = [message for message in messages if message.get("role") == "tool"]
+    advertised = [tool.get("function", {}).get("name", "") for tool in tools]
+    external = [name for name in advertised if name.startswith("mcp_")]
+    if not tool_messages:
+        if len(external) != 1:
+            return "EXTERNAL_SCENARIO_ERROR: expected exactly one external tool grant", None
+        return "", [{
+            "id": f"call_external_{scenario}_1",
+            "type": "function",
+            "function": {"name": external[0], "arguments": json.dumps(EXTERNAL_ARGUMENTS[scenario])},
+        }]
+    # Only the success path reaches a second model turn; a classified failure
+    # terminates the run inside the orchestrator.
+    if scenario != "success":
+        return "EXTERNAL_SCENARIO_ERROR: failure scenario produced another model turn", None
+    try:
+        output = json.loads(tool_messages[-1].get("content", ""))
+    except (TypeError, ValueError):
+        return "EXTERNAL_SCENARIO_ERROR: invalid tool result", None
+    if not isinstance(output, dict):
+        return "EXTERNAL_SCENARIO_ERROR: invalid tool result", None
+    text = "".join(item.get("text", "") for item in output.get("content") or []
+                   if isinstance(item, dict))
+    if output.get("isError") is not False or '"ok": true' not in text:
+        return "EXTERNAL_SCENARIO_ERROR: external call did not return a successful result", None
+    return f"EXTERNAL_SUCCESS_OK: {text[-120:]}", None
+
 
 
 def sandbox_reply(messages, tools, last_user):
@@ -225,6 +275,17 @@ class Handler(BaseHTTPRequestHandler):
             return
         if scenario_reply is not None:
             content, tool_calls = scenario_reply
+            usage = {"prompt_tokens": 100, "completion_tokens": 50}
+            self._json(200, self._completion(content, usage, tools, has_tool_call, tool_calls))
+            return
+
+        try:
+            external_scenario_reply = external_reply(messages, tools, last_user)
+        except ValueError:
+            self._json(400, {"error": "unknown external scenario"})
+            return
+        if external_scenario_reply is not None:
+            content, tool_calls = external_scenario_reply
             usage = {"prompt_tokens": 100, "completion_tokens": 50}
             self._json(200, self._completion(content, usage, tools, has_tool_call, tool_calls))
             return

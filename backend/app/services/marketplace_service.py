@@ -35,6 +35,33 @@ def listing_projection(listing: MarketplaceListing) -> dict:
     }
 
 
+async def _refresh_server_status(db: AsyncSession, server: ExternalToolServer) -> None:
+    """Advance the server's coarse status to match its published listings.
+
+    Registration leaves a server ``pending_review`` and validation only confirms
+    or rejects it, so nothing else used to move it: a server whose tool a reviewer
+    published stayed ``pending_review`` forever. Grant snapshotting requires a
+    published server, so no external tool could ever be called, and resuming a
+    paused listing requires the same, so a pause was permanent.
+
+    A server with at least one published listing is ``published``. Revoking the
+    last one returns it to ``pending_review``. Pausing a listing deliberately
+    leaves the server published -- the server itself is still governed and
+    usable, while grants fail closed on the listing's own status.
+    """
+    published = await db.scalar(
+        select(func.count())
+        .select_from(MarketplaceListing)
+        .join(MarketplaceListing.tool_version)
+        .where(ExternalToolVersion.server_id == server.id,
+               MarketplaceListing.status == "published")
+    )
+    if published and server.status not in {"rejected", "revoked"}:
+        server.status = "published"
+    elif not published and server.status == "published":
+        server.status = "pending_review"
+
+
 async def _listing(db: AsyncSession, listing_id: str) -> MarketplaceListing:
     listing = await db.scalar(
         select(MarketplaceListing)
@@ -147,6 +174,7 @@ async def _review_listing(
     listing.review_reason = reason.strip()
     if status == "published":
         listing.published_at = reviewed_at
+        await _refresh_server_status(db, version.server)
     await write_external_audit(
         db,
         user_id=reviewer_id,
@@ -213,6 +241,7 @@ async def transition_listing(
         listing.status = "revoked"
         listing.tool_version.availability = "revoked"
         audit_action = "external_tool_revoke"
+        await _refresh_server_status(db, listing.tool_version.server)
     else:
         raise AppError("INVALID_INPUT", "不支持的 listing 状态变更")
     listing.reviewer_id = reviewer_id

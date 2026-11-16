@@ -52,6 +52,42 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  external-native:
+    name: 003 external tool deployment acceptance
+    # A full VM is required: the entrypoint builds its own API/Worker/PostgreSQL/
+    # Redis/object-storage stack plus a real HTTPS MCP fixture bridge network,
+    # and measures core API P95 under concurrent load. Never use production
+    # secrets or .env; the entrypoint generates its own disposable material.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install acceptance dependencies
+        # docker is a base backend dependency (see backend/pyproject.toml).
+        run: python -m pip install -e './backend[dev]' 'websockets>=14,<16'
+      - name: Test acceptance controls without application DB fixtures
+        run: python -m unittest discover -s deploy/verify -p 'test_*.py' -v
+      - name: Build own stack and run external concurrency acceptance
+        # The entrypoint owns its compose project: it generates disposable
+        # credentials and TLS material, refuses to reuse an existing project,
+        # and removes exactly what it created. Only sanitized JSON is uploaded.
+        run: python deploy/verify/external_concurrency_acceptance.py --output "$RUNNER_TEMP/003-results"
+      - name: Upload bounded sanitized acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 003-external-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/003-results/*.json
+          if-no-files-found: error
+          retention-days: 7
+
   backend:
     name: 后端（lint + 类型 + 测试）
     runs-on: ubuntu-latest

@@ -114,7 +114,15 @@ class MCPClient:
                         raise MCPTransportError("MCP server response exceeded the size limit")
         except MCPTransportError:
             raise
-        except (httpx.HTTPError, TimeoutError, ValueError) as exc:
+        except (httpx.TimeoutException, TimeoutError):
+            # A deadline is not an availability failure. The API contract separates
+            # `timeout` (connect/handshake/call deadline exceeded) from
+            # `transport_error` (DNS/connect/protocol/availability), so let the
+            # deadline reach the caller instead of laundering it into a transport
+            # error -- otherwise the same overrun is classified by a race between
+            # the caller's deadline and the transport's own timeout.
+            raise
+        except (httpx.HTTPError, ValueError) as exc:
             raise MCPTransportError("MCP server request failed") from exc
         try:
             payload = json.loads(body)

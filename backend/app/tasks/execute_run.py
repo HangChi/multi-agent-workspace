@@ -103,6 +103,7 @@ def _build_runner(
     tool_names: list[str] | None = None,
     abort_check=None,
     on_sandbox_result=None,
+    on_external_started=None,
     external_executors: dict[str, Any] | None = None,
 ) -> ReActRunner:
     """按 Agent 配置构造 runner；无 Agent（组父 Run）用默认配置。"""
@@ -117,6 +118,7 @@ def _build_runner(
             cost_limit_cents=agent.cost_limit_cents,
             system_prompt=agent.system_prompt,
             on_sandbox_result=on_sandbox_result,
+            on_external_started=on_external_started,
         )
     # 组父 Run：仅做编排占位（fan_out 时子 Run 各自执行），直接完成不调 LLM
     return ReActRunner(
@@ -128,12 +130,26 @@ def _build_runner(
 async def _persist_steps(db, run: Run, steps: list[dict]) -> None:
     """批量写 steps 表（seq 唯一约束 per run）。"""
     for step in steps:
-        if step.get("id") and await db.get(Step, step["id"]):
-            continue
         # Keep the identity in the runner's step dict so subsequent batch flushes
         # reuse an already persisted step rather than duplicating its sequence.
         if not step.get("id"):
             step["id"] = new_uuid()
+        persisted = await db.get(Step, step["id"])
+        if persisted is not None:
+            # A step pre-created as "running" so a child row could reference it
+            # (sandbox execution, external tool invocation) is filled in here with
+            # the state the runner reports. A step a specialized handler already
+            # finalized keeps that outcome: the sandbox handler decides its status
+            # from the execution result, which the runner's step dict cannot know.
+            if persisted.status == "running":
+                persisted.seq = step["seq"]
+                persisted.input = step.get("input")
+                persisted.output = step.get("output")
+                persisted.tool_name = step.get("tool_name")
+                persisted.duration_ms = step.get("duration_ms", 0)
+                persisted.cost_cents = step.get("cost_cents", 0)
+                persisted.status = step.get("status", "completed")
+            continue
         db.add(
             Step(
                 id=step.get("id"),
@@ -359,8 +375,33 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
     external_executors = await build_external_executors(
         db, run_id=run.id, owner_id=run.owner_id, abort_check=external_abort_check
     )
+
+    async def publish_external_started(detail: dict) -> None:
+        """外部工具调用前先落 step 行。
+
+        调用记录（external_tool_invocations）以 step_id 为外键，而执行器是在
+        调用过程中写入该记录的，所以步骤行必须先于执行存在——与沙箱路径
+        ``publish_sandbox_started`` 的顺序一致。终态由 runner 通过
+        ``save_step`` 回填（见 ``_persist_steps``）。
+        """
+        db.add(
+            Step(
+                id=str(detail["step_id"]),
+                run_id=run.id,
+                seq=int(detail["step_seq"]),
+                kind="tool",
+                input={"tool_name": detail["stable_name"]},
+                output=None,
+                tool_name=str(detail["stable_name"]),
+                status="running",
+            )
+        )
+        await db.flush()
+        await db.commit()
+
     runner = _build_runner(
-        run, agent, tool_names=tool_names, external_executors=external_executors
+        run, agent, tool_names=tool_names, external_executors=external_executors,
+        on_external_started=publish_external_started,
     )
 
     async def authorize_tool(name: str) -> bool:

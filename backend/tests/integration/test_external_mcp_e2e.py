@@ -55,7 +55,7 @@ async def test_fixture_server_success_and_protocol_discovery():
     async with httpx.AsyncClient(transport=_transport("normal")) as http, MCPClient("https://fixture.example.test/rpc", http_client=http) as client:
         await client.initialize()
         tools = await client.list_tools()
-        assert [tool.name for tool in tools] == ["search", "error_search"]
+        assert [tool.name for tool in tools] == ["search", "slow_search", "error_search"]
         result = await client.call_tool("search", {"query": "fixture"})
         assert result["isError"] is False
 

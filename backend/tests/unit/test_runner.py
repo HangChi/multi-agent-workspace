@@ -480,3 +480,63 @@ async def test_sandbox_lifecycle_callbacks_bracket_tool_execution():
 
 async def _return_false() -> bool:
     return False
+
+
+# ---------- 外部工具：step 行必须先于调用记录存在 ----------
+
+
+class _ExternalExecutor:
+    """最小外部执行器：记录「被调用时」看到的 invocation step id。"""
+
+    is_external_tool = True
+    version = "1.0.0+digest"
+
+    def __init__(self, order: list[str]):
+        self.order = order
+        self.invocation_step_id: str | None = None
+
+    def set_invocation_context(self, step_id: str) -> None:
+        # The real executor stores this and stamps every invocation row with it.
+        self.invocation_step_id = step_id
+
+    def schema(self) -> dict:
+        return {
+            "type": "function",
+            "function": {"name": "mcp_search_v1", "description": "search",
+                         "parameters": {"type": "object", "properties": {}}},
+        }
+
+    async def execute(self, arguments: dict[str, Any]):
+        # 调用记录在 execute 内部落库，此时 step 行必须已存在。
+        self.order.append("execute")
+        return {"content": [{"type": "text", "text": "hit"}]}
+
+
+async def test_external_tool_step_is_created_before_the_executor_runs():
+    """on_external_started 必须先于 execute：调用记录以 step_id 为外键。"""
+    order: list[str] = []
+    executor = _ExternalExecutor(order)
+    llm = FakeLLM(
+        [
+            FakeLLMResponse(tool_calls=[FakeToolCall("mcp_search_v1", {"q": "x"})]),
+            FakeLLMResponse(content="done"),
+        ]
+    )
+    runner, run, sink = _make_runner(llm, executors={"mcp_search_v1": executor})
+    started: list[dict] = []
+
+    async def on_external_started(detail):
+        order.append("started")
+        started.append(detail)
+
+    runner.on_external_started = on_external_started
+    assert await _run(runner, run, sink) == RunStatus.COMPLETED.value
+
+    assert order == ["started", "execute"]
+    assert started[0]["step_id"] == executor.invocation_step_id
+    assert started[0]["step_id"] == sink.steps[1]["id"]
+    assert started[0]["step_seq"] == sink.steps[1]["seq"]
+    assert started[0]["stable_name"] == "mcp_search_v1"
+    assert started[0]["version"] == "1.0.0+digest"
+    assert sink.steps[1]["tool_name"] == "mcp_search_v1"
+    assert sink.steps[1]["status"] == "completed"

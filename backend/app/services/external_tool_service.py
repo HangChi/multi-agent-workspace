@@ -192,9 +192,14 @@ async def list_servers(
 async def get_server(
     db: AsyncSession, *, server_id: str, owner_id: str, is_admin: bool = False
 ) -> ExternalToolServer:
+    # tools.listings is part of the projection (`_safe_server` reads each tool's
+    # listing), so it must be eager-loaded like the collections beside it. Leaving
+    # it lazy makes the read-back of a freshly loaded server raise
+    # MissingGreenlet instead of returning the server, which is only invisible in
+    # tests that build the whole graph in one session.
     stmt = select(ExternalToolServer).options(
         selectinload(ExternalToolServer.credentials), selectinload(ExternalToolServer.validations),
-        selectinload(ExternalToolServer.tools),
+        selectinload(ExternalToolServer.tools).selectinload(ExternalToolVersion.listings),
     ).where(ExternalToolServer.id == server_id)
     if not is_admin:
         stmt = stmt.where(ExternalToolServer.owner_id == owner_id)
