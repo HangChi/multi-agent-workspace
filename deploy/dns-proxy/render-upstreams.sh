@@ -31,6 +31,12 @@ list=${EGRESS_DNS_UPSTREAMS:-223.5.5.5,119.29.29.29}
 # lookup on the CI hosts. Naming the interface keeps upstream traffic on the
 # primary network regardless of what is attached.
 iface=${EGRESS_DNS_UPSTREAM_INTERFACE:-}
+# Retry a lost upstream query quickly instead of waiting out dnsmasq's
+# exponential backoff. On a path that drops most datagrams (measured on the CI
+# hosts: a cold lookup took 13 s even with four upstreams queried at once) an
+# answer only arrives when a retry happens to get through, so the retry cadence
+# is the latency. Empty leaves dnsmasq's default behaviour.
+fast_retry=${EGRESS_DNS_FAST_RETRY_MS:-}
 
 tmp="$out.tmp"
 : > "$tmp"
@@ -62,9 +68,19 @@ if [ "$count" -eq 0 ]; then
     rm -f "$tmp"
     exit 1
 fi
+if [ -n "$fast_retry" ]; then
+    case "$fast_retry" in
+        *[!0-9]*) printf 'invalid retry interval: %s\n' "$fast_retry" >&2; rm -f "$tmp"; exit 1 ;;
+    esac
+    printf 'fast-dns-retry=%s\n' "$fast_retry" > "$tmp.retry"
+fi
 if [ "$count" -gt 1 ]; then
     # Must precede the server= lines? dnsmasq reads the whole file, order does
     # not matter, but keep it first for readability.
     { printf 'all-servers\n'; cat "$tmp"; } > "$tmp.all" && mv "$tmp.all" "$tmp"
+fi
+if [ -n "$fast_retry" ]; then
+    cat "$tmp" "$tmp.retry" > "$tmp.both" && mv "$tmp.both" "$tmp"
+    rm -f "$tmp.retry"
 fi
 mv "$tmp" "$out"

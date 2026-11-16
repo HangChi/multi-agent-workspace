@@ -87,6 +87,7 @@ services:
       # Same pinning as production: an execution bridge must never carry the
       # proxy's own upstream traffic.
       EGRESS_DNS_UPSTREAM_INTERFACE: ${EGRESS_DNS_UPSTREAM_INTERFACE:-eth0}
+      EGRESS_DNS_FAST_RETRY_MS: ${EGRESS_DNS_FAST_RETRY_MS:-500}
     # Dynamic execution-network attachment must not steal the public DNS route.
     networks:
       default:

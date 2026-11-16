@@ -19,7 +19,8 @@ RENDERER = ROOT / "deploy" / "dns-proxy" / "render-upstreams.sh"
 
 
 class RenderUpstreamsTests(unittest.TestCase):
-    def render(self, value: str | None, interface: str | None = None) -> tuple[int, str, str]:
+    def render(self, value: str | None, interface: str | None = None,
+               fast_retry: str | None = None) -> tuple[int, str, str]:
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "upstream.conf"
             env = {key: os.environ[key] for key in ("PATH",) if key in os.environ}
@@ -27,6 +28,8 @@ class RenderUpstreamsTests(unittest.TestCase):
                 env["EGRESS_DNS_UPSTREAMS"] = value
             if interface is not None:
                 env["EGRESS_DNS_UPSTREAM_INTERFACE"] = interface
+            if fast_retry is not None:
+                env["EGRESS_DNS_FAST_RETRY_MS"] = fast_retry
             result = subprocess.run(
                 ["sh", str(RENDERER), str(out)], check=False,
                 env=env, capture_output=True, text=True, timeout=30,
@@ -87,6 +90,21 @@ class RenderUpstreamsTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(written.strip(), "server=1.1.1.1")
 
+    def test_a_lossy_path_retries_on_a_fixed_cadence(self):
+        """The retry interval, not the resolver, sets a cold lookup's latency."""
+        code, written, _ = self.render("1.1.1.1", fast_retry="500")
+        self.assertEqual(code, 0)
+        self.assertIn("fast-dns-retry=500", written)
+
+    def test_retry_interval_is_optional_and_validated(self):
+        code, written, _ = self.render("1.1.1.1")
+        self.assertEqual(code, 0)
+        self.assertNotIn("fast-dns-retry", written)
+        code, written, stderr = self.render("1.1.1.1", fast_retry="soon")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(written, "")
+        self.assertIn("invalid retry interval", stderr)
+
     def test_empty_list_fails_closed(self):
         code, written, _ = self.render(" , ")
         self.assertNotEqual(code, 0)
@@ -120,6 +138,7 @@ class ComposeUpstreamWiringTests(unittest.TestCase):
                 # The proxy is attached to a fresh bridge per execution; its own
                 # upstream traffic must stay on the interface it boots with.
                 self.assertEqual(dns["environment"]["EGRESS_DNS_UPSTREAM_INTERFACE"], "eth0")
+                self.assertEqual(dns["environment"]["EGRESS_DNS_FAST_RETRY_MS"], "500")
 
     def test_acceptance_stack_defaults_to_globally_reachable_resolvers(self):
         dns = self.services("docker-compose.verify.yml")["dns-proxy"]

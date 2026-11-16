@@ -71,6 +71,8 @@ docker rm -f aw-test-dns-proxy; docker network rm aw-test-dns; rm -f /tmp/bl.con
 
 - **缓存会合并重复查询**：同一次执行内重复查同一域名只记一条日志。用于「IP → 域名」反查足够，但**不能**用日志统计访问次数（次数看 conntrack 的连接条目）。
 - **只记域名，不记 URL 路径与请求体**（不做 TLS 解密，见 research R-02 的 Known gaps）。
+- 上游查询默认按固定节奏重传（`EGRESS_DNS_FAST_RETRY_MS=500`）：在丢包严重的链路上，冷查询的延迟取决于
+  重传频率而不是解析器响应时间（CI 实测 13 秒才收到第一个应答）。留空则用 dnsmasq 默认的指数退避。
 - 上游查询默认**绑定主接口**（`EGRESS_DNS_UPSTREAM_INTERFACE=eth0`）：Worker 每次执行都会把本容器接入一条
   新的沙箱网桥，默认路由可能因此在执行期间指向该网桥，上游查询包被执行的出站规则丢弃，查询只能等网桥移除后的
   重试才成功（CI 实测冷查询 15 秒）。渲染成 `server=<ip>@eth0` 后上游流量固定在启动时的主网络。
