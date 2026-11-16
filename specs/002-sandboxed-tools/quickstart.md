@@ -152,6 +152,17 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 - `egress_api`（HTTP 功能 13/14 中唯一失败项）：它是唯一一次必须从沙箱**内部**发起真实公网 HTTPS 抓取的用例（`https://pypi.org/simple/pip/`），同一次 run 也记录了「一次公网 HTTPS 探测超时」。脱敏公开证据里没有该断言的消息体，因此这只是**首要怀疑方向，不是已证实的根因**；下一步只能在原生环境重跑并保留未脱敏的断言详情来确认，不能在证据不足时改产品。
 - 严格 API P95（比值 2.4531 > 1.2）：`_stats_cache` 是 15 秒的进程内缓存，即使跨 2 个 uvicorn worker，每个 15 秒窗口也只有约 2 个请求会打到数据库，因此测到的 P95 基本是**缓存命中延迟**；2.45 倍劣化来自 20 次三秒沙箱负载下的服务路径/CPU 争用，而不是统计聚合本身。曾评估改为 Redis 共享缓存：那会在热路径上多一次网络往返，大概率让比值更差，故不做。以上均为推断，未在原生环境验证前不提交任何 002 性能或 DNS 改动。
 - 工作区里有一个**未提交、未验证**的迁移 `backend/alembic/versions/0006_artifact_run_step_index.py`，其说明声称 `artifacts.run_id`/`step_id` 自 0001 起没有索引，`GET /runs/{id}` 每次轮询都会退化成顺序扫描。它与上一条是**不同的假设**（上一条认为测到的是缓存命中延迟、劣化在服务路径；该迁移认为劣化在数据库扫描），二者都未在原生环境证实。该迁移只加/删两个索引、 downgrade 可逆，`upgrade head → downgrade base → upgrade head` 已在全新空库上跑通（7 上 / 7 下 / 7 上，head 为 `0006_artifact_run_step_index`），但**没有任何原生 run 证明它能改善 P95 比值**；在原生复跑给出证据前，不把它当作 002 的修复，也不据此改动 T068/T069 的状态。
+- **已更新**：`4abebb8` 已把 `0006_artifact_run_step_index`（`ix_artifacts_run` / `ix_artifacts_step`）连同 003 验收一起提交，上面「未提交」的描述只对当时的工作区成立。它至今**仍未经原生复跑证明能改善 P95 比值**，所以它没有被认定为 002 的修复，T068 状态不变。
+- **已测量并否决**：asyncpg 每建一条新连接都要为它没见过的 ENUM 跑一次 `WITH RECURSIVE typeinfo_tree` 递归 introspection（S6 负载窗口实测约 100 秒产生 222 个 PostgreSQL backend、538 次 introspection、约 1.6 秒数据库 CPU），这条匿名语句还会顶掉刚 prepare 的应用语句、迫使重新 prepare。曾尝试在 `app/core.db` 用 `connect_args={"async_creator_fn": ...}` 给每条新连接预注册 33 个 ENUM 的 text codec，在 `aw-002-local` 真实栈上逐个计时（同一连接、同一查询、各 15 次取中位数）：
+
+  | 方案 | connect | 注册 codec | 首条查询 | 合计 |
+  |---|---|---|---|---|
+  | 现状（默认 introspection） | 1.88 ms | — | 5.85 ms | **7.73 ms** |
+  | `set_builtin_type_codec` × 33（顺序） | 1.80 ms | 5.96 ms | 1.27 ms | 9.04 ms |
+  | 同上，但用 `asyncio.gather` 并发 | — | — | — | 不可行：asyncpg 单连接不允许并发操作（`InterfaceError: another operation is in progress`） |
+  | 批量取 OID 后直接写 `settings.set_builtin_type_codec` | 1.75 ms | 0.93 ms | 1.26 ms | 3.94 ms |
+
+  顺序注册比默认 introspection **更慢**（33 次 `TYPE_BY_NAME` 往返比一次递归查询贵），已回滚，不提交。唯一更快的变体要调用 `conn._protocol.get_settings()` 这类 asyncpg 私有内部，却只换来每 100 秒负载窗口约 0.8 秒的数据库 CPU——不足以移动 2.45 倍的 P95 比值，不值得为它绑定私有 API。`/stats/overview` 冷/热缓存差也在同一栈上测过：p50 1.50 ms（冷）对 1.58 ms（热），与「测到的是缓存命中延迟」一致，Redis 共享缓存的否决结论成立。
 
 ## 复现脚本
 
