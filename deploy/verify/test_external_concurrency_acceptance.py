@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -320,7 +321,33 @@ class BuildRetryControls(unittest.TestCase):
             acceptance.build_with_retry("backend", ["docker", "build"], attempts=2)
 
 
-class FixtureTlsPermissionControls(unittest.TestCase):
+class AcceptanceControls(unittest.TestCase):
+    """Scratch-directory lifecycle for controls that build a real acceptance.
+
+    ``ExternalAcceptance.__init__`` creates its own work directory, so a control
+    only has to hand it a unique path. ``tearDown`` removes that scratch
+    directory together with the ``aw-003-tls-*`` directory ``generate_tls``
+    makes, so a control run leaves nothing behind in the shared temporary
+    directory.
+    """
+
+    scratch_prefix = "aw-003-control-"
+
+    def acceptance(self) -> external.ExternalAcceptance:
+        return external.ExternalAcceptance(
+            SimpleNamespace(output=tempfile.mkdtemp(prefix=self.scratch_prefix),
+                            project="aw-003-controls"))
+
+    def tearDown(self) -> None:
+        for pattern in (self.scratch_prefix + "*", "aw-003-tls-*"):
+            for path in Path(tempfile.gettempdir()).glob(pattern):
+                if path.is_dir():
+                    shutil.rmtree(path, ignore_errors=True)
+                else:
+                    path.unlink(missing_ok=True)
+
+
+class FixtureTlsPermissionControls(AcceptanceControls):
     """The Worker reads the fixture CA from a bind mount it does not own.
 
     The first CI run of this acceptance failed with "own Celery worker did not
@@ -335,18 +362,6 @@ class FixtureTlsPermissionControls(unittest.TestCase):
     which is why the mode bits are pinned here instead of being left to the next
     real-stack rerun.
     """
-
-    def acceptance(self) -> external.ExternalAcceptance:
-        with tempfile.TemporaryDirectory(prefix="aw-003-tls-control-") as directory:
-            pass
-        return external.ExternalAcceptance(
-            SimpleNamespace(output=directory, project="aw-003-controls"))
-
-    def tearDown(self) -> None:
-        for path in sorted(Path(tempfile.gettempdir()).glob("aw-003-tls-*"), reverse=True):
-            for child in sorted(path.glob("*"), reverse=True):
-                child.unlink(missing_ok=True)
-            path.rmdir()
 
     def test_generated_tls_material_is_readable_by_the_container_user(self):
         acceptance = self.acceptance()
@@ -381,14 +396,10 @@ class FixtureTlsPermissionControls(unittest.TestCase):
         self.assertIn("BEGIN CERTIFICATE", bundle)
 
 
-class ReadinessEvidenceControls(unittest.TestCase):
+class ReadinessEvidenceControls(AcceptanceControls):
     """A Worker that never answers must leave a diagnosable artifact."""
 
-    def acceptance(self) -> external.ExternalAcceptance:
-        with tempfile.TemporaryDirectory(prefix="aw-003-evidence-control-") as directory:
-            pass
-        return external.ExternalAcceptance(
-            SimpleNamespace(output=directory, project="aw-003-controls"))
+    scratch_prefix = "aw-003-evidence-control-"
 
     def test_a_readiness_failure_records_bounded_evidence(self):
         acceptance = self.acceptance()
