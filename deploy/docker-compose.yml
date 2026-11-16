@@ -101,6 +101,10 @@ services:
     image: aw-dns-proxy:1
     container_name: aw-dns-proxy
     restart: unless-stopped
+    environment:
+      # 上游解析器，逗号分隔；多个时 dnsmasq 同时查询并取最快应答。
+      # 换成本网络真正可达的解析器即可，不必重建镜像。
+      EGRESS_DNS_UPSTREAMS: ${EGRESS_DNS_UPSTREAMS:-223.5.5.5,119.29.29.29}
     # Keep upstream traffic on this network when Workers attach sandbox bridges.
     networks:
       default:

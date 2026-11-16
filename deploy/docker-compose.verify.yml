@@ -72,6 +72,13 @@ services:
   dns-proxy:
     image: aw-dns-proxy:1
     container_name: ${AW_VERIFY_DNS_NAME:-aw-002-verify-dns}
+    # The acceptance must not inherit the production resolver list: the CI hosts
+    # are not in mainland China, where the production defaults answer in
+    # 70-670 ms — close enough to the mediator's per-query budget that one
+    # transient hiccup aborts a run with `upstream_timeout`. All three are
+    # queried at once (`all-servers`), so any reachable resolver answers.
+    environment:
+      EGRESS_DNS_UPSTREAMS: ${EGRESS_DNS_UPSTREAMS:-1.1.1.1,8.8.8.8,223.5.5.5}
     # Dynamic execution-network attachment must not steal the public DNS route.
     networks:
       default:
