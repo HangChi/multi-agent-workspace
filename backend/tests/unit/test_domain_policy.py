@@ -530,6 +530,76 @@ def test_packet_audit_failure_is_distinct_from_gateway_health(status, stats, cod
     assert capture.watcher is None
 
 
+def test_network_install_uses_one_restore_process_per_ip_family(monkeypatch):
+    import base64
+
+    import command_batch
+
+    commands = [[family, "-N", "AWF123"] for family in ("iptables", "ip6tables")]
+    commands += [[family, "-A", "AWF123", "-p", "tcp", "--dport", str(port), "-j", "DROP"]
+                 for family in ("iptables", "ip6tables") for port in range(100, 120)]
+    commands += [[family, "-I", "FORWARD", "1", "-i", "br-abc123", "-j", "AWF123"]
+                 for family in ("iptables", "ip6tables")]
+    data = {"execution_id": EID, "commands": commands, "nft_script": "table inet fixed {}"}
+    monkeypatch.setattr(command_batch.sys, "argv", ["command_batch.py", base64.b64encode(json.dumps(data).encode()).decode()])
+    execute = Mock()
+    monkeypatch.setattr(command_batch.subprocess, "run", execute)
+    command_batch.main()
+    assert execute.call_count == 3  # protocol guard + one transaction per family
+    for call, family in zip(execute.call_args_list[1:], ("iptables", "ip6tables"), strict=True):
+        assert call.args[0] == [family + "-restore", "--noflush", "--wait", "2"]
+        script = call.kwargs["input"].decode()
+        assert script.startswith("*filter\n:AWF123 - [0:0]\n")
+        assert script.endswith("-I FORWARD 1 -i br-abc123 -j AWF123\nCOMMIT\n")
+        assert script.count("--dport") == 20
+
+
+@pytest.mark.parametrize("commands", [
+    [["iptables", "-D", "FORWARD", "-j", "AWF123"]],
+    [["nft", "delete", "table", "inet", "awp_owned"]],
+    [["iptables", "-A", "AWF123", "--comment", "two words", "-j", "DROP"]],
+    [["iptables", "-A", "AWF123", "--comment", "x\nCOMMIT\n*filter", "-j", "DROP"]],
+])
+def test_restore_does_not_reinterpret_cleanup_or_non_simple_argv(commands):
+    import command_batch
+
+    assert command_batch._install_transactions(commands) == [(command, None) for command in commands]
+
+
+def test_best_effort_preserves_individual_cleanup_failure_count(monkeypatch, capsys):
+    import base64
+
+    import command_batch
+
+    commands = [["iptables", "-N", "AWF123"], ["ip6tables", "-N", "AWF123"]]
+    data = {"execution_id": EID, "commands": commands, "best_effort": True}
+    monkeypatch.setattr(command_batch.sys, "argv", ["command_batch.py", base64.b64encode(json.dumps(data).encode()).decode()])
+    execute = Mock(side_effect=[command_batch.subprocess.CalledProcessError(1, commands[0]), None])
+    monkeypatch.setattr(command_batch.subprocess, "run", execute)
+    command_batch.main()
+    assert [call.args[0] for call in execute.call_args_list] == commands
+    assert json.loads(capsys.readouterr().out) == {"commands": 2, "failures": 1}
+
+
+def test_restore_failure_stops_before_other_family_and_reports_finite_code(monkeypatch, capsys):
+    import base64
+
+    import command_batch
+
+    commands = [["iptables", "-N", "AWF123"], ["ip6tables", "-N", "AWF123"]]
+    data = {"execution_id": EID, "commands": commands}
+    monkeypatch.setattr(command_batch.sys, "argv", ["command_batch.py", base64.b64encode(json.dumps(data).encode()).decode()])
+    failure = command_batch.subprocess.CalledProcessError(1, ["iptables-restore"], stderr=b"permission denied SECRET")
+    execute = Mock(side_effect=failure)
+    monkeypatch.setattr(command_batch.subprocess, "run", execute)
+    with pytest.raises(command_batch.subprocess.CalledProcessError):
+        command_batch.main()
+    assert execute.call_count == 1
+    output = capsys.readouterr().err
+    assert json.loads(output)["code"] == "permission_denied"
+    assert "SECRET" not in output
+
+
 def test_network_batch_failure_reports_only_finite_execution_bound_diagnostic(monkeypatch, capsys):
     import command_batch
 

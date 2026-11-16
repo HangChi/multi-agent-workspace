@@ -2,6 +2,7 @@
 import base64
 import errno
 import json
+import re
 import subprocess
 import sys
 import time
@@ -68,6 +69,32 @@ def _run_checked(argv: list[str], *, input_data: bytes | None, timeout: float,
         raise
 
 
+def _install_transactions(commands: list[list[str]]) -> list[tuple[list[str], bytes | None]]:
+    """Batch only simple filter installs; cleanup/other argv retain their semantics.
+
+    No shell quoting: restore accepts only whitespace-free tokens in this subset.
+    --noflush preserves every unrelated chain; each family commits atomically.
+    """
+    if not commands or any(
+        len(command) < 3 or command[0] not in ("iptables", "ip6tables")
+        or command[1] not in ("-N", "-A", "-I")
+        or (command[1] == "-N" and len(command) != 3)
+        or any(re.fullmatch(r"[A-Za-z0-9_./:!,+=-]+", token) is None for token in command)
+        for command in commands
+    ):
+        return [(command, None) for command in commands]
+    operations = []
+    for family in ("iptables", "ip6tables"):
+        selected = [command for command in commands if command[0] == family]
+        if not selected:
+            continue
+        declarations = [f":{command[2]} - [0:0]" for command in selected if command[1] == "-N"]
+        rules = [" ".join(command[1:]) for command in selected if command[1] != "-N"]
+        script = "\n".join(["*filter", *declarations, *rules, "COMMIT", ""])
+        operations.append(([family + "-restore", "--noflush", "--wait", "2"], script.encode()))
+    return operations
+
+
 def main() -> None:
     if len(sys.argv) != 2 or len(sys.argv[1]) > 524288:
         raise ValueError("invalid network batch")
@@ -77,6 +104,13 @@ def main() -> None:
     commands = data["commands"]
     if not isinstance(commands, list) or len(commands) > 2048:
         raise ValueError("network command budget exceeded")
+    for command in commands:
+        if (not isinstance(command, list) or not command or
+                command[0] not in ("iptables", "ip6tables", "nft") or
+                len(command) > 64 or any(not isinstance(x, str) or len(x) > 256 for x in command)):
+            raise ValueError("invalid network command")
+    operations = ([(command, None) for command in commands] if data.get("best_effort", False)
+                  else _install_transactions(commands))
     failures = 0
     deadline = time.monotonic() + 8
     script = data.get("nft_script")
@@ -85,16 +119,12 @@ def main() -> None:
             raise ValueError("invalid nft policy script")
         _run_checked(["nft", "-f", "-"], input_data=script.encode(), timeout=1,
                      data=data, stage="policy_install")
-    for command in commands:
-        if (not isinstance(command, list) or not command or
-                command[0] not in ("iptables", "ip6tables", "nft") or
-                len(command) > 64 or any(not isinstance(x, str) or len(x) > 256 for x in command)):
-            raise ValueError("invalid network command")
+    for command, input_data in operations:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("network batch deadline exceeded")
         try:
-            _run_checked(command, input_data=None, timeout=min(2, remaining),
+            _run_checked(command, input_data=input_data, timeout=min(2, remaining),
                          data=data, stage="policy_install", report=False)
         except (OSError, subprocess.SubprocessError, TimeoutError) as exc:
             if not data.get("best_effort", False):
