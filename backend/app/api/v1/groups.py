@@ -14,7 +14,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.api.deps import DB, CurrentUser, require_role
+from app.api.deps import DB, CurrentUser, ResourceId, require_role
 from app.core.audit import write_audit
 from app.models.group import AgentGroup
 from app.models.group_member import GroupMember
@@ -80,7 +80,7 @@ async def create_group(
 
 @router.patch("/{group_id}", response_model=GroupOut)
 async def update_group(
-    group_id: str,
+    group_id: ResourceId,
     payload: GroupUpdate,
     user: CurrentUser,
     db: DB,
@@ -96,7 +96,7 @@ async def update_group(
 
 @router.get("/{group_id}", response_model=GroupWithMembers)
 async def get_group(
-    group_id: str,
+    group_id: ResourceId,
     user: CurrentUser,
     _m: MemberUser,
     db: DB,
@@ -108,7 +108,7 @@ async def get_group(
 
 @router.post("/{group_id}/members", response_model=GroupMemberOut, status_code=201)
 async def add_member(
-    group_id: str,
+    group_id: ResourceId,
     payload: GroupMemberAdd,
     _m: MemberUser,
     user: CurrentUser,
@@ -150,7 +150,7 @@ async def add_member(
 
 @router.patch("/{group_id}/members", response_model=GroupWithMembers)
 async def reorder_members(
-    group_id: str,
+    group_id: ResourceId,
     payload: GroupMemberReorder,
     _m: MemberUser,
     user: CurrentUser,
@@ -177,8 +177,8 @@ async def reorder_members(
 
 @router.delete("/{group_id}/members/{agent_id}", status_code=204)
 async def remove_member(
-    group_id: str,
-    agent_id: str,
+    group_id: ResourceId,
+    agent_id: ResourceId,
     _m: MemberUser,
     user: CurrentUser,
     db: DB,
@@ -201,7 +201,7 @@ async def remove_member(
 
 @router.delete("/{group_id}", status_code=204)
 async def delete_group(
-    group_id: str,
+    group_id: ResourceId,
     _m: MemberUser,
     user: CurrentUser,
     db: DB,

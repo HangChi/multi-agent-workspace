@@ -12,7 +12,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import DB, CurrentUser, require_role
+from app.api.deps import DB, CurrentUser, ResourceId, require_role
 from app.core.audit import write_audit
 from app.models.agent import Agent
 from app.schemas.agent import (
@@ -73,7 +73,7 @@ async def create_agent(
 
 @router.patch("/{agent_id}", response_model=AgentSaveOut)
 async def update_agent(
-    agent_id: str,
+    agent_id: ResourceId,
     payload: AgentUpdate,
     user: CurrentUser,
     db: DB,
@@ -98,7 +98,7 @@ async def update_agent(
 
 @router.post("/{agent_id}/archive", response_model=AgentOut)
 async def archive_agent(
-    agent_id: str,
+    agent_id: ResourceId,
     user: CurrentUser,
     db: DB,
 ):
@@ -119,7 +119,7 @@ async def archive_agent(
 
 @router.delete("/{agent_id}", status_code=204)
 async def delete_agent(
-    agent_id: str,
+    agent_id: ResourceId,
     user: CurrentUser,
     db: DB,
 ):

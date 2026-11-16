@@ -16,7 +16,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, RedirectResponse
 
-from app.api.deps import DB, CurrentUser, require_role
+from app.api.deps import DB, CurrentUser, ResourceId, require_role
 from app.core.audit import write_audit
 from app.schemas.request import (
     AssignOut,
@@ -81,7 +81,7 @@ async def create_request(
 
 
 @router.get("/{request_id}", response_model=RequestOut)
-async def get_request(request_id: str, user: CurrentUser, db: DB):
+async def get_request(request_id: ResourceId, user: CurrentUser, db: DB):
     """需求详情（归属校验）。"""
     request = await request_service.get_request(db, request_id, user.id)
     return RequestOut.model_validate(request)
@@ -89,7 +89,7 @@ async def get_request(request_id: str, user: CurrentUser, db: DB):
 
 @router.post("/{request_id}/attachments", response_model=AttachmentListOut, status_code=201)
 async def upload_attachment(
-    request_id: str,
+    request_id: ResourceId,
     user: CurrentUser,
     db: DB,
     filename: str = Query(min_length=1, max_length=255),
@@ -126,7 +126,7 @@ async def upload_attachment(
 
 @router.get("/{request_id}/attachments/{key:path}", response_class=RedirectResponse)
 async def download_attachment(
-    request_id: str,
+    request_id: ResourceId,
     key: str,
     user: CurrentUser,
     db: DB,
@@ -149,7 +149,7 @@ async def download_attachment(
 
 @router.post("/{request_id}/assign", response_model=AssignOut, status_code=202)
 async def assign_request(
-    request_id: str,
+    request_id: ResourceId,
     payload: AssignRequest,
     _m: MemberUser,
     user: CurrentUser,

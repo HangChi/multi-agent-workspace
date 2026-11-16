@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import load_only
 
-from app.api.deps import DB, CurrentUser, require_role
+from app.api.deps import DB, CurrentUser, ResourceId, require_role
 from app.api.errors import AppError
 from app.core.audit import write_audit
 from app.models.artifact import Artifact
@@ -52,7 +52,7 @@ def _conflict(detail: str) -> AppError:
 
 
 @router.get("/{run_id}", response_model=RunOut)
-async def get_run(run_id: str, user: CurrentUser, db: DB):
+async def get_run(run_id: ResourceId, user: CurrentUser, db: DB):
     """运行详情（归属校验）：含 steps 列表摘要、cost、result、error、artifacts。"""
     run = await _get_owned_run(db, run_id, user)
 
@@ -111,7 +111,7 @@ async def get_run(run_id: str, user: CurrentUser, db: DB):
 
 
 @router.get("/{run_id}/executions/{execution_id}", response_model=ExecutionDetail)
-async def get_execution(run_id: str, execution_id: str, user: CurrentUser, db: DB):
+async def get_execution(run_id: ResourceId, execution_id: ResourceId, user: CurrentUser, db: DB):
     """查看一次沙箱执行的完整详情（代码/输出仅在此接口返回）。"""
     run = await _get_owned_run(db, run_id, user)
     execution = await db.get(SandboxExecution, execution_id)
@@ -141,7 +141,7 @@ async def get_execution(run_id: str, execution_id: str, user: CurrentUser, db: D
 
 
 @router.get("/{run_id}/executions/{execution_id}/egress", response_model=EgressAccessList)
-async def get_execution_egress(run_id: str, execution_id: str, user: CurrentUser, db: DB):
+async def get_execution_egress(run_id: ResourceId, execution_id: ResourceId, user: CurrentUser, db: DB):
     """查看某次执行的网络访问记录。"""
     run = await _get_owned_run(db, run_id, user)
     execution = await db.get(SandboxExecution, execution_id)
@@ -158,7 +158,7 @@ async def get_execution_egress(run_id: str, execution_id: str, user: CurrentUser
 
 
 @router.post("/{run_id}/cancel")
-async def cancel_run(run_id: str, _m: MemberUser, user: CurrentUser, db: DB):
+async def cancel_run(run_id: ResourceId, _m: MemberUser, user: CurrentUser, db: DB):
     """取消运行（FR-018）：queued/running/needs_input → cancelled；终态 409。"""
     run = await _get_owned_run(db, run_id, user)
     from_status = run.status
@@ -180,7 +180,7 @@ async def cancel_run(run_id: str, _m: MemberUser, user: CurrentUser, db: DB):
 
 
 @router.post("/{run_id}/retry", status_code=202)
-async def retry_run(run_id: str, _m: MemberUser, user: CurrentUser, db: DB):
+async def retry_run(run_id: ResourceId, _m: MemberUser, user: CurrentUser, db: DB):
     """重试运行（FR-017）：failed/timeout → queued（重置执行现场）；其余 409。"""
     run = await _get_owned_run(db, run_id, user)
     from_status = run.status
@@ -204,7 +204,7 @@ async def retry_run(run_id: str, _m: MemberUser, user: CurrentUser, db: DB):
 
 
 @router.post("/{run_id}/reply")
-async def reply_run(run_id: str, user: CurrentUser, db: DB, payload: dict | None = None):
+async def reply_run(run_id: ResourceId, user: CurrentUser, db: DB, payload: dict | None = None):
     """回复运行（FR-021）：needs_input → running（继续执行）；其余 409。
 
     用户回复内容保存到 run.user_reply，恢复执行时注入对话上下文（缺陷 A 修复）。
@@ -237,8 +237,8 @@ async def reply_run(run_id: str, user: CurrentUser, db: DB, payload: dict | None
 
 @router.get("/{run_id}/artifacts/{artifact_id}", response_class=RedirectResponse)
 async def download_artifact(
-    run_id: str,
-    artifact_id: str,
+    run_id: ResourceId,
+    artifact_id: ResourceId,
     user: CurrentUser,
     db: DB,
     redirect: Annotated[bool, Query(description="false 时返回 JSON URL 而不是 302")] = True,
