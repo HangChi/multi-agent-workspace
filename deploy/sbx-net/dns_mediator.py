@@ -50,7 +50,7 @@ DIAGNOSTIC_STAGES = frozenset({
 })
 DIAGNOSTIC_CODES = frozenset({
     "unknown", "permission_denied", "address_in_use", "address_unavailable",
-    "missing_executable", "invalid_argument", "no_space_left", "operation_timeout",
+    "missing_executable", "invalid_argument", "no_space_left", "operation_timeout", "upstream_timeout",
     "nft_syntax", "nft_feature_unavailable", "nft_transaction_failed", "helper_exited",
     "helper_not_ready", "health_expired", "helper_paused", "helper_oom", "diagnostic_invalid",
     "capture_exited", "capture_incomplete", "capture_truncated",
@@ -259,7 +259,11 @@ class Mediator:
                     return conn.recv(MAX_WIRE + 1)
             except TimeoutError as exc:
                 last_timeout = exc
-        raise last_timeout or PolicyError("DNS resolution deadline exceeded")
+        if last_timeout is not None:
+            # Do not confuse transport deadlines with the nft transaction limit,
+            # or retain an upstream address/socket exception in public evidence.
+            raise GatewayFailure("upstream_timeout") from None
+        raise PolicyError("DNS resolution deadline exceeded")
 
     def process(self, wire: bytes, peer: str, *, protocol: str = "udp", source_port: int = 0) -> bytes | None:
         q = None

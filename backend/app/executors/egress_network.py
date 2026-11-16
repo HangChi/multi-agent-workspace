@@ -45,7 +45,7 @@ _DNS_DIAGNOSTIC_STAGES = frozenset({
 })
 _DNS_DIAGNOSTIC_CODES = frozenset({
     "unknown", "permission_denied", "address_in_use", "address_unavailable",
-    "missing_executable", "invalid_argument", "no_space_left", "operation_timeout",
+    "missing_executable", "invalid_argument", "no_space_left", "operation_timeout", "upstream_timeout",
     "nft_syntax", "nft_feature_unavailable", "nft_transaction_failed", "helper_exited",
     "helper_not_ready", "health_expired", "helper_paused", "helper_oom", "diagnostic_invalid",
     "capture_exited", "capture_incomplete", "capture_truncated",

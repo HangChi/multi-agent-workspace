@@ -36,7 +36,7 @@ ERROR_CODES = frozenset({
     'unknown', 'ipv6_pool_unavailable', 'address_pool_overlap', 'ipv6_unavailable',
     'permission_denied', 'address_in_use', 'address_unavailable', 'missing_executable',
     'invalid_argument', 'no_space_left', 'connection_refused', 'docker_api_error',
-    'static_ip_requires_subnet', 'operation_timeout', 'nft_syntax',
+    'static_ip_requires_subnet', 'operation_timeout', 'upstream_timeout', 'nft_syntax',
     'nft_feature_unavailable', 'nft_transaction_failed', 'helper_exited',
     'helper_not_ready', 'health_expired', 'helper_paused', 'helper_oom', 'diagnostic_invalid',
     'capture_exited', 'capture_incomplete', 'capture_truncated',

@@ -494,6 +494,25 @@ def test_failed_health_preserves_kernel_failure_instead_of_generic_staleness():
         capture.assert_healthy()
 
 
+def test_dns_upstream_timeout_is_distinct_from_kernel_transaction_timeout(monkeypatch):
+    from unittest.mock import MagicMock
+
+    import dns_mediator
+
+    udp, tcp = MagicMock(), MagicMock()
+    for conn in (udp, tcp):
+        conn.__enter__.return_value = conn
+        conn.recv.side_effect = TimeoutError("SECRET upstream")
+    monkeypatch.setattr(dns_mediator.socket, "socket", Mock(side_effect=[udp, tcp]))
+    med, _calls = mediator()
+    with pytest.raises(dns_mediator.GatewayFailure) as error:
+        med.resolve(Question(1, "www.example.com", 1), dns_mediator.time.monotonic() + 3)
+    assert error.value.code == "upstream_timeout"
+    assert "SECRET" not in str(error.value)
+    assert udp.settimeout.call_args.args[0] <= 1
+    assert tcp.settimeout.call_args.args[0] <= 1
+
+
 def test_diagnostic_schemas_match_and_public_extractor_returns_only_finite_tokens():
     import dns_mediator
 
