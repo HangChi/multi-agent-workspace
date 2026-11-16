@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import ipaddress
 import json
 import tempfile
 import unittest
@@ -101,6 +102,8 @@ class DomainProbeTests(unittest.TestCase):
         self.assertEqual(len(pools), 2)
         self.assertIn("198.18.", pools[0]["Subnet"])
         self.assertTrue(pools[1]["Subnet"].endswith("/64"))
+        for pool in pools:
+            self.assertEqual(pool.get("Gateway"), str(ipaddress.ip_network(pool["Subnet"]).network_address + 1))
         self.assertEqual(options["labels"]["aw.domain.probe"], probe.owner)
 
     def test_fixture_container_failure_records_only_finite_phase(self):

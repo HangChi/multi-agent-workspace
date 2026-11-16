@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+import ipaddress
 import json
 import os
 import sys
@@ -158,7 +159,12 @@ class Probe:
         net = self.client.networks.create(
             f"aw-domain-probe-{self.owner}-{index}-{'t' if target else 's'}", driver="bridge",
             enable_ipv6=True, labels=self.labels,
-            ipam=IPAMConfig(pool_configs=[IPAMPool(subnet=ipv4), IPAMPool(subnet=ipv6)]),
+            # Docker 28 may keep an implicit gateway out of IPAM.Config even
+            # after reload; define both owned fixture gateways explicitly.
+            ipam=IPAMConfig(pool_configs=[
+                IPAMPool(subnet=subnet, gateway=str(ipaddress.ip_network(subnet).network_address + 1))
+                for subnet in (ipv4, ipv6)
+            ]),
         )
         self.networks.append(net)
         net.reload()
