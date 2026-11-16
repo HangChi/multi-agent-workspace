@@ -502,6 +502,8 @@ class NativeIsolationTests(unittest.TestCase):
             self.assertEqual(call.kwargs['cap_drop'], ['ALL'])
             self.assertNotIn('cap_add', call.kwargs)
             self.assertTrue(call.kwargs['read_only'])
+            self.assertEqual(call.kwargs['log_config']['Type'], 'json-file')
+            self.assertEqual(call.kwargs['log_config']['Config'], {'max-size': '32k', 'max-file': '1'})
             self.assertEqual(call.kwargs['labels'], {'aw.verify_run': runner.project})
             self.assertIn('example', call.kwargs['command'][2])
         document = runner.write_json.call_args.args[1]

@@ -36,6 +36,7 @@ from typing import Any
 
 import docker
 from dns_reachability import RESOLVERS
+from docker.types import LogConfig
 from host_resources import snapshot as host_resource_snapshot
 from sandbox_runtime import ERROR_CODES, ERROR_STAGES, ERROR_TYPES
 
@@ -317,6 +318,7 @@ class NativeRunner:
                     'aw-sbx-net:1', command=['python3', '-c', script, proxy_ip], remove=True,
                     network_mode=network, cap_drop=['ALL'], read_only=True,
                     security_opt=['no-new-privileges'], mem_limit='32m', pids_limit=8,
+                    log_config=LogConfig(type='json-file', config={'max-size': '32k', 'max-file': '1'}),
                     labels={'aw.verify_run': self.project},
                 )
                 require(isinstance(output, bytes) and len(output) <= 8192, 'DNS diagnostic output exceeds bound')
