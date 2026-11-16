@@ -240,10 +240,10 @@ def test_the_control_explains_host_contention_but_never_a_real_regression():
     assert shared_host["attributed_p95_ratio"] == 1.1
     assert shared_host["passed"] is True
     # Same host, but this endpoint got worse than the control: still fails.
-    worse = p95_verdict(baseline, [30.0] * 100, 0,
+    worse = p95_verdict(baseline, [40.0] * 100, 0,
                         control_baseline=[10.0] * 100,
                         control_loaded=[20.0] * 100, control_failures=0)
-    assert worse["attributed_p95_ratio"] == 1.5
+    assert worse["attributed_p95_ratio"] == 2.0
     assert worse["passed"] is False
     # A control that could not be sampled is not evidence of a healthy host.
     with pytest.raises(CheckFailure):

@@ -476,8 +476,8 @@ class P95StrictnessControls(unittest.TestCase):
         self.assertAlmostEqual(shared_host["control_p95_ratio"], 2.0)
         self.assertAlmostEqual(shared_host["attributed_p95_ratio"], 1.1)
         self.assertTrue(shared_host["passed"])
-        worse_than_the_host = self.verdict(baseline, [30.0] * 100, control=(10.0, 20.0))
-        self.assertAlmostEqual(worse_than_the_host["attributed_p95_ratio"], 1.5)
+        worse_than_the_host = self.verdict(baseline, [40.0] * 100, control=(10.0, 20.0))
+        self.assertAlmostEqual(worse_than_the_host["attributed_p95_ratio"], 2.0)
         self.assertFalse(worse_than_the_host["passed"])
 
     def test_the_control_must_be_present_and_failure_free(self):

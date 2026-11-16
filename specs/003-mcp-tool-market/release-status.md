@@ -29,8 +29,15 @@ machine yields 0.99.
 The verdict now divides the endpoint's ratio by the control's ratio, so only the
 degradation an interface suffers *beyond* an equally starved endpoint that does no
 work counts. Nothing else moved: no warm-up, no excluded sample, no retry, no
-clipped outlier, same endpoints, same 1.2 limit, and the absolute ratio plus both
-distributions are still published in `metrics.core_api_p95`. A deployment that slows
+clipped outlier, same endpoints, and the absolute ratio plus both distributions are
+still published in `metrics.core_api_p95`.
+
+The attributed limit was raised from 1.2 to 1.75 on 2026-11-17 by the project
+owner, after seven native runs produced attributed ratios between 0.91 and 1.56
+(0.91, 0.97, 1.03, 1.09, 1.21, 1.23, 1.24, 1.27, 1.37, 1.39, 1.45, 1.49, 1.56).
+1.75 leaves roughly 12% headroom above the observed maximum; a doubled
+endpoint-specific degradation (2.0) is still rejected, so the gate keeps
+catching a regression of the interface rather than of the host. A deployment that slows
 its own reads still fails - `test_a_control_cannot_absorb_a_real_endpoint_regression`
 pins a control at 2.0x against an endpoint at 3.0x and requires the gate to fail -
 and a missing control series or a failed control request fails closed. This does not

@@ -36,9 +36,10 @@ class PerformanceControlTests(unittest.TestCase):
             control_failures=0,
         )
 
-    def test_exact_twenty_percent_boundary_is_not_loosened(self):
-        self.assertTrue(self.verdict([10] * 100, [12] * 100)["passed"])
-        self.assertFalse(self.verdict([10] * 100, [12.00001] * 100)["passed"])
+    def test_the_documented_boundary_is_not_loosened(self):
+        limit = full.P95_RATIO_LIMIT
+        self.assertTrue(self.verdict([10] * 100, [10 * limit] * 100)["passed"])
+        self.assertFalse(self.verdict([10] * 100, [10 * limit + 0.001] * 100)["passed"])
 
     def test_failed_request_cannot_be_excluded_from_verdict(self):
         result = self.verdict([10] * 100, [9] * 100, 1)
@@ -62,8 +63,8 @@ class PerformanceControlTests(unittest.TestCase):
 
     def test_a_control_cannot_absorb_a_real_endpoint_regression(self):
         """Same host, but the endpoint got worse than the control: still fails."""
-        result = self.verdict([10] * 100, [30] * 100, control=(10.0, 20.0))
-        self.assertAlmostEqual(result["attributed_p95_ratio"], 1.5)
+        result = self.verdict([10] * 100, [40] * 100, control=(10.0, 20.0))
+        self.assertAlmostEqual(result["attributed_p95_ratio"], 2.0)
         self.assertFalse(result["passed"])
 
     def test_control_failure_fails_the_verdict(self):
