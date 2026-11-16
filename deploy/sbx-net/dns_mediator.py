@@ -228,10 +228,15 @@ class Mediator:
         kind = socket.AF_INET6 if ":" in upstream else socket.AF_INET
         wire = q.wire()
         last_timeout: TimeoutError | None = None
-        # Prefer UDP, then fall back to one bounded TCP exchange when the
-        # upstream drops a datagram. The total resolver budget remains bounded
-        # by the caller's deadline and every failure stays fail-closed.
-        for stream in (False, True):
+        # Prefer UDP, fall back to one bounded TCP exchange when the upstream
+        # drops a datagram, then retry UDP once with whatever budget is left.
+        # A single dropped query used to abort the whole execution: one cold
+        # lookup measured over 2 s on the CI hosts and the run died with
+        # `upstream_timeout` before the script started. Retrying inside the same
+        # caller-bounded deadline does not extend any lease or relax the policy
+        # -- each attempt is a real query, and exhausting the budget still fails
+        # closed -- it only stops a transient from being fatal.
+        for stream in (False, True, False):
             remaining = min(1.0, deadline - time.monotonic())
             if remaining <= 0:
                 break

@@ -499,18 +499,40 @@ def test_dns_upstream_timeout_is_distinct_from_kernel_transaction_timeout(monkey
 
     import dns_mediator
 
-    udp, tcp = MagicMock(), MagicMock()
-    for conn in (udp, tcp):
+    udp, tcp, retry = MagicMock(), MagicMock(), MagicMock()
+    for conn in (udp, tcp, retry):
         conn.__enter__.return_value = conn
         conn.recv.side_effect = TimeoutError("SECRET upstream")
-    monkeypatch.setattr(dns_mediator.socket, "socket", Mock(side_effect=[udp, tcp]))
+    monkeypatch.setattr(dns_mediator.socket, "socket", Mock(side_effect=[udp, tcp, retry]))
     med, _calls = mediator()
     with pytest.raises(dns_mediator.GatewayFailure) as error:
         med.resolve(Question(1, "www.example.com", 1), dns_mediator.time.monotonic() + 3)
     assert error.value.code == "upstream_timeout"
     assert "SECRET" not in str(error.value)
-    assert udp.settimeout.call_args.args[0] <= 1
-    assert tcp.settimeout.call_args.args[0] <= 1
+    for conn in (udp, tcp, retry):
+        assert conn.settimeout.call_args.args[0] <= 1
+
+
+def test_a_dropped_first_query_is_retried_within_the_same_deadline(monkeypatch):
+    """One lost datagram must not abort the execution that needed the name."""
+    from unittest.mock import MagicMock
+
+    import dns_mediator
+
+    q = Question(1, "www.example.com", 1)
+    payload = response(q, [Record("www.example.com", 1, 30, "93.184.216.34")])
+    # UDP drop, TCP drop, then the retry UDP that answers: the retry is what
+    # turns a transient into a served query instead of a dead execution.
+    dropped_udp, dropped_tcp, answered = MagicMock(), MagicMock(), MagicMock()
+    for conn in (dropped_udp, dropped_tcp, answered):
+        conn.__enter__.return_value = conn
+    dropped_udp.recv.side_effect = TimeoutError("SECRET upstream")
+    dropped_tcp.recv.side_effect = TimeoutError("SECRET upstream")
+    answered.recv.return_value = payload
+    monkeypatch.setattr(dns_mediator.socket, "socket",
+                        Mock(side_effect=[dropped_udp, dropped_tcp, answered]))
+    med, _calls = mediator()
+    assert med.resolve(q, dns_mediator.time.monotonic() + 3) == payload
 
 
 def test_diagnostic_schemas_match_and_public_extractor_returns_only_finite_tokens():
