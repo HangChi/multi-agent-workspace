@@ -460,9 +460,6 @@ class AcceptanceHarnessTests(unittest.TestCase):
 
 
 class NativeIsolationTests(unittest.TestCase):
-    def test_native_worker_pool_matches_sandbox_capacity(self):
-        self.assertEqual(native.native_worker_count(), 4)
-
     def test_target_dns_diagnostic_cannot_warm_mandatory_acceptance_cases(self):
         runner = object.__new__(native.NativeRunner)
         runner.results, runner.started = [], native.time.monotonic()

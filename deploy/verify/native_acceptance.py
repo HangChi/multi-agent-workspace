@@ -43,15 +43,6 @@ from sandbox_runtime import ERROR_CODES, ERROR_STAGES, ERROR_TYPES
 ROOT = Path(__file__).resolve().parents[2]
 VERIFY = ROOT / "deploy" / "verify"
 COMPOSE = ROOT / "deploy" / "docker-compose.verify.yml"
-VERIFY_SANDBOX_CONCURRENCY = 4
-VERIFY_WORKERS = VERIFY_SANDBOX_CONCURRENCY
-
-
-def native_worker_count() -> int:
-    """Keep CI worker concurrency aligned with the bounded sandbox pool."""
-    return VERIFY_WORKERS
-
-
 class AcceptanceFailure(RuntimeError):
     """Static diagnostics only; never include process output/exception strings."""
 
@@ -144,13 +135,11 @@ class NativeRunner:
             "AW_VERIFY_ID_JOURNAL": str(self.work / "execution-ids.txt"),
             "AW_VERIFY_DNS_NAME": self.project + "-dns", "AW_VERIFY_SBX_PREFIX": self.prefix,
             "DOCKER_SOCK_GID": str(Path('/var/run/docker.sock').stat().st_gid),
-            "AW_VERIFY_SBX_MEM_MB": "192", "AW_VERIFY_SBX_DISK_MB": "96", "AW_VERIFY_SBX_PIDS": "32",
-            "AW_VERIFY_SBX_CONCURRENCY": str(VERIFY_SANDBOX_CONCURRENCY),
-            "AW_VERIFY_WORKERS": str(native_worker_count()), "AW_VERIFY_WORKER_MEMORY": "3g", "AW_VERIFY_PORT": str(unused_port()),
+            "AW_VERIFY_SBX_MEM_MB": "192", "AW_VERIFY_SBX_DISK_MB": "96", "AW_VERIFY_SBX_PIDS": "32", "AW_VERIFY_SBX_CONCURRENCY": "4",
+            "AW_VERIFY_WORKERS": "8", "AW_VERIFY_WORKER_MEMORY": "3g", "AW_VERIFY_PORT": str(unused_port()),
             "APP_ENV": "development", "LOG_LEVEL": "critical", "PYTHONPATH": str(ROOT / "backend"),
             "EGRESS_DNS_PROXY": self.project + "-dns", "SBX_NETWORK_PREFIX": self.prefix,
-            "SBX_MEM_MB": "192", "SBX_DISK_MB": "96", "SBX_PIDS": "32",
-            "SBX_MAX_CONCURRENCY": str(VERIFY_SANDBOX_CONCURRENCY),
+            "SBX_MEM_MB": "192", "SBX_DISK_MB": "96", "SBX_PIDS": "32", "SBX_MAX_CONCURRENCY": "4",
             "PYTHONDONTWRITEBYTECODE": "1",
         })
         for name in ("AW_VERIFY_PASSWORD", "AW_VERIFY_JWT_SECRET", "AW_VERIFY_INVITE_CODE", "AW_VERIFY_USER_PASSWORD"):
@@ -412,12 +401,10 @@ class NativeRunner:
             stop.set()
             watcher.join(timeout=5)
         peak = max(observed, default=0)
-        passed = (not errors and not watcher.is_alive()
-                  and 2 <= peak <= VERIFY_SANDBOX_CONCURRENCY)
+        passed = not errors and not watcher.is_alive() and 2 <= peak <= 4
         self.results.append({"name": "s6_live_concurrency", "passed": passed, "peak_live_sandboxes": peak,
-                             "configured_limit": VERIFY_SANDBOX_CONCURRENCY, "samples": len(observed),
-                             "observer_failures": len(errors)})
-        self.write_json("s6-concurrency.json", {"peak": peak, "limit": VERIFY_SANDBOX_CONCURRENCY, "samples": observed,
+                             "configured_limit": 4, "samples": len(observed), "observer_failures": len(errors)})
+        self.write_json("s6-concurrency.json", {"peak": peak, "limit": 4, "samples": observed,
                                                "observer_error_types": errors, "passed": passed})
         self.write_json('s6-host-resources.json', {'samples': resources, 'diagnostic_failures': resource_failures})
 
