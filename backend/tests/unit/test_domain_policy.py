@@ -499,18 +499,34 @@ def test_dns_upstream_timeout_is_distinct_from_kernel_transaction_timeout(monkey
 
     import dns_mediator
 
-    udp, tcp, retry = MagicMock(), MagicMock(), MagicMock()
-    for conn in (udp, tcp, retry):
+    attempts = [MagicMock() for _ in dns_mediator.DNS_ATTEMPTS]
+    for conn in attempts:
         conn.__enter__.return_value = conn
         conn.recv.side_effect = TimeoutError("SECRET upstream")
-    monkeypatch.setattr(dns_mediator.socket, "socket", Mock(side_effect=[udp, tcp, retry]))
+    monkeypatch.setattr(dns_mediator.socket, "socket", Mock(side_effect=attempts))
     med, _calls = mediator()
     with pytest.raises(dns_mediator.GatewayFailure) as error:
-        med.resolve(Question(1, "www.example.com", 1), dns_mediator.time.monotonic() + 3)
+        med.resolve(Question(1, "www.example.com", 1),
+                    dns_mediator.time.monotonic() + dns_mediator.QUERY_DEADLINE_S)
     assert error.value.code == "upstream_timeout"
     assert "SECRET" not in str(error.value)
-    for conn in (udp, tcp, retry):
-        assert conn.settimeout.call_args.args[0] <= 1
+    # Every attempt is bounded by its own cap and by the query deadline.
+    for conn, (_stream, cap) in zip(attempts, dns_mediator.DNS_ATTEMPTS):
+        assert conn.settimeout.call_args.args[0] <= cap
+
+
+def test_query_budget_survives_a_slow_resolver_without_waiting_forever():
+    """A cold lookup on a blocked UDP/53 host may take seconds; not minutes."""
+    import dns_mediator
+
+    assert dns_mediator.QUERY_DEADLINE_S >= 5
+    caps = [cap for _stream, cap in dns_mediator.DNS_ATTEMPTS]
+    assert all(cap > 0 for cap in caps)
+    # The plan must fit inside the budget it is allowed to spend.
+    assert sum(caps) <= dns_mediator.QUERY_DEADLINE_S
+    # It must still try UDP first and fall back to TCP, as before.
+    assert dns_mediator.DNS_ATTEMPTS[0][0] is False
+    assert dns_mediator.DNS_ATTEMPTS[1][0] is True
 
 
 def test_a_dropped_first_query_is_retried_within_the_same_deadline(monkeypatch):
@@ -532,7 +548,8 @@ def test_a_dropped_first_query_is_retried_within_the_same_deadline(monkeypatch):
     monkeypatch.setattr(dns_mediator.socket, "socket",
                         Mock(side_effect=[dropped_udp, dropped_tcp, answered]))
     med, _calls = mediator()
-    assert med.resolve(q, dns_mediator.time.monotonic() + 3) == payload
+    assert med.resolve(q, dns_mediator.time.monotonic()
+                       + dns_mediator.QUERY_DEADLINE_S) == payload
 
 
 def test_diagnostic_schemas_match_and_public_extractor_returns_only_finite_tokens():

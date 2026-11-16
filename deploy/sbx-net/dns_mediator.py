@@ -57,6 +57,13 @@ DIAGNOSTIC_CODES = frozenset({
 })
 
 
+# Per-query resolver budget and the bounded attempts spent inside it. The last
+# attempt consumes whatever is left, so a slow-but-working resolver still gets a
+# full answer and an unreachable one still fails at the deadline.
+QUERY_DEADLINE_S = 8.0
+DNS_ATTEMPTS = ((False, 1.0), (True, 1.0), (False, 3.0), (False, 3.0))
+
+
 class GatewayFailure(PolicyError):
     """Finite trusted cause; never retain a failed command's output."""
 
@@ -236,8 +243,8 @@ class Mediator:
         # caller-bounded deadline does not extend any lease or relax the policy
         # -- each attempt is a real query, and exhausting the budget still fails
         # closed -- it only stops a transient from being fatal.
-        for stream in (False, True, False):
-            remaining = min(1.0, deadline - time.monotonic())
+        for stream, cap in DNS_ATTEMPTS:
+            remaining = min(cap, deadline - time.monotonic())
             if remaining <= 0:
                 break
             try:
@@ -288,7 +295,15 @@ class Mediator:
             if not self.policy.permitted_query(q.domain) and not self.policy.denies([q.domain]):
                 self.event(domain=q.domain, action="deny", reason="not-allowed", matched_rule_id=None, **transport)
                 return response(q, [], rcode=5)
-            deadline = self.clock() + 3
+            # A cold lookup must survive a slow public resolver. CI hosts
+            # routinely block or throttle outbound UDP/53, so the first query for
+            # a name can take seconds before the one reachable resolver answers
+            # (measured 2026-11-16: three upstreams forwarded at once, reply
+            # arrived only after the old 3 s budget had expired, and the
+            # execution died with `upstream_timeout`). The budget is a latency
+            # allowance, not an authorization: policy is still evaluated on the
+            # answer, and exhausting the budget still fails closed.
+            deadline = self.clock() + QUERY_DEADLINE_S
             current = q.domain
             collected = []
             received = []
