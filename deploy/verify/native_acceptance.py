@@ -35,6 +35,8 @@ from pathlib import Path
 from typing import Any
 
 import docker
+from dns_reachability import RESOLVERS
+from host_resources import snapshot as host_resource_snapshot
 from sandbox_runtime import ERROR_CODES, ERROR_STAGES, ERROR_TYPES
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -296,6 +298,48 @@ class NativeRunner:
                        "--base", f"http://127.0.0.1:{self.env['AW_VERIFY_PORT']}",
                        "--suite", suite, "--timeout", "240", "--poll-interval", "0.5"], timeout=900)
 
+    def dns_diagnostics(self) -> None:
+        """Observe fixed public upstreams, never warm the pypi acceptance cache.
+
+        This is diagnostic-only evidence, not an alternative DNS acceptance gate.
+        No privileges/secrets/configuration changes are given to either probe.
+        """
+        results, errors = [], []
+        script = (VERIFY / 'dns_reachability.py').read_text()
+        proxy = self.client.containers.get(self.env['AW_VERIFY_DNS_NAME'])
+        require(proxy.labels.get('com.docker.compose.project') == self.project,
+                'refusing to probe a DNS proxy outside own project')
+        proxy_ip = proxy.attrs['NetworkSettings']['Networks'][self.project + '_default']['IPAddress']
+        for namespace, network in (('mediator_host', 'host'),
+                                   ('shared_proxy', 'container:' + self.env['AW_VERIFY_DNS_NAME'])):
+            try:
+                output = self.client.containers.run(
+                    'aw-sbx-net:1', command=['python3', '-c', script, proxy_ip], remove=True,
+                    network_mode=network, cap_drop=['ALL'], read_only=True,
+                    security_opt=['no-new-privileges'], mem_limit='32m', pids_limit=8,
+                    labels={'aw.verify_run': self.project},
+                )
+                require(isinstance(output, bytes) and len(output) <= 8192, 'DNS diagnostic output exceeds bound')
+                rows = json.loads(output)
+                expected = {(resolver, transport) for resolver in (*RESOLVERS, 'own_shared_proxy')
+                            for transport in ('udp', 'tcp')}
+                require(isinstance(rows, list) and len(rows) == len(expected), 'DNS diagnostic rows invalid')
+                safe = []
+                for row in rows:
+                    require(isinstance(row, dict), 'DNS diagnostic row invalid')
+                    key = (row.get('resolver'), row.get('transport'))
+                    require(key in expected and row.get('outcome') in
+                            {'answered', 'timeout', 'socket_error', 'invalid_response'}
+                            and type(row.get('elapsed_ms')) is int and 0 <= row['elapsed_ms'] <= 60000,
+                            'DNS diagnostic fields outside finite schema')
+                    expected.remove(key)
+                    safe.append({'namespace': namespace, 'resolver': key[0], 'transport': key[1],
+                                 'outcome': row['outcome'], 'elapsed_ms': row['elapsed_ms']})
+                results.extend(safe)
+            except Exception as exc:
+                errors.append('ValueError' if isinstance(exc, ValueError) else 'DiagnosticError')
+        self.write_json('dns-reachability.json', {'results': results, 'diagnostic_errors': errors})
+
     def live_sandbox_count(self) -> int:
         # High-level list() inspects each container after listing; an execution
         # reclaimed between those calls raises NotFound and corrupts the sample.
@@ -313,14 +357,26 @@ class NativeRunner:
     def performance(self) -> None:
         observed: list[int] = []
         errors: list[str] = []
+        resources: list[dict] = []
+        resource_failures = 0
         stop = threading.Event()
 
         def observe() -> None:
+            nonlocal resource_failures
+            iteration = 0
             while not stop.is_set():
                 try:
                     observed.append(self.live_sandbox_count())
                 except Exception as exc:
                     errors.append(type(exc).__name__)
+                # Numeric procfs reads only; no docker stats stream or extra
+                # application traffic. Same sampler covers baseline and load.
+                if iteration % 10 == 0 and len(resources) < 1800:
+                    try:
+                        resources.append(host_resource_snapshot())
+                    except (OSError, ValueError):
+                        resource_failures += 1
+                iteration += 1
                 stop.wait(.1)
 
         watcher = threading.Thread(target=observe, daemon=True)
@@ -337,6 +393,7 @@ class NativeRunner:
                              "configured_limit": 4, "samples": len(observed), "observer_failures": len(errors)})
         self.write_json("s6-concurrency.json", {"peak": peak, "limit": 4, "samples": observed,
                                                "observer_error_types": errors, "passed": passed})
+        self.write_json('s6-host-resources.json', {'samples': resources, 'diagnostic_failures': resource_failures})
 
     def helper(self, command: list[str]) -> bytes:
         return self.client.containers.run("aw-sbx-net:1", command=command, remove=True,
@@ -494,6 +551,7 @@ class NativeRunner:
     def run(self) -> int:
         try:
             self.prepare()
+            self.dns_diagnostics()
             self.http_suite("functional")
             for name, script, extras in [
                 ("native_io", "s2_io_scenarios.py", []),

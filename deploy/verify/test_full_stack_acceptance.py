@@ -460,6 +460,60 @@ class AcceptanceHarnessTests(unittest.TestCase):
 
 
 class NativeIsolationTests(unittest.TestCase):
+    def test_resource_diagnostic_is_read_only_and_cannot_waive_or_fail_concurrency_gate(self):
+        runner = object.__new__(native.NativeRunner)
+        runner.results = []
+        runner.live_sandbox_count = MagicMock(return_value=2)
+        runner.http_suite = MagicMock()
+        runner.write_json = MagicMock()
+        def synchronous_thread(*, target, daemon):
+            return SimpleNamespace(start=target, join=lambda timeout: None, is_alive=lambda: False)
+        with patch.object(native.threading, 'Thread', side_effect=synchronous_thread), \
+                patch.object(native.threading, 'Event') as event, \
+                patch.object(native, 'host_resource_snapshot', side_effect=OSError('SECRET')):
+            event.return_value.is_set.side_effect = [False, True]
+            runner.performance()
+        self.assertTrue(runner.results[0]['passed'])
+        runner.http_suite.assert_called_once_with('performance')
+        resource = next(call.args[1] for call in runner.write_json.call_args_list
+                        if call.args[0] == 's6-host-resources.json')
+        self.assertEqual(resource['diagnostic_failures'], 1)
+        self.assertNotIn('SECRET', json.dumps(resource))
+        self.assertNotIn('passed', resource)
+
+    def test_dns_diagnostic_uses_only_own_namespaces_without_admin_or_raw_output(self):
+        runner = object.__new__(native.NativeRunner)
+        runner.project = 'aw002ci-123-2'
+        runner.env = {'AW_VERIFY_DNS_NAME': 'aw002ci-123-2-dns'}
+        runner.client = MagicMock()
+        runner.client.containers.get.return_value.labels = {'com.docker.compose.project': runner.project}
+        runner.client.containers.get.return_value.attrs = {
+            'NetworkSettings': {'Networks': {runner.project + '_default': {'IPAddress': '172.30.0.2'}}}}
+        runner.write_json = MagicMock()
+        rows = [{'resolver': resolver, 'transport': transport, 'outcome': 'timeout', 'elapsed_ms': 1000}
+                for resolver in ('configured_primary', 'configured_secondary', 'public_alternative_1', 'public_alternative_2', 'own_shared_proxy')
+                for transport in ('udp', 'tcp')]
+        runner.client.containers.run.return_value = json.dumps(rows).encode()
+        runner.dns_diagnostics()
+        calls = runner.client.containers.run.call_args_list
+        self.assertEqual([call.kwargs['network_mode'] for call in calls],
+                         ['host', 'container:aw002ci-123-2-dns'])
+        for call in calls:
+            self.assertEqual(call.kwargs['cap_drop'], ['ALL'])
+            self.assertNotIn('cap_add', call.kwargs)
+            self.assertTrue(call.kwargs['read_only'])
+            self.assertEqual(call.kwargs['labels'], {'aw.verify_run': runner.project})
+            self.assertIn('example', call.kwargs['command'][2])
+        document = runner.write_json.call_args.args[1]
+        self.assertEqual(len(document['results']), 20)
+        self.assertNotIn('172.30.0.2', json.dumps(document))
+        self.assertNotIn('passed', document)
+        runner.client.containers.run.return_value = b'SECRET malformed response'
+        runner.dns_diagnostics()
+        document = runner.write_json.call_args.args[1]
+        self.assertNotIn('SECRET', json.dumps(document))
+        self.assertEqual(document['diagnostic_errors'], ['ValueError', 'ValueError'])
+
     def test_both_native_bridge_filter_families_must_be_enabled(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

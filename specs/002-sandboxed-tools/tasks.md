@@ -204,8 +204,8 @@
 
 **Purpose**: 真实栈验证、越权矩阵、数据保留、文档与门禁
 
-- [ ] T068 [P] 真实栈断言（沙箱）：2026-11-16 已完成的原生 Linux run `43774141487` 中，迁移/历史、真实 I/O 2/2、越权矩阵 13/13、infra/quota、数据库审计及执行/内核清理通过；HTTP 功能 13/14（出站 DNS timeout 未通过），20/20 并发执行成功、实时容器并发上限通过，但 API P95 比值 4.2479 > 1.2。`9f47c91` 恢复验收 API 与生产一致的连接池（Worker 保持 NullPool）；修复验证 run `43775194806` 的 P95 降至 5.45/12.01 ms，但比值 2.2056 仍未达标，HTTP 功能 11/14（新增终态先于步骤落库的可见性窗口）。`a98b5bb` 已用真实数据库/API 回归修复该持久化窗口，后续原生整窗验证前不提前勾选。CI 仅使用全新隔离身份和数据库，不绕过本地既有拒绝。
-- [ ] T069 [P] 真实栈断言（出站）：原生 Linux run `43774141487` 的 IP/多连接/IPv6/公网 HTTPS 12/12 通过，但域名专项在 policy_install 提前失败，未运行完 18 项；HTTP 出站用例另报 dns_runtime/operation_timeout。`03ef7a9` 补齐 DNS 接入后的 Docker 网络 IPAM 刷新，118 项相关测试及 6 subtests、Docker Desktop Linux VM 域名专项 18/18 通过；原生修复验证 run `43775194806` 仍在 policy_install 早退，故 IPAM 刷新不是已证实的原生根因；`80e6307` 补充仅含有限枚举的网络前置条件诊断，继续定位，不能用 VM 成功替代。不降低双族/HTTPS、权限 API、健康租约和审计完整性要求。
+- [ ] T068 [P] 真实栈断言（沙箱）：2026-11-16 最新完成的原生 Linux run `43779720697` 中，迁移/历史、真实 I/O 2/2、越权矩阵 13/13、infra/quota、数据库审计及执行/内核清理通过；HTTP 功能 13/14（出站 DNS 上游超时），20/20 并发执行成功、实时容器峰值 4 且观察器无失败，API P95 基线/负载 6.35/16.97 ms，比值 2.6738 > 1.2。`a98b5bb` 修复的步骤持久化窗口在后续原生 HTTP 检查中未再出现；`9f47c91` 的 API 正常连接池与所有 Worker 的 NullPool 保持生产语义。新增只读 CPU/压力/内存诊断用于继续定位，不调整 20 次三秒负载、Worker 容量、请求样本或门槛。CI 仅使用全新隔离身份和数据库，不绕过本地既有拒绝。
+- [ ] T069 [P] 真实栈断言（出站）：`80e6307` 的有限诊断证实原生 fixture 缺少显式网关；`7197be6` 为双族 IPAM 定义网关后，原生 Linux runs `43778692370`、`43779720697` 均完整通过域名矩阵 18/18，IP/多连接/IPv6/公网 HTTPS 12/12 也通过。HTTP 出站仍失败；最新 `c256e23` 诊断明确为 dns_runtime/upstream_timeout（不是 nft 事务 operation_timeout）。已补充仅访问固定公网解析器和本次自有代理的双命名空间有界诊断，不更改 DNS 配置、不预热强制 pypi.org 用例；原生结果待验证。不降低双族/HTTPS、权限 API、健康租约和审计完整性要求，HTTP 门槛通过前保持未勾选。
 - [x] T070 [P] 越权矩阵自动化：deploy/verify/sbx_escape_matrix.py 已创建；2026-11-15 最终 Docker Desktop Linux VM 运行 13/13 通过，包括 output tmpfs 内核配额、timeout/cancel，无执行资源残留。此任务矩阵通过不等于完整 SC-002 或原生 Linux 云主机安全验收；受保护 API 链路等仍见 T068/T076。
 - [x] T071 数据保留任务：backend/app/tasks/maintenance.py 增 `purge_sandbox_payloads`（90 天后清空 code/stdout/stderr，保留元数据与指纹）+ beat 每日一次
 - [x] T072 [P] 前端单测：frontend/src/components/agent/__tests__/EgressRules.test.tsx、frontend/src/components/run/__tests__/ExecutionCard.test.tsx、tools 目录渲染用例（vitest）
