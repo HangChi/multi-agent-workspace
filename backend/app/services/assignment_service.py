@@ -103,6 +103,11 @@ def _enqueue(run_ids: list[str]) -> None:
 
     失败不抛出（API 只入队，broker 抖动不应阻塞受理），仅记录告警；
     测试环境（TESTING=1）跳过真实 broker（执行链路 Phase 7 覆盖）。
+
+    注意必须捕获宽泛异常：kombu 抛的是 ``kombu.exceptions.OperationalError``
+    （KombuError 的子类），redis-py 抛的是 ``redis.exceptions.ConnectionError``
+    （RedisError 的子类），两者都不是内建 ``ConnectionError``/``OSError``。
+    只写内建类型会让"broker 抖动降级"完全失效：事务已提交、客户端却收到 500。
     """
     if os.getenv("TESTING") == "1":
         return
@@ -113,14 +118,15 @@ def _enqueue(run_ids: list[str]) -> None:
             celery_app.send_task(
                 "app.tasks.execute_run.execute_run", args=[run_id]
             )
-        except (ConnectionError, OSError, ValueError) as exc:  # broker 抖动降级，不阻塞受理
-            logger.warning("celery_enqueue_failed", run_id=run_id, error=str(exc))
+        except Exception as exc:  # noqa: BLE001 - broker 抖动降级，不阻塞受理
+            logger.warning("celery_enqueue_failed", run_id=run_id, error=type(exc).__name__)
 
 
 async def _publish_assigned(run_ids: list[str]) -> None:
     """Redis 事件发布：run:{id} 频道发 status_change=queued。
 
     测试环境（TESTING=1）跳过真实 Redis（WS 链路 Phase 7 覆盖）。
+    异常类型同 ``_enqueue``：redis-py 的 ConnectionError/TimeoutError 都不是内建类型。
     """
     if os.getenv("TESTING") == "1":
         return
@@ -129,8 +135,8 @@ async def _publish_assigned(run_ids: list[str]) -> None:
             await publish_run_event(
                 run_id, {"type": "status_change", "status": "queued"}
             )
-        except (ConnectionError, OSError, ValueError) as exc:  # Redis 抖动降级，不阻塞受理
-            logger.warning("event_publish_failed", run_id=run_id, error=str(exc))
+        except Exception as exc:  # noqa: BLE001 - Redis 抖动降级，不阻塞受理
+            logger.warning("event_publish_failed", run_id=run_id, error=type(exc).__name__)
 
 
 async def assign(
