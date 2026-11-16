@@ -133,6 +133,44 @@ async def test_published_listing_can_be_paused_then_revoked_with_reasons(
 
 
 @pytest.mark.asyncio
+async def test_revoking_the_last_published_listing_unpublishes_its_server(
+    client, db_session, make_headers, make_user
+):
+    """撤销最后一个已发布 listing 后，服务器退回 pending_review。
+
+    会话是 autoflush=False：如果 _refresh_server_status 里的计数看不到本次未提交的
+    listing.status 变更，服务器会停在 published，治理状态机与契约不一致。
+    """
+    owner, _ = await make_user(role="admin")
+    admin_headers = await make_headers(role="admin")
+    version = await _version(db_session, owner.id, name="last-listing")
+    server_row = await db_session.get(ExternalToolServer, version.server_id)
+    assert server_row is not None
+    server_id = server_row.id
+    server_row.status = "published"
+    listing = MarketplaceListing(
+        tool_version_id=version.id,
+        status="published",
+        usage_summary="Search approved content",
+        data_handling="Requests go to approved server",
+        restrictions={},
+    )
+    db_session.add(listing)
+    await db_session.commit()
+
+    revoked = await client.post(
+        f"/api/v1/marketplace/tools/{listing.id}/revoke",
+        headers=admin_headers,
+        json={"reason": "Retired after security review"},
+    )
+    assert revoked.status_code == 200
+
+    db_session.expire_all()
+    server = await db_session.get(ExternalToolServer, server_id)
+    assert server is not None and server.status == "pending_review"
+
+
+@pytest.mark.asyncio
 async def test_approving_a_tool_publishes_its_server_and_grants_can_snapshot(
     client, db_session, make_headers, make_user
 ):

@@ -48,7 +48,12 @@ async def _refresh_server_status(db: AsyncSession, server: ExternalToolServer) -
     last one returns it to ``pending_review``. Pausing a listing deliberately
     leaves the server published -- the server itself is still governed and
     usable, while grants fail closed on the listing's own status.
+
+    Callers change ``listing.status`` before calling this, so the pending change
+    must be flushed first: the session is ``autoflush=False``, and a stale count
+    would keep the server published after its last listing was revoked.
     """
+    await db.flush()
     published = await db.scalar(
         select(func.count())
         .select_from(MarketplaceListing)
