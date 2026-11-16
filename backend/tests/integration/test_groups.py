@@ -159,8 +159,29 @@ async def test_reorder_members(client, make_headers):
     assert members[1]["agent_id"] == a1["id"]
 
 
-# ---------- 删除组 ----------
+async def test_reorder_members_requires_full_coverage(client, make_headers):
+    """positions 漏传成员 → 400（而不是 500），且不写入任何排序。"""
+    headers = await make_headers(role="member")
+    group = await _create_group(client, headers)
+    a1 = await _create_agent(client, headers, name="a1")
+    a2 = await _create_agent(client, headers, name="a2")
+    await _add_member(client, headers, group["id"], a1["id"], 1)
+    await _add_member(client, headers, group["id"], a2["id"], 2)
 
+    resp = await client.patch(
+        f"{GROUPS_URL}/{group['id']}/members",
+        headers=headers,
+        json={"positions": [{"agent_id": a2["id"], "position": 1}]},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "INVALID_INPUT"
+
+    detail = await client.get(f"{GROUPS_URL}/{group['id']}", headers=headers)
+    members = detail.json()["members"]
+    assert [m["agent_id"] for m in members] == [a1["id"], a2["id"]]
+
+
+# ---------- 删除组 ----------
 
 async def test_delete_group_cascades_members(client, make_headers, db_session):
     """删除组 → 204，组内成员记录级联清空。"""

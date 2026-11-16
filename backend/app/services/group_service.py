@@ -182,6 +182,21 @@ async def reorder_members(
             raise AppError("CONFLICT", "排序中存在重复 position")
         pos_map[position] = agent_id
 
+    # positions 是「整体替换」语义：既要覆盖组内全部成员，也不能对同一成员重复
+    # 赋值（后者会让某个 position 被静默丢弃）。校验放在任何写入之前，且必须是
+    # 4xx：漏传成员的客户端快照过期是常见情况，让 next() 抛 StopIteration 在协程
+    # 内会升级为 RuntimeError → 500。
+    target = {agent_id: position for position, agent_id in pos_map.items()}
+    if len(target) != len(pos_map):
+        raise AppError("INVALID_INPUT", "排序中存在重复成员")
+    missing = sorted(set(by_id) - set(target))
+    if missing or set(target) - set(by_id):
+        raise AppError(
+            "INVALID_INPUT",
+            "排序必须覆盖组内全部成员",
+            detail={"missing_agent_ids": missing[:20]},
+        )
+
     # 第一步：全部置为临时负值，释放唯一约束
     for i, member in enumerate(members):
         member.position = -(i + 1)
@@ -189,7 +204,7 @@ async def reorder_members(
 
     # 第二步：按目标位置赋值
     for member in members:
-        member.position = next(p for p, a in pos_map.items() if a == member.agent_id)
+        member.position = target[member.agent_id]
     await db.flush()
     return members
 
