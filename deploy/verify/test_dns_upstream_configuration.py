@@ -26,7 +26,7 @@ class RenderUpstreamsTests(unittest.TestCase):
             if value is not None:
                 env["EGRESS_DNS_UPSTREAMS"] = value
             result = subprocess.run(
-                ["sh", str(RENDERER), str(out)],
+                ["sh", str(RENDERER), str(out)], check=False,
                 env=env, capture_output=True, text=True, timeout=30,
             )
             written = out.read_text() if out.exists() else ""
