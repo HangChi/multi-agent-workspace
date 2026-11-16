@@ -78,9 +78,7 @@ jobs:
         # The entrypoint owns its compose project: it generates disposable
         # credentials and TLS material, refuses to reuse an existing project,
         # and removes exactly what it created. Only sanitized JSON is uploaded.
-        # --diagnose-tail records database-free control samples beside the P95
-        # verdicts: a failed ratio must say whether the query path stalled.
-        run: python deploy/verify/external_concurrency_acceptance.py --diagnose-tail --output "$RUNNER_TEMP/003-results"
+        run: python deploy/verify/external_concurrency_acceptance.py --output "$RUNNER_TEMP/003-results"
       - name: Upload bounded sanitized acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4

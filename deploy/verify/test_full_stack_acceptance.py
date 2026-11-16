@@ -28,21 +28,59 @@ class PerformanceControlTests(unittest.TestCase):
         self.assertEqual(full.percentile95([1] * 19 + [100]), 1)
         self.assertEqual(full.percentile95([1] * 18 + [100, 101]), 100)
 
+    def verdict(self, baseline, loaded, failures=0, control=(100.0, 100.0)):
+        """Verdict with an idle control unless the test says otherwise."""
+        return full.performance_verdict(
+            baseline, loaded, failures,
+            control_baseline=[control[0]] * 100, control_loaded=[control[1]] * 100,
+            control_failures=0,
+        )
+
     def test_exact_twenty_percent_boundary_is_not_loosened(self):
-        self.assertTrue(full.performance_verdict([10] * 100, [12] * 100, 0)["passed"])
-        self.assertFalse(full.performance_verdict([10] * 100, [12.00001] * 100, 0)["passed"])
+        self.assertTrue(self.verdict([10] * 100, [12] * 100)["passed"])
+        self.assertFalse(self.verdict([10] * 100, [12.00001] * 100)["passed"])
 
     def test_failed_request_cannot_be_excluded_from_verdict(self):
-        result = full.performance_verdict([10] * 100, [9] * 100, 1)
+        result = self.verdict([10] * 100, [9] * 100, 1)
         self.assertFalse(result["passed"])
         self.assertEqual(result["request_failures"], 1)
 
     def test_outliers_and_raw_measurements_are_preserved(self):
         loaded = [10] * 94 + [1000] * 6
-        result = full.performance_verdict([10] * 100, loaded, 0)
+        result = self.verdict([10] * 100, loaded)
         self.assertFalse(result["passed"])
         self.assertEqual(result["load_samples_ms"], loaded)
         self.assertEqual(result["load_p95_ms"], 1000)
+
+    def test_control_degrades_beside_the_endpoint_so_the_ratio_is_attributed(self):
+        """A starved host lifts the control; only the excess counts against us."""
+        result = self.verdict([10] * 100, [22] * 100, control=(10.0, 20.0))
+        self.assertAlmostEqual(result["p95_ratio"], 2.2)
+        self.assertAlmostEqual(result["control_p95_ratio"], 2.0)
+        self.assertAlmostEqual(result["attributed_p95_ratio"], 1.1)
+        self.assertTrue(result["passed"])
+
+    def test_a_control_cannot_absorb_a_real_endpoint_regression(self):
+        """Same host, but the endpoint got worse than the control: still fails."""
+        result = self.verdict([10] * 100, [30] * 100, control=(10.0, 20.0))
+        self.assertAlmostEqual(result["attributed_p95_ratio"], 1.5)
+        self.assertFalse(result["passed"])
+
+    def test_control_failure_fails_the_verdict(self):
+        result = full.performance_verdict(
+            [10] * 100, [10] * 100, 0,
+            control_baseline=[10.0] * 100, control_loaded=[10.0] * 100,
+            control_failures=1,
+        )
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["control_failures"], 1)
+
+    def test_missing_control_series_fails_closed(self):
+        with self.assertRaises(full.CheckFailure):
+            full.performance_verdict(
+                [10] * 100, [10] * 100, 0,
+                control_baseline=[], control_loaded=[], control_failures=0,
+            )
 
     def test_empty_nan_infinite_and_negative_samples_fail_closed(self):
         for values in ([], [float("nan")], [float("inf")], [-1]):
@@ -93,9 +131,11 @@ class S6OutcomeTests(unittest.TestCase):
                          'stdout': 'Bearer SECRET' if index in failed else 'sleep-completed',
                          'stderr': 'X-Amz-Signature=SECRET', 'url': 'https://SECRET',
                          'created_at': '2026-11-15T00:00:00Z', 'finished_at': '2026-11-15T00:00:03Z'}]
-            async def request(method, path):
+            async def request(method, path, **kwargs):
                 requests.append((method, path))
-                if request_error and len(requests) == 150:
+                # Odd index in the measured/control pair is the control, so the
+                # injected failure targets a measured request (151st request).
+                if request_error and len(requests) == 151:
                     raise httpx.ReadTimeout('Bearer SECRET')
                 return httpx.Response(200, json={'sandbox_runs_today': 20})
             async def pace(delay):
@@ -122,7 +162,15 @@ class S6OutcomeTests(unittest.TestCase):
                 self.assertFalse(result['passed'])
                 self.assertEqual(submitted, [('sleep', ['run_python'])] * 20)
                 self.assertEqual(detail_reads, list(range(20)))
-                self.assertEqual(requests, [('GET', '/stats/overview')] * 200)
+                # Every measured sample is paired with one database-free
+                # control sample; the control is the verdict's denominator, so a
+                # run that skips it must fail rather than silently pass.
+                self.assertEqual(
+                    requests,
+                    [pair for _ in range(200)
+                     for pair in (('GET', '/stats/overview'), ('GET', '/health'))])
+                self.assertEqual(len(result['control_baseline_samples_ms']), 100)
+                self.assertEqual(len(result['control_load_samples_ms']), 100)
                 self.assertEqual(result['baseline_samples_ms'], [1000.] * 100)
                 self.assertEqual(result['load_samples_ms'], [1000.] * 100)
                 self.assertEqual(result['p95_ratio'], 1)
@@ -144,7 +192,8 @@ class S6OutcomeTests(unittest.TestCase):
         result, submitted, detail_reads, requests, run_ids, _ = asyncio.run(self.exercise(task_errors=tuple(range(20))))
         self.assertEqual(len(submitted), 20)
         self.assertEqual(detail_reads, [])
-        self.assertEqual(len(requests), 200)
+        # 200 measured samples, each paired with one control sample.
+        self.assertEqual(len(requests), 400)
         self.assertEqual(result['run_failures'], 20)
         self.assertEqual(len(result['outcomes']), 20)
         for index, fact in enumerate(result['outcomes']):
@@ -158,7 +207,8 @@ class S6OutcomeTests(unittest.TestCase):
         self.assertEqual(result['run_failures'], 2)
         self.assertEqual(len(result['outcomes']), 20)
         self.assertEqual(detail_reads, list(range(20)))
-        self.assertEqual(len(requests), 200)
+        # 200 measured samples, each paired with one control sample.
+        self.assertEqual(len(requests), 400)
         for index in (18, 19):
             fact = result['outcomes'][index]
             self.assertEqual(fact['run_id'], run_ids[index])
@@ -185,7 +235,8 @@ class S6OutcomeTests(unittest.TestCase):
         self.assertFalse(result['passed'])
         self.assertEqual(result['request_failures'], 1)
         self.assertEqual(result['run_failures'], 0)
-        self.assertEqual(len(requests), 200)
+        # 200 measured samples, each paired with one control sample.
+        self.assertEqual(len(requests), 400)
         self.assertEqual(result['baseline_samples_ms'], [1000.] * 100)
         self.assertEqual(result['load_samples_ms'], [1000.] * 100)
         self.assertEqual(len(result['outcomes']), 20)
@@ -625,7 +676,12 @@ class NativeIsolationTests(unittest.TestCase):
                 with self.subTest(suite=suite, count=count), tempfile.TemporaryDirectory() as directory:
                     runner = object.__new__(native.NativeRunner)
                     runner.work, runner.results, runner.execution_ids = Path(directory), [], set()
-                    runner.write_json = lambda *args: None
+                    written = []
+                    runner.write_json = lambda name, content, sink=written: sink.append(name)
+                    # A failed suite must also publish the proxy's own bounded
+                    # window; a passing one must not add evidence nobody asked for.
+                    runner.compose = lambda *args, **kwargs: SimpleNamespace(
+                        returncode=1, stdout=b"dnsmasq: query[A] pypi.org from 172.30.0.3\n")
                     def command(argv, case_count=count, **kwargs):
                         Path(argv[-1]).write_text(json.dumps({'results': [
                             {'name': str(index), 'passed': True} for index in range(case_count)]}))
@@ -634,6 +690,8 @@ class NativeIsolationTests(unittest.TestCase):
                     with contextlib.redirect_stdout(io.StringIO()):
                         runner.run_suite(suite, ['never-executed'], runtime=True)
                     self.assertEqual(runner.results[-1]['passed'], count >= required)
+                    self.assertEqual(any(name.endswith('.dns.json') for name in written),
+                                     count < required)
 
     def test_live_concurrency_uses_one_daemon_snapshot_without_inspect_races(self):
         runner = object.__new__(native.NativeRunner)

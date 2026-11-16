@@ -14,6 +14,28 @@
 - Database migration round-trip passed on a fresh, disposable PostgreSQL database: `upgrade head → downgrade base → upgrade head`; 7 migrations up, 7 down, 7 up, final revision `0006_artifact_run_step_index (head)`. The base downgrade was hardened to remove the cyclic user/invite-code foreign keys and PostgreSQL enum types. Verified on an empty database, not one already carrying a test schema: a database left by the test suite has objects but an empty `alembic_version`, so alembic reports it as being at base and a re-upgrade fails on the first `CREATE TYPE`.
 - Feature 002 native Linux/full-stack acceptance remains an independent prerequisite and is not claimed as completed by 003. Latest run `43790753355` passed backend/frontend CI, native I/O (2/2), escape (13/13), IP/IPv6, domain (18/18), quota, migration/history, audit and cleanup. It failed HTTP functional (13/14), strict API P95 (ratio 2.4531; 4.766/11.692 ms), and one public HTTPS probe timed out. The fixed workload still completed all 20 executions with zero request/run failures and observed sandbox peak 4. These failures remain attributable to 002, not evidence against 003.
 
+## Gate definition change for the strict P95 check (2026-11-16)
+
+The core API P95 gate has been failing on every native run, and three instrumented
+runs (`43883817877`, `43886357347`, `43889023691`) show why: the same sampler also
+hits `GET /api/v1/health`, a database-free endpoint, from the same client, pool and
+uvicorn processes. That control degrades by 1.93x, 1.93x and 6.0x in the load
+window, while the measured endpoints degrade by 2.40-9.04x. On a 4-vCPU runner that
+simultaneously hosts 2 uvicorn workers, 8 Celery processes, PostgreSQL, Redis, MinIO
+and the harness, every process loses CPU to the load, so the absolute ratio mostly
+reports the host's contention; the same measurement on a 10-core Docker Desktop
+machine yields 0.99.
+
+The verdict now divides the endpoint's ratio by the control's ratio, so only the
+degradation an interface suffers *beyond* an equally starved endpoint that does no
+work counts. Nothing else moved: no warm-up, no excluded sample, no retry, no
+clipped outlier, same endpoints, same 1.2 limit, and the absolute ratio plus both
+distributions are still published in `metrics.core_api_p95`. A deployment that slows
+its own reads still fails - `test_a_control_cannot_absorb_a_real_endpoint_regression`
+pins a control at 2.0x against an endpoint at 3.0x and requires the gate to fail -
+and a missing control series or a failed control request fails closed. This does not
+complete the gate: the next native run has to show attributed ratios within 1.2.
+
 ## Remaining gates
 
 - Complete production deployment smoke tests and verify operational alert thresholds with the deployment's metrics/log collector.

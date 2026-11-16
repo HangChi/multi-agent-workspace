@@ -65,6 +65,34 @@ def unused_port() -> int:
         return int(listener.getsockname()[1])
 
 
+DNS_EVIDENCE_LINE = re.compile(
+    r"(query\[|reply |cached |no servers|failed to send packet|upstream|SERVFAIL|REFUSED|forwarded)")
+DNS_EVIDENCE_MAX_LINES = 200
+IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+
+
+def summarize_dns_proxy_log(text: str, window_seconds: int) -> dict[str, Any]:
+    """Bounded, address-masked view of the shared proxy's own query log.
+
+    A failing mediated execution reports only `dns_runtime`/`upstream_timeout`.
+    Without the proxy's side of the story there is no way to tell "the query
+    never arrived" from "the proxy received it and could not resolve it", and
+    those need opposite fixes. Only lines that carry a resolution outcome are
+    kept, docker's container prefix is dropped, and addresses are masked: the
+    evidence is about the path, not about the deployment's topology.
+    """
+    lines = text.splitlines()
+    kept: list[str] = []
+    for line in lines:
+        message = line.split("|", 1)[-1].strip()
+        if not DNS_EVIDENCE_LINE.search(message):
+            continue
+        kept.append(IPV4.sub("<ip>", message)[:200])
+    return {"window_seconds": window_seconds, "total_lines": len(lines),
+            "kept_lines": kept[-DNS_EVIDENCE_MAX_LINES:],
+            "truncated": len(kept) > DNS_EVIDENCE_MAX_LINES}
+
+
 def sanitized_runtime(document: dict[str, Any]) -> dict[str, Any]:
     """Deliberate allowlist: stdout/errors/code/URLs/packets never leave tempdir."""
     results = document.get("results")
@@ -290,15 +318,21 @@ class NativeRunner:
                              "failed_cases": sum(item.get("passed") is not True for item in cases),
                              "elapsed_ms": round((time.monotonic() - started) * 1000)})
         self.write_json(name + ".json", safe)
+        if not passed:
+            # The functional suite's egress case fails inside the resolver path,
+            # where the client side only sees a timeout. Capture the proxy's own
+            # bounded, address-masked window for the same span.
+            elapsed = max(5, int(time.monotonic() - started))
+            logs = self.compose("logs", "--no-color", "--since", f"{elapsed}s", "dns-proxy",
+                                allow_failure=True, timeout=60)
+            self.write_json(name + ".dns.json", summarize_dns_proxy_log(
+                logs.stdout.decode("utf-8", "replace"), elapsed))
         print(f"{'PASS' if passed else 'FAIL'} suite {name}", flush=True)
 
     def http_suite(self, suite: str) -> None:
-        # The performance suite records database-free control samples beside its
-        # verdict; the functional suite must keep its exact request stream.
-        extra = ["--diagnose-tail"] if suite == "performance" else []
         self.run_suite("http_" + suite, [str(VERIFY / "full_stack_acceptance.py"),
                        "--base", f"http://127.0.0.1:{self.env['AW_VERIFY_PORT']}",
-                       "--suite", suite, "--timeout", "240", "--poll-interval", "0.5", *extra],
+                       "--suite", suite, "--timeout", "240", "--poll-interval", "0.5"],
                        timeout=900)
 
     def dns_diagnostics(self, *, acceptance_target: bool = False) -> None:

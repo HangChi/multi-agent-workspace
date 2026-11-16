@@ -452,14 +452,40 @@ class ReadinessEvidenceControls(AcceptanceControls):
 class P95StrictnessControls(unittest.TestCase):
     """The harness's own copy of the SC-004 verdict cannot be relaxed."""
 
+    def verdict(self, baseline, loaded, failures=0, control=(100.0, 100.0), control_failures=0):
+        """Verdict against an idle control unless the test says otherwise."""
+        return external.p95_verdict(
+            baseline, loaded, failures,
+            control_baseline=[control[0]] * 100, control_loaded=[control[1]] * 100,
+            control_failures=control_failures,
+        )
+
     def test_ratio_limit_and_zero_failure_requirement(self):
         baseline = [float(value) for value in range(1, 101)]
-        verdict = external.p95_verdict(baseline, baseline, 0)
+        verdict = self.verdict(baseline, baseline)
         self.assertTrue(verdict["passed"])
         self.assertEqual(verdict["p95_ratio"], 1.0)
-        self.assertFalse(external.p95_verdict(baseline, baseline, 1)["passed"])
-        self.assertFalse(external.p95_verdict(
-            baseline, [value * (external.P95_RATIO_LIMIT + 0.01) for value in baseline], 0)["passed"])
+        self.assertFalse(self.verdict(baseline, baseline, 1)["passed"])
+        self.assertFalse(self.verdict(
+            baseline, [value * (external.P95_RATIO_LIMIT + 0.01) for value in baseline])["passed"])
+
+    def test_a_control_cannot_absorb_a_real_endpoint_regression(self):
+        """The control explains host contention, not a defect in this endpoint."""
+        baseline = [10.0] * 100
+        shared_host = self.verdict(baseline, [22.0] * 100, control=(10.0, 20.0))
+        self.assertAlmostEqual(shared_host["control_p95_ratio"], 2.0)
+        self.assertAlmostEqual(shared_host["attributed_p95_ratio"], 1.1)
+        self.assertTrue(shared_host["passed"])
+        worse_than_the_host = self.verdict(baseline, [30.0] * 100, control=(10.0, 20.0))
+        self.assertAlmostEqual(worse_than_the_host["attributed_p95_ratio"], 1.5)
+        self.assertFalse(worse_than_the_host["passed"])
+
+    def test_the_control_must_be_present_and_failure_free(self):
+        baseline = [10.0] * 100
+        self.assertFalse(self.verdict(baseline, baseline, control_failures=1)["passed"])
+        with self.assertRaises(external.CheckFailure):
+            external.p95_verdict(baseline, baseline, 0,
+                                 control_baseline=[], control_loaded=[], control_failures=0)
 
     def test_the_verdict_records_the_shape_of_both_measurements(self):
         baseline = [float(value) for value in range(1, 101)]
@@ -467,7 +493,7 @@ class P95StrictnessControls(unittest.TestCase):
         # fails the gate -- and the recorded shape shows *why*: p90 is still
         # normal while p95 jumps, which is a handful of slow samples rather than
         # a uniform shift. Both produce the same ratio and need different fixes.
-        verdict = external.p95_verdict(baseline, [50.0] * 90 + [500.0] * 10, 0)
+        verdict = self.verdict(baseline, [50.0] * 90 + [500.0] * 10)
         self.assertFalse(verdict["passed"])
         self.assertEqual(verdict["load_distribution"]["p50"], 50.0)
         self.assertEqual(verdict["load_distribution"]["p90"], 50.0)

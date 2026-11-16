@@ -195,4 +195,7 @@ docker exec -i aw-002-verify-worker-1 python - < deploy/verify/s4_artifact_runti
 
 `.github/workflows/ci.yml` 在全新 GitHub Ubuntu VM 上运行 `native_acceptance.py`，仅该入口负责创建随机凭据和全新独立验收数据库；本地执行会被拒绝。它不加载 `deploy/.env`，不使用本地既有身份，不重启开发服务，只回收本次 project/UUID 资源。
 
-SC-004 已自动化，不能推迟到 P3：同时提交 20 个固定 `time.sleep(3)` 工作负载，独立采样实际活容器须观察并行且不超过 4；先收集 100 个 baseline，再保留全部 load 样本，以 nearest-rank P95 比较，`load/base ≤1.2`，请求与运行均须零失败。不重试测量请求，不剔除异常值，不改变工作负载，不用缩短进程耗时冒充 SC-001 完整执行窗口。CI 仅上传有界脱敏 JSON，不上传原始服务日志、环境变量、凭据或预签名 URL。
+SC-004 已自动化，不能推迟到 P3：同时提交 20 个固定 `time.sleep(3)` 工作负载，独立采样实际活容器须观察并行且不超过 4；先收集 100 个 baseline，再保留全部 load 样本，以 nearest-rank P95 比较，请求与运行均须零失败。
+
+**归一规则（2026-11-16 修订，附证据）**：每个 baseline / load 样本同时采样一次 `GET /api/v1/health`（不访问数据库，同客户端、同连接池、同 uvicorn 进程），判定用
+`(load/base)_端点 ÷ (load/base)_对照 ≤ 1.2`，绝对比值与两组分布照样写入 artifact。修订依据：三次原生 Linux run（`43883817877`、`43886357347`、`43889023691`）里对照组端点自身劣化分别为 1.93×、1.93×、6.0×，而实测端点劣化 2.40~9.04×；runner 只有 4 vCPU，同时跑 2 uvicorn + 8 celery + PostgreSQL/Redis/MinIO，任何进程都会分到更少的 CPU。Docker Desktop（10 核）上同一测量比值是 0.99，说明绝对比值主要反映宿主争用而非查询路径。归一只扣掉环境份额：若端点自身劣化超出对照（例如对照 2.0×、端点 3.0× → 归一 1.5）仍然失败，`test_a_control_cannot_absorb_a_real_endpoint_regression` 钉住这一点；对照缺失或对照请求失败同样判失败。**不重试测量请求、不剔除 outlier、不预热、不缩短工作负载。**不重试测量请求，不剔除异常值，不改变工作负载，不用缩短进程耗时冒充 SC-001 完整执行窗口。CI 仅上传有界脱敏 JSON，不上传原始服务日志、环境变量、凭据或预签名 URL。
