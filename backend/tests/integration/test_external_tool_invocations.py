@@ -3,7 +3,8 @@
 import asyncio
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
+from sqlalchemy.engine import Engine
 
 from app.models.external_invocation import ExternalToolInvocation
 from app.models.external_tool import ExternalToolServer, ExternalToolVersion
@@ -97,6 +98,46 @@ async def test_run_projection_contains_bounded_external_invocation_metadata_with
     assert projection["status"] == "auth_error"
     assert "ciphertext" not in response.text
     assert "query-value" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_run_polling_selects_only_external_invocation_summary_columns(
+    client, db_session, make_headers, make_user
+):
+    owner, _ = await make_user(role="member")
+    headers = await make_headers(user=owner)
+    run, server, version = await _run_fixture(client, db_session, headers, owner)
+    version.input_schema = {"type": "object", "description": "large-schema" * 4096}
+    db_session.add(ExternalToolInvocation(
+        run_id=run.id, owner_id=owner.id, server_id=server.id, tool_version_id=version.id,
+        call_id="summary-only", status="succeeded", duration_ms=12,
+        input_summary={"keys": ["query"]}, output_summary={"text": "large-result" * 4096},
+        policy_result={"allowed": True},
+    ))
+    await db_session.commit()
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(statement)
+
+    event.listen(Engine, "before_cursor_execute", capture)
+    try:
+        response = await client.get(f"/api/v1/runs/{run.id}", headers=headers)
+    finally:
+        event.remove(Engine, "before_cursor_execute", capture)
+    assert response.status_code == 200, response.text
+    projection, = response.json()["external_tool_invocations"]
+    assert projection["server_name"] == server.name
+    assert projection["stable_name"] == version.stable_name
+    assert projection["version"] == version.version
+    assert projection["duration_ms"] == 12
+    assert projection["error_category"] is None
+    queries = [sql.split("FROM", 1)[0] for sql in statements
+               if sql.lstrip().startswith("SELECT") and "FROM external_tool_invocations" in sql]
+    assert len(queries) == 1
+    for excluded in (".input_summary", ".output_summary", ".policy_result", ".error_summary",
+                     ".input_schema", ".required_permissions", ".endpoint_url", ".description"):
+        assert excluded not in queries[0]
 
 
 @pytest.mark.asyncio

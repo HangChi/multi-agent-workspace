@@ -8,7 +8,7 @@ from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, load_only
 
 from app.core.config import settings
 from app.core.secrets import CredentialCipher, EncryptedCredential
@@ -405,8 +405,20 @@ async def list_run_invocations(db: AsyncSession, *, run_id: str) -> list[dict[st
         await db.execute(
             select(ExternalToolInvocation)
             .options(
-                joinedload(ExternalToolInvocation.tool_version),
-                joinedload(ExternalToolInvocation.server),
+                # Polling needs metadata, not result JSON, server endpoints or
+                # tool schemas. Raise if the projection accidentally grows I/O.
+                load_only(
+                    ExternalToolInvocation.id, ExternalToolInvocation.step_id,
+                    ExternalToolInvocation.status, ExternalToolInvocation.duration_ms,
+                    ExternalToolInvocation.created_at, raiseload=True,
+                ),
+                joinedload(ExternalToolInvocation.tool_version).load_only(
+                    ExternalToolVersion.external_name, ExternalToolVersion.stable_name,
+                    ExternalToolVersion.version, raiseload=True,
+                ),
+                joinedload(ExternalToolInvocation.server).load_only(
+                    ExternalToolServer.name, raiseload=True,
+                ),
             )
             .where(ExternalToolInvocation.run_id == run_id)
             .order_by(ExternalToolInvocation.created_at.asc())
