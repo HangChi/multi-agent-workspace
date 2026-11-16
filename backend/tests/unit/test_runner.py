@@ -313,6 +313,29 @@ async def test_cost_breaker_terminates():
     assert len(llm.calls) == 2
 
 
+async def test_cost_resumes_from_persisted_total():
+    """恢复执行/路由已计费时，成本从已落库值续算（熔断不可被重置绕过）。"""
+    llm = FakeLLM(
+        [
+            FakeLLMResponse(tool_calls=[FakeToolCall("web_search", {})], cost_cents=60),
+            FakeLLMResponse(content="本不该执行到这", cost_cents=1),
+        ]
+    )
+    runner, run, sink = _make_runner(
+        llm, executors={"web_search": FakeExecutor()}, cost_limit_cents=100
+    )
+    # router 决策与上一次 needs_input 段落已经花了 50 分并落库
+    run.cost_cents = 50
+
+    with pytest.raises(CostLimitExceeded):
+        await _run(runner, run, sink)
+
+    # 50 + 60 = 110 > 100，第一次 LLM 调用后即熔断，且累计值不被清零
+    assert run.cost_cents == 110
+    assert sink.costs == [110]
+    assert len(llm.calls) == 1
+
+
 async def test_cost_exactly_at_limit_allowed():
     """成本恰好等于上限：不熔断（> limit 才终止）。"""
     llm = FakeLLM([FakeLLMResponse(content="完成", cost_cents=100)])

@@ -172,7 +172,10 @@ class ReActRunner:
         step_count = 0
         seq = 0  # 全局单调步骤序号（LLM/tool/final 共用，避免跨轮重复）
         denied_count = 0
-        run_cost = 0
+        # FR-019/SC-006：成本上限是「本次 Run 的累计」，不是「本次 run() 调用的累计」。
+        # 从已落库值续算，否则 needs_input 恢复执行会把历史成本清零（熔断可被反复
+        # 绕过），router 在进入 runner 前写入的决策成本也会被下一轮覆盖丢失。
+        run_cost = int(run.cost_cents or 0)
         start = time.monotonic()
         tools = [executor.schema() for executor in self.executors.values()]
 
