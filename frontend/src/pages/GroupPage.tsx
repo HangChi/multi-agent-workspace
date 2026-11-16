@@ -132,11 +132,17 @@ export function GroupPage() {
   })
 
   const addMemberMut = useMutation({
-    mutationFn: ({ groupId, agentId }: { groupId: string; agentId: string }) =>
-      addGroupMember(groupId, {
-        agent_id: agentId,
-        position: 999, // 追加到末尾，后端会处理
-      }),
+    // 后端要求 position 唯一且自由；写死 999 会让第二个成员必然 409。
+    // 追加语义由调用方按当前最大 position + 1 计算。
+    mutationFn: ({
+      groupId,
+      agentId,
+      position,
+    }: {
+      groupId: string
+      agentId: string
+      position: number
+    }) => addGroupMember(groupId, { agent_id: agentId, position }),
     onSuccess: () => {
       invalidate()
       toast.success('成员已加入')
@@ -403,7 +409,11 @@ export function GroupPage() {
                         value=""
                         onChange={(e) => {
                           const agentId = e.target.value
-                          if (agentId) addMemberMut.mutate({ groupId: group.id, agentId })
+                          if (agentId) {
+                            const nextPosition =
+                              group.members.reduce((max, m) => Math.max(max, m.position), -1) + 1
+                            addMemberMut.mutate({ groupId: group.id, agentId, position: nextPosition })
+                          }
                         }}
                         controlSize="sm"
                         placeholder={
