@@ -34,6 +34,7 @@ from cryptography.x509.oid import NameOID
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from deploy.verify.external_concurrency_acceptance import (
     P95_RATIO_LIMIT,
+    CheckFailure,
     p95_verdict,
     percentile95,
 )
@@ -203,22 +204,55 @@ async def test_releasing_a_foreign_lease_never_frees_another_callers_slot(monkey
 def test_p95_verdict_keeps_strict_sc004_semantics():
     baseline = [float(value) for value in range(1, 101)]
     loaded = [float(value) for value in range(1, 101)]
-    verdict = p95_verdict(baseline, loaded, 0)
-    assert verdict["passed"] is True
-    assert verdict["baseline_samples"] == 100 and verdict["load_samples"] == 100
+
+    def verdict(baseline, loaded, failures=0, control=(100.0, 100.0), control_failures=0):
+        """Idle control unless the case is about the control itself."""
+        return p95_verdict(baseline, loaded, failures,
+                           control_baseline=[control[0]] * 100,
+                           control_loaded=[control[1]] * 100,
+                           control_failures=control_failures)
+
+    result = verdict(baseline, loaded)
+    assert result["passed"] is True
+    assert result["baseline_samples"] == 100 and result["load_samples"] == 100
     # Nearest-rank P95 of 1..100 is 95, not a mean, median or clipped maximum.
     assert percentile95(baseline) == 95.0
-    assert verdict["baseline_p95_ms"] == 95.0 and verdict["p95_ratio"] == 1.0
+    assert result["baseline_p95_ms"] == 95.0 and result["p95_ratio"] == 1.0
 
     slower = [value * (P95_RATIO_LIMIT + 0.01) for value in range(1, 101)]
-    assert p95_verdict(baseline, slower, 0)["passed"] is False
+    assert verdict(baseline, slower)["passed"] is False
     # A single request failure fails the gate even when latency looks perfect.
-    assert p95_verdict(baseline, loaded, 1)["passed"] is False
+    assert verdict(baseline, loaded, 1)["passed"] is False
     # Excluding slow samples to force a pass is not representable: every sample
     # handed to the verdict participates in the nearest-rank selection.
     with_outliers = baseline + [10_000.0] * 5
-    assert p95_verdict(with_outliers, with_outliers, 0)["p95_ratio"] == 1.0
+    assert verdict(with_outliers, with_outliers)["p95_ratio"] == 1.0
     assert percentile95(with_outliers) == 100.0
+
+
+def test_the_control_explains_host_contention_but_never_a_real_regression():
+    baseline = [10.0] * 100
+    # A starved host lifts the database-free control; only the excess counts.
+    shared_host = p95_verdict(baseline, [22.0] * 100, 0,
+                              control_baseline=[10.0] * 100,
+                              control_loaded=[20.0] * 100, control_failures=0)
+    assert shared_host["control_p95_ratio"] == 2.0
+    assert shared_host["attributed_p95_ratio"] == 1.1
+    assert shared_host["passed"] is True
+    # Same host, but this endpoint got worse than the control: still fails.
+    worse = p95_verdict(baseline, [30.0] * 100, 0,
+                        control_baseline=[10.0] * 100,
+                        control_loaded=[20.0] * 100, control_failures=0)
+    assert worse["attributed_p95_ratio"] == 1.5
+    assert worse["passed"] is False
+    # A control that could not be sampled is not evidence of a healthy host.
+    with pytest.raises(CheckFailure):
+        p95_verdict(baseline, baseline, 0, control_baseline=[], control_loaded=[],
+                    control_failures=0)
+    degraded_control = p95_verdict(baseline, baseline, 0,
+                                   control_baseline=[10.0] * 100,
+                                   control_loaded=[10.0] * 100, control_failures=1)
+    assert degraded_control["passed"] is False
 
 
 def test_fixture_stats_are_bounded_and_thread_safe():

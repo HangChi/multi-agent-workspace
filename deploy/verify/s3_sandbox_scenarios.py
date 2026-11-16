@@ -337,7 +337,11 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--base", default=os.getenv("SANDBOX_VERIFY_BASE", "http://localhost:8080"))
     result.add_argument("--model", default=os.getenv("SANDBOX_VERIFY_MODEL", "gpt-4o-mini"))
     result.add_argument("--timeout", type=float, default=180, help="Per-run poll deadline in seconds")
-    result.add_argument("--poll-interval", type=float, default=0.5)
+    # Observation cadence, not part of any scenario: 40 concurrent runs polling
+    # a measured endpoint twice a second put 80 rps of *harness* traffic on the
+    # very interface the P95 gate times. 1 Hz is still fast enough to observe
+    # every terminal state inside the poll deadline.
+    result.add_argument("--poll-interval", type=float, default=1.0)
     result.add_argument("--max-execution-ms", type=int, default=5000, help="S1/SC-001 sandbox duration cap")
     result.add_argument("--artifact-fetch-container", help="Fetch internal presigned URL using docker exec")
     result.add_argument("--skip-audit-check", action="store_true", help="Explicitly omit admin-only audit assertion")
