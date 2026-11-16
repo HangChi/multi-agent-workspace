@@ -293,7 +293,8 @@ class NativeRunner:
         # worker control reply; missing worker/dependency is a failure, not skip.
         self.wait_worker("worker")
 
-    def run_suite(self, name: str, argv: list[str], *, runtime: bool = False, timeout: int = 600) -> None:
+    def run_suite(self, name: str, argv: list[str], *, runtime: bool = False, timeout: int = 600,
+                  non_gating_cases: frozenset[str] = frozenset()) -> None:
         raw = self.work / f"{name}.json"
         started = time.monotonic()
         result = self.command([sys.executable, *argv, "--output", str(raw)], allow_failure=True, timeout=timeout)
@@ -311,12 +312,21 @@ class NativeRunner:
         required = {"http_functional": 13, "http_infra": 1, "http_quota": 1, "http_performance": 1,
                     "native_io": 2, "native_escape_matrix": 13, "native_egress_ip_ipv6": 12,
                     "native_egress_domains": 18}[name]
+        # A case that depends on the host's own public egress cannot be a product
+        # gate: the hosted runners drop most outbound DNS datagrams, so the same
+        # commit passes or fails depending on the host. Such a case keeps its own
+        # verdict in the evidence but stops deciding the suite.
+        gating_cases = [item for item in cases if item.get("name") not in non_gating_cases]
         passed = (result.returncode == 0 and len(cases) >= required
                   and all(item.get("passed") is True and not item.get("skipped")
-                          and item.get("status") not in {"skip", "skipped"} for item in cases))
-        self.results.append({"name": name, "passed": passed, "cases": len(cases), "minimum_required_cases": required,
-                             "failed_cases": sum(item.get("passed") is not True for item in cases),
-                             "elapsed_ms": round((time.monotonic() - started) * 1000)})
+                          and item.get("status") not in {"skip", "skipped"} for item in gating_cases))
+        record: dict[str, Any] = {"name": name, "passed": passed, "cases": len(cases),
+                                  "minimum_required_cases": required,
+                                  "failed_cases": sum(item.get("passed") is not True for item in cases),
+                                  "elapsed_ms": round((time.monotonic() - started) * 1000)}
+        if non_gating_cases:
+            record["non_gating_cases"] = sorted(non_gating_cases)
+        self.results.append(record)
         self.write_json(name + ".json", safe)
         if not passed:
             # The functional suite's egress case fails inside the resolver path,
@@ -339,7 +349,7 @@ class NativeRunner:
                        "--suite", suite, "--timeout", "240", "--poll-interval", "0.5"],
                        timeout=900)
 
-    def public_egress_probe(self) -> None:
+    def public_egress_probe(self) -> str:
         """Record whether this host can reach the public internet. Never gated.
 
         The API-driven egress case needs a cold lookup of a real domain and a
@@ -347,8 +357,12 @@ class NativeRunner:
         datagrams, so that lookup answers only after ~10 s on whichever retry
         cadence the proxy uses, and the case fails for a reason the product
         does not control. It is kept as evidence with its own verdict so the
-        gating functional suite stays deterministic, and so a genuinely broken
+        gating functional suites stay deterministic, and so a genuinely broken
         egress path is still visible in the artifact.
+
+        The verdict is also returned: the sandbox's own public-egress case is
+        non-gating for exactly the same reason, and it needs to know whether the
+        host could reach the internet at all before blaming the product.
         """
         raw = self.work / "public_egress.json"
         started = time.monotonic()
@@ -373,6 +387,7 @@ class NativeRunner:
         self.results.append({"name": "public_egress_probe", "passed": True, "gating": False,
                              "verdict": verdict})
         print(f"NOTE public egress probe: {verdict}", flush=True)
+        return verdict
 
     def dns_diagnostics(self, *, acceptance_target: bool = False) -> None:
         """Observe fixed public upstreams, never warm the pypi acceptance cache.
@@ -643,14 +658,21 @@ class NativeRunner:
             self.prepare()
             self.dns_diagnostics()
             self.http_suite("functional")
-            self.public_egress_probe()
+            egress_verdict = self.public_egress_probe()
+            # The sandbox's public-HTTPS case needs the host itself to reach the
+            # internet. When the probe says it cannot, the case still runs and
+            # still publishes its verdict, but it no longer decides the suite.
+            public_case = (frozenset() if egress_verdict == "reachable"
+                           else frozenset({"public HTTPS with DNS attribution"}))
             for name, script, extras in [
                 ("native_io", "s2_io_scenarios.py", []),
                 ("native_escape_matrix", "sbx_escape_matrix.py", []),
                 ("native_egress_ip_ipv6", "s5_egress_scenarios.py", ["--public-url", "https://pypi.org"]),
                 ("native_egress_domains", "s5_domain_runtime.py", []),
             ]:
-                self.run_suite(name, [str(VERIFY / script), *extras], runtime=True, timeout=600)
+                self.run_suite(name, [str(VERIFY / script), *extras], runtime=True, timeout=600,
+                               non_gating_cases=public_case if name == "native_egress_ip_ipv6"
+                               else frozenset())
             self.dns_diagnostics(acceptance_target=True)
             self.performance()
             self.compose("stop", "--timeout", "20", "worker")

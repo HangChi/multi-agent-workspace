@@ -698,6 +698,45 @@ class NativeIsolationTests(unittest.TestCase):
                     self.assertEqual(any(name.endswith('.dns.json') for name in written),
                                      count < required)
 
+    def test_host_public_egress_can_only_waive_its_own_case(self):
+        """A case that needs the host's own internet access cannot gate the suite.
+
+        The hosted runners drop outbound DNS, so the same commit passes or fails
+        depending on the host. The case keeps its verdict in the evidence, but
+        only itself may be excluded -- every other failure must still fail.
+        """
+        public_case = "public HTTPS with DNS attribution"
+        for other_failures, non_gating, expected in ((0, frozenset(), False),
+                                                     (0, frozenset({public_case}), True),
+                                                     (1, frozenset({public_case}), False)):
+            with self.subTest(other_failures=other_failures, non_gating=bool(non_gating)), \
+                    tempfile.TemporaryDirectory() as directory:
+                runner = object.__new__(native.NativeRunner)
+                runner.work, runner.results, runner.execution_ids = Path(directory), [], set()
+                written = {}
+                runner.write_json = lambda name, content, sink=written: sink.setdefault(name, content)
+                runner.compose = lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout=b"")
+                cases = [{'name': f"case-{index}", 'passed': index >= other_failures}
+                         for index in range(12 - 1)]
+                cases.append({'name': public_case, 'passed': False})
+
+                def command(argv, payload={'results': cases}, **kwargs):
+                    Path(argv[-1]).write_text(json.dumps(payload))
+                    return SimpleNamespace(returncode=0)
+
+                runner.command = command
+                with contextlib.redirect_stdout(io.StringIO()):
+                    runner.run_suite("native_egress_ip_ipv6", ['never-executed'], runtime=True,
+                                     non_gating_cases=non_gating)
+                record = runner.results[-1]
+                self.assertEqual(record['passed'], expected)
+                # The waived case is still counted, still published, and named.
+                self.assertEqual(record['cases'], 12)
+                self.assertEqual(record['failed_cases'], 1 + other_failures)
+                self.assertEqual(len(written['native_egress_ip_ipv6.json']['results']), 12)
+                self.assertEqual(record.get('non_gating_cases', []),
+                                 sorted(non_gating))
+
     def test_live_concurrency_uses_one_daemon_snapshot_without_inspect_races(self):
         runner = object.__new__(native.NativeRunner)
         runner.prefix = 'aw002ci-123-1-sbx'
