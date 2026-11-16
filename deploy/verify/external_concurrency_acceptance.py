@@ -37,6 +37,7 @@ import json
 import math
 import os
 import platform
+import re
 import secrets
 import subprocess
 import sys
@@ -88,6 +89,15 @@ CALL_DEADLINE_MS = 10_000
 DEADLINE_OVERHEAD_MS = 1_000
 P95_RATIO_LIMIT = 1.2
 BASELINE_SAMPLES = 100
+# How long the stack's own Celery Worker gets to answer `inspect ping` after
+# `compose up --wait` reports it running. The Worker is the process that reaches
+# the fixture, so a stack whose Worker never became ready has not been measured
+# at all -- this is a deployment gate, not a measurement, and it is never
+# shortened to make a run pass.
+WORKER_READY_TIMEOUT_S = 90
+# The per-run values that must never reach the published artifact.
+SENSITIVE_ENV = ("AW_VERIFY_FIXTURE_SECRET", "AW_VERIFY_PASSWORD", "AW_VERIFY_JWT_SECRET",
+                 "AW_VERIFY_INVITE_CODE", "AW_VERIFY_USER_PASSWORD")
 MEASURED_ENDPOINTS = ("/stats/overview", "/runs/{run_id}")
 TERMINAL_RUN_STATUS = {"completed", "failed", "timeout", "cancelled", "needs_input"}
 INVOCATION_STATUS = {
@@ -722,6 +732,22 @@ class ExternalAcceptance:
         bundle = Path(certifi.where()).read_text()
         (self.tls_dir / "ca-bundle.pem").write_text(
             bundle + certificate.public_bytes(serialization.Encoding.PEM).decode())
+        # `mkdtemp` builds a 0700 directory owned by whoever ran the acceptance.
+        # The Worker runs as uid 10001 and a NATIVE Linux daemon enforces the
+        # host's uid and mode on a bind mount, so from inside the container the
+        # CA bundle is unreadable: `SSL_CERT_FILE` then makes
+        # `ssl.create_default_context` raise while the app is being imported
+        # (litellm builds its httpx client at import time), the Worker exits
+        # with status 2 before it ever answers a ping, and the acceptance stops
+        # at "worker did not become ready" with nothing in the artifact to say
+        # why. Docker Desktop hides this because it serves bind mounts
+        # permissively, which is why every local run passed and the first CI run
+        # did not. Only the trust bundle has to be world-readable: the fixture's
+        # private key stays 0600 and is read solely by the root-running fixture.
+        (self.tls_dir / "ca-bundle.pem").chmod(0o644)
+        (self.tls_dir / "fixture.crt").chmod(0o644)
+        (self.tls_dir / "fixture.key").chmod(0o600)
+        self.tls_dir.chmod(0o755)
         self.compose_env["AW_VERIFY_FIXTURE_TLS_DIR"] = str(self.tls_dir)
 
     def build_images(self) -> None:
@@ -788,8 +814,54 @@ class ExternalAcceptance:
                 "external database bootstrap failed (credentials withheld)")
         return payload
 
+    def bounded_lines(self, text: str, *, lines: int = 12, limit: int = 1500) -> list[str]:
+        """Credential-free, length-bounded log lines for the published artifact."""
+        cleaned = text
+        # Only the values this harness generates per run are secrets; redacting
+        # the whole environment would also mangle ordinary paths in a traceback.
+        for name in SENSITIVE_ENV:
+            secret = self.compose_env.get(name, "")
+            if len(secret) >= 8:
+                cleaned = cleaned.replace(secret, "<redacted>")
+        cleaned = re.sub(r"([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@", r"\1<redacted>@", cleaned)
+        kept = [line[:300] for line in cleaned.splitlines() if line.strip()][-lines:]
+        while kept and sum(len(line) + 1 for line in kept) > limit:
+            kept.pop(0)
+        return kept
+
+    def worker_readiness_evidence(
+        self, service: str, ping: subprocess.CompletedProcess | None,
+    ) -> dict[str, Any]:
+        """Bounded evidence for a Worker that never answered ``inspect ping``.
+
+        A readiness failure used to leave the artifact with a single sentence,
+        which is indistinguishable from "the box was slow" -- and it was neither:
+        the Worker had died at import on an unreadable ``SSL_CERT_FILE``. The
+        artifact is the only thing that survives a failed CI run, so this
+        records the container's state and its last log lines here, sanitized,
+        instead of leaving the next such failure to be re-derived from a private
+        log nobody can publish.
+        """
+        evidence: dict[str, Any] = {}
+        identity = self.compose("ps", "-a", "-q", service, allow_failure=True, timeout=60)
+        container = identity.stdout.decode().strip().splitlines()[:1]
+        if container:
+            state = self.command(["docker", "inspect", "-f",
+                                  ("{{.State.Status}} exit={{.State.ExitCode}} "
+                                   "restarts={{.RestartCount}} oom={{.State.OOMKilled}}"),
+                                  container[0]], allow_failure=True, timeout=60)
+            evidence["container_state"] = self.bounded_lines(
+                state.stdout.decode(), lines=1, limit=200)
+        logs = self.compose("logs", "--tail", "60", "--no-color", service,
+                            allow_failure=True, timeout=60)
+        evidence["worker_log_tail"] = self.bounded_lines(logs.stdout.decode())
+        if ping is not None:
+            evidence["ping_reply"] = self.bounded_lines(ping.stdout.decode(), lines=6)
+        return evidence
+
     def wait_worker(self, service: str) -> None:
-        deadline = time.monotonic() + 90
+        deadline = time.monotonic() + WORKER_READY_TIMEOUT_S
+        reply: subprocess.CompletedProcess | None = None
         while time.monotonic() < deadline:
             reply = self.compose("exec", "-T", service, "celery", "-A",
                                  "app.tasks.celery_app:celery_app", "inspect", "ping",
@@ -797,6 +869,8 @@ class ExternalAcceptance:
             if reply.returncode == 0 and b"pong" in reply.stdout:
                 return
             time.sleep(1)
+        self.results.append({"name": "worker_readiness", "passed": False,
+                             **self.worker_readiness_evidence(service, reply)})
         raise AcceptanceFailure("own Celery worker did not become ready")
 
     def prepare(self) -> None:

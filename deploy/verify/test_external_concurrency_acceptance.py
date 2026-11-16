@@ -15,7 +15,11 @@ Every one of these was a real defect found by a real-stack run:
 * ``build_with_retry`` caught ``AcceptanceFailure`` while ``require`` raises
   ``CheckFailure``, so a transient Docker Hub outage aborted the run;
 * the fixture's request peak counted a session's handshake, not concurrent tool
-  calls, so the lease bound was checked against the wrong quantity.
+  calls, so the lease bound was checked against the wrong quantity;
+* the fixture TLS directory kept ``mkdtemp``'s 0700 mode, so the Worker -- which
+  runs as uid 10001 -- could not read the CA bundle through a native Linux bind
+  mount, died at import on ``SSL_CERT_FILE``, and was reported only as "worker
+  did not become ready" with no evidence attached.
 
 Run: python -m unittest discover -s deploy/verify -p 'test_*.py' -v
 """
@@ -25,11 +29,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import stat
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import external_concurrency_acceptance as external
 import httpx
@@ -312,6 +318,124 @@ class BuildRetryControls(unittest.TestCase):
         acceptance.command = command  # type: ignore[method-assign]
         with self.assertRaises(external.AcceptanceFailure):
             acceptance.build_with_retry("backend", ["docker", "build"], attempts=2)
+
+
+class FixtureTlsPermissionControls(unittest.TestCase):
+    """The Worker reads the fixture CA from a bind mount it does not own.
+
+    The first CI run of this acceptance failed with "own Celery worker did not
+    become ready", and the artifact said nothing else. The cause was here:
+    ``mkdtemp`` leaves the directory 0700 and owned by whoever ran the
+    acceptance, the Worker runs as uid 10001, and a native Linux daemon enforces
+    the host's uid and mode on a bind mount -- so ``SSL_CERT_FILE`` pointed at a
+    file the Worker could not read, ``ssl.create_default_context`` raised while
+    the app was being imported (litellm builds its httpx client at import time),
+    and the Worker exited with status 2 before it could answer a ping. Docker
+    Desktop serves bind mounts permissively, so only a native run exposes it,
+    which is why the mode bits are pinned here instead of being left to the next
+    real-stack rerun.
+    """
+
+    def acceptance(self) -> external.ExternalAcceptance:
+        with tempfile.TemporaryDirectory(prefix="aw-003-tls-control-") as directory:
+            pass
+        return external.ExternalAcceptance(
+            SimpleNamespace(output=directory, project="aw-003-controls"))
+
+    def tearDown(self) -> None:
+        for path in sorted(Path(tempfile.gettempdir()).glob("aw-003-tls-*"), reverse=True):
+            for child in sorted(path.glob("*"), reverse=True):
+                child.unlink(missing_ok=True)
+            path.rmdir()
+
+    def test_generated_tls_material_is_readable_by_the_container_user(self):
+        acceptance = self.acceptance()
+        acceptance.generate_tls()
+        directory = acceptance.tls_dir
+        assert directory is not None
+        directory_mode = stat.S_IMODE(directory.stat().st_mode)
+        self.assertTrue(directory_mode & stat.S_IXOTH,
+                        f"fixture TLS directory is not traversable by the Worker: "
+                        f"{oct(directory_mode)}")
+        bundle_mode = stat.S_IMODE((directory / "ca-bundle.pem").stat().st_mode)
+        self.assertTrue(bundle_mode & stat.S_IROTH,
+                        f"fixture CA bundle is not readable by the Worker: {oct(bundle_mode)}")
+        certificate_mode = stat.S_IMODE((directory / "fixture.crt").stat().st_mode)
+        self.assertTrue(certificate_mode & stat.S_IROTH,
+                        f"fixture certificate is not readable by the Worker: "
+                        f"{oct(certificate_mode)}")
+        key_mode = stat.S_IMODE((directory / "fixture.key").stat().st_mode)
+        self.assertFalse(key_mode & stat.S_IROTH,
+                         f"fixture private key must stay unreadable to others: {oct(key_mode)}")
+
+    def test_the_trust_bundle_carries_the_system_roots_too(self):
+        """Relaxing the trust store to pass would be the forbidden shortcut."""
+        import certifi
+
+        acceptance = self.acceptance()
+        acceptance.generate_tls()
+        directory = acceptance.tls_dir
+        assert directory is not None
+        bundle = (directory / "ca-bundle.pem").read_text()
+        self.assertTrue(bundle.startswith(Path(certifi.where()).read_text()))
+        self.assertIn("BEGIN CERTIFICATE", bundle)
+
+
+class ReadinessEvidenceControls(unittest.TestCase):
+    """A Worker that never answers must leave a diagnosable artifact."""
+
+    def acceptance(self) -> external.ExternalAcceptance:
+        with tempfile.TemporaryDirectory(prefix="aw-003-evidence-control-") as directory:
+            pass
+        return external.ExternalAcceptance(
+            SimpleNamespace(output=directory, project="aw-003-controls"))
+
+    def test_a_readiness_failure_records_bounded_evidence(self):
+        acceptance = self.acceptance()
+
+        def compose(*args: str, **_kwargs: object):
+            if args[:1] == ("exec",):
+                return SimpleNamespace(returncode=69, stdout=b"Error: No nodes replied\n")
+            if args[:1] == ("ps",):
+                return SimpleNamespace(returncode=0, stdout=b"container-id\n")
+            return SimpleNamespace(returncode=0, stdout=b"celery@host v5.7.0\nPermissionError\n")
+
+        acceptance.compose = compose  # type: ignore[method-assign]
+        acceptance.command = lambda *_args, **_kwargs: SimpleNamespace(  # type: ignore[method-assign]
+            returncode=0, stdout=b"exited exit=2 restarts=0 oom=false\n")
+        with mock.patch.object(external, "WORKER_READY_TIMEOUT_S", 0.05), \
+                self.assertRaises(external.AcceptanceFailure):
+            acceptance.wait_worker("worker")
+        entry = acceptance.results[-1]
+        self.assertEqual(entry["name"], "worker_readiness")
+        self.assertFalse(entry["passed"])
+        self.assertEqual(entry["container_state"], ["exited exit=2 restarts=0 oom=false"])
+        self.assertIn("PermissionError", entry["worker_log_tail"])
+        self.assertEqual(entry["ping_reply"], ["Error: No nodes replied"])
+
+    def test_bounded_lines_redacts_generated_secrets_and_url_credentials(self):
+        acceptance = self.acceptance()
+        secret = "003-fixture-" + "z" * 30
+        acceptance.compose_env["AW_VERIFY_FIXTURE_SECRET"] = secret
+        lines = acceptance.bounded_lines(
+            f"Authorization: Bearer {secret}\n"
+            "transport: redis://worker:s3cret-pw@redis:6379/1\n"
+            "transport: redis://:**@redis:6379/2\n"
+            "celery@host ready.\n")
+        self.assertNotIn(secret, " ".join(lines))
+        self.assertNotIn("s3cret-pw", " ".join(lines))
+        self.assertIn("Authorization: Bearer <redacted>", lines)
+        self.assertIn("transport: redis://<redacted>@redis:6379/1", lines)
+        # Celery already masks its own broker password; that must survive.
+        self.assertIn("transport: redis://:**@redis:6379/2", lines)
+
+    def test_bounded_lines_keeps_only_the_tail_and_truncates_each_line(self):
+        acceptance = self.acceptance()
+        text = "\n".join(f"line-{index}" for index in range(50))
+        self.assertEqual(acceptance.bounded_lines(text, lines=3),
+                         ["line-47", "line-48", "line-49"])
+        self.assertEqual(acceptance.bounded_lines("x" * 900, lines=1), ["x" * 300])
+        self.assertEqual(acceptance.bounded_lines("a\n\n\nb", lines=5), ["a", "b"])
 
 
 class P95StrictnessControls(unittest.TestCase):
