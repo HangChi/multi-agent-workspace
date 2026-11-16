@@ -78,7 +78,12 @@ services:
     # transient hiccup aborts a run with `upstream_timeout`. All three are
     # queried at once (`all-servers`), so any reachable resolver answers.
     environment:
-      EGRESS_DNS_UPSTREAMS: ${EGRESS_DNS_UPSTREAMS:-1.1.1.1,8.8.8.8,223.5.5.5}
+      # 168.63.129.16 is the Azure platform resolver: the CI hosts are Azure VMs
+      # and outbound UDP/53 to public resolvers is throttled or blackholed there
+      # (the proxy log shows UDP upstream queries going unanswered while TCP
+      # ones are answered). All four are queried at once, so whichever transport
+      # and resolver actually work wins; an unreachable entry is inert.
+      EGRESS_DNS_UPSTREAMS: ${EGRESS_DNS_UPSTREAMS:-1.1.1.1,8.8.8.8,223.5.5.5,168.63.129.16}
     # Dynamic execution-network attachment must not steal the public DNS route.
     networks:
       default:

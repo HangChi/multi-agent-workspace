@@ -323,8 +323,12 @@ class NativeRunner:
             # where the client side only sees a timeout. Capture the proxy's own
             # bounded, address-masked window for the same span.
             elapsed = max(5, int(time.monotonic() - started))
-            logs = self.compose("logs", "--no-color", "--since", f"{elapsed}s", "dns-proxy",
-                                allow_failure=True, timeout=60)
+            # --timestamps is what makes the window readable: without it the
+            # evidence cannot say whether a reply came 200 ms or 20 s after the
+            # query, which is the difference between "slow resolver" and
+            # "upstream path blackholed".
+            logs = self.compose("logs", "--no-color", "--timestamps", "--since", f"{elapsed}s",
+                                "dns-proxy", allow_failure=True, timeout=60)
             self.write_json(name + ".dns.json", summarize_dns_proxy_log(
                 logs.stdout.decode("utf-8", "replace"), elapsed))
         print(f"{'PASS' if passed else 'FAIL'} suite {name}", flush=True)
