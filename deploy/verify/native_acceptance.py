@@ -317,7 +317,12 @@ class NativeRunner:
         # commit passes or fails depending on the host. Such a case keeps its own
         # verdict in the evidence but stops deciding the suite.
         gating_cases = [item for item in cases if item.get("name") not in non_gating_cases]
-        passed = (result.returncode == 0 and len(cases) >= required
+        # The suite script exits nonzero when *any* case failed, including the
+        # ones just declared non-gating, so its exit code cannot decide the suite
+        # once a waiver is in play. A crash is still caught: no report file, or a
+        # truncated case list, fails the requirements above.
+        exit_ok = result.returncode == 0 or bool(non_gating_cases)
+        passed = (exit_ok and len(cases) >= required
                   and all(item.get("passed") is True and not item.get("skipped")
                           and item.get("status") not in {"skip", "skipped"} for item in gating_cases))
         record: dict[str, Any] = {"name": name, "passed": passed, "cases": len(cases),

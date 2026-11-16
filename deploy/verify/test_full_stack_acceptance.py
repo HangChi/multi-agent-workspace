@@ -748,7 +748,9 @@ class NativeIsolationTests(unittest.TestCase):
 
                 def command(argv, payload={'results': cases}, **kwargs):
                     Path(argv[-1]).write_text(json.dumps(payload))
-                    return SimpleNamespace(returncode=0)
+                    # The real suite exits nonzero when any case failed, the
+                    # waived one included.
+                    return SimpleNamespace(returncode=1)
 
                 runner.command = command
                 with contextlib.redirect_stdout(io.StringIO()):
