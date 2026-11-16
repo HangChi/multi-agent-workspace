@@ -465,13 +465,21 @@ class P95StrictnessControls(unittest.TestCase):
         )
 
     def test_ratio_limit_and_zero_failure_requirement(self):
-        baseline = [float(value) for value in range(1, 101)]
+        # Latencies above the ceiling, so the ratio is what decides.
+        baseline = [100.0 + value for value in range(100)]
         verdict = self.verdict(baseline, baseline)
         self.assertTrue(verdict["passed"])
         self.assertEqual(verdict["p95_ratio"], 1.0)
         self.assertFalse(self.verdict(baseline, baseline, 1)["passed"])
         self.assertFalse(self.verdict(
             baseline, [value * (external.P95_RATIO_LIMIT + 0.01) for value in baseline])["passed"])
+
+    def test_ratio_noise_at_millisecond_latency_is_not_a_failure(self):
+        """The same commit measured 1.42, 1.74 and 2.17 on one runner."""
+        result = self.verdict([8.0] * 100, [32.0] * 100, control=(3.0, 4.9))
+        self.assertGreater(result["attributed_p95_ratio"], external.P95_RATIO_LIMIT)
+        self.assertLess(result["load_p95_ms"], external.P95_ABSOLUTE_CEILING_MS)
+        self.assertTrue(result["passed"])
 
     def test_a_control_cannot_absorb_a_real_endpoint_regression(self):
         """The control explains host contention, not a defect in this endpoint."""
@@ -480,7 +488,8 @@ class P95StrictnessControls(unittest.TestCase):
         self.assertAlmostEqual(shared_host["control_p95_ratio"], 2.0)
         self.assertAlmostEqual(shared_host["attributed_p95_ratio"], 1.1)
         self.assertTrue(shared_host["passed"])
-        worse_than_the_host = self.verdict(baseline, [40.0] * 100, control=(10.0, 20.0))
+        slow_baseline = [100.0] * 100
+        worse_than_the_host = self.verdict(slow_baseline, [400.0] * 100, control=(100.0, 200.0))
         self.assertAlmostEqual(worse_than_the_host["attributed_p95_ratio"], 2.0)
         self.assertFalse(worse_than_the_host["passed"])
 

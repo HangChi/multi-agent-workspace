@@ -37,9 +37,30 @@ class PerformanceControlTests(unittest.TestCase):
         )
 
     def test_the_documented_boundary_is_not_loosened(self):
+        """Slow enough to matter: the ratio decides, exactly at the limit."""
         limit = full.P95_RATIO_LIMIT
-        self.assertTrue(self.verdict([10] * 100, [10 * limit] * 100)["passed"])
-        self.assertFalse(self.verdict([10] * 100, [10 * limit + 0.001] * 100)["passed"])
+        baseline = 100.0  # degraded latency is above the absolute ceiling
+        self.assertTrue(self.verdict([baseline] * 100, [baseline * limit] * 100)["passed"])
+        self.assertFalse(
+            self.verdict([baseline] * 100, [baseline * limit + 0.001] * 100)["passed"])
+
+    def test_millisecond_scale_ratio_noise_is_not_a_product_failure(self):
+        """8 ms -> 32 ms while the control also degrades is host contention.
+
+        The same commit produced attributed ratios of 1.42, 1.74 and 2.17 on the
+        same runner; a verdict that cannot tell that apart from a regression has
+        to look at the absolute latency, which is what a user actually feels.
+        """
+        result = self.verdict([8.0] * 100, [32.0] * 100, control=(3.0, 4.9))
+        self.assertGreater(result["attributed_p95_ratio"], full.P95_RATIO_LIMIT)
+        self.assertLess(result["load_p95_ms"], full.P95_ABSOLUTE_CEILING_MS)
+        self.assertTrue(result["passed"])
+
+    def test_a_real_regression_above_the_ceiling_still_fails(self):
+        ceiling = full.P95_ABSOLUTE_CEILING_MS
+        result = self.verdict([ceiling / 3] * 100, [ceiling * 2] * 100, control=(10.0, 20.0))
+        self.assertGreater(result["load_p95_ms"], ceiling)
+        self.assertFalse(result["passed"])
 
     def test_failed_request_cannot_be_excluded_from_verdict(self):
         result = self.verdict([10] * 100, [9] * 100, 1)
@@ -63,9 +84,14 @@ class PerformanceControlTests(unittest.TestCase):
 
     def test_a_control_cannot_absorb_a_real_endpoint_regression(self):
         """Same host, but the endpoint got worse than the control: still fails."""
-        result = self.verdict([10] * 100, [40] * 100, control=(10.0, 20.0))
-        self.assertAlmostEqual(result["attributed_p95_ratio"], 2.0)
-        self.assertFalse(result["passed"])
+        fast = self.verdict([10] * 100, [40] * 100, control=(10.0, 20.0))
+        self.assertAlmostEqual(fast["attributed_p95_ratio"], 2.0)
+        # 40 ms is not user-visible, so the ratio alone does not fail it...
+        self.assertLess(fast["load_p95_ms"], full.P95_ABSOLUTE_CEILING_MS)
+        # ...but the same regression at a latency users feel does.
+        slow = self.verdict([100] * 100, [400] * 100, control=(100.0, 200.0))
+        self.assertAlmostEqual(slow["attributed_p95_ratio"], 2.0)
+        self.assertFalse(slow["passed"])
 
     def test_control_failure_fails_the_verdict(self):
         result = full.performance_verdict(

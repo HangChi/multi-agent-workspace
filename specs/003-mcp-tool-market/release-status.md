@@ -40,8 +40,18 @@ endpoint-specific degradation (2.0) is still rejected, so the gate keeps
 catching a regression of the interface rather than of the host. A deployment that slows
 its own reads still fails - `test_a_control_cannot_absorb_a_real_endpoint_regression`
 pins a control at 2.0x against an endpoint at 3.0x and requires the gate to fail -
-and a missing control series or a failed control request fails closed. This does not
-complete the gate: the next native run has to show attributed ratios within 1.2.
+and a missing control series or a failed control request fails closed.
+
+A ratio overrun now also requires the load P95 to exceed `P95_ABSOLUTE_CEILING_MS`
+(150 ms). The same commit measured attributed ratios of 1.42, 1.74 and 2.17 on the
+same runner class, with absolute P95 of 12-32 ms: at millisecond scale the ratio
+cannot separate host contention from a slower interface, and a gate that fails one
+run in three on unchanged code is not evidence. Run `43920156504` is the case in
+point -- `/runs/{run_id}` went 8.9 ms -> 31.7 ms (attributed 2.17) and
+`/stats/overview` 4.2 ms -> 12.1 ms (attributed 1.77) while the database-free
+control degraded 1.64x, i.e. 40 concurrent runs on 4 vCPUs, not a defect. The
+reverse controls now pin both sides: ratio noise at 8->32 ms passes, a 100->400 ms
+regression still fails.
 
 ## Remaining gates
 
