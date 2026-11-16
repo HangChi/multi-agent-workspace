@@ -71,6 +71,9 @@ docker rm -f aw-test-dns-proxy; docker network rm aw-test-dns; rm -f /tmp/bl.con
 
 - **缓存会合并重复查询**：同一次执行内重复查同一域名只记一条日志。用于「IP → 域名」反查足够，但**不能**用日志统计访问次数（次数看 conntrack 的连接条目）。
 - **只记域名，不记 URL 路径与请求体**（不做 TLS 解密，见 research R-02 的 Known gaps）。
+- 上游查询默认**绑定主接口**（`EGRESS_DNS_UPSTREAM_INTERFACE=eth0`）：Worker 每次执行都会把本容器接入一条
+  新的沙箱网桥，默认路由可能因此在执行期间指向该网桥，上游查询包被执行的出站规则丢弃，查询只能等网桥移除后的
+  重试才成功（CI 实测冷查询 15 秒）。渲染成 `server=<ip>@eth0` 后上游流量固定在启动时的主网络。
 - 上游 DNS 不再写死：容器启动时由 `entrypoint.sh` 调用 `render-upstreams.sh`，把环境变量
   `EGRESS_DNS_UPSTREAMS`（逗号分隔）渲染成 `/etc/dnsmasq.d/upstream.conf`。未设置时回落到
   `223.5.5.5,119.29.29.29`。配置多个上游时会带上 `all-servers`，同时向所有上游查询并取最快

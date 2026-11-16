@@ -84,6 +84,9 @@ services:
       # ones are answered). All four are queried at once, so whichever transport
       # and resolver actually work wins; an unreachable entry is inert.
       EGRESS_DNS_UPSTREAMS: ${EGRESS_DNS_UPSTREAMS:-1.1.1.1,8.8.8.8,223.5.5.5,168.63.129.16}
+      # Same pinning as production: an execution bridge must never carry the
+      # proxy's own upstream traffic.
+      EGRESS_DNS_UPSTREAM_INTERFACE: ${EGRESS_DNS_UPSTREAM_INTERFACE:-eth0}
     # Dynamic execution-network attachment must not steal the public DNS route.
     networks:
       default:

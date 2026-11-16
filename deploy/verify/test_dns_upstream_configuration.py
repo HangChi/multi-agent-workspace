@@ -19,12 +19,14 @@ RENDERER = ROOT / "deploy" / "dns-proxy" / "render-upstreams.sh"
 
 
 class RenderUpstreamsTests(unittest.TestCase):
-    def render(self, value: str | None) -> tuple[int, str, str]:
+    def render(self, value: str | None, interface: str | None = None) -> tuple[int, str, str]:
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "upstream.conf"
             env = {key: os.environ[key] for key in ("PATH",) if key in os.environ}
             if value is not None:
                 env["EGRESS_DNS_UPSTREAMS"] = value
+            if interface is not None:
+                env["EGRESS_DNS_UPSTREAM_INTERFACE"] = interface
             result = subprocess.run(
                 ["sh", str(RENDERER), str(out)], check=False,
                 env=env, capture_output=True, text=True, timeout=30,
@@ -70,6 +72,21 @@ class RenderUpstreamsTests(unittest.TestCase):
                 self.assertEqual(written, "")
                 self.assertIn("invalid resolver address", stderr)
 
+    def test_resolvers_can_be_pinned_to_the_primary_interface(self):
+        """Upstream traffic must not escape through an execution bridge."""
+        code, written, _ = self.render("1.1.1.1,8.8.8.8", interface="eth0")
+        self.assertEqual(code, 0)
+        self.assertIn("all-servers", written)
+        self.assertEqual(
+            [line for line in written.splitlines() if line.startswith("server=")],
+            ["server=1.1.1.1@eth0", "server=8.8.8.8@eth0"],
+        )
+
+    def test_interface_pinning_is_optional(self):
+        code, written, _ = self.render("1.1.1.1", interface="")
+        self.assertEqual(code, 0)
+        self.assertEqual(written.strip(), "server=1.1.1.1")
+
     def test_empty_list_fails_closed(self):
         code, written, _ = self.render(" , ")
         self.assertNotEqual(code, 0)
@@ -100,6 +117,9 @@ class ComposeUpstreamWiringTests(unittest.TestCase):
                 dns = self.services(filename)["dns-proxy"]
                 self.assertIn("EGRESS_DNS_UPSTREAMS", dns["environment"])
                 self.assertTrue(dns["environment"]["EGRESS_DNS_UPSTREAMS"])
+                # The proxy is attached to a fresh bridge per execution; its own
+                # upstream traffic must stay on the interface it boots with.
+                self.assertEqual(dns["environment"]["EGRESS_DNS_UPSTREAM_INTERFACE"], "eth0")
 
     def test_acceptance_stack_defaults_to_globally_reachable_resolvers(self):
         dns = self.services("docker-compose.verify.yml")["dns-proxy"]

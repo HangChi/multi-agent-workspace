@@ -23,6 +23,14 @@ set -eu
 
 out=${1:?usage: render-upstreams.sh <output-path>}
 list=${EGRESS_DNS_UPSTREAMS:-223.5.5.5,119.29.29.29}
+# Pin upstream queries to the proxy's primary interface. Workers attach this
+# container to a fresh per-execution bridge for every sandbox run; while that
+# bridge is present the kernel may route the proxy's own upstream packets out
+# of it, where the execution's egress rules drop them. The query is then
+# retried and only answers once the bridge is gone - measured as a 15 s cold
+# lookup on the CI hosts. Naming the interface keeps upstream traffic on the
+# primary network regardless of what is attached.
+iface=${EGRESS_DNS_UPSTREAM_INTERFACE:-}
 
 tmp="$out.tmp"
 : > "$tmp"
@@ -40,7 +48,11 @@ for raw in $list; do
             exit 1
             ;;
     esac
-    printf 'server=%s\n' "$addr" >> "$tmp"
+    if [ -n "$iface" ]; then
+        printf 'server=%s@%s\n' "$addr" "$iface" >> "$tmp"
+    else
+        printf 'server=%s\n' "$addr" >> "$tmp"
+    fi
     count=$((count + 1))
 done
 IFS=$old_ifs

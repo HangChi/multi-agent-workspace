@@ -105,6 +105,8 @@ services:
       # 上游解析器，逗号分隔；多个时 dnsmasq 同时查询并取最快应答。
       # 换成本网络真正可达的解析器即可，不必重建镜像。
       EGRESS_DNS_UPSTREAMS: ${EGRESS_DNS_UPSTREAMS:-223.5.5.5,119.29.29.29}
+      # Keep upstream queries off the per-execution bridges the Worker attaches.
+      EGRESS_DNS_UPSTREAM_INTERFACE: ${EGRESS_DNS_UPSTREAM_INTERFACE:-eth0}
     # Keep upstream traffic on this network when Workers attach sandbox bridges.
     networks:
       default:
@@ -182,6 +184,8 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
       MONTHLY_QUOTA_CENTS: ${MONTHLY_QUOTA_CENTS:-1000000}
+      # 003-mcp-tool-market：生产模式下强制校验，缺失/弱默认值会导致启动失败
+      MCP_CREDENTIAL_KEY: ${MCP_CREDENTIAL_KEY}
     logging: *default-logging
     depends_on:
       postgres:
