@@ -314,6 +314,9 @@ US1 是能力、US2 是这能力的正确开关。**两者必须同批交付**�
 - **环境范围**：内核策略需要 Linux；2026-11-15 已通过 Docker Desktop Linux VM 运行 helper 和 bridge 采集，不能再笼统以 macOS 为由跳过。VM 上的运行时证据与原生 Linux 全量验收分开，见 docker-verification.md。
 - SC-004 属于本特性强制门禁：原生 CI 同时提交 20 个固定 `time.sleep(3)` 任务，实际活容器并发须在 2~4；100 个 baseline 与全部 load 样本使用 nearest-rank P95，零请求/运行失败。比值按同一窗口的无数据库对照端点（`/api/v1/health`）归一后须 ≤1.75（2026-11-16 引入归一口径，
 2026-11-17 按观测分布由 1.2 调整到 1.75，证据见 quickstart）；不重试测量请求、不剔除 outlier，不以手工观察或未来 P3 压测替代。
+- 公网出站用例（`egress_api`）2026-11-17 起从 `http_functional` 移到非门禁的 `public_egress` 探针：
+  托管 CI 主机丢包导致真实域名冷解析稳定耗时约 10 秒，属宿主环境而非产品缺陷；策略/内核/审计仍由
+  域名矩阵与 `http_functional` 其余 13 项覆盖。见 quickstart 的拆分说明。
 - 未决项（宪法 Follow-up）：gVisor/seccomp 加固归 P3；本特性只在 deploy/README 记录 socket 风险
 
 ---

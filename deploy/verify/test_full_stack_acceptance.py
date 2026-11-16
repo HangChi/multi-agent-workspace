@@ -519,6 +519,7 @@ class NativeIsolationTests(unittest.TestCase):
         runner.prepare = MagicMock()
         runner.dns_diagnostics = lambda **kwargs: events.append(('dns', kwargs.get('acceptance_target', False)))
         runner.http_suite = lambda suite: events.append(('http', suite))
+        runner.public_egress_probe = lambda: events.append(('public_egress', None))
         runner.run_suite = lambda name, *_args, **_kwargs: events.append(('native', name))
         runner.performance = lambda: events.append(('http', 'performance'))
         runner.compose = runner.wait_worker = runner.discover_owned_execution_ids = runner.cleanup = MagicMock()
@@ -529,6 +530,9 @@ class NativeIsolationTests(unittest.TestCase):
         post = events.index(('dns', True))
         self.assertLess(events.index(('http', 'functional')), post)
         self.assertLess(events.index(('native', 'native_egress_ip_ipv6')), post)
+        # Recorded right after the gating functional suite, never part of it.
+        self.assertEqual(events.index(('public_egress', None)),
+                         events.index(('http', 'functional')) + 1)
         self.assertLess(events.index(('native', 'native_egress_domains')), post)
 
     def test_resource_diagnostic_is_read_only_and_cannot_waive_or_fail_concurrency_gate(self):

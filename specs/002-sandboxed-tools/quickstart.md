@@ -147,6 +147,14 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 > 状态只允许在真实容器栈上跑通后改成 ✅，并附 commit 与关键输出摘要；未跑过一律留 ⏳。
 
+**公网用例已与门禁拆分（2026-11-17）**：`egress_api` 需要一个真实域名的冷解析外加一条公网 TCP 连接。
+托管 CI 主机丢弃大部分出站 DNS 数据报，首答要 ~10 秒（已用 `--timestamps` 的代理日志钉住：发起
+16:21:30.215、首答 16:21:40.346），把 mediator 预算、接口绑定、`fast-dns-retry` 都试过，均无法改变这段
+延迟。它因此从 `http_functional` 移到独立的 `public_egress` 套件，由 `native_acceptance.py` 的
+`public_egress_probe()` 以**非门禁**方式执行，artifact 里记 `verdict`（`reachable` /
+`blocked_by_host_dns` / `unreachable`）。产品侧的域名放行/拒绝、内核规则与审计仍由域名矩阵
+18/18 与策略用例覆盖；门禁套件固定为 13 项确定性用例。
+
 ### 两个未通过 gate 的定位（尚未修复，不据此改动产品）
 
 - `egress_api`（HTTP 功能 13/14 中唯一失败项）：它是唯一一次必须从沙箱**内部**发起真实公网 HTTPS 抓取的用例（`https://pypi.org/simple/pip/`），同一次 run 也记录了「一次公网 HTTPS 探测超时」。脱敏公开证据里没有该断言的消息体，因此这只是**首要怀疑方向，不是已证实的根因**；下一步只能在原生环境重跑并保留未脱敏的断言详情来确认，不能在证据不足时改产品。
