@@ -460,6 +460,25 @@ class AcceptanceHarnessTests(unittest.TestCase):
 
 
 class NativeIsolationTests(unittest.TestCase):
+    def test_target_dns_diagnostic_cannot_warm_mandatory_acceptance_cases(self):
+        runner = object.__new__(native.NativeRunner)
+        runner.results, runner.started = [], native.time.monotonic()
+        events = []
+        runner.prepare = MagicMock()
+        runner.dns_diagnostics = lambda **kwargs: events.append(('dns', kwargs.get('acceptance_target', False)))
+        runner.http_suite = lambda suite: events.append(('http', suite))
+        runner.run_suite = lambda name, *_args, **_kwargs: events.append(('native', name))
+        runner.performance = lambda: events.append(('http', 'performance'))
+        runner.compose = runner.wait_worker = runner.discover_owned_execution_ids = runner.cleanup = MagicMock()
+        runner.fixture = lambda _phase: {'passed': True}
+        runner.residual = runner.kernel_residual = dict
+        runner.write_json = MagicMock()
+        self.assertEqual(runner.run(), 0)
+        post = events.index(('dns', True))
+        self.assertLess(events.index(('http', 'functional')), post)
+        self.assertLess(events.index(('native', 'native_egress_ip_ipv6')), post)
+        self.assertLess(events.index(('native', 'native_egress_domains')), post)
+
     def test_resource_diagnostic_is_read_only_and_cannot_waive_or_fail_concurrency_gate(self):
         runner = object.__new__(native.NativeRunner)
         runner.results = []
@@ -490,6 +509,7 @@ class NativeIsolationTests(unittest.TestCase):
         runner.client.containers.get.return_value.attrs = {
             'NetworkSettings': {'Networks': {runner.project + '_default': {'IPAddress': '172.30.0.2'}}}}
         runner.write_json = MagicMock()
+        runner.proxy_log_diagnostic = MagicMock(return_value={'query_a': 1})
         rows = [{'resolver': resolver, 'transport': transport, 'outcome': 'timeout', 'elapsed_ms': 1000}
                 for resolver in ('configured_primary', 'configured_secondary', 'public_alternative_1', 'public_alternative_2', 'own_shared_proxy')
                 for transport in ('udp', 'tcp')]
@@ -515,6 +535,14 @@ class NativeIsolationTests(unittest.TestCase):
         document = runner.write_json.call_args.args[1]
         self.assertNotIn('SECRET', json.dumps(document))
         self.assertEqual(document['diagnostic_errors'], ['ValueError', 'ValueError'])
+        post_rows = [dict(row, query_type=kind) for row in rows for kind in ('a', 'aaaa')]
+        runner.client.containers.run.return_value = json.dumps(post_rows).encode()
+        runner.dns_diagnostics(acceptance_target=True)
+        filename, document = runner.write_json.call_args.args
+        self.assertEqual(filename, 'dns-post-acceptance.json')
+        self.assertEqual(len(document['results']), 40)
+        self.assertEqual(document['proxy_log_facts'], {'query_a': 1})
+        self.assertEqual(runner.client.containers.run.call_args.kwargs['command'][-1], 'post-acceptance')
 
     def test_both_native_bridge_filter_families_must_be_enabled(self):
         with tempfile.TemporaryDirectory() as directory:

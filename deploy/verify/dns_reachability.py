@@ -25,7 +25,7 @@ QUESTION = (struct.pack('!6H', TRANSACTION_ID, 0x0100, 1, 0, 0, 0)
             + b'\x07example\x03com\x00\x00\x01\x00\x01')
 
 
-def query(address: str, *, stream: bool) -> dict:
+def query(address: str, *, stream: bool, wire: bytes = QUESTION) -> dict:
     started = time.monotonic()
     deadline = started + 1.0
     outcome = 'invalid_response'
@@ -51,7 +51,7 @@ def query(address: str, *, stream: bool) -> dict:
                 return bytes(data)
 
             budget()
-            conn.sendall(struct.pack('!H', len(QUESTION)) + QUESTION if stream else QUESTION)
+            conn.sendall(struct.pack('!H', len(wire)) + wire if stream else wire)
             if stream:
                 length, = struct.unpack('!H', read_exact(2))
                 if not 12 <= length <= 4096:
@@ -74,16 +74,43 @@ def query(address: str, *, stream: bool) -> dict:
     return {'outcome': outcome, 'elapsed_ms': round((time.monotonic() - started) * 1000)}
 
 
-def probe(proxy_ip: str | None = None) -> list[dict]:
+def proxy_log_facts(logs: bytes) -> dict[str, int]:
+    """Count fixed markers after HTTP acceptance; export no names/IPs/lines."""
+    if not isinstance(logs, bytes) or len(logs) > 1024 * 1024:
+        raise ValueError('proxy diagnostic logs exceeded bound')
+    lines = logs.decode('utf-8', 'replace').splitlines()
+    markers = {
+        'ignored_non_local': 'ignoring query from non-local network',
+        'query_a': 'query[A] pypi.org ',
+        'query_aaaa': 'query[AAAA] pypi.org ',
+        'forwarded_target': 'forwarded pypi.org to ',
+        'reply_target': 'reply pypi.org is ',
+        'reply_nodata': 'reply pypi.org is NODATA',
+        'reply_nxdomain': 'reply pypi.org is NXDOMAIN',
+    }
+    return {name: sum(marker in line for line in lines) for name, marker in markers.items()}
+
+
+def probe(proxy_ip: str | None = None, *, acceptance_target: bool = False) -> list[dict]:
     targets = dict(RESOLVERS)
     if proxy_ip is not None:
         proxy = ipaddress.IPv4Address(proxy_ip)
         if not proxy.is_private or proxy.is_loopback or proxy.is_link_local or proxy.is_unspecified:
             raise ValueError('own proxy must have a private bridge IPv4 address')
         targets['own_shared_proxy'] = str(proxy)
-    return [dict(resolver=name, transport='tcp' if stream else 'udp', **query(address, stream=stream))
-            for name, address in targets.items() for stream in (False, True)]
+    if not acceptance_target:
+        return [dict(resolver=name, transport='tcp' if stream else 'udp', **query(address, stream=stream))
+                for name, address in targets.items() for stream in (False, True)]
+    # Only used AFTER mandatory HTTP and public HTTPS suites. No retries or
+    # changed outcomes; distinguish target/type failures from control-domain reachability.
+    prefix = struct.pack('!6H', TRANSACTION_ID, 0x0100, 1, 0, 0, 0) + b'\x04pypi\x03org\x00'
+    return [dict(resolver=name, transport='tcp' if stream else 'udp', query_type=kind,
+                 **query(address, stream=stream, wire=prefix + struct.pack('!HH', code, 1)))
+            for name, address in targets.items() for stream in (False, True)
+            for kind, code in (('a', 1), ('aaaa', 28))]
 
 
 if __name__ == '__main__':
-    print(json.dumps(probe(sys.argv[1] if len(sys.argv) == 2 else None), separators=(',', ':')))
+    print(json.dumps(probe(sys.argv[1] if len(sys.argv) >= 2 else None,
+                           acceptance_target=len(sys.argv) == 3 and sys.argv[2] == 'post-acceptance'),
+                     separators=(',', ':')))

@@ -299,7 +299,7 @@ class NativeRunner:
                        "--base", f"http://127.0.0.1:{self.env['AW_VERIFY_PORT']}",
                        "--suite", suite, "--timeout", "240", "--poll-interval", "0.5"], timeout=900)
 
-    def dns_diagnostics(self) -> None:
+    def dns_diagnostics(self, *, acceptance_target: bool = False) -> None:
         """Observe fixed public upstreams, never warm the pypi acceptance cache.
 
         This is diagnostic-only evidence, not an alternative DNS acceptance gate.
@@ -315,7 +315,8 @@ class NativeRunner:
                                    ('shared_proxy', 'container:' + self.env['AW_VERIFY_DNS_NAME'])):
             try:
                 output = self.client.containers.run(
-                    'aw-sbx-net:1', command=['python3', '-c', script, proxy_ip], remove=True,
+                    'aw-sbx-net:1', command=['python3', '-c', script, proxy_ip,
+                                             *(['post-acceptance'] if acceptance_target else [])], remove=True,
                     network_mode=network, cap_drop=['ALL'], read_only=True,
                     security_opt=['no-new-privileges'], mem_limit='32m', pids_limit=8,
                     log_config=LogConfig(type='json-file', config={'max-size': '32k', 'max-file': '1'}),
@@ -323,24 +324,36 @@ class NativeRunner:
                 )
                 require(isinstance(output, bytes) and len(output) <= 8192, 'DNS diagnostic output exceeds bound')
                 rows = json.loads(output)
-                expected = {(resolver, transport) for resolver in (*RESOLVERS, 'own_shared_proxy')
-                            for transport in ('udp', 'tcp')}
+                expected = {(resolver, transport, kind) for resolver in (*RESOLVERS, 'own_shared_proxy')
+                            for transport in ('udp', 'tcp') for kind in (('a', 'aaaa') if acceptance_target else ('a',))}
                 require(isinstance(rows, list) and len(rows) == len(expected), 'DNS diagnostic rows invalid')
                 safe = []
                 for row in rows:
                     require(isinstance(row, dict), 'DNS diagnostic row invalid')
-                    key = (row.get('resolver'), row.get('transport'))
+                    key = (row.get('resolver'), row.get('transport'), row.get('query_type', 'a'))
                     require(key in expected and row.get('outcome') in
                             {'answered', 'timeout', 'socket_error', 'invalid_response'}
                             and type(row.get('elapsed_ms')) is int and 0 <= row['elapsed_ms'] <= 60000,
                             'DNS diagnostic fields outside finite schema')
                     expected.remove(key)
                     safe.append({'namespace': namespace, 'resolver': key[0], 'transport': key[1],
-                                 'outcome': row['outcome'], 'elapsed_ms': row['elapsed_ms']})
+                                 'query_type': key[2], 'outcome': row['outcome'], 'elapsed_ms': row['elapsed_ms']})
                 results.extend(safe)
             except Exception as exc:
                 errors.append('ValueError' if isinstance(exc, ValueError) else 'DiagnosticError')
-        self.write_json('dns-reachability.json', {'results': results, 'diagnostic_errors': errors})
+        document = {'results': results, 'diagnostic_errors': errors}
+        if acceptance_target:
+            document['proxy_log_facts'] = self.proxy_log_diagnostic()
+        self.write_json('dns-post-acceptance.json' if acceptance_target else 'dns-reachability.json', document)
+
+    def proxy_log_diagnostic(self) -> dict[str, int]:
+        """Project only fixed dnsmasq markers after mandatory acceptance."""
+        proxy = self.client.containers.get(self.env['AW_VERIFY_DNS_NAME'])
+        require(proxy.labels.get('com.docker.compose.project') == self.project,
+                'refusing to inspect a DNS proxy outside own project')
+        logs = proxy.logs(tail=10000)
+        from dns_reachability import proxy_log_facts
+        return proxy_log_facts(logs)
 
     def live_sandbox_count(self) -> int:
         # High-level list() inspects each container after listing; an execution
@@ -562,6 +575,7 @@ class NativeRunner:
                 ("native_egress_domains", "s5_domain_runtime.py", []),
             ]:
                 self.run_suite(name, [str(VERIFY / script), *extras], runtime=True, timeout=600)
+            self.dns_diagnostics(acceptance_target=True)
             self.performance()
             self.compose("stop", "--timeout", "20", "worker")
             for service, suite in (("worker-infra", "infra"), ("worker-quota", "quota")):

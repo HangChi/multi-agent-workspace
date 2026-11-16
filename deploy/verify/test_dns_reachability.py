@@ -59,6 +59,32 @@ class DNSReachabilityTests(unittest.TestCase):
             with self.subTest(address=address), self.assertRaises(ValueError):
                 dns.probe(address)
 
+    def test_proxy_log_projection_counts_only_fixed_markers_without_private_content(self):
+        logs = (b'dnsmasq: ignoring query from non-local network SECRET\n'
+                b'dnsmasq: 1 172.20.0.1 query[A] pypi.org from SECRET\n'
+                b'dnsmasq: 2 172.20.0.1 query[AAAA] pypi.org from SECRET\n'
+                b'dnsmasq: forwarded pypi.org to SECRET\n'
+                b'dnsmasq: reply pypi.org is NODATA-IPv6 SECRET\n')
+        facts = dns.proxy_log_facts(logs)
+        self.assertEqual(facts['ignored_non_local'], 1)
+        self.assertEqual(facts['query_a'], 1)
+        self.assertEqual(facts['query_aaaa'], 1)
+        self.assertEqual(facts['forwarded_target'], 1)
+        self.assertEqual(facts['reply_target'], 1)
+        self.assertNotIn('SECRET', json.dumps(facts))
+        self.assertNotIn('pypi', json.dumps(facts))
+        with self.assertRaises(ValueError):
+            dns.proxy_log_facts(b'x' * (1024 * 1024 + 1))
+
+    def test_post_acceptance_probe_measures_a_and_aaaa_of_fixed_target_only(self):
+        with patch.object(dns, 'query', return_value={'outcome': 'answered', 'elapsed_ms': 1}) as query:
+            results = dns.probe('172.30.0.2', acceptance_target=True)
+        self.assertEqual(len(results), 20)
+        self.assertEqual({row['query_type'] for row in results}, {'a', 'aaaa'})
+        self.assertTrue(all(b'pypi' in call.kwargs['wire'] for call in query.call_args_list))
+        self.assertEqual({call.kwargs['wire'][-4:] for call in query.call_args_list},
+                         {b'\x00\x01\x00\x01', b'\x00\x1c\x00\x01'})
+
     def test_probe_uses_fixed_public_resolvers_both_transports_and_different_domain(self):
         with patch.object(dns, 'query', return_value={'outcome': 'timeout', 'elapsed_ms': 1000}) as query:
             results = dns.probe()
