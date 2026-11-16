@@ -51,10 +51,12 @@ services:
       - --scenario
       - normal
       - --client-deadline-seconds
-      # Must equal the Worker's MCP_CALL_TIMEOUT_SECONDS below: a call the
-      # Worker abandoned still runs to completion in this fixture, and only a
-      # matching deadline keeps such a call out of the concurrency evidence.
-      - '${AW_VERIFY_CALL_DEADLINE_SECONDS:-10}'
+      # Must stay slightly below the Worker's MCP_CALL_TIMEOUT_SECONDS below: a
+      # call the Worker abandoned still runs to completion in this fixture, and
+      # the fixture only sees it after a handshake, so a window as long as the
+      # Worker's own deadline would keep counting the call after its lease was
+      # released. The harness passes timeout minus CLIENT_DEADLINE_ALLOWANCE_S.
+      - '${AW_VERIFY_CALL_DEADLINE_SECONDS:-8}'
       - --tls-cert
       - /fixture-tls/fixture.crt
       - --tls-key

@@ -83,6 +83,17 @@ TOTAL_RUNS = SUCCESS_RUNS + FAILURE_RUNS + TIMEOUT_RUNS
 OUTCOME_INVOCATION = {"success": "succeeded", "tool_error": "tool_error", "timeout": "timeout"}
 MAX_CONCURRENCY_PER_SERVER = 8
 CALL_DEADLINE_MS = 10_000
+# How much earlier than the Worker's own deadline the fixture stops counting a
+# call. The fixture's window starts when the request *arrives*, which is after
+# the Worker's deadline started (lease acquisition, TCP/TLS handshake,
+# `initialize`), so a call the Worker abandoned stays "live" in the fixture for
+# that overhead. A slot freed at the deadline is reused immediately, so eight
+# leases plus one such leftover read as a peak of nine -- a measurement artifact
+# that failed CI on an unchanged lease bound. Retiring the call this much sooner
+# makes the fixture forget it no later than its lease is released. A real lease
+# leak is unaffected: it lets calls start continuously for the whole window, not
+# by a single one.
+CLIENT_DEADLINE_ALLOWANCE_S = 2.0
 # A timed-out call is recorded after the deadline is unwound and the in-flight
 # request is cancelled, so its duration legitimately exceeds the deadline by a
 # small bounded amount. The bound is what keeps the check meaningful: a call that
@@ -782,9 +793,12 @@ class ExternalAcceptance:
             "AW_VERIFY_WORKERS": "8",
             "AW_VERIFY_WORKER_MEMORY": "3g",
             # The fixture retires a tool call from its concurrency evidence once
-            # the caller has waited this long, so it has to be the Worker's own
-            # call timeout or the measured bound is not the lease's.
-            "AW_VERIFY_CALL_DEADLINE_SECONDS": str(CALL_DEADLINE_MS / 1000),
+            # the caller has waited this long. It must be the Worker's own call
+            # timeout minus the client-side overhead that precedes arrival, or the
+            # fixture outlives the lease by exactly that overhead (see
+            # CLIENT_DEADLINE_ALLOWANCE_S).
+            "AW_VERIFY_CALL_DEADLINE_SECONDS": str(
+                CALL_DEADLINE_MS / 1000 - CLIENT_DEADLINE_ALLOWANCE_S),
             "AW_VERIFY_DNS_NAME": f"{self.project}-dns",
             "AW_VERIFY_SBX_PREFIX": f"{self.project}-sbx",
             "AW_VERIFY_EXTERNAL": "1",

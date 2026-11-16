@@ -203,9 +203,10 @@ class FixtureDeadlineControls(unittest.TestCase):
 
     A ``tools/call`` handler that outlives its client holds no lease, so the
     fixture has to know how long the Worker waits before it stops counting that
-    call. Three values must agree or the measured concurrency bound is not the
-    lease's: the harness constant, the Worker's configured timeout and the flag
-    the fixture is started with.
+    call. The fixture's window starts when the request *arrives*, which is after
+    the Worker's deadline started, so the flag must be the Worker's timeout minus
+    the pre-arrival overhead. An equal window keeps counting an abandoned call
+    after its slot was reused and reads as one call over the lease bound.
     """
 
     def resolve(self) -> dict:
@@ -224,15 +225,18 @@ class FixtureDeadlineControls(unittest.TestCase):
             cwd=ROOT, env=environment, capture_output=True, text=True, check=True, timeout=60)
         return json.loads(result.stdout)["services"]
 
-    def test_fixture_deadline_matches_the_worker_call_timeout(self):
+    def test_fixture_deadline_is_the_worker_timeout_minus_the_arrival_overhead(self):
         services = self.resolve()
         command = services["mcp-fixture"]["command"]
         self.assertIn("--client-deadline-seconds", command)
         deadline = float(command[command.index("--client-deadline-seconds") + 1])
-        self.assertEqual(deadline, external.CALL_DEADLINE_MS / 1000)
-        self.assertEqual(
-            deadline,
-            float(services["worker"]["environment"]["MCP_CALL_TIMEOUT_SECONDS"]))
+        worker_timeout = float(services["worker"]["environment"]["MCP_CALL_TIMEOUT_SECONDS"])
+        self.assertEqual(worker_timeout, external.CALL_DEADLINE_MS / 1000)
+        self.assertEqual(deadline, worker_timeout - external.CLIENT_DEADLINE_ALLOWANCE_S)
+        # The allowance has to be big enough to cover a handshake and small
+        # enough that the fixture still observes the bound over most of a call.
+        self.assertGreater(external.CLIENT_DEADLINE_ALLOWANCE_S, 0)
+        self.assertLessEqual(external.CLIENT_DEADLINE_ALLOWANCE_S, worker_timeout / 2)
 
 
 class RunOwnershipControls(unittest.TestCase):

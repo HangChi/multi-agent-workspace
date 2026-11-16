@@ -14,8 +14,15 @@ without reading Worker internals or raw service logs.
 ``peak_tools_in_flight`` counts calls a client is *still waiting for*, which is
 the quantity the per-server lease bounds: FR-017 requires the bound to release
 the call's resources when the deadline is reached. A handler still sleeping
-after its client gave up therefore does not count, so ``--client-deadline-seconds``
-must match the Worker's configured call timeout for the bound to be meaningful.
+after its client gave up therefore does not count.
+
+``--client-deadline-seconds`` must be slightly *shorter* than the Worker's
+configured call timeout, not equal to it: this window starts when the request
+arrives, which is already after the Worker's deadline started (lease
+acquisition, TCP/TLS handshake, ``initialize``). A window as long as the
+Worker's would keep counting an abandoned call for that overhead, i.e. after its
+lease was released and the slot was reused, which reads as one call over the
+configured bound.
 """
 
 from __future__ import annotations
