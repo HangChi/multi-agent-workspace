@@ -457,6 +457,11 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
         logger.info("run_reply_cleanup_steps", run_id=_run_id_for_log(run), removed=len(old_steps))
     user_reply = run.user_reply
     extra_messages = [user_reply] if user_reply else None
+    if user_reply:
+        # 消费即清空：否则再次进入 needs_input 时同一句回复会被重新注入一次，
+        # 模型会把旧回答当成新补充信息再执行一遍。
+        run.user_reply = None
+        await db.commit()
 
     async def save_step(step: dict) -> None:
         steps.append(step)

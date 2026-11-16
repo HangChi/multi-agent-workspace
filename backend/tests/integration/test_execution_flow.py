@@ -336,3 +336,14 @@ async def test_full_flow_needs_input_then_reply(
     assert resp.json()["status"] == "running"
     await db_session.refresh(run)
     assert run.status == RunStatus.RUNNING.value
+    assert run.user_reply == "客户名单：ABC 公司"
+
+    # Worker 消费恢复任务后，回复必须被清空：否则再次挂起时同一句话会被
+    # 当作新的补充信息重新注入，模型会把旧回答再执行一遍。
+    resuming_llm = ScriptedLLM([LLMResponse(content="已完成", cost_cents=1)])
+    monkeypatch.setattr("app.tasks.execute_run.LiteLLMClient.chat", resuming_llm.chat)
+    run = await _load_and_execute(db_session, run_id, agent["id"])
+    assert run.user_reply is None
+    assert run.status == RunStatus.COMPLETED.value
+    injected = [m["content"] for m in resuming_llm.calls[0][0] if m["role"] == "user"]
+    assert injected[-1] == "客户名单：ABC 公司"
