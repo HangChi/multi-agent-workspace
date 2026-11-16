@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import ipaddress
 import json
 import math
@@ -99,6 +100,7 @@ WORKER_READY_TIMEOUT_S = 90
 SENSITIVE_ENV = ("AW_VERIFY_FIXTURE_SECRET", "AW_VERIFY_PASSWORD", "AW_VERIFY_JWT_SECRET",
                  "AW_VERIFY_INVITE_CODE", "AW_VERIFY_USER_PASSWORD")
 MEASURED_ENDPOINTS = ("/stats/overview", "/runs/{run_id}")
+LOOP_LAG_PROBE_INTERVAL_S = 0.01
 TERMINAL_RUN_STATUS = {"completed", "failed", "timeout", "cancelled", "needs_input"}
 INVOCATION_STATUS = {
     "succeeded", "tool_error", "parameter_error", "transport_error",
@@ -431,9 +433,20 @@ class ExternalVerifier(Verifier):
 
     async def measure_core_api(self, warmup_run_id: str) -> dict[str, Any]:
         """Baseline then load, exactly as SC-004 defines it: no warmup, no
-        exclusions, no retries, and every attempt measured including failures."""
+        exclusions, no retries, and every attempt measured including failures.
+
+        One non-gating diagnostic runs beside the verdict samples so a failed
+        ratio is attributable instead of merely reported:
+        ``event_loop_lag_ms`` records how late this process's timers resumed
+        while the load was running. The sampler shares one event loop and one
+        connection pool with 40 concurrent load tasks, so client-side scheduling
+        delay lands inside the sample it is measuring; lag quantifies that share.
+        It uses a timer rather than another request, so the measured request
+        stream stays exactly what the verdict pins.
+        """
         baseline: dict[str, list[float]] = {path: [] for path in MEASURED_ENDPOINTS}
         loaded: dict[str, list[float]] = {path: [] for path in MEASURED_ENDPOINTS}
+        loop_lag: list[float] = []
         failures = 0
 
         async def sample(destination: dict[str, list[float]]) -> None:
@@ -448,15 +461,34 @@ class ExternalVerifier(Verifier):
                     destination[path].append((time.perf_counter() - started) * 1000)
                 await asyncio.sleep(.05)
 
-        for _ in range(BASELINE_SAMPLES):
-            await sample(baseline)
-        tasks = [asyncio.create_task(self.load_run(index, outcome))
-                 for index, outcome in enumerate(
-                     ["success"] * SUCCESS_RUNS + ["tool_error"] * FAILURE_RUNS
-                     + ["timeout"] * TIMEOUT_RUNS)]
-        while not all(task.done() for task in tasks) or len(loaded[MEASURED_ENDPOINTS[0]]) < BASELINE_SAMPLES:
-            await sample(loaded)
-        outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+        async def probe_loop_lag() -> None:
+            loop = asyncio.get_running_loop()
+            while True:
+                started = time.perf_counter()
+                future = loop.create_future()
+                handle = loop.call_later(LOOP_LAG_PROBE_INTERVAL_S, future.set_result, None)
+                try:
+                    await future
+                finally:
+                    handle.cancel()
+                loop_lag.append(max(0.0, (time.perf_counter() - started
+                                          - LOOP_LAG_PROBE_INTERVAL_S) * 1000))
+
+        lag_probe = asyncio.create_task(probe_loop_lag())
+        try:
+            for _ in range(BASELINE_SAMPLES):
+                await sample(baseline)
+            tasks = [asyncio.create_task(self.load_run(index, outcome))
+                     for index, outcome in enumerate(
+                         ["success"] * SUCCESS_RUNS + ["tool_error"] * FAILURE_RUNS
+                         + ["timeout"] * TIMEOUT_RUNS)]
+            while not all(task.done() for task in tasks) or len(loaded[MEASURED_ENDPOINTS[0]]) < BASELINE_SAMPLES:
+                await sample(loaded)
+            outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+        finally:
+            lag_probe.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await lag_probe
         facts = self.collect_outcomes(list(outcomes))
         verdicts = {path: p95_verdict(baseline[path], loaded[path], failures)
                     for path in MEASURED_ENDPOINTS}
@@ -464,7 +496,10 @@ class ExternalVerifier(Verifier):
             verdict["outcomes"] = facts
         return {"endpoints": verdicts, "request_failures": failures,
                 "submitted_runs": len(tasks),
-                "run_failures": sum(isinstance(item, BaseException) for item in outcomes)}
+                "run_failures": sum(isinstance(item, BaseException) for item in outcomes),
+                # Evidence only; no verdict reads this.
+                "event_loop_lag_ms": distribution(loop_lag) if loop_lag else {},
+                "loop_lag_samples": len(loop_lag)}
 
     async def verify_outcomes(self, measurement: dict[str, Any]) -> None:
         facts = measurement["endpoints"][MEASURED_ENDPOINTS[0]]["outcomes"]
@@ -1010,6 +1045,9 @@ async def run(args: argparse.Namespace) -> int:
         acceptance.metrics["core_api_p95"] = {
             path: {key: value for key, value in verdict.items() if key != "outcomes"}
             for path, verdict in measurement["endpoints"].items()}
+        # Diagnostic companion to the verdict, recorded for the same reason: a
+        # failed ratio must say whether the deployment stalled or the sampler did.
+        acceptance.metrics["core_api_event_loop_lag_ms"] = measurement["event_loop_lag_ms"]
         await verifier.verify_outcomes(measurement)
         await verifier.verify_invocations()
         # Publish how the invocations themselves were classified. The run

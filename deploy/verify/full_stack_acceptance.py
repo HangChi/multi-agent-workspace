@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import hashlib
 import json
 import math
@@ -37,6 +38,19 @@ def percentile95(samples: list[float]) -> float:
     require(bool(samples) and all(math.isfinite(x) and x >= 0 for x in samples),
             "P95 requires finite nonnegative measurements")
     return sorted(samples)[math.ceil(len(samples) * .95) - 1]
+
+
+def distribution(samples: list[float]) -> dict[str, float]:
+    """Shape of a diagnostic series; never part of the P95 verdict."""
+    if not samples:
+        return {}
+    ordered = sorted(samples)
+
+    def at(fraction: float) -> float:
+        return ordered[max(0, math.ceil(len(ordered) * fraction) - 1)]
+
+    return {"min": round(ordered[0], 3), "p50": round(at(.5), 3), "p90": round(at(.9), 3),
+            "p95": round(at(.95), 3), "p99": round(at(.99), 3), "max": round(ordered[-1], 3)}
 
 
 def performance_verdict(baseline: list[float], loaded: list[float], failures: int) -> dict[str, Any]:
@@ -537,6 +551,7 @@ class FullVerifier(Verifier):
 
     async def performance(self) -> None:
         baseline, loaded = [], []
+        loop_lag: list[float] = []
         failed = 0
 
         async def sample(destination: list[float]) -> None:
@@ -550,18 +565,43 @@ class FullVerifier(Verifier):
                 # Every attempt is measured, including errors and timeouts.
                 destination.append((time.perf_counter() - started) * 1000)
 
-        for _ in range(100):
-            await sample(baseline)
-            await asyncio.sleep(.05)
-        tasks = [asyncio.create_task(self.execute("sleep", ["run_python"])) for _ in range(20)]
-        while not all(task.done() for task in tasks) or len(loaded) < 100:
-            await sample(loaded)
-            await asyncio.sleep(.05)
-        outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+        async def probe_loop_lag() -> None:
+            # The sampler shares one event loop and connection pool with the 20
+            # concurrent executions, so client-side scheduling delay lands inside
+            # the sample being measured. A timer (not asyncio.sleep) keeps this
+            # probe invisible to the request stream the verdict pins.
+            loop = asyncio.get_running_loop()
+            while True:
+                started = time.perf_counter()
+                future = loop.create_future()
+                handle = loop.call_later(.01, future.set_result, None)
+                try:
+                    await future
+                finally:
+                    handle.cancel()
+                loop_lag.append(max(0.0, (time.perf_counter() - started - .01) * 1000))
+
+        lag_probe = asyncio.create_task(probe_loop_lag())
+        try:
+            for _ in range(100):
+                await sample(baseline)
+                await asyncio.sleep(.05)
+            tasks = [asyncio.create_task(self.execute("sleep", ["run_python"])) for _ in range(20)]
+            while not all(task.done() for task in tasks) or len(loaded) < 100:
+                await sample(loaded)
+                await asyncio.sleep(.05)
+            outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+        finally:
+            lag_probe.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await lag_probe
         failures = sum(isinstance(result, BaseException) for result in outcomes)
         # Persist every latency before inspecting run payloads, so a bad/missing
         # execution cannot erase the failed load measurement from CI evidence.
         result = performance_verdict(baseline, loaded, failed)
+        # Diagnostic only, never read by the verdict: how late this process's
+        # timers resumed while the load was running.
+        result["event_loop_lag_ms"] = distribution(loop_lag)
         self.metrics["s6"] = result
         # All twenty placeholders exist before any validation assertion. Failed
         # tasks/details cannot erase evidence or hide later submissions (>8).
