@@ -615,7 +615,12 @@ async def fire_schedule(
     grace = _missed_grace()
     if lag > grace:
         window_end = now
-        missed = count_between(cron, planned, now - grace)
+        # 统计 [planned, now] 闭区间内的全部刻度。**不能传 now - grace**：
+        # 那个范围会漏掉「恰好落在 now 上的那一班」，得 24 而非契约实测的 25。
+        # 语义上也应当算上它：错过窗口一旦判定成立，当前这一班也和前面的一样
+        # 已经过期（我们不会在同一轮里既记错过又补跑它），next_run_at 直接推进
+        # 到 next_after(now)，即「跳过到 now 之后」。
+        missed = count_between(cron, planned, now)
         missed = max(missed, 1)
         next_run = next_after(cron, now)
         trigger = await _finish_trigger(

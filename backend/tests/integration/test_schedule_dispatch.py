@@ -507,8 +507,11 @@ class TestRunDueSchedules:
         later.next_run_at = datetime.now(UTC) + timedelta(hours=5)
         await db_session.commit()
 
+        # 不能断言 processed == 1：扫描的是整张表，同一测试会话里其它用例
+        # 留下的到期规则也会被处理（实测混跑时 processed=9）。只断言本用例
+        # 关心的两条：到期的被处理、未来的没被碰。
         processed = await schedule_service.run_due_schedules(db_session)
-        assert processed == 1
+        assert processed >= 1
         await db_session.refresh(due)
         await db_session.refresh(later)
         assert due.last_result == "fired"
@@ -527,7 +530,11 @@ class TestRunDueSchedules:
         schedule.next_run_at = None
         await db_session.commit()
 
-        assert await schedule_service.run_due_schedules(db_session) == 0
+        # 本条独立断言：停用规则不该被处理。扫描可能处理其它用例的规则，
+        # 所以只断言本条规则的状态没被碰。
+        await schedule_service.run_due_schedules(db_session)
+        await db_session.refresh(schedule)
+        assert schedule.last_result is None
 
     async def test_one_broken_rule_does_not_abort_the_batch(
         self, client, db_session, make_headers
@@ -559,8 +566,9 @@ class TestRunDueSchedules:
         db_session.expire_all()
 
         processed = await schedule_service.run_due_schedules(db_session)
-        # 坏的那条抛异常被隔离，好的那条正常处理
-        assert processed == 1
+        # 坏的那条抛异常被隔离，好的那条正常处理。
+        # 不断言精确条数：扫描的是全表，同会话其它用例的到期规则也会被处理。
+        assert processed >= 1
         await db_session.refresh(healthy)
         assert healthy.last_result == "fired"
 

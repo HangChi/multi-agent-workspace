@@ -116,19 +116,19 @@ description: "Implementation tasks for scheduled requests: cron rules, automatic
 
 ### Tests first
 
-- [ ] T032 [P] [US3] Write failing tests for the **judgment order** in `backend/tests/integration/test_schedule_judgement.py`, one test per row of the 22-row table in `contracts/api.md`. The decisive one: 「前次需求仍 running **且** 停机 2 小时」must yield `missed` (not `skipped_busy`); a wrong order must fail this test.
-- [ ] T033 [P] [US3] Add failing tests for missed-window merging: 5-minute rule, 01:00→03:00 yields exactly **one** record with `missed_count=25`, `window_start`/`window_end` set, `fired_at` null, and **zero** new requests; 01:00→01:09 yields `missed_count=2`; 01:00→01:00:45 (under the 90s grace) yields `fired`, not `missed`.
-- [ ] T034 [P] [US3] Add failing tests for the failure taxonomy and reasons: archived target, deleted target, other-user's target (**reason must not distinguish "exists but forbidden"**), quota exhausted (no retry), disabled creator; then auto-disable after `schedule_max_failures` with `auto_disabled_reason` set and **no further records**.
-- [ ] T035 [P] [US3] Add a test asserting a disabled rule produces **zero** trigger rows at its would-be time (disable ≠ skip).
-- [ ] T036 [P] [US3] Add a test that a batch containing one raising rule still processes the remaining rules (FR-018).
+- [X] T032 [P] [US3] Write failing tests for the **judgment order** in `backend/tests/integration/test_schedule_judgement.py`, one test per row of the 22-row table in `contracts/api.md`. The decisive one: 「前次需求仍 running **且** 停机 2 小时」must yield `missed` (not `skipped_busy`); a wrong order must fail this test.
+- [X] T033 [P] [US3] Add failing tests for missed-window merging: 5-minute rule, 01:00→03:00 yields exactly **one** record with `missed_count=25`, `window_start`/`window_end` set, `fired_at` null, and **zero** new requests; 01:00→01:09 yields `missed_count=2`; 01:00→01:00:45 (under the 90s grace) yields `fired`, not `missed`.
+- [X] T034 [P] [US3] Add failing tests for the failure taxonomy and reasons: archived target, deleted target, other-user's target (**reason must not distinguish "exists but forbidden"**), quota exhausted (no retry), disabled creator; then auto-disable after `schedule_max_failures` with `auto_disabled_reason` set and **no further records**.
+- [X] T035 [P] [US3] Add a test asserting a disabled rule produces **zero** trigger rows at its would-be time (disable ≠ skip).
+- [X] T036 [P] [US3] Add a test that a batch containing one raising rule still processes the remaining rules (FR-018).
 
 ### Implementation
 
-- [ ] T037 [US3] Implement the `missed` branch: compute `missed_count` via `count_between(planned_at, now)`, write one merged record, advance `next_run_at` to `next_after(now)`, create nothing.
-- [ ] T038 [US3] Implement the `skipped_busy` branch by checking whether the request from the schedule's most recent `fired` trigger is in a non-terminal state (R-06 — judge the schedule's own last request, not the target's global busyness).
-- [ ] T039 [US3] Implement the `failed` branch with the reason whitelist from `contracts/api.md` §2, increment `consecutive_failures`, auto-disable at threshold, and reset the counter on `fired`/`skipped_busy`.
-- [ ] T040 [US3] Add the reason-string guard test/assertion: no UUID, table name, exception class or stack in `reason` (grep-style assertion over produced reasons).
-- [ ] T041 [US3] Run Phase gate; verify the three measured counts (25 / 2 / 1) match the contract.
+- [X] T037 [US3] Implement the `missed` branch: compute `missed_count` via `count_between(planned_at, now)`, write one merged record, advance `next_run_at` to `next_after(now)`, create nothing.
+- [X] T038 [US3] Implement the `skipped_busy` branch by checking whether the request from the schedule's most recent `fired` trigger is in a non-terminal state (R-06 — judge the schedule's own last request, not the target's global busyness).
+- [X] T039 [US3] Implement the `failed` branch with the reason whitelist from `contracts/api.md` §2, increment `consecutive_failures`, auto-disable at threshold, and reset the counter on `fired`/`skipped_busy`.
+- [X] T040 [US3] Add the reason-string guard test/assertion: no UUID, table name, exception class or stack in `reason` (grep-style assertion over produced reasons).
+- [X] T041 [US3] Run Phase gate; verify the three measured counts (25 / 2 / 1) match the contract.
 
 **Checkpoint**: US3 的 Independent Test 通过。提交 Phase 6。
 
