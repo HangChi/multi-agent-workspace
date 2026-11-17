@@ -16,6 +16,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
 from app.api.deps import DB, CurrentUser, ResourceId, require_role
@@ -157,15 +158,53 @@ async def get_execution_egress(run_id: ResourceId, execution_id: ResourceId, use
     return {"items": rows}
 
 
+# 可取消的非终态：取消一个 Run 时，它的后代只要能停就一起停。
+_CANCELLABLE = frozenset({"queued", "running", "needs_input"})
+
+
+async def _cancel_descendants(db: AsyncSession, root_id: str) -> list[str]:
+    """取消该 Run 的所有非终态后代（BFS，容忍任意深度）。
+
+    fan_out / pipeline 的父 Run 只是编排占位，真正花钱的是子 Run；只把父 Run 置为
+    cancelled 时子 Run 会继续调 LLM、跑沙箱并累计成本（FR-018 的「用户取消后必须
+    真的停下」就不成立）。
+    """
+    cancelled: list[str] = []
+    frontier = [root_id]
+    seen: set[str] = set()
+    while frontier:
+        parent_id = frontier.pop()
+        if parent_id in seen:
+            continue
+        seen.add(parent_id)
+        children = (
+            await db.execute(select(Run).where(Run.parent_run_id == parent_id))
+        ).scalars().all()
+        for child in children:
+            frontier.append(child.id)
+            if child.status in _CANCELLABLE:
+                transition(child, RunStatus.CANCELLED)
+                cancelled.append(child.id)
+    return cancelled
+
+
 @router.post("/{run_id}/cancel")
 async def cancel_run(run_id: ResourceId, _m: MemberUser, user: CurrentUser, db: DB):
-    """取消运行（FR-018）：queued/running/needs_input → cancelled；终态 409。"""
+    """取消运行（FR-018）：queued/running/needs_input → cancelled；终态 409。
+
+    取消会级联到所有非终态子 Run。唯一的例外是「已终态但仍挂着在跑的子 Run」的
+    编排父 Run（fan_out 的父 Run 建好即 completed）：此时父 Run 自己的状态改不动，
+    但调用仍然成功并把子 Run 停下——否则前端只能拿到父 Run id，永远停不下这棵树。
+    """
     run = await _get_owned_run(db, run_id, user)
     from_status = run.status
-    # 显式前置校验：仅 queued/running/needs_input 可取消（幂等分支会吞掉 cancelled→cancelled）
-    if run.status not in {"queued", "running", "needs_input"}:
+    cancellable = from_status in _CANCELLABLE
+    cancelled_children = await _cancel_descendants(db, run.id)
+    if not cancellable and not cancelled_children:
+        # 终态且没有可取消的后代：维持 409（终态不可迁移）
         raise _conflict("当前状态不可取消")
-    transition(run, RunStatus.CANCELLED)
+    if cancellable:
+        transition(run, RunStatus.CANCELLED)
 
     await write_audit(
         db,
@@ -173,10 +212,16 @@ async def cancel_run(run_id: ResourceId, _m: MemberUser, user: CurrentUser, db: 
         action="run_cancel",
         target_type="run",
         target_id=run.id,
-        detail={"from_status": from_status},
+        detail={
+            "from_status": from_status,
+            "cancelled_descendants": len(cancelled_children),
+        },
     )
     await db.commit()
-    return {"status": "cancelled"}
+    return {
+        "status": "cancelled" if cancellable else run.status,
+        "cancelled_runs": 1 + len(cancelled_children) if cancellable else len(cancelled_children),
+    }
 
 
 @router.post("/{run_id}/retry", status_code=202)

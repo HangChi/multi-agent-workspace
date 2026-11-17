@@ -238,6 +238,70 @@ async def test_cancel_terminal_run_conflict(client, make_headers, db_session):
     assert resp.status_code == 409
 
 
+async def _child_run(db_session, parent: Run, *, status: str, sequence: int = 0) -> Run:
+    """父 Run 名下的子 Run（fan_out 子任务）。"""
+    child = Run(
+        request_id=parent.request_id,
+        parent_run_id=parent.id,
+        owner_id=parent.owner_id,
+        assignee_type="agent",
+        assignee_id=parent.assignee_id,
+        strategy=parent.strategy,
+        sequence=sequence,
+        status=status,
+    )
+    db_session.add(child)
+    await db_session.commit()
+    await db_session.refresh(child)
+    return child
+
+
+async def test_cancel_parent_cascades_to_children(client, make_headers, db_session):
+    """取消父 Run 必须级联到子 Run：否则用户以为停了，子任务继续烧钱。"""
+    headers = await make_headers()
+    parent = await _setup_run(client, headers, db_session, status="running")
+    parent.assignee_type = "group"
+    parent.strategy = "fan_out"
+    queued = await _child_run(db_session, parent, status="queued")
+    running = await _child_run(db_session, parent, status="running")
+    done = await _child_run(db_session, parent, status="completed")
+    await db_session.commit()
+
+    resp = await client.post(f"{RUNS_URL}/{parent.id}/cancel", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "cancelled"
+    assert resp.json()["cancelled_runs"] == 3
+
+    for child in (queued, running):
+        await db_session.refresh(child)
+        assert child.status == "cancelled"
+        assert child.finished_at is not None
+    # 已完成的子 Run 保持原状（终态不可迁移）
+    await db_session.refresh(done)
+    assert done.status == "completed"
+
+
+async def test_cancel_finished_fan_out_parent_still_stops_children(client, make_headers, db_session):
+    """fan_out 的父 Run 建好即 completed，但取消它仍须停下还在跑的子 Run。
+
+    前端只拿得到父 Run id（assign 返回的就是它），如果这里返回 409，用户就永远
+    停不下这棵树。
+    """
+    headers = await make_headers()
+    parent = await _setup_run(client, headers, db_session, status="completed")
+    parent.assignee_type = "group"
+    parent.strategy = "fan_out"
+    running = await _child_run(db_session, parent, status="running")
+    await db_session.commit()
+
+    resp = await client.post(f"{RUNS_URL}/{parent.id}/cancel", headers=headers)
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "completed", "cancelled_runs": 1}
+
+    await db_session.refresh(running)
+    assert running.status == "cancelled"
+
+
 # ---------- POST /runs/{id}/retry ----------
 
 
