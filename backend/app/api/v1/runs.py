@@ -13,13 +13,13 @@ T074：run_cancel / run_retry / run_reply 审计挂接（detail 含 from_status�
 from collections import Counter
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
-from app.api.deps import DB, CurrentUser, ResourceId, require_role
+from app.api.deps import DB, CurrentUser, MemberUser, ResourceId
 from app.api.errors import AppError
 from app.core.audit import write_audit
 from app.models.artifact import Artifact
@@ -37,8 +37,6 @@ from app.services.request_service import settle_request_status
 from app.services.sandbox_service import execution_artifact_truncation
 
 router = APIRouter(prefix="/runs", tags=["runs"])
-
-MemberUser = Annotated[object, Depends(require_role("admin", "member"))]
 
 
 async def _get_owned_run(db: DB, run_id: str, user: CurrentUser) -> Run:

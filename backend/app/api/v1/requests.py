@@ -13,10 +13,10 @@ T049：request_create 审计挂接。T059：assign 审计挂接。
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse, RedirectResponse
 
-from app.api.deps import DB, CurrentUser, ResourceId, require_role
+from app.api.deps import DB, CurrentUser, MemberUser, ResourceId
 from app.core.audit import write_audit
 from app.models.schedule import Schedule
 from app.schemas.request import (
@@ -31,8 +31,6 @@ from app.schemas.request import (
 from app.services import artifact_service, assignment_service, request_service
 
 router = APIRouter(prefix="/requests", tags=["requests"])
-
-MemberUser = Annotated[object, Depends(require_role("admin", "member"))]
 
 
 @router.get("", response_model=RequestList)

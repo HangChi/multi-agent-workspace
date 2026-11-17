@@ -89,3 +89,14 @@ def _resource_id(value: str) -> str:
 
 
 ResourceId = Annotated[str, AfterValidator(_resource_id)]
+
+# 角色守卫的复用别名。
+#
+# 这 10 个路由文件原先各自写一行 `MemberUser = Annotated[object, Depends(require_role(...))]`，
+# 同一个语义抄了 10 份：改角色策略时要全仓库搜索，漏一处就出现「有的端点 viewer 能写、
+# 有的不能」这种最难察觉的权限裂缝。统一在这里定义。
+#
+# 类型标成 User 而不是 object：依赖本身返回 User，标注成 object 会丢掉类型信息，
+# 也让「误把守卫结果当用户用」这类问题逃过 mypy。
+MemberUser = Annotated[User, Depends(require_role("admin", "member"))]
+AdminUser = Annotated[User, Depends(require_role("admin"))]

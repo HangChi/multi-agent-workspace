@@ -11,11 +11,9 @@
 审计：create/update/delete/enable/disable 各自一条（actions 见 core/audit.py）。
 """
 
-from typing import Annotated
+from fastapi import APIRouter, Query, Response
 
-from fastapi import APIRouter, Depends, Query, Response
-
-from app.api.deps import DB, CurrentUser, require_role
+from app.api.deps import DB, CurrentUser, MemberUser
 from app.core.audit import (
     SCHEDULE_CREATE,
     SCHEDULE_DELETE,
@@ -44,8 +42,6 @@ from app.services.schedule_cron import (
 )
 
 router = APIRouter(prefix="/schedules", tags=["schedules"])
-
-MemberUser = Annotated[object, Depends(require_role("admin", "member"))]
 
 
 @router.get("", response_model=ScheduleList)

@@ -3,20 +3,16 @@
 出站黑名单与访问查询位于 admin_egress.py，统一由 /admin 前缀提供。
 """
 
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from sqlalchemy import func, select
 
-from app.api.deps import DB, CurrentUser, require_role
+from app.api.deps import DB, AdminUser, CurrentUser
 from app.models.audit_log import AuditLog
 from app.schemas.common import AuditLogList, AuditLogOut
 from app.schemas.external_invocation import ExternalInvocationAuditList
 from app.services.external_invocation_service import list_invocation_audit
 
 router = APIRouter(prefix="/audit-logs", tags=["admin"])
-
-AdminUser = Annotated[object, Depends(require_role("admin"))]
 
 
 @router.get("/external-invocations", response_model=ExternalInvocationAuditList)

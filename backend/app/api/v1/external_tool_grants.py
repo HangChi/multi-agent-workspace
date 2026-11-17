@@ -1,10 +1,8 @@
 """Owner-scoped Agent external-tool grant endpoints."""
 
-from typing import Annotated
+from fastapi import APIRouter, status
 
-from fastapi import APIRouter, Depends, status
-
-from app.api.deps import DB, CurrentUser, require_role
+from app.api.deps import DB, CurrentUser, MemberUser
 from app.schemas.external_tool import (
     ExternalGrantCreate,
     ExternalGrantList,
@@ -15,7 +13,6 @@ from app.services import external_grant_service
 router = APIRouter(
     prefix="/agents/{agent_id}/external-tool-grants", tags=["external-tools"]
 )
-MemberUser = Annotated[object, Depends(require_role("admin", "member"))]
 
 
 @router.post("", response_model=ExternalGrantOut, status_code=status.HTTP_201_CREATED)

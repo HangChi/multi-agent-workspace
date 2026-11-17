@@ -1,10 +1,8 @@
 """Published marketplace browse and reviewer governance endpoints."""
 
-from typing import Annotated
+from fastapi import APIRouter, Query
 
-from fastapi import APIRouter, Depends, Query
-
-from app.api.deps import DB, CurrentUser, require_role
+from app.api.deps import DB, AdminUser, CurrentUser, MemberUser
 from app.schemas.external_tool import (
     InstallationUpgrade,
     ListingList,
@@ -16,8 +14,6 @@ from app.schemas.external_tool import (
 from app.services import external_grant_service, marketplace_service
 
 router = APIRouter(prefix="/marketplace", tags=["marketplace"])
-Reviewer = Annotated[object, Depends(require_role("admin"))]
-MemberUser = Annotated[object, Depends(require_role("admin", "member"))]
 
 
 @router.get("/tools", response_model=ListingList)
@@ -103,7 +99,7 @@ async def get_marketplace_listing(listing_id: str, _user: CurrentUser, db: DB):
 async def resume_marketplace_listing(
     listing_id: str,
     payload: ReviewDecision,
-    _reviewer: Reviewer,
+    _reviewer: AdminUser,
     db: DB,
     user: CurrentUser,
 ):
@@ -123,7 +119,7 @@ async def resume_marketplace_listing(
 async def pause_marketplace_listing(
     listing_id: str,
     payload: ReviewDecision,
-    _reviewer: Reviewer,
+    _reviewer: AdminUser,
     db: DB,
     user: CurrentUser,
 ):
@@ -143,7 +139,7 @@ async def pause_marketplace_listing(
 async def revoke_marketplace_listing(
     listing_id: str,
     payload: ReviewDecision,
-    _reviewer: Reviewer,
+    _reviewer: AdminUser,
     db: DB,
     user: CurrentUser,
 ):

@@ -10,11 +10,9 @@
 - DELETE /groups/{id} → 204（级联清空成员）
 """
 
-from typing import Annotated
+from fastapi import APIRouter, Query
 
-from fastapi import APIRouter, Depends, Query
-
-from app.api.deps import DB, CurrentUser, ResourceId, require_role
+from app.api.deps import DB, CurrentUser, MemberUser, ResourceId
 from app.core.audit import write_audit
 from app.models.group import AgentGroup
 from app.models.group_member import GroupMember
@@ -31,8 +29,6 @@ from app.schemas.group import (
 from app.services import group_service
 
 router = APIRouter(prefix="/groups", tags=["groups"])
-
-MemberUser = Annotated[object, Depends(require_role("admin", "member"))]
 
 
 def _to_with_members(group: AgentGroup, members: list[GroupMember]) -> GroupWithMembers:

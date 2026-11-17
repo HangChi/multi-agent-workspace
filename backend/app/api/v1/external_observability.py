@@ -1,14 +1,11 @@
 """Admin-only diagnostic counters for external MCP operations."""
 
-from typing import Annotated
+from fastapi import APIRouter, Query
 
-from fastapi import APIRouter, Depends, Query
-
-from app.api.deps import CurrentUser, require_role
+from app.api.deps import AdminUser, CurrentUser
 from app.services.external_observability import observability, recent_alerts
 
 router = APIRouter(prefix="/external-tools/observability", tags=["external-tools"])
-AdminUser = Annotated[object, Depends(require_role("admin"))]
 
 
 @router.get("")

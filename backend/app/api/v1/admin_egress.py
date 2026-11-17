@@ -2,17 +2,16 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from pydantic import AwareDatetime
 
-from app.api.deps import DB, CurrentUser, require_role
+from app.api.deps import DB, AdminUser, CurrentUser
 from app.core.audit import write_audit
 from app.schemas.egress import BlacklistIn, BlacklistList, BlacklistOut
 from app.schemas.sandbox import EgressAccessList
 from app.services import egress_service
 
 router = APIRouter(prefix="/admin", tags=["admin-egress"])
-AdminUser = Annotated[object, Depends(require_role("admin"))]
 
 
 @router.get("/egress-blacklist", response_model=BlacklistList)

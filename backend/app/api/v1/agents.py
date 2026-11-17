@@ -8,11 +8,9 @@
 - DELETE /agents/{id} → 204（被组引用 409）
 """
 
-from typing import Annotated
+from fastapi import APIRouter, Query
 
-from fastapi import APIRouter, Depends, Query
-
-from app.api.deps import DB, CurrentUser, ResourceId, require_role
+from app.api.deps import DB, CurrentUser, MemberUser, ResourceId
 from app.core.audit import write_audit
 from app.models.agent import Agent
 from app.schemas.agent import (
@@ -25,8 +23,6 @@ from app.schemas.agent import (
 from app.services import agent_service, egress_service
 
 router = APIRouter(prefix="/agents", tags=["agents"])
-
-MemberUser = Annotated[object, Depends(require_role("admin", "member"))]
 
 
 async def _agent_save_response(db: DB, agent: Agent) -> AgentSaveOut:

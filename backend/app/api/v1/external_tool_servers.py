@@ -1,11 +1,9 @@
 """Administrator endpoints for external MCP server registration and validation."""
 
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Query, status
 from sqlalchemy import select
 
-from app.api.deps import DB, CurrentUser, require_role
+from app.api.deps import DB, AdminUser, CurrentUser
 from app.api.errors import AppError
 from app.models.external_credential import ExternalCredential
 from app.schemas.external_tool import (
@@ -27,7 +25,6 @@ from app.services.external_audit_service import write_external_audit
 from app.tasks.validate_external_server import validate_external_server
 
 router = APIRouter(prefix="/external-tool-servers", tags=["external-tools"])
-AdminUser = Annotated[object, Depends(require_role("admin"))]
 
 
 @router.post("", response_model=ExternalServerOut, status_code=status.HTTP_201_CREATED)
