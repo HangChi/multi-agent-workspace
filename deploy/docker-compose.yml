@@ -66,7 +66,13 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    # ⚠️ 不再引用 Docker Hub 的 minio/minio：该仓库已不可拉取
+    # （`pull access denied ... repository does not exist`），本地能跑只是因为
+    # 旧镜像还在缓存里，换机器部署会卡在拉取阶段。改为自建镜像，从 GitHub
+    # Release 下载固定版本二进制并校验 SHA-256（见 deploy/minio/）。
+    build:
+      context: ./minio
+    image: aw-minio:RELEASE.2025-09-07T16-13-09Z
     container_name: aw-minio
     restart: unless-stopped
     command: server /data --console-address ':9001'
@@ -84,8 +90,9 @@ services:
         limits:
           cpus: '0.5'
           memory: 512m
+    # 探针用 python：镜像基于 python:3.12-slim，未装 curl
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://127.0.0.1:9000/minio/health/live']
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/minio/health/live',timeout=2)"]
       interval: 10s
       timeout: 5s
       retries: 10
