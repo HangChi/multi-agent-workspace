@@ -17,10 +17,18 @@ from app.schemas.agent import validate_tool_names
 
 __all__ = [
     "AgentTemplateCreate",
+    "AgentTemplateFromAgentIn",
     "AgentTemplateList",
     "AgentTemplateOut",
     "AgentTemplateUpdate",
 ]
+
+
+class AgentTemplateFromAgentIn(BaseModel):
+    """「另存为模板」请求体：只给模板元信息，配置来自 Agent 快照。"""
+
+    name: str = Field(min_length=1, max_length=100)
+    description: str | None = None
 
 
 class AgentTemplateCreate(BaseModel):

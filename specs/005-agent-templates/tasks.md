@@ -86,13 +86,30 @@ description: "Implementation tasks for agent templates and one-click clone: snap
 **Purpose**: 模板的 CRUD、快照隔离、重名拒绝、内置只读、404 同措辞。US3（另存为模板）的
 服务部分在此落地，其端点挂在 `/agents/{id}/save-as-template` 上（Phase 4）。
 
-- [ ] T015 Unit: `backend/tests/unit/test_agent_template_service.py` — create/list/get/update/delete with owner scoping; duplicate name → `AppError("CONFLICT", "同名模板已存在")`; foreign template read → `AppError("NOT_FOUND", "模板不存在")` (identical message); builtin update/delete → `AppError("FORBIDDEN", …)`; `list` merges builtins + own with `scope` filter and returns filtered total.
-- [ ] T016 Implement `backend/app/services/agent_template_service.py`: CRUD + `save_as_template(db, *, agent, name, description)` (snapshot the 10 fields; no status). Flush only — commit stays in the endpoint layer (Note #7).
-- [ ] T017 [P] Integration: `backend/tests/integration/test_agent_templates_api.py` — `GET /agent-templates` (scope/q/pagination, builtins always visible), `GET/PATCH/DELETE /agent-templates/{id}`: own 200/204, foreign 404 with identical body, builtin 403, duplicate name 409, viewer 403. Assert audit rows for all three actions with `strict` semantics.
-- [ ] T018 Implement `backend/app/api/v1/agent_templates.py` (contracts §1) and register it in `backend/app/main.py`.
+- [X] T015 Unit: `backend/tests/unit/test_agent_template_service.py` — create/list/get/update/delete with owner scoping; duplicate name → `AppError("CONFLICT", "同名模板已存在")`; foreign template read → `AppError("NOT_FOUND", "模板不存在")` (identical message); builtin update/delete → `AppError("FORBIDDEN", …)`; `list` merges builtins + own with `scope` filter and returns filtered total.
+- [X] T016 Implement `backend/app/services/agent_template_service.py`: CRUD + `save_as_template(db, *, agent, name, description)` (snapshot the 10 fields; no status). Flush only — commit stays in the endpoint layer (Note #7).
+- [X] T017 [P] Integration: `backend/tests/integration/test_agent_templates_api.py` — `GET /agent-templates` (scope/q/pagination, builtins always visible), `GET/PATCH/DELETE /agent-templates/{id}`: own 200/204, foreign 404 with identical body, builtin 403, duplicate name 409, viewer 403. Assert audit rows for all three actions with `strict` semantics.
+- [X] T018 Implement `backend/app/api/v1/agent_templates.py` (contracts §1) and register it in `backend/app/main.py`.
 - [ ] T019 Integration: snapshot isolation (FR-002) — create template from agent A, then mutate A and mutate the template, and assert **zero** cross-contamination in both directions; also assert an agent created from the template is unchanged when the template is later edited (SC-004).
 
 **Checkpoint**: US3（另存为模板的服务侧）+ US4 完成；Phase 3 提交。
+
+**Phase 3 实测记录（2026-11-18）**
+
+| 项 | 结果 |
+|---|---|
+| `tests/integration/test_agent_template_service.py` | 10 passed（归属 404 同措辞、重名 409、内置 403、scope/total、10 字段快照、双向隔离、删除不相连） |
+| `tests/integration/test_agent_templates_api.py` | 12 passed（列表/分页/搜索、viewer 403、PATCH/DELETE、409/422、他人 404 同 body、内置只读、另存为模板、审计三动作） |
+| `ruff check` / `ruff format --check` / `mypy app` | 全绿（122 source files） |
+
+**实现偏离上游文档之处（已回头改文档，按宪法记录）**：
+
+1. **save-as-template 对他人 Agent 返回 403 而非 404**。既有 `PATCH/DELETE /agents/{id}`
+   一向是 403「无权操作他人 Agent」（001 契约），为一致性给新端点单开一套 404 语义
+   会制造第二套 Agent 行为。已改 `contracts/api.md` §1.5 并把「模板 404 / Agent 403」
+   的不对称显式记录在案。
+2. **内置模板在测试里必须带随机名**。部分唯一索引是**全局**的，固定名「内置模板」
+   会在第二个测试里撞车——这恰好反证了 R-05 的约束真的在生效。
 
 ## Phase 4: User Story 1 + 2 — 实例化、克隆、另存端点
 

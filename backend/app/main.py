@@ -17,6 +17,7 @@ from app.api.middleware import RequestContextMiddleware
 from app.api.v1.admin import router as admin_router
 from app.api.v1.admin_egress import router as admin_egress_router
 from app.api.v1.agent_egress import router as agent_egress_router
+from app.api.v1.agent_templates import router as agent_templates_router
 from app.api.v1.agents import router as agents_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.external_observability import router as external_observability_router
@@ -78,6 +79,7 @@ def create_app() -> FastAPI:
     api_v1 = APIRouter(prefix="/api/v1")
     api_v1.include_router(auth_router)
     api_v1.include_router(agents_router)
+    api_v1.include_router(agent_templates_router)
     api_v1.include_router(agent_egress_router)
     api_v1.include_router(groups_router)
     api_v1.include_router(marketplace_router)

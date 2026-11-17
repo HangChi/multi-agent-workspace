@@ -84,11 +84,15 @@
 ```
 
 - `201` → `AgentTemplateOut`（`is_builtin: false`）
-- `404 NOT_FOUND / "Agent 不存在"`：Agent 不存在或不属于自己（同一措辞）
 - `409 CONFLICT / "同名模板已存在"`：撞名时拒绝并让用户改名，**不自动加后缀**
   （避免模板库出现「XX 副本」噪音，spec Assumptions）
-- `403 FORBIDDEN`：viewer
+- `403 FORBIDDEN / "无权操作他人 Agent"`：Agent 属于他人（viewer 同样 403）
 - 源 Agent 处于 `archived` **允许**保存（US3 AS5）
+
+> **状态码不对称是刻意记录在案的**：模板用 404 同措辞（FR-004，防存在性泄露），
+> Agent 用 403 —— 因为 `PATCH/DELETE /agents/{id}` 一向是 403「无权操作他人 Agent」，
+> 改它属于 001 契约变更，不在本特性范围。新端点跟随所在资源的既有约定，
+> 不为了一致性而制造第二套 Agent 语义。
 
 ---
 

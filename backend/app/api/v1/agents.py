@@ -11,7 +11,7 @@
 from fastapi import APIRouter, Query
 
 from app.api.deps import DB, CurrentUser, MemberUser, ResourceId
-from app.core.audit import write_audit
+from app.core.audit import AGENT_TEMPLATE_CREATE, write_audit
 from app.models.agent import Agent
 from app.schemas.agent import (
     AgentCreate,
@@ -20,7 +20,8 @@ from app.schemas.agent import (
     AgentSaveOut,
     AgentUpdate,
 )
-from app.services import agent_service, egress_service
+from app.schemas.agent_template import AgentTemplateFromAgentIn, AgentTemplateOut
+from app.services import agent_service, agent_template_service, egress_service
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -128,6 +129,40 @@ async def archive_agent(
     )
     await db.commit()
     return AgentOut.model_validate(agent)
+
+
+@router.post(
+    "/{agent_id}/save-as-template", response_model=AgentTemplateOut, status_code=201
+)
+async def save_agent_as_template(
+    agent_id: ResourceId,
+    payload: AgentTemplateFromAgentIn,
+    user: CurrentUser,
+    db: DB,
+):
+    """把自己的 Agent 快照成模板（US3 / contracts §1.5）。
+
+    只接受模板的元信息（名称 + 描述），配置全部来自 Agent 当前值。
+    归档态的 Agent 也允许保存（US3 AS5）。
+    """
+    agent = await agent_service.get_agent(db, agent_id, user_id=user.id)
+    template = await agent_template_service.save_as_template(
+        db, agent=agent, name=payload.name, description=payload.description
+    )
+    await db.refresh(template)
+    await write_audit(
+        db,
+        user_id=user.id,
+        action=AGENT_TEMPLATE_CREATE,
+        target_type="agent_template",
+        target_id=template.id,
+        detail={"name": template.name, "source_agent_id": agent.id},
+        strict=True,
+    )
+    await db.commit()
+    out = AgentTemplateOut.model_validate(template)
+    out.is_builtin = False
+    return out
 
 
 @router.delete("/{agent_id}", status_code=204)

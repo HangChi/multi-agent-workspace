@@ -12,6 +12,25 @@ from app.models.audit_log import AuditLog
 
 logger = structlog.get_logger(__name__)
 
+# ===== Agent 模板与克隆（005）的审计动作 =====
+# 集中定义的理由同 004：动作名写错会让审计覆盖率静默下降。
+# 005 要求「另存为模板 / 模板变更 / 模板删除 / 从模板创建 / 克隆」五类 100% 可审计。
+AGENT_TEMPLATE_CREATE = "agent_template_create"
+AGENT_TEMPLATE_UPDATE = "agent_template_update"
+AGENT_TEMPLATE_DELETE = "agent_template_delete"
+AGENT_CREATE_FROM_TEMPLATE = "agent_create_from_template"
+AGENT_CLONE = "agent_clone"
+
+AGENT_TEMPLATE_ACTIONS = frozenset(
+    {
+        AGENT_TEMPLATE_CREATE,
+        AGENT_TEMPLATE_UPDATE,
+        AGENT_TEMPLATE_DELETE,
+        AGENT_CREATE_FROM_TEMPLATE,
+        AGENT_CLONE,
+    }
+)
+
 # ===== 定时调度（004）的审计动作 =====
 # 集中定义而不散落在各调用点：动作名一旦写错，审计覆盖率就会静默下降
 # （记录还在，但按月统计/排查时找不到对应事件）。004 要求「规则变更 +
