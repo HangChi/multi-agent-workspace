@@ -206,7 +206,7 @@ description: "Implementation tasks for scheduled requests: cron rules, automatic
 > | 前端 `eslint src` | 0 error / 2 warning（均为既有 `ui/` 组件的 `react-refresh` 提示） |
 > | 前端 `vitest run` | 16 files / 88 tests passed |
 > | 前端 `npm run build` | 成功，首屏 `index-*.js` **102.04 KB gzip**；`SchedulesPage` 独立分包 7.94 KB gzip |
-> | 迁移往返（空库） | up 8 → down 0006 → 2 枚举确认删除 → up 成功 |
+> | 迁移往返（空库，按 CI 口径） | up 8 → **`downgrade base` 8**（业务表清零、残留仅 `alembic_version`、枚举 0）→ 再 up 8 → `current` = `0007_schedules (head)`；另测到 0006 时 2 个新枚举确认删除 |
 > | `git diff --check` | 无空白错误 |
 >
 > **⚠️ 门禁口径曾不完整，已修正**：最初记的是 `ruff format --check app tests`（**222** files），
