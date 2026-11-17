@@ -1,7 +1,9 @@
 """Celery 应用：broker=Redis，JSON 序列化，结果后端。"""
 
+import redis
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import worker_process_init
 
 from app.core.config import settings
 from app.core.log_setup import configure_logging
@@ -60,9 +62,32 @@ celery_app.conf.beat_schedule = {
     },
 }
 
+
 # 自动发现 app/tasks 下的任务模块。
 # 注意：autodiscover_tasks 只会导入 packages 参数本身（related_name="tasks"），
 # 不会递归扫描子模块，因此必须在 __init__.py 为空时显式导入任务模块。
+@worker_process_init.connect
+def _start_metrics_publisher(**_kwargs: object) -> None:
+    """每个 worker 子进程启动时，把本进程指标周期性发布到 Redis。
+
+    为什么需要：LLM 调用数、沙箱执行数、Run 终态数都发生在 Worker 进程里，
+    而 `/metrics` 由 API 提供。不发布的话这些指标在抓取端永远是 0，
+    对应的告警也就永远不会响。
+    """
+    from app.core import metrics
+    from app.core.config import settings
+
+    def client_factory() -> redis.Redis:
+        return redis.from_url(
+            settings.redis_url,
+            decode_responses=True,
+            socket_timeout=2.0,
+            socket_connect_timeout=2.0,
+        )
+
+    metrics.start_background_publisher(client_factory)
+
+
 celery_app.autodiscover_tasks(["app.tasks"])
 
 # 显式导入任务模块，确保 Worker 注册（兜底 autodiscover 不递归的局限）

@@ -35,7 +35,7 @@ from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.events import redis_ping
 from app.core.log_setup import configure_logging
-from app.core.redis import close_redis, get_broker_redis
+from app.core.redis import close_redis, get_broker_redis, get_redis
 
 configure_logging()
 
@@ -151,8 +151,19 @@ def create_app() -> FastAPI:
         except Exception as exc:  # noqa: BLE001 - 指标端点的可用性优先于准确性
             logger.warning("queue_depth_unavailable", error=type(exc).__name__)
 
+        # 指标是进程内的：API 有 2 个 uvicorn worker，Celery 又是独立容器。
+        # 只渲染本进程会漏掉一半 API 请求，以及**全部** Worker 侧指标
+        # （LLM 调用、沙箱执行、Run 终态）——那些告警将永不触发。
+        # 因此把本进程快照与各 Worker 定期发布到 Redis 的快照相加。
+        snapshots = [metrics.snapshot()]
+        try:
+            snapshots.extend(await metrics.load_remote_snapshots(get_redis()))
+        except Exception as exc:  # noqa: BLE001 - 退化路径：只报本进程
+            logger.warning("metrics_remote_unavailable", error=type(exc).__name__)
+
         return Response(
-            content=metrics.render(), media_type="text/plain; version=0.0.4"
+            content=metrics.render_merged(metrics.merge_snapshots(snapshots)),
+            media_type="text/plain; version=0.0.4",
         )
 
     return app

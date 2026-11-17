@@ -1,25 +1,43 @@
-"""极简 Prometheus 指标注册表（零依赖）。
+"""极简 Prometheus 指标注册表（零依赖，支持多进程合并）。
 
-为什么自己写而不引 `prometheus_client`：本项目只暴露十来个指标，而多一个依赖
-就要同步 `uv.lock`、重打镜像、跟着上游做安全更新。这里实现 Counter / Gauge /
-Histogram 三个类型，输出严格遵循 Prometheus 文本格式（`text/plain; version=0.0.4`），
-Prometheus 侧无感知。
+## 为什么自己写
 
-设计约束：
-- **标签必须显式声明**：写错标签名直接抛错，而不是默默丢一个点（静默丢指标是
-  可观测性里最难查的一类问题：面板空着，但没人知道是"没流量"还是"写错了"）。
-- **低基数**：HTTP 指标用路由模板（`/runs/{run_id}`）而不是真实路径，否则每个
-  run_id 一条时间序列，Prometheus 直接被撑爆。
-- **线程安全**：API 是多 worker、Worker 是多进程，同进程内还有线程池
-  （`asyncio.to_thread`），所以计数要加锁。
-- 不提供 `unregister`：指标是进程级静态声明，测试里用 `reset()` 清值即可。
+只暴露十来个指标，引 `prometheus_client` 就要同步 `uv.lock`、重打镜像、跟上游
+安全更新。输出严格遵循 Prometheus 文本格式（`text/plain; version=0.0.4`）。
+
+## 为什么需要「多进程合并」
+
+指标天然是**进程内**的：API 起 2 个 uvicorn worker，Celery 又是独立容器。
+如果只暴露 API 进程的内存计数：
+
+- 抓一次只看到被访问到的那个 worker 的计数，另一个 worker 的请求凭空消失；
+- 真正重要的 LLM 调用数、沙箱执行数、Run 终态数**全在 Worker 进程里**，
+  在 API 的 `/metrics` 上永远是 0 —— 典型的「配了告警但永不触发」。
+
+所以：非抓取进程（Celery worker）每 5 秒把快照写进 Redis（`metrics:proc:*`，
+TTL 30s），`/metrics` 把本进程快照与其余进程快照按「指标名 + 标签组合」相加。
+
+代价与取舍（如实记录）：
+- **最终一致**：远端计数最多滞后一个刷新周期（5s）。告警窗口都是分钟级，无影响。
+- 计数器进程重启会归零，相加后总量会「回退」一次。`rate()`/`increase()` 本身
+  就处理 counter reset，这里不额外补偿。
+- 只在 Redis 可达时合并；Redis 挂了 `/metrics` 仍返回本进程数据，不报错。
 """
 
 from __future__ import annotations
 
+import json
+import os
+import socket
 import threading
+import time
 from collections import defaultdict
 from collections.abc import Iterable
+from typing import Any
+
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 _CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 
@@ -38,6 +56,12 @@ DEFAULT_BUCKETS: tuple[float, ...] = (
     10.0,
     30.0,
 )
+
+# 远端快照的 Redis key 前缀与 TTL：TTL 必须明显大于刷新周期，
+# 否则一次 GC 抖动就会让某个 worker 的计数整段消失。
+REMOTE_PREFIX = "metrics:proc:"
+REMOTE_TTL_SECONDS = 30
+FLUSH_INTERVAL_SECONDS = 5
 
 _lock = threading.Lock()
 _registry: dict[str, _Metric] = {}
@@ -58,6 +82,17 @@ def _labels_key(labelnames: Iterable[str], labels: dict[str, str]) -> tuple[str,
     return tuple(str(labels[name]) for name in labelnames)
 
 
+def _format_float(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else repr(float(value))
+
+
+def _format_labels_dict(labels: dict[str, str]) -> str:
+    if not labels:
+        return ""
+    parts = [f'{name}="{_escape(value)}"' for name, value in labels.items()]
+    return "{" + ",".join(parts) + "}"
+
+
 class _Metric:
     kind = "untyped"
 
@@ -72,7 +107,7 @@ class _Metric:
                 raise ValueError(f"指标重复注册: {name}")
             _registry[name] = self
 
-    def render(self) -> list[str]:
+    def snapshot(self) -> dict[str, Any]:
         raise NotImplementedError
 
 
@@ -95,17 +130,20 @@ class Counter(_Metric):
     def value(self, **labels: str) -> float:
         return self._values.get(_labels_key(self.labelnames, labels), 0.0)
 
-    def render(self) -> list[str]:
-        lines = [f"# HELP {self.name} {self.help}", f"# TYPE {self.name} counter"]
+    def snapshot(self) -> dict[str, Any]:
         with _lock:
-            items = sorted(self._values.items())
-        if not items:
-            # 没有样本也要输出一行 0，否则面板上会出现 "no data" 而不是 0
-            lines.append(f"{self.name} 0")
-            return lines
-        for key, value in items:
-            lines.append(f"{self.name}{_format_labels(self.labelnames, key)} {value}")
-        return lines
+            series = {
+                json.dumps(
+                    dict(zip(self.labelnames, key, strict=True)), ensure_ascii=False
+                ): value
+                for key, value in self._values.items()
+            }
+        return {
+            "kind": self.kind,
+            "help": self.help,
+            "labelnames": list(self.labelnames),
+            "series": series,
+        }
 
 
 class Gauge(_Metric):
@@ -135,16 +173,7 @@ class Gauge(_Metric):
     def value(self, **labels: str) -> float:
         return self._values.get(_labels_key(self.labelnames, labels), 0.0)
 
-    def render(self) -> list[str]:
-        lines = [f"# HELP {self.name} {self.help}", f"# TYPE {self.name} gauge"]
-        with _lock:
-            items = sorted(self._values.items())
-        if not items:
-            lines.append(f"{self.name} 0")
-            return lines
-        for key, value in items:
-            lines.append(f"{self.name}{_format_labels(self.labelnames, key)} {value}")
-        return lines
+    snapshot = Counter.snapshot
 
 
 class Histogram(_Metric):
@@ -175,70 +204,123 @@ class Histogram(_Metric):
             self._sums[key] += value
             self._totals[key] += 1
 
-    def render(self) -> list[str]:
-        lines = [f"# HELP {self.name} {self.help}", f"# TYPE {self.name} histogram"]
+    def snapshot(self) -> dict[str, Any]:
         with _lock:
             keys = sorted(set(self._counts) | set(self._totals))
-            snapshot = [
-                (
-                    key,
-                    list(self._counts.get(key, [])),
-                    self._sums[key],
-                    self._totals[key],
-                )
+            series = {
+                json.dumps(
+                    dict(zip(self.labelnames, key, strict=True)), ensure_ascii=False
+                ): {
+                    "counts": list(self._counts.get(key, [0] * len(self.buckets))),
+                    "sum": self._sums[key],
+                    "count": self._totals[key],
+                }
                 for key in keys
-            ]
-        for key, counts, total_sum, total_count in snapshot:
-            for bound, count in zip(self.buckets, counts, strict=True):
-                labels = dict(zip(self.labelnames, key, strict=True))
-                labels["le"] = _format_float(bound)
-                lines.append(f"{self.name}_bucket{_format_labels_dict(labels)} {count}")
-            labels = dict(zip(self.labelnames, key, strict=True))
-            labels["le"] = "+Inf"
-            lines.append(
-                f"{self.name}_bucket{_format_labels_dict(labels)} {total_count}"
-            )
-            lines.append(
-                f"{self.name}_sum{_format_labels(self.labelnames, key)} {total_sum}"
-            )
-            lines.append(
-                f"{self.name}_count{_format_labels(self.labelnames, key)} {total_count}"
-            )
-        if not snapshot:
-            # 无样本时至少给出 +Inf 与 0，避免查询返回空
-            lines.append(f'{self.name}_bucket{{le="+Inf"}} 0')
-            lines.append(f"{self.name}_sum 0")
-            lines.append(f"{self.name}_count 0")
-        return lines
+            }
+        return {
+            "kind": self.kind,
+            "help": self.help,
+            "labelnames": list(self.labelnames),
+            "buckets": list(self.buckets),
+            "series": series,
+        }
 
 
-def _format_float(value: float) -> str:
-    return str(int(value)) if float(value).is_integer() else repr(float(value))
+# ---------------------------------------------------------------------------
+# 快照 / 合并 / 渲染
+# ---------------------------------------------------------------------------
 
 
-def _format_labels(labelnames: tuple[str, ...], key: tuple[str, ...]) -> str:
-    return _format_labels_dict(dict(zip(labelnames, key, strict=True)))
-
-
-def _format_labels_dict(labels: dict[str, str]) -> str:
-    if not labels:
-        return ""
-    parts = [f'{name}="{_escape(value)}"' for name, value in labels.items()]
-    return "{" + ",".join(parts) + "}"
-
-
-def render() -> str:
-    """渲染全部指标（Prometheus 文本格式）。"""
+def snapshot() -> dict[str, Any]:
+    """本进程全部指标的可序列化快照。"""
     with _lock:
-        metrics = list(_registry.values())
+        metrics = list(_registry.items())
+    return {name: metric.snapshot() for name, metric in metrics}
+
+
+def merge_snapshots(snapshots: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """按「指标名 + 标签组合」把多份快照相加。
+
+    直方图逐桶相加、sum/count 相加；Counter/Gauge 直接相加（对连接数、队列
+    深度这类量，「各进程当前值之和」正是想要的语义）。
+    """
+    merged: dict[str, Any] = {}
+    for snap in snapshots:
+        for name, metric in snap.items():
+            target = merged.get(name)
+            if target is None:
+                target = {
+                    "kind": metric["kind"],
+                    "help": metric["help"],
+                    "labelnames": metric["labelnames"],
+                    "buckets": metric.get("buckets"),
+                    "series": {},
+                }
+                merged[name] = target
+            series = target["series"]
+            for label_key, value in metric["series"].items():
+                if metric["kind"] == "histogram":
+                    current = series.get(label_key)
+                    if current is None:
+                        series[label_key] = {
+                            "counts": list(value["counts"]),
+                            "sum": value["sum"],
+                            "count": value["count"],
+                        }
+                    else:
+                        counts = current["counts"]
+                        for index, item in enumerate(value["counts"]):
+                            if index < len(counts):
+                                counts[index] += item
+                        current["sum"] += value["sum"]
+                        current["count"] += value["count"]
+                else:
+                    series[label_key] = series.get(label_key, 0.0) + value
+    return merged
+
+
+def render_merged(merged: dict[str, Any]) -> str:
     lines: list[str] = []
-    for metric in metrics:
-        lines.extend(metric.render())
+    for name in sorted(merged):
+        metric = merged[name]
+        lines.append(f"# HELP {name} {metric['help']}")
+        lines.append(f"# TYPE {name} {metric['kind']}")
+        series = metric["series"]
+        if not series:
+            # 没有样本也要输出 0，否则面板显示 no data 而不是 0
+            lines.append(f"{name} 0")
+            continue
+        for label_key in sorted(series):
+            labels = json.loads(label_key)
+            value = series[label_key]
+            if metric["kind"] == "histogram":
+                buckets = metric["buckets"] or []
+                for bound, count in zip(buckets, value["counts"], strict=False):
+                    bucket_labels = dict(labels)
+                    bucket_labels["le"] = _format_float(bound)
+                    lines.append(
+                        f"{name}_bucket{_format_labels_dict(bucket_labels)} {count}"
+                    )
+                inf_labels = dict(labels)
+                inf_labels["le"] = "+Inf"
+                lines.append(
+                    f"{name}_bucket{_format_labels_dict(inf_labels)} {value['count']}"
+                )
+                lines.append(f"{name}_sum{_format_labels_dict(labels)} {value['sum']}")
+                lines.append(
+                    f"{name}_count{_format_labels_dict(labels)} {value['count']}"
+                )
+            else:
+                lines.append(f"{name}{_format_labels_dict(labels)} {value}")
     return "\n".join(lines) + "\n"
 
 
+def render() -> str:
+    """只渲染本进程（测试，以及 Redis 不可用时的退化路径）。"""
+    return render_merged(merge_snapshots([snapshot()]))
+
+
 def metric_names() -> set[str]:
-    """已注册的指标名（告警规则的契约测试用）。"""
     with _lock:
         return set(_registry)
 
@@ -247,12 +329,91 @@ def reset() -> None:
     """清空所有指标的值（仅测试使用；注册关系保留）。"""
     with _lock:
         for metric in _registry.values():
-            if isinstance(metric, Counter | Gauge):
+            if isinstance(metric, (Counter, Gauge)):
                 metric._values.clear()
             elif isinstance(metric, Histogram):
                 metric._counts.clear()
                 metric._sums.clear()
                 metric._totals.clear()
+
+
+# ---------------------------------------------------------------------------
+# 跨进程发布（Celery worker → Redis → API 的 /metrics 合并）
+# ---------------------------------------------------------------------------
+
+_PROCESS_ID = f"{socket.gethostname()}:{os.getpid()}"
+
+
+def process_id() -> str:
+    """进程标识（host:pid）。容器重建后 pid 可能复用，配合 TTL 足以区分。"""
+    return _PROCESS_ID
+
+
+def publish(redis_client: Any) -> bool:
+    """把本进程快照写进 Redis（同步客户端；失败返回 False 而不抛）。"""
+    try:
+        redis_client.set(
+            f"{REMOTE_PREFIX}{_PROCESS_ID}",
+            json.dumps(snapshot(), ensure_ascii=False, separators=(",", ":")),
+            ex=REMOTE_TTL_SECONDS,
+        )
+        return True
+    except Exception:  # noqa: BLE001 - 指标发布失败不能影响业务
+        return False
+
+
+def _publisher_loop(client_factory: Any) -> None:
+    failures = 0
+    while True:
+        try:
+            ok = publish(client_factory())
+        except Exception as exc:  # noqa: BLE001 - 建连失败也算一次
+            ok = False
+            error = type(exc).__name__
+        else:
+            error = "publish_false"
+        if ok:
+            failures = 0
+        else:
+            failures += 1
+            # 每 12 次（约 1 分钟）提示一次：Redis 长时间不可用时既不刷屏也不静默
+            if failures % 12 == 1:
+                logger.warning("metrics_publish_failed", attempts=failures, error=error)
+        time.sleep(FLUSH_INTERVAL_SECONDS)
+
+
+def start_background_publisher(client_factory: Any) -> threading.Thread:
+    """在 Celery worker 进程里起后台线程周期发布快照。
+
+    用线程而不是信号处理器：发布是 I/O，塞进信号处理器会阻塞任务调度。
+    """
+    thread = threading.Thread(
+        target=_publisher_loop,
+        args=(client_factory,),
+        name="metrics-publisher",
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
+async def load_remote_snapshots(redis_client: Any) -> list[dict[str, Any]]:
+    """读取其它进程的快照（排除自己，避免重复计数）。"""
+    snapshots: list[dict[str, Any]] = []
+    try:
+        async for key in redis_client.scan_iter(match=f"{REMOTE_PREFIX}*", count=100):
+            if key == f"{REMOTE_PREFIX}{_PROCESS_ID}":
+                continue
+            raw = await redis_client.get(key)
+            if not raw:
+                continue
+            try:
+                snapshots.append(json.loads(raw))
+            except (TypeError, ValueError):
+                continue
+    except Exception:  # noqa: BLE001 - Redis 抖动时退化为只报本进程
+        return []
+    return snapshots
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +446,7 @@ LLM_DURATION = Histogram(
 )
 LLM_COST = Counter(
     "aw_llm_cost_cents_total",
-    "LLM 累计成本（分，未取整的浮点值）",
+    "LLM 累计成本（分）",
     ("model",),
 )
 RUN_TERMINAL = Counter(
