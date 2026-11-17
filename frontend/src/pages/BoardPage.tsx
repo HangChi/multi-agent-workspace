@@ -157,9 +157,7 @@ export function BoardPage() {
         }
       />
 
-      {error && !pending && (
-        <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      )}
+      {error && !pending && <ErrorBanner error={error} onDismiss={() => setError(null)} />}
 
       {showForm && (
         <RequestForm
@@ -229,7 +227,9 @@ export function BoardPage() {
               <Badge tone={PRIORITY_TONE[currentDetail.priority] ?? 'slate'}>
                 {PRIORITY_LABEL[currentDetail.priority] ?? currentDetail.priority}
               </Badge>
-              <Badge tone="slate">{STATUS_LABEL[currentDetail.status] ?? currentDetail.status}</Badge>
+              <Badge tone="slate">
+                {STATUS_LABEL[currentDetail.status] ?? currentDetail.status}
+              </Badge>
               <span className="text-xs text-ink-faint">
                 创建于 {new Date(currentDetail.created_at).toLocaleString('zh-CN')}
               </span>

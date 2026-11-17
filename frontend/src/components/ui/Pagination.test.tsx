@@ -8,28 +8,28 @@ import { Pagination } from './Pagination'
 describe('Pagination', () => {
   it('只有一页时整体不渲染（避免永远禁用的噪音）', () => {
     const { container } = render(
-      <Pagination page={1} pageSize={20} total={5} onChange={() => {}} />,
+      <Pagination page={1} pageSize={20} total={5} onChange={() => {}} />
     )
     expect(container.innerHTML).toBe('')
   })
 
   it('恰好等于一页时也不渲染', () => {
     const { container } = render(
-      <Pagination page={1} pageSize={20} total={20} onChange={() => {}} />,
+      <Pagination page={1} pageSize={20} total={20} onChange={() => {}} />
     )
     expect(container.innerHTML).toBe('')
   })
 
   it('空列表不渲染', () => {
     const { container } = render(
-      <Pagination page={1} pageSize={20} total={0} onChange={() => {}} />,
+      <Pagination page={1} pageSize={20} total={0} onChange={() => {}} />
     )
     expect(container.innerHTML).toBe('')
   })
 
   it('多页时展示页码与总条数', () => {
     const { container } = render(
-      <Pagination page={2} pageSize={10} total={35} onChange={() => {}} />,
+      <Pagination page={2} pageSize={10} total={35} onChange={() => {}} />
     )
     const summary = container.querySelector('p')?.textContent ?? ''
     // total=35, pageSize=10 → 4 页
@@ -40,7 +40,7 @@ describe('Pagination', () => {
 
   it('总页数向上取整（35 条 / 每页 10 = 4 页）', () => {
     const { container } = render(
-      <Pagination page={1} pageSize={10} total={35} onChange={() => {}} />,
+      <Pagination page={1} pageSize={10} total={35} onChange={() => {}} />
     )
     expect(container.querySelector('p')?.textContent).toContain('4 页')
   })

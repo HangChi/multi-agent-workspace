@@ -68,7 +68,9 @@ def register_error_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(StarletteHTTPException)
-    async def http_error_handler(_: Request, exc: StarletteHTTPException) -> JSONResponse:
+    async def http_error_handler(
+        _: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
         code = {
             400: "INVALID_INPUT",
             401: "UNAUTHORIZED",
@@ -83,7 +85,9 @@ def register_error_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(RequestValidationError)
-    async def validation_error_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
+    async def validation_error_handler(
+        _: Request, exc: RequestValidationError
+    ) -> JSONResponse:
         errors = []
         for err in exc.errors():
             errors.append(
@@ -94,7 +98,9 @@ def register_error_handlers(app: FastAPI) -> None:
             )
         return JSONResponse(
             status_code=422,
-            content=_error_body("VALIDATION_ERROR", "请求参数校验失败", {"errors": errors}),
+            content=_error_body(
+                "VALIDATION_ERROR", "请求参数校验失败", {"errors": errors}
+            ),
         )
 
     @app.exception_handler(IntegrityError)

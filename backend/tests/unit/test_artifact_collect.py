@@ -56,58 +56,104 @@ def test_artifact_truncation_projection_matches_execution(reason):
     assert sandbox_service.execution_artifact_truncation(output, "exec-2") is None
 
 
-@pytest.mark.parametrize("output", [
-    None, [], "legacy", {},
-    {"artifact_truncated": {"reason": "files", "message": "missing execution"}},
-    {"execution_id": "exec-1"},
-    {"execution_id": "exec-1", "artifact_truncated": None},
-    {"execution_id": "exec-1", "artifact_truncated": True},
-    {"execution_id": "exec-1", "artifact_truncated": {"reason": "files"}},
-    {"execution_id": "exec-1", "artifact_truncated": {"reason": [], "message": "bad"}},
-])
+@pytest.mark.parametrize(
+    "output",
+    [
+        None,
+        [],
+        "legacy",
+        {},
+        {"artifact_truncated": {"reason": "files", "message": "missing execution"}},
+        {"execution_id": "exec-1"},
+        {"execution_id": "exec-1", "artifact_truncated": None},
+        {"execution_id": "exec-1", "artifact_truncated": True},
+        {"execution_id": "exec-1", "artifact_truncated": {"reason": "files"}},
+        {
+            "execution_id": "exec-1",
+            "artifact_truncated": {"reason": [], "message": "bad"},
+        },
+    ],
+)
 def test_artifact_truncation_projection_ignores_missing_or_malformed_values(output):
     assert sandbox_service.execution_artifact_truncation(output, "exec-1") is None
 
 
 @pytest.mark.parametrize("source", ["payload", "stream"])
-async def test_artifact_persistence_keeps_names_mime_sizes_and_linkage(monkeypatch, source):
-    db = SimpleNamespace(add=Mock(), flush=AsyncMock(), get=AsyncMock(return_value=None))
+async def test_artifact_persistence_keeps_names_mime_sizes_and_linkage(
+    monkeypatch, source
+):
+    db = SimpleNamespace(
+        add=Mock(), flush=AsyncMock(), get=AsyncMock(return_value=None)
+    )
     put = Mock(return_value=("object-key", "sha"))
     monkeypatch.setattr(sandbox_service.artifact_service, "put_bytes", put)
     execution = SimpleNamespace(id="exec-1")
-    monkeypatch.setattr(sandbox_service, "start_execution", AsyncMock(return_value=execution))
+    monkeypatch.setattr(
+        sandbox_service, "start_execution", AsyncMock(return_value=execution)
+    )
     monkeypatch.setattr(sandbox_service, "finish_execution", AsyncMock())
-    files = [("result.csv", b"a,b"), ("result.csv", b"c,d"), ("binary.unknown-ext", b"x")]
+    files = [
+        ("result.csv", b"a,b"),
+        ("result.csv", b"c,d"),
+        ("binary.unknown-ext", b"x"),
+    ]
 
     if source == "payload":
         await sandbox_service.persist_sandbox_result(
-            db, run_id="run-1", step_id="step-1", agent_id="agent-1", user_id="user-1",
-            payload={"artifacts": [{"name": name, "data": data, "size": len(data)} for name, data in files]},
+            db,
+            run_id="run-1",
+            step_id="step-1",
+            agent_id="agent-1",
+            user_id="user-1",
+            payload={
+                "artifacts": [
+                    {"name": name, "data": data, "size": len(data)}
+                    for name, data in files
+                ]
+            },
             result={"status": "ok"},
         )
     else:
-        sandbox = SimpleNamespace(iter_output_files=lambda **kwargs: (
-            SimpleNamespace(name=name, data=data, size=len(data)) for name, data in files
-        ))
+        sandbox = SimpleNamespace(
+            iter_output_files=lambda **kwargs: (
+                SimpleNamespace(name=name, data=data, size=len(data))
+                for name, data in files
+            )
+        )
         artifacts = await sandbox_service.collect_artifacts(
-            db, sandbox, run_id="run-1", execution_id="exec-1", step_id="step-1",
+            db,
+            sandbox,
+            run_id="run-1",
+            execution_id="exec-1",
+            step_id="step-1",
         )
         assert len(artifacts) == 3
 
     rows = [call.args[0] for call in db.add.call_args_list]
-    assert [row.filename for row in rows] == ["result.csv", "result-2.csv", "binary.unknown-ext"]
+    assert [row.filename for row in rows] == [
+        "result.csv",
+        "result-2.csv",
+        "binary.unknown-ext",
+    ]
     assert [row.size_bytes for row in rows] == [3, 3, 1]
     assert rows[-1].mime_type == "application/octet-stream"
-    assert all(row.run_id == "run-1" and row.step_id == "step-1" and row.sha256 == "sha" for row in rows)
+    assert all(
+        row.run_id == "run-1" and row.step_id == "step-1" and row.sha256 == "sha"
+        for row in rows
+    )
     assert [call.args[:3] for call in put.call_args_list] == [
         ("run-1", "exec-1", row.filename) for row in rows
     ]
 
 
 @pytest.mark.parametrize("reason", ["files", "file_size", "total_size"])
-async def test_collect_artifacts_preserves_partial_output_and_truncation_audit(monkeypatch, reason):
+async def test_collect_artifacts_preserves_partial_output_and_truncation_audit(
+    monkeypatch, reason
+):
     db = SimpleNamespace(add=Mock(), flush=AsyncMock())
-    monkeypatch.setattr(sandbox_service.artifact_service, "put_bytes", Mock(return_value=("key", "sha")))
+    monkeypatch.setattr(
+        sandbox_service.artifact_service, "put_bytes", Mock(return_value=("key", "sha"))
+    )
     audit = AsyncMock()
     monkeypatch.setattr(sandbox_service, "write_audit", audit)
 
@@ -116,9 +162,16 @@ async def test_collect_artifacts_preserves_partial_output_and_truncation_audit(m
         raise SandboxOutputLimit(reason, "超过上限")
 
     rows = await sandbox_service.collect_artifacts(
-        db, SimpleNamespace(iter_output_files=files), run_id="run-1", execution_id="exec-1",
-        step_id="step-1", user_id="user-1",
+        db,
+        SimpleNamespace(iter_output_files=files),
+        run_id="run-1",
+        execution_id="exec-1",
+        step_id="step-1",
+        user_id="user-1",
     )
     assert [row.filename for row in rows] == ["first.txt"]
-    assert audit.await_args.kwargs["detail"] == {"reason": reason, "message": "超过上限"}
+    assert audit.await_args.kwargs["detail"] == {
+        "reason": reason,
+        "message": "超过上限",
+    }
     assert audit.await_args.kwargs["target_id"] == "exec-1"

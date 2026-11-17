@@ -131,7 +131,7 @@ export function RequestForm({ onSubmit, onCancel, submitting }: Props) {
               onChange={(v) => set('priority', v)}
               ariaLabel="优先级"
               className={cn(
-                values.priority === 'high' && '[&_button[aria-pressed=true]]:text-rose-700',
+                values.priority === 'high' && '[&_button[aria-pressed=true]]:text-rose-700'
               )}
             />
             <span className="text-xs text-ink-faint">

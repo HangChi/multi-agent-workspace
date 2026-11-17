@@ -6,7 +6,10 @@ from app.executors.sandbox import RunPythonExecutor, RunShellExecutor
 
 
 def test_sandbox_schemas_have_expected_shape() -> None:
-    for executor, name, arg in ((RunPythonExecutor(), "run_python", "code"), (RunShellExecutor(), "run_shell", "command")):
+    for executor, name, arg in (
+        (RunPythonExecutor(), "run_python", "code"),
+        (RunShellExecutor(), "run_shell", "command"),
+    ):
         schema = executor.schema()
         assert schema["type"] == "function"
         assert schema["function"]["name"] == name
@@ -37,7 +40,9 @@ async def test_infrastructure_failure_returns_failure(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_executor_keeps_sandbox_metadata_outside_model_result(monkeypatch) -> None:
+async def test_executor_keeps_sandbox_metadata_outside_model_result(
+    monkeypatch,
+) -> None:
     from app.services import sandbox_service
 
     executor = RunPythonExecutor()
@@ -51,7 +56,9 @@ async def test_executor_keeps_sandbox_metadata_outside_model_result(monkeypatch)
             "ok": True,
             "status": "ok",
             "stdout": "ready",
-            "_sandbox_artifacts": [{"name": "result.csv", "size": 6, "data": b"a,b\n1,2"}],
+            "_sandbox_artifacts": [
+                {"name": "result.csv", "size": 6, "data": b"a,b\n1,2"}
+            ],
             "_sandbox_artifact_truncated": None,
         },
     )

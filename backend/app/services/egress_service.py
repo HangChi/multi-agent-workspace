@@ -17,7 +17,9 @@ from app.schemas.egress import BlacklistIn, EgressRuleIn
 
 
 def _builtin_cidrs() -> list[ipaddress._BaseNetwork]:
-    return [ipaddress.ip_network(item) for item in settings.egress_builtin_blacklist_list]
+    return [
+        ipaddress.ip_network(item) for item in settings.egress_builtin_blacklist_list
+    ]
 
 
 def covered_by_builtin(payload: EgressRuleIn) -> bool:
@@ -30,15 +32,16 @@ def covered_by_builtin(payload: EgressRuleIn) -> bool:
             return any(address in network for network in _builtin_cidrs())
         network = ipaddress.ip_network(payload.target, strict=True)
         return any(
-            network.version == builtin.version
-            and network.overlaps(builtin)
+            network.version == builtin.version and network.overlaps(builtin)
             for builtin in _builtin_cidrs()
         )
     except ValueError:
         return False
 
 
-async def _ensure_agent_owner(db: AsyncSession, agent_id: str, user_id: str, role: str) -> None:
+async def _ensure_agent_owner(
+    db: AsyncSession, agent_id: str, user_id: str, role: str
+) -> None:
     from app.models.agent import Agent
 
     agent = await db.get(Agent, agent_id)
@@ -86,7 +89,9 @@ async def create_agent_rule(
 ) -> EgressRule:
     await _ensure_agent_owner(db, agent_id, user_id, role)
     if covered_by_builtin(payload):
-        raise AppError("INVALID_INPUT", "该目标被全局内置黑名单覆盖，不能通过 Agent 规则放行")
+        raise AppError(
+            "INVALID_INPUT", "该目标被全局内置黑名单覆盖，不能通过 Agent 规则放行"
+        )
     port_filter = (
         EgressRule.port_range.is_(None)
         if payload.port_range is None
@@ -132,7 +137,9 @@ async def delete_agent_rule(
 
 async def list_global_rules(db: AsyncSession) -> list[EgressRule | dict[str, Any]]:
     result = await db.execute(
-        select(EgressRule).where(EgressRule.scope == "global").order_by(EgressRule.created_at.asc())
+        select(EgressRule)
+        .where(EgressRule.scope == "global")
+        .order_by(EgressRule.created_at.asc())
     )
     rows: list[EgressRule | dict[str, Any]] = list(result.scalars().all())
     existing = {row.target for row in rows if isinstance(row, EgressRule)}
@@ -212,7 +219,9 @@ async def snapshot_for_execution(
     if agent is None:
         raise AppError("NOT_FOUND", "Agent 不存在")
     global_rows = await db.execute(
-        select(EgressRule).where(EgressRule.scope == "global", EgressRule.enabled.is_(True))
+        select(EgressRule).where(
+            EgressRule.scope == "global", EgressRule.enabled.is_(True)
+        )
     )
     agent_rows = await db.execute(
         select(EgressRule).where(
@@ -291,7 +300,11 @@ def merge_connection_records(
             if str(query.get("resolved_ip", "")) == ip
             and abs(float(query.get("timestamp", 0.0)) - at) <= window_seconds
         ]
-        nearest = min(candidates, key=lambda q: abs(float(q.get("timestamp", 0.0)) - at), default=None)
+        nearest = min(
+            candidates,
+            key=lambda q: abs(float(q.get("timestamp", 0.0)) - at),
+            default=None,
+        )
         item = dict(connection)
         item["target_domain"] = str(nearest.get("domain")) if nearest else "ip-direct"
         merged.append(item)
@@ -331,19 +344,31 @@ async def list_accesses(
         filters.append(EgressAccess.agent_id == agent_id)
     if action:
         filters.append(EgressAccess.action == action)
-    total = int((await db.execute(select(func.count()).select_from(EgressAccess).where(*filters))).scalar_one())
+    total = int(
+        (
+            await db.execute(
+                select(func.count()).select_from(EgressAccess).where(*filters)
+            )
+        ).scalar_one()
+    )
     rows = (
-        await db.execute(
-            select(EgressAccess)
-            .where(*filters)
-            .order_by(EgressAccess.occurred_at.desc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
+        (
+            await db.execute(
+                select(EgressAccess)
+                .where(*filters)
+                .order_by(EgressAccess.occurred_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     summary_rows = (
         await db.execute(
-            select(EgressAccess.action, func.count()).where(*filters).group_by(EgressAccess.action)
+            select(EgressAccess.action, func.count())
+            .where(*filters)
+            .group_by(EgressAccess.action)
         )
     ).all()
     summary = {"allow": 0, "deny": 0, "ip_direct": 0}
@@ -352,9 +377,9 @@ async def list_accesses(
     summary["ip_direct"] = int(
         (
             await db.execute(
-                select(func.count()).select_from(EgressAccess).where(
-                    *filters, EgressAccess.target_domain == "ip-direct"
-                )
+                select(func.count())
+                .select_from(EgressAccess)
+                .where(*filters, EgressAccess.target_domain == "ip-direct")
             )
         ).scalar_one()
     )

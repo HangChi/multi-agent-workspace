@@ -14,11 +14,18 @@ from sqlalchemy import text
 
 from tests.conftest import engine
 
-MIGRATION_PATH = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "0003_sandbox_tools.py"
+MIGRATION_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "alembic"
+    / "versions"
+    / "0003_sandbox_tools.py"
+)
 
 
 def _migration_module():
-    spec = importlib.util.spec_from_file_location("sandbox_tools_migration", MIGRATION_PATH)
+    spec = importlib.util.spec_from_file_location(
+        "sandbox_tools_migration", MIGRATION_PATH
+    )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -44,14 +51,39 @@ async def test_legacy_tool_mapping_runs_in_isolated_schema_without_revision_drif
         try:
             await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
             await connection.execute(
-                text("CREATE TABLE agents (id text PRIMARY KEY, name text NOT NULL, tools json NOT NULL)")
+                text(
+                    "CREATE TABLE agents (id text PRIMARY KEY, name text NOT NULL, tools json NOT NULL)"
+                )
             )
             await connection.execute(
-                text("INSERT INTO agents (id, name, tools) VALUES (:id, :name, CAST(:tools AS json))"),
+                text(
+                    "INSERT INTO agents (id, name, tools) VALUES (:id, :name, CAST(:tools AS json))"
+                ),
                 [
-                    {"id": "legacy", "name": "legacy-agent", "tools": json.dumps(["web_fetch", "read_url", "shell", "code_interpreter", "http", "calculate"])},
-                    {"id": "unchanged", "name": "unchanged-agent", "tools": json.dumps(["web_search", "calculate"])},
-                    {"id": "non-string", "name": "non-string-agent", "tools": json.dumps(["web_fetch", 7, None])},
+                    {
+                        "id": "legacy",
+                        "name": "legacy-agent",
+                        "tools": json.dumps(
+                            [
+                                "web_fetch",
+                                "read_url",
+                                "shell",
+                                "code_interpreter",
+                                "http",
+                                "calculate",
+                            ]
+                        ),
+                    },
+                    {
+                        "id": "unchanged",
+                        "name": "unchanged-agent",
+                        "tools": json.dumps(["web_search", "calculate"]),
+                    },
+                    {
+                        "id": "non-string",
+                        "name": "non-string-agent",
+                        "tools": json.dumps(["web_fetch", 7, None]),
+                    },
                 ],
             )
 
@@ -62,10 +94,17 @@ async def test_legacy_tool_mapping_runs_in_isolated_schema_without_revision_drif
 
             await connection.run_sync(run_migration)
             rows = (
-                await connection.execute(text("SELECT id, tools FROM agents ORDER BY id"))
+                await connection.execute(
+                    text("SELECT id, tools FROM agents ORDER BY id")
+                )
             ).all()
             actual = {row.id: row.tools for row in rows}
-            assert actual["legacy"] == ["read_url", "run_shell", "run_python", "calculate"]
+            assert actual["legacy"] == [
+                "read_url",
+                "run_shell",
+                "run_python",
+                "calculate",
+            ]
             assert actual["unchanged"] == ["web_search", "calculate"]
             assert actual["non-string"] == ["read_url"]
         finally:

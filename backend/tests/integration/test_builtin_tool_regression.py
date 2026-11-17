@@ -7,7 +7,9 @@ from app.models.run import Run
 
 
 @pytest.mark.asyncio
-async def test_external_grants_do_not_change_builtin_agent_tools_or_run_snapshot(db_session, make_user):
+async def test_external_grants_do_not_change_builtin_agent_tools_or_run_snapshot(
+    db_session, make_user
+):
     owner, _ = await make_user(role="member")
     agent = Agent(
         owner_id=owner.id,

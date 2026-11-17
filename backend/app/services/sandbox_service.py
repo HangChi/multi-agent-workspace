@@ -87,7 +87,10 @@ def execution_artifact_truncation(
     step_output: Any, execution_id: str
 ) -> dict[str, str] | None:
     """仅投影属于该次执行的公共截断信息，不推断旧记录的归属。"""
-    if not isinstance(step_output, dict) or step_output.get("execution_id") != execution_id:
+    if (
+        not isinstance(step_output, dict)
+        or step_output.get("execution_id") != execution_id
+    ):
         return None
     truncated = step_output.get("artifact_truncated")
     if not isinstance(truncated, dict):

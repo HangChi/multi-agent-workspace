@@ -189,6 +189,7 @@ def download_url(request: Request, key: str) -> str:
 # 沙箱产出（服务端直传）
 # ---------------------------------------------------------------------------
 
+
 # 单文件上限与 settings 里的一致，但这里单独取一次便于函数内早退，
 # 避免在流式循环里反复读配置对象。
 def build_artifact_key(run_id: str, execution_id: str, filename: str) -> str:

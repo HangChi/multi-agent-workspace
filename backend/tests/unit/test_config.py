@@ -40,7 +40,11 @@ class TestProductionSecrets:
 
     def test_production_rejects_short_jwt_secret(self):
         with pytest.raises(ValidationError) as exc:
-            _settings(app_env="production", jwt_secret="short-secret", invite_code=_STRONG_INVITE)
+            _settings(
+                app_env="production",
+                jwt_secret="short-secret",
+                invite_code=_STRONG_INVITE,
+            )
         assert "JWT_SECRET" in str(exc.value)
 
     def test_production_rejects_default_invite_code(self):

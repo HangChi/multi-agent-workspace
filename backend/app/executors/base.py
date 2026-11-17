@@ -119,7 +119,9 @@ class ExecutorRegistry:
             executor = available.get(name)
             if executor is None:
                 # 区分两种「没有」：目录里没这个名字 vs 目录有但执行器未注册
-                reason = "不在工具目录中" if name not in spec_catalog else "无对应执行器实现"
+                reason = (
+                    "不在工具目录中" if name not in spec_catalog else "无对应执行器实现"
+                )
                 logger.warning("授权工具 %s 被跳过：%s", name, reason)
                 continue
             registry.register(executor)

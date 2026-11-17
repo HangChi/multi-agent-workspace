@@ -55,7 +55,9 @@ async def _create_group(client, headers: dict, strategy: str = "fan_out") -> dic
     return resp.json()
 
 
-async def _add_member(client, headers: dict, group_id: str, agent_id: str, position: int):
+async def _add_member(
+    client, headers: dict, group_id: str, agent_id: str, position: int
+):
     resp = await client.post(
         f"{GROUPS_URL}/{group_id}/members",
         headers=headers,
@@ -82,8 +84,10 @@ async def _assign(client, headers: dict, request_id: str, payload: dict):
 
 async def _runs_for(db_session, request_id: str) -> list[Run]:
     rows = (
-        await db_session.execute(select(Run).where(Run.request_id == request_id))
-    ).scalars().all()
+        (await db_session.execute(select(Run).where(Run.request_id == request_id)))
+        .scalars()
+        .all()
+    )
     return list(rows)
 
 
@@ -397,7 +401,9 @@ async def test_assign_group_pipeline_creates_ordered_chain(
     from app.services import assignment_service
 
     enqueued: list[str] = []
-    monkeypatch.setattr(assignment_service, "_enqueue", lambda ids: enqueued.extend(ids))
+    monkeypatch.setattr(
+        assignment_service, "_enqueue", lambda ids: enqueued.extend(ids)
+    )
 
     headers = await make_headers(role="member")
     first = await _create_agent(client, headers, name="写手")
@@ -408,13 +414,18 @@ async def test_assign_group_pipeline_creates_ordered_chain(
     req = await _create_request(client, headers, title="pipeline-req")
 
     resp = await _assign(
-        client, headers, req["id"], {"assignee_type": "group", "assignee_id": group["id"]}
+        client,
+        headers,
+        req["id"],
+        {"assignee_type": "group", "assignee_id": group["id"]},
     )
     assert resp.status_code == 202
 
     runs = await _runs_for(db_session, req["id"])
     parent = next(r for r in runs if r.parent_run_id is None)
-    children = sorted([r for r in runs if r.parent_run_id is not None], key=lambda r: r.sequence)
+    children = sorted(
+        [r for r in runs if r.parent_run_id is not None], key=lambda r: r.sequence
+    )
 
     assert parent.assignee_type == "group"
     assert parent.strategy == "pipeline"
@@ -435,7 +446,10 @@ async def test_assign_group_router_creates_single_run(client, make_headers, db_s
     req = await _create_request(client, headers, title="router-req")
 
     resp = await _assign(
-        client, headers, req["id"], {"assignee_type": "group", "assignee_id": group["id"]}
+        client,
+        headers,
+        req["id"],
+        {"assignee_type": "group", "assignee_id": group["id"]},
     )
     assert resp.status_code == 202
 
@@ -461,7 +475,9 @@ async def test_assign_group_strategy_with_agent_target_rejected(client, make_hea
     assert resp.status_code == 400
 
 
-async def test_assign_freezes_external_grant_version_and_schema_snapshot(client, auth_headers, db_session):
+async def test_assign_freezes_external_grant_version_and_schema_snapshot(
+    client, auth_headers, db_session
+):
     """Assignment captures external identity/schema independently of later state changes."""
     headers, owner = await auth_headers(role="member")
     agent = await _create_agent(client, headers, name="external-snapshot-agent")
@@ -531,7 +547,9 @@ async def test_assign_freezes_external_grant_version_and_schema_snapshot(client,
     )
     assert response.status_code == 202, response.text
     snapshot = await db_session.scalar(
-        select(RunExternalToolSnapshot).where(RunExternalToolSnapshot.run_id == response.json()["run_id"])
+        select(RunExternalToolSnapshot).where(
+            RunExternalToolSnapshot.run_id == response.json()["run_id"]
+        )
     )
     assert snapshot is not None
     assert snapshot.grant_id == grant.id

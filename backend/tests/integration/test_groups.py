@@ -13,7 +13,11 @@ GROUPS_URL = "/api/v1/groups"
 
 
 async def _create_group(client, headers: dict, **overrides: str) -> dict:
-    payload = {"name": "test-group", "description": "a group", "routing_strategy": "fan_out"}
+    payload = {
+        "name": "test-group",
+        "description": "a group",
+        "routing_strategy": "fan_out",
+    }
     payload.update(overrides)
     resp = await client.post(GROUPS_URL, headers=headers, json=payload)
     assert resp.status_code == 201
@@ -34,7 +38,9 @@ async def _create_agent(client, headers: dict, name: str = "agent") -> dict:
     return resp.json()
 
 
-async def _add_member(client, headers: dict, group_id: str, agent_id: str, position: int):
+async def _add_member(
+    client, headers: dict, group_id: str, agent_id: str, position: int
+):
     return await client.post(
         f"{GROUPS_URL}/{group_id}/members",
         headers=headers,
@@ -149,7 +155,12 @@ async def test_reorder_members(client, make_headers):
     resp = await client.patch(
         f"{GROUPS_URL}/{group['id']}/members",
         headers=headers,
-        json={"positions": [{"agent_id": a2["id"], "position": 1}, {"agent_id": a1["id"], "position": 2}]},
+        json={
+            "positions": [
+                {"agent_id": a2["id"], "position": 1},
+                {"agent_id": a1["id"], "position": 2},
+            ]
+        },
     )
     assert resp.status_code == 200
 
@@ -183,6 +194,7 @@ async def test_reorder_members_requires_full_coverage(client, make_headers):
 
 # ---------- 删除组 ----------
 
+
 async def test_delete_group_cascades_members(client, make_headers, db_session):
     """删除组 → 204，组内成员记录级联清空。"""
     from sqlalchemy import select
@@ -198,10 +210,14 @@ async def test_delete_group_cascades_members(client, make_headers, db_session):
     assert resp.status_code == 204
 
     rows = (
-        await db_session.execute(
-            select(GroupMember).where(GroupMember.group_id == group["id"])
+        (
+            await db_session.execute(
+                select(GroupMember).where(GroupMember.group_id == group["id"])
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert rows == []
 
 

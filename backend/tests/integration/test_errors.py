@@ -22,7 +22,9 @@ async def crash_client():
 
     app.dependency_overrides[get_db] = broken_db
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as c:
         yield c
     app.dependency_overrides.pop(get_db, None)
 

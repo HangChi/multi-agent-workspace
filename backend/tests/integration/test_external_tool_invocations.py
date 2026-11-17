@@ -42,7 +42,11 @@ async def _run_fixture(client, db_session, headers, owner):
     request_response = await client.post(
         "/api/v1/requests",
         headers=headers,
-        json={"title": "external invocation", "description": "safe projection", "priority": "normal"},
+        json={
+            "title": "external invocation",
+            "description": "safe projection",
+            "priority": "normal",
+        },
     )
     assert request_response.status_code == 201
     server = ExternalToolServer(
@@ -130,12 +134,20 @@ async def test_run_polling_selects_only_external_invocation_summary_columns(
     headers = await make_headers(user=owner)
     run, server, version = await _run_fixture(client, db_session, headers, owner)
     version.input_schema = {"type": "object", "description": "large-schema" * 4096}
-    db_session.add(ExternalToolInvocation(
-        run_id=run.id, owner_id=owner.id, server_id=server.id, tool_version_id=version.id,
-        call_id="summary-only", status="succeeded", duration_ms=12,
-        input_summary={"keys": ["query"]}, output_summary={"text": "large-result" * 4096},
-        policy_result={"allowed": True},
-    ))
+    db_session.add(
+        ExternalToolInvocation(
+            run_id=run.id,
+            owner_id=owner.id,
+            server_id=server.id,
+            tool_version_id=version.id,
+            call_id="summary-only",
+            status="succeeded",
+            duration_ms=12,
+            input_summary={"keys": ["query"]},
+            output_summary={"text": "large-result" * 4096},
+            policy_result={"allowed": True},
+        )
+    )
     await db_session.commit()
     statements = []
 
@@ -148,17 +160,28 @@ async def test_run_polling_selects_only_external_invocation_summary_columns(
     finally:
         event.remove(Engine, "before_cursor_execute", capture)
     assert response.status_code == 200, response.text
-    projection, = response.json()["external_tool_invocations"]
+    (projection,) = response.json()["external_tool_invocations"]
     assert projection["server_name"] == server.name
     assert projection["stable_name"] == version.stable_name
     assert projection["version"] == version.version
     assert projection["duration_ms"] == 12
     assert projection["error_category"] is None
-    queries = [sql.split("FROM", 1)[0] for sql in statements
-               if sql.lstrip().startswith("SELECT") and "FROM external_tool_invocations" in sql]
+    queries = [
+        sql.split("FROM", 1)[0]
+        for sql in statements
+        if sql.lstrip().startswith("SELECT") and "FROM external_tool_invocations" in sql
+    ]
     assert len(queries) == 1
-    for excluded in (".input_summary", ".output_summary", ".policy_result", ".error_summary",
-                     ".input_schema", ".required_permissions", ".endpoint_url", ".description"):
+    for excluded in (
+        ".input_summary",
+        ".output_summary",
+        ".policy_result",
+        ".error_summary",
+        ".input_schema",
+        ".required_permissions",
+        ".endpoint_url",
+        ".description",
+    ):
         assert excluded not in queries[0]
 
 
@@ -193,7 +216,10 @@ async def test_invocation_records_all_safe_error_categories_without_raw_values(
             status=category,
             duration_ms=index,
             arguments={"secret": "do-not-persist"},
-            result={"secret": "do-not-persist", "result_truncated": category == "result_truncated"},
+            result={
+                "secret": "do-not-persist",
+                "result_truncated": category == "result_truncated",
+            },
             policy_result={"allowed": category not in {"policy_denied", "cancelled"}},
             error_category=None if category == "succeeded" else category,
         )
@@ -202,7 +228,9 @@ async def test_invocation_records_all_safe_error_categories_without_raw_values(
     rows = await list_run_invocations(db_session, run_id=run.id)
     assert {row["status"] for row in rows} == set(categories)
     assert all("do-not-persist" not in str(row) for row in rows)
-    persisted = (await db_session.execute(select(ExternalToolInvocation))).scalars().all()
+    persisted = (
+        (await db_session.execute(select(ExternalToolInvocation))).scalars().all()
+    )
     assert all(row.duration_ms >= 0 for row in persisted)
     assert all("secret" not in str(row.policy_result) for row in persisted)
 
@@ -334,7 +362,9 @@ class _ScriptedLLM:
         if self.calls == 1:
             return LLMResponse(
                 content="",
-                tool_calls=[ToolCall(name=self.tool_name, arguments={"query": "fixture"})],
+                tool_calls=[
+                    ToolCall(name=self.tool_name, arguments={"query": "fixture"})
+                ],
                 cost_cents=1,
             )
         return LLMResponse(content="外部结果已消费", cost_cents=1)
@@ -444,22 +474,24 @@ async def test_external_invocation_records_a_step_that_already_exists(
 
     http = httpx.AsyncClient(transport=_fixture_transport())
     monkeypatch.setattr(external_concurrency, "_redis_client", _FakeRedis)
-    monkeypatch.setattr("app.tasks.execute_run.LiteLLMClient.chat", _ScriptedLLM(stable_name).chat)
+    monkeypatch.setattr(
+        "app.tasks.execute_run.LiteLLMClient.chat", _ScriptedLLM(stable_name).chat
+    )
 
     # The executor binds its real MCP client as a constructor default, so inject
     # the fixture transport where the Worker builds the executors.
     real_executor = external_invocation_service.ExternalToolExecutor
 
     def _executor_with_fixture_transport(**kwargs):
-        kwargs["client_factory"] = (
-            lambda endpoint, **client_kwargs: MCPClient(
-                endpoint, http_client=http, **client_kwargs
-            )
+        kwargs["client_factory"] = lambda endpoint, **client_kwargs: MCPClient(
+            endpoint, http_client=http, **client_kwargs
         )
         return real_executor(**kwargs)
 
     monkeypatch.setattr(
-        external_invocation_service, "ExternalToolExecutor", _executor_with_fixture_transport
+        external_invocation_service,
+        "ExternalToolExecutor",
+        _executor_with_fixture_transport,
     )
 
     run = await db_session.get(Run, run_id)

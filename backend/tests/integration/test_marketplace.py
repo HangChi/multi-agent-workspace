@@ -10,7 +10,9 @@ from app.models.external_tool import (
 )
 
 
-async def _version(db_session, user_id: str, *, name: str = "search") -> ExternalToolVersion:
+async def _version(
+    db_session, user_id: str, *, name: str = "search"
+) -> ExternalToolVersion:
     server = ExternalToolServer(
         owner_id=user_id,
         created_by=user_id,
@@ -51,30 +53,36 @@ async def test_marketplace_browse_exposes_published_validated_listings_only(
     owner, _ = await make_user(role="admin")
     published = await _version(db_session, owner.id, name="published")
     hidden = await _version(db_session, owner.id, name="hidden")
-    db_session.add_all([
-        MarketplaceListing(
-            tool_version_id=published.id,
-            status="published",
-            usage_summary="Search approved content",
-            data_handling="Queries are sent to the approved server",
-            restrictions={"timeout_seconds": 10},
-        ),
-        MarketplaceListing(
-            tool_version_id=hidden.id,
-            status="pending_review",
-            usage_summary="Pending",
-            data_handling="Pending",
-            restrictions={},
-        ),
-    ])
+    db_session.add_all(
+        [
+            MarketplaceListing(
+                tool_version_id=published.id,
+                status="published",
+                usage_summary="Search approved content",
+                data_handling="Queries are sent to the approved server",
+                restrictions={"timeout_seconds": 10},
+            ),
+            MarketplaceListing(
+                tool_version_id=hidden.id,
+                status="pending_review",
+                usage_summary="Pending",
+                data_handling="Pending",
+                restrictions={},
+            ),
+        ]
+    )
     await db_session.commit()
 
-    response = await client.get("/api/v1/marketplace/tools?q=published", headers=member_headers)
+    response = await client.get(
+        "/api/v1/marketplace/tools?q=published", headers=member_headers
+    )
     assert response.status_code == 200
     assert response.json()["total"] == 1
     assert response.json()["items"][0]["stable_name"] == published.stable_name
     assert "endpoint_url" not in response.text
-    admin_response = await client.get("/api/v1/marketplace/tools?q=published", headers=admin_headers)
+    admin_response = await client.get(
+        "/api/v1/marketplace/tools?q=published", headers=admin_headers
+    )
     assert admin_response.status_code == 200
     assert admin_response.json()["total"] == 1
 
@@ -220,19 +228,34 @@ async def test_approving_a_tool_publishes_its_server_and_grants_can_snapshot(
             return {"protocolVersion": "2025-06-18"}
 
         async def list_tools(self):
-            return [MCPTool(name="search", description="Find records",
-                            input_schema={"type": "object"})]
+            return [
+                MCPTool(
+                    name="search",
+                    description="Find records",
+                    input_schema={"type": "object"},
+                )
+            ]
 
     server = await db_session.get(ExternalToolServer, server_id)
     await external_validation_service.validate_server(
-        db_session, server=server, requested_by=admin.id,
+        db_session,
+        server=server,
+        requested_by=admin.id,
         client_factory=lambda *args, **kwargs: _FixtureClient(),
     )
     await db_session.refresh(server)
     assert server.status == "pending_review"
-    tool_version = (await db_session.execute(
-        select(ExternalToolVersion).where(ExternalToolVersion.server_id == server_id)
-    )).scalars().first()
+    tool_version = (
+        (
+            await db_session.execute(
+                select(ExternalToolVersion).where(
+                    ExternalToolVersion.server_id == server_id
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
     assert tool_version is not None
 
     approved = await client.post(

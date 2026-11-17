@@ -288,11 +288,11 @@ class _OutputTail:
     def add(self, chunk: bytes) -> None:
         self.full_bytes += len(chunk)
         if len(chunk) >= self.limit:
-            self.data = bytearray(chunk[-self.limit:])
+            self.data = bytearray(chunk[-self.limit :])
         else:
             self.data.extend(chunk)
             if len(self.data) > self.limit:
-                del self.data[:-self.limit]
+                del self.data[: -self.limit]
 
     def snapshot(self) -> tuple[bytes, bool, int]:
         return bytes(self.data), self.full_bytes > self.limit, self.full_bytes
@@ -302,7 +302,9 @@ class _OutputCapture:
     """Attach before start: no Docker log backlog and bounded Worker memory."""
 
     def __init__(
-        self, container: Any, limit: int,
+        self,
+        container: Any,
+        limit: int,
         callback: Callable[[str, str], None] | None = None,
     ) -> None:
         self.stdout = _OutputTail(limit)
@@ -334,8 +336,10 @@ class _OutputCapture:
             self.callback(name, text)
 
     def _consume(self) -> None:
-        decoders = {name: codecs.getincrementaldecoder("utf-8")(errors="replace")
-                    for name in ("stdout", "stderr")}
+        decoders = {
+            name: codecs.getincrementaldecoder("utf-8")(errors="replace")
+            for name in ("stdout", "stderr")
+        }
         try:
             for out, err in self.stream:
                 for name, data in (("stdout", out), ("stderr", err)):
@@ -358,7 +362,9 @@ class _OutputCapture:
             self.close()
             raise SandboxInfraError("沙箱输出采集未完成，无法确认完整输出")
         if self.error is not None:
-            raise SandboxInfraError("沙箱输出采集失败，无法确认完整输出") from self.error
+            raise SandboxInfraError(
+                "沙箱输出采集失败，无法确认完整输出"
+            ) from self.error
 
     def close(self) -> None:
         try:
@@ -383,7 +389,8 @@ class _ResourceSampler:
             measured = self._sample()
             cpu, memory = (
                 max(value for value in (previous, current) if value is not None)
-                if previous is not None or current is not None else None
+                if previous is not None or current is not None
+                else None
                 for previous, current in zip(self.values, measured, strict=True)
             )
             self.values = cpu, memory
@@ -552,7 +559,9 @@ class SandboxRun:
         if self._container is None:
             raise RuntimeError("尚未执行，没有可采集的容器")
 
-        limit_files = settings.sbx_artifact_max_files if max_files is None else max_files
+        limit_files = (
+            settings.sbx_artifact_max_files if max_files is None else max_files
+        )
         limit_file = (
             settings.sbx_artifact_max_file_mb * 1024 * 1024
             if max_file_bytes is None
@@ -619,7 +628,7 @@ class SandboxRun:
         marker = "output/"
         index = cleaned.find(marker)
         if index >= 0:
-            cleaned = cleaned[index + len(marker):]
+            cleaned = cleaned[index + len(marker) :]
         cleaned = cleaned.lstrip("./")
         parts = [p for p in cleaned.split("/") if p and p not in (".", "..")]
         return "/".join(parts)
@@ -667,7 +676,9 @@ class SandboxRun:
                     self._network_lock = None
                 except (APIError, DockerException) as exc:
                     # Keep the exact handle for execute()/context cleanup retry.
-                    raise SandboxInfraError("创建沙箱网络失败：无法释放地址池分配锁") from exc
+                    raise SandboxInfraError(
+                        "创建沙箱网络失败：无法释放地址池分配锁"
+                    ) from exc
 
     def _acquire_network_lock(self, client: docker.DockerClient) -> Any:
         # Docker container names are daemon-atomic, unlike network names. A
@@ -678,16 +689,27 @@ class SandboxRun:
         for attempt in range(32):
             try:
                 return client.containers.create(
-                    image=settings.sbx_image, name="aw-sandbox-ipam-lock-v1",
-                    command=["python", "-I", "-c", "pass"], network_mode="none",
-                    user=SANDBOX_UID, read_only=True, cap_drop=["ALL"],
-                    security_opt=["no-new-privileges"], mem_limit="16m", memswap_limit="16m",
-                    nano_cpus=10_000_000, pids_limit=8,
+                    image=settings.sbx_image,
+                    name="aw-sandbox-ipam-lock-v1",
+                    command=["python", "-I", "-c", "pass"],
+                    network_mode="none",
+                    user=SANDBOX_UID,
+                    read_only=True,
+                    cap_drop=["ALL"],
+                    security_opt=["no-new-privileges"],
+                    mem_limit="16m",
+                    memswap_limit="16m",
+                    nano_cpus=10_000_000,
+                    pids_limit=8,
                     labels={**self._labels(), "aw.role": "ipam-lock"},
                     log_config=docker.types.LogConfig(type="none"),
                 )
             except APIError as exc:
-                if exc.status_code != 409 or attempt == 31 or time.monotonic() >= deadline:
+                if (
+                    exc.status_code != 409
+                    or attempt == 31
+                    or time.monotonic() >= deadline
+                ):
                     raise
                 time.sleep(min(0.02 * 2 ** min(attempt, 3), 0.16))
         raise SandboxInfraError("创建沙箱网络失败：地址池分配锁等待预算耗尽")
@@ -721,23 +743,32 @@ class SandboxRun:
                     subnet = ipaddress.ip_network(entry.get("Subnet", ""), strict=True)
                     gateway = ipaddress.ip_address(entry.get("Gateway", ""))
                     if gateway not in subnet or subnet.version in families:
-                        raise ValueError("invalid daemon IPAM gateway or duplicate family")
+                        raise ValueError(
+                            "invalid daemon IPAM gateway or duplicate family"
+                        )
                     families.add(subnet.version)
-                    pools.append(docker.types.IPAMPool(subnet=str(subnet), gateway=str(gateway)))
+                    pools.append(
+                        docker.types.IPAMPool(subnet=str(subnet), gateway=str(gateway))
+                    )
                 if families != {4, 6}:
                     raise ValueError("daemon did not allocate both IP families")
                 reservation.remove()
                 self._network = None
                 try:
                     self._network = client.networks.create(
-                        self.network_name, ipam=docker.types.IPAMConfig(pool_configs=pools), **options,
+                        self.network_name,
+                        ipam=docker.types.IPAMConfig(pool_configs=pools),
+                        **options,
                     )
                     return self._network
                 except APIError as exc:
                     # Another execution may claim a freed pool in this narrow
                     # remove/recreate window. Retry only that exact daemon conflict
                     # with a fresh reservation; every other error fails closed.
-                    overlap = "pool overlaps with other one on this address space" in str(exc.explanation).lower()
+                    overlap = (
+                        "pool overlaps with other one on this address space"
+                        in str(exc.explanation).lower()
+                    )
                     if attempt == 7 or exc.status_code not in {400, 409} or not overlap:
                         raise
         except (APIError, DockerException, TypeError, ValueError) as exc:
@@ -763,7 +794,9 @@ class SandboxRun:
             # Never publish a successful execution with silently missing audit.
             token = finite_error_token(exc)
             suffix = f"：{token}" if token else ""
-            raise SandboxInfraError(f"出站记录采集失败，无法确认完整审计{suffix}") from exc
+            raise SandboxInfraError(
+                f"出站记录采集失败，无法确认完整审计{suffix}"
+            ) from exc
 
     def _create_volumes(self, client: docker.DockerClient) -> None:
         """Create bounded, execution-private tmpfs volumes; never fall back to disk."""
@@ -775,9 +808,12 @@ class SandboxRun:
             try:
                 self._volumes.append(
                     client.volumes.create(
-                        name=name, driver="local", labels=self._labels(),
+                        name=name,
+                        driver="local",
+                        labels=self._labels(),
                         driver_opts={
-                            "type": "tmpfs", "device": "tmpfs",
+                            "type": "tmpfs",
+                            "device": "tmpfs",
                             "o": f"size={size},uid=10001,gid=10001,mode=1777,nosuid,nodev",
                         },
                     )
@@ -792,10 +828,16 @@ class SandboxRun:
                 image=settings.sbx_image,
                 command=["python", "-I", "-u", "-c", _STORAGE_KEEPER],
                 name=f"{self.container_name}-storage",
-                network_mode="none", user=SANDBOX_UID, read_only=True,
-                cap_drop=["ALL"], security_opt=["no-new-privileges"],
-                mem_limit="32m", memswap_limit="32m",
-                nano_cpus=100_000_000, pids_limit=16, init=True,
+                network_mode="none",
+                user=SANDBOX_UID,
+                read_only=True,
+                cap_drop=["ALL"],
+                security_opt=["no-new-privileges"],
+                mem_limit="32m",
+                memswap_limit="32m",
+                nano_cpus=100_000_000,
+                pids_limit=16,
+                init=True,
                 labels={**self._labels(), "aw.role": "storage"},
                 log_config=docker.types.LogConfig(
                     type="json-file", config={"max-size": "16k", "max-file": "1"}
@@ -908,11 +950,19 @@ class SandboxRun:
             # Setup can outlast the caller's cancel request. Never start user
             # code merely to kill it on the first polling iteration.
             return SandboxOutcome(
-                exit_code=None, stdout=b"", stderr=b"",
-                stdout_truncated=False, stdout_full_bytes=0,
-                stderr_truncated=False, stderr_full_bytes=0,
-                duration_ms=0, timed_out=False, cancelled=True, oom_killed=False,
-                cpu_ms=None, mem_peak_bytes=None,
+                exit_code=None,
+                stdout=b"",
+                stderr=b"",
+                stdout_truncated=False,
+                stdout_full_bytes=0,
+                stderr_truncated=False,
+                stderr_full_bytes=0,
+                duration_ms=0,
+                timed_out=False,
+                cancelled=True,
+                oom_killed=False,
+                cpu_ms=None,
+                mem_peak_bytes=None,
                 container_id=str(getattr(container, "id", "") or ""),
             )
         self._capture = _OutputCapture(
@@ -938,7 +988,9 @@ class SandboxRun:
                 raise
             if self._capture.error is not None:
                 self._kill(container)
-                raise SandboxInfraError("沙箱输出采集失败，已终止脚本") from self._capture.error
+                raise SandboxInfraError(
+                    "沙箱输出采集失败，已终止脚本"
+                ) from self._capture.error
             if self._abort_check is not None and self._abort_check():
                 cancelled = True
                 self._kill(container)
@@ -1106,7 +1158,9 @@ class SandboxRun:
                 self._network_lock.remove(force=True)
                 self._network_lock = None
             except (APIError, DockerException) as exc:
-                logger.warning("清理执行 %s 的网络分配锁失败：%s", self.execution_id, exc)
+                logger.warning(
+                    "清理执行 %s 的网络分配锁失败：%s", self.execution_id, exc
+                )
 
         if self._network is not None:
             try:

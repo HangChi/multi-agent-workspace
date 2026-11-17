@@ -8,7 +8,13 @@ import pytest
 
 from app.executors.egress import RuleView, evaluate
 
-BLACKLIST = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "127.0.0.0/8"]
+BLACKLIST = [
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+    "169.254.0.0/16",
+    "127.0.0.0/8",
+]
 
 
 class TestBuiltinBlacklist:
@@ -37,7 +43,9 @@ class TestBuiltinBlacklist:
         """
         allow_all_internal = [
             RuleView(id="r1", action="allow", target_type="cidr", target="10.0.0.0/8"),
-            RuleView(id="r2", action="allow", target_type="ip", target="169.254.169.254"),
+            RuleView(
+                id="r2", action="allow", target_type="ip", target="169.254.169.254"
+            ),
         ]
         d = evaluate(
             "10.1.2.3",
@@ -57,7 +65,9 @@ class TestBuiltinBlacklist:
             None,
             80,
             global_rules=[
-                RuleView(id="g1", action="allow", target_type="cidr", target="169.254.0.0/16")
+                RuleView(
+                    id="g1", action="allow", target_type="cidr", target="169.254.0.0/16"
+                )
             ],
             builtin_blacklist=BLACKLIST,
         )
@@ -76,7 +86,10 @@ class TestGlobalDeny:
             443,
             global_rules=[
                 RuleView(
-                    id="g1", action="deny", target_type="domain", target="evil.example.com"
+                    id="g1",
+                    action="deny",
+                    target_type="domain",
+                    target="evil.example.com",
                 )
             ],
             builtin_blacklist=BLACKLIST,
@@ -90,7 +103,9 @@ class TestGlobalDeny:
             "a.b.example.com",
             443,
             global_rules=[
-                RuleView(id="g1", action="deny", target_type="domain", target="*.example.com")
+                RuleView(
+                    id="g1", action="deny", target_type="domain", target="*.example.com"
+                )
             ],
             builtin_blacklist=BLACKLIST,
         )
@@ -121,7 +136,9 @@ class TestGlobalDeny:
             None,
             22,
             global_rules=[
-                RuleView(id="g1", action="deny", target_type="cidr", target="203.0.113.0/24")
+                RuleView(
+                    id="g1", action="deny", target_type="cidr", target="203.0.113.0/24"
+                )
             ],
             builtin_blacklist=BLACKLIST,
         )
@@ -130,12 +147,20 @@ class TestGlobalDeny:
 
 class TestModes:
     def test_default_mode_allows_unlisted(self) -> None:
-        d = evaluate("1.2.3.4", "anything.com", 443, mode="default", builtin_blacklist=BLACKLIST)
+        d = evaluate(
+            "1.2.3.4", "anything.com", 443, mode="default", builtin_blacklist=BLACKLIST
+        )
         assert d.action == "allow"
         assert d.matched_rule_id is None
 
     def test_restricted_denies_without_allow_rule(self) -> None:
-        d = evaluate("1.2.3.4", "anything.com", 443, mode="restricted", builtin_blacklist=BLACKLIST)
+        d = evaluate(
+            "1.2.3.4",
+            "anything.com",
+            443,
+            mode="restricted",
+            builtin_blacklist=BLACKLIST,
+        )
         assert d.action == "deny"
         assert "限制模式" in d.reason
 
@@ -146,7 +171,9 @@ class TestModes:
             443,
             mode="restricted",
             agent_rules=[
-                RuleView(id="a1", action="allow", target_type="domain", target="*.pypi.org")
+                RuleView(
+                    id="a1", action="allow", target_type="domain", target="*.pypi.org"
+                )
             ],
             builtin_blacklist=BLACKLIST,
         )
@@ -161,7 +188,9 @@ class TestModes:
             443,
             mode="default",
             agent_rules=[
-                RuleView(id="a1", action="allow", target_type="domain", target="pypi.org")
+                RuleView(
+                    id="a1", action="allow", target_type="domain", target="pypi.org"
+                )
             ],
             builtin_blacklist=BLACKLIST,
         )
@@ -172,16 +201,30 @@ class TestModes:
 class TestDomainBindingSafety:
     def test_rebinding_to_private_address_cannot_inherit_domain_allow(self) -> None:
         rule = RuleView("a1", "allow", "domain", "*.example.com", "443")
-        for address, expected in [("1.1.1.1", "allow"), ("10.1.2.3", "deny"), ("::ffff:10.1.2.3", "deny")]:
-            assert evaluate(
-                address, "cdn.example.com", 443, mode="restricted",
-                agent_rules=[rule], builtin_blacklist=BLACKLIST,
-            ).action == expected
+        for address, expected in [
+            ("1.1.1.1", "allow"),
+            ("10.1.2.3", "deny"),
+            ("::ffff:10.1.2.3", "deny"),
+        ]:
+            assert (
+                evaluate(
+                    address,
+                    "cdn.example.com",
+                    443,
+                    mode="restricted",
+                    agent_rules=[rule],
+                    builtin_blacklist=BLACKLIST,
+                ).action
+                == expected
+            )
 
     def test_global_domain_deny_wins_over_exact_or_wildcard_allow(self) -> None:
         for allow_target in ["cdn.example.com", "*.example.com"]:
             decision = evaluate(
-                "1.1.1.1", "cdn.example.com", 443, mode="restricted",
+                "1.1.1.1",
+                "cdn.example.com",
+                443,
+                mode="restricted",
                 global_rules=[RuleView("g1", "deny", "domain", "*.example.com")],
                 agent_rules=[RuleView("a1", "allow", "domain", allow_target)],
                 builtin_blacklist=BLACKLIST,
@@ -190,11 +233,17 @@ class TestDomainBindingSafety:
 
     def test_domain_suffix_does_not_match_a_sibling_or_attacker_suffix(self) -> None:
         for domain in ["notexample.com", "example.com.attacker.invalid"]:
-            assert evaluate(
-                "1.1.1.1", domain, 443, mode="restricted",
-                agent_rules=[RuleView("a1", "allow", "domain", "*.example.com")],
-                builtin_blacklist=BLACKLIST,
-            ).action == "deny"
+            assert (
+                evaluate(
+                    "1.1.1.1",
+                    domain,
+                    443,
+                    mode="restricted",
+                    agent_rules=[RuleView("a1", "allow", "domain", "*.example.com")],
+                    builtin_blacklist=BLACKLIST,
+                ).action
+                == "deny"
+            )
 
 
 class TestDomainMatching:
@@ -204,7 +253,9 @@ class TestDomainMatching:
             "example.com",
             443,
             global_rules=[
-                RuleView(id="g1", action="deny", target_type="domain", target="*.example.com")
+                RuleView(
+                    id="g1", action="deny", target_type="domain", target="*.example.com"
+                )
             ],
             builtin_blacklist=BLACKLIST,
         )
@@ -217,7 +268,9 @@ class TestDomainMatching:
             "ip-direct",
             443,
             global_rules=[
-                RuleView(id="g1", action="deny", target_type="domain", target="ip-direct")
+                RuleView(
+                    id="g1", action="deny", target_type="domain", target="ip-direct"
+                )
             ],
             builtin_blacklist=BLACKLIST,
         )
@@ -237,7 +290,9 @@ class TestMalformedInput:
             None,
             443,
             global_rules=[
-                RuleView(id="bad", action="deny", target_type="cidr", target="not-a-cidr")
+                RuleView(
+                    id="bad", action="deny", target_type="cidr", target="not-a-cidr"
+                )
             ],
             builtin_blacklist=BLACKLIST,
         )

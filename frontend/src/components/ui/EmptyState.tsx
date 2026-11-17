@@ -30,7 +30,7 @@ export function EmptyState({
       className={cn(
         'flex flex-col items-center justify-center px-6 py-12 text-center',
         bordered && 'rounded-xl border border-dashed border-line-strong bg-surface/60',
-        className,
+        className
       )}
     >
       <IconTile tone="slate" size="lg" className="mb-3">

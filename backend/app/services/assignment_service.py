@@ -115,11 +115,11 @@ def _enqueue(run_ids: list[str]) -> None:
 
     for run_id in run_ids:
         try:
-            celery_app.send_task(
-                "app.tasks.execute_run.execute_run", args=[run_id]
-            )
+            celery_app.send_task("app.tasks.execute_run.execute_run", args=[run_id])
         except Exception as exc:  # noqa: BLE001 - broker 抖动降级，不阻塞受理
-            logger.warning("celery_enqueue_failed", run_id=run_id, error=type(exc).__name__)
+            logger.warning(
+                "celery_enqueue_failed", run_id=run_id, error=type(exc).__name__
+            )
 
 
 async def _publish_assigned(run_ids: list[str]) -> None:
@@ -136,7 +136,9 @@ async def _publish_assigned(run_ids: list[str]) -> None:
                 run_id, {"type": "status_change", "status": "queued"}
             )
         except Exception as exc:  # noqa: BLE001 - Redis 抖动降级，不阻塞受理
-            logger.warning("event_publish_failed", run_id=run_id, error=type(exc).__name__)
+            logger.warning(
+                "event_publish_failed", run_id=run_id, error=type(exc).__name__
+            )
 
 
 async def assign(
@@ -233,16 +235,16 @@ async def assign(
     # revoke but never silently add capabilities to this run. Router parents do
     # not know their selected member yet; those snapshot at first execution.
     for run in runs:
-        if run.assignee_type == 'group' and run.strategy != 'router':
+        if run.assignee_type == "group" and run.strategy != "router":
             run.tool_grants_snapshot = []  # Orchestration-only parent: no tools.
     await db.flush()
-    agent_runs = [run for run in runs if run.assignee_type == 'agent']
+    agent_runs = [run for run in runs if run.assignee_type == "agent"]
     if agent_runs:
         enabled = [spec.name for spec in await enabled_tool_specs(db, lock=True)]
         for run in agent_runs:
             agent = await db.get(Agent, run.assignee_id)
             if agent is None:
-                raise AppError('NOT_FOUND', 'Agent 不存在')
+                raise AppError("NOT_FOUND", "Agent 不存在")
             run.tool_grants_snapshot = list(reconcile_agent_grants(agent, enabled))
             await snapshot_external_grants(
                 db,

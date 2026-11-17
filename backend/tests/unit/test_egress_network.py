@@ -25,14 +25,19 @@ def test_missing_docker_lookup_does_not_skip_network_policy(monkeypatch) -> None
     monkeypatch.setattr("app.executors.sandbox_client.NetworkCapture.prepare", prepare)
     run = SandboxRun(
         execution_id="f4e784e5-1dd9-4ae1-84ad-a0c66bdb761a",
-        language="python", code="print(1)", client=client,
+        language="python",
+        code="print(1)",
+        client=client,
     )
     with pytest.raises(SandboxInfraError, match="missing lookup"):
         run.execute()
     prepare.assert_called_once_with(client, client.network, run.execution_id, None)
-    assert all(container.created_kwargs.get("labels", {}).get("aw.role") == "ipam-lock"
-               and not container.started and container.removed == [True]
-               for container in client.containers.created)
+    assert all(
+        container.created_kwargs.get("labels", {}).get("aw.role") == "ipam-lock"
+        and not container.started
+        and container.removed == [True]
+        for container in client.containers.created
+    )
     assert client.volumes.created == []
     assert client.network.removed == 1
 
@@ -44,16 +49,23 @@ def test_empty_network_capture_prevents_resource_creation(monkeypatch) -> None:
 
     client = FakeDockerClient()
     client.existing_images = {settings.sbx_image}
-    monkeypatch.setattr("app.executors.sandbox_client.NetworkCapture.prepare", Mock(return_value=None))
+    monkeypatch.setattr(
+        "app.executors.sandbox_client.NetworkCapture.prepare", Mock(return_value=None)
+    )
     run = SandboxRun(
         execution_id="f4e784e5-1dd9-4ae1-84ad-a0c66bdb761a",
-        language="python", code="print(1)", client=client,
+        language="python",
+        code="print(1)",
+        client=client,
     )
     with pytest.raises(SandboxInfraError, match="出站网络策略未就绪"):
         run.execute()
-    assert all(container.created_kwargs.get("labels", {}).get("aw.role") == "ipam-lock"
-               and not container.started and container.removed == [True]
-               for container in client.containers.created)
+    assert all(
+        container.created_kwargs.get("labels", {}).get("aw.role") == "ipam-lock"
+        and not container.started
+        and container.removed == [True]
+        for container in client.containers.created
+    )
     assert client.volumes.created == []
     assert client.network.removed == 1
 
@@ -65,17 +77,36 @@ def test_capture_uses_reserved_address_before_user_process(reported_ip: str) -> 
     from app.executors.egress_network import NetworkCapture
 
     client = Mock()
-    client.containers.run.return_value.logs.return_value = b"tcpdump: listening on br-abc123\n"
-    capture = NetworkCapture(
-        client=client, network=SimpleNamespace(name="sandbox"),
-        execution_id="f4e784e5-1dd9-4ae1-84ad-a0c66bdb761a", mode="default",
-        global_rules=[], agent_rules=[], builtin_blacklist=[], dns_proxy=Mock(),
-        dns_proxy_ip="172.30.0.2", bridge="br-abc123",
-        install_commands=[], cleanup_commands=[], source_ip="172.30.0.3",
+    client.containers.run.return_value.logs.return_value = (
+        b"tcpdump: listening on br-abc123\n"
     )
-    container = SimpleNamespace(attrs={"NetworkSettings": {"Networks": {
-        "sandbox": {"IPAddress": reported_ip, "IPAMConfig": {"IPv4Address": "172.30.0.3"}},
-    }}})
+    capture = NetworkCapture(
+        client=client,
+        network=SimpleNamespace(name="sandbox"),
+        execution_id="f4e784e5-1dd9-4ae1-84ad-a0c66bdb761a",
+        mode="default",
+        global_rules=[],
+        agent_rules=[],
+        builtin_blacklist=[],
+        dns_proxy=Mock(),
+        dns_proxy_ip="172.30.0.2",
+        bridge="br-abc123",
+        install_commands=[],
+        cleanup_commands=[],
+        source_ip="172.30.0.3",
+    )
+    container = SimpleNamespace(
+        attrs={
+            "NetworkSettings": {
+                "Networks": {
+                    "sandbox": {
+                        "IPAddress": reported_ip,
+                        "IPAMConfig": {"IPv4Address": "172.30.0.3"},
+                    },
+                }
+            }
+        }
+    )
     capture.start_capture(container)
     assert capture.source_ip == "172.30.0.3"
     kwargs = client.containers.run.call_args.kwargs
@@ -83,7 +114,11 @@ def test_capture_uses_reserved_address_before_user_process(reported_ip: str) -> 
     assert kwargs["mem_limit"] == "64m"
     assert kwargs["pids_limit"] == 16
     assert kwargs["read_only"] is True
-    assert kwargs["log_config"]["Config"] == {"max-size": "4m", "max-file": "1", "compress": "false"}
+    assert kwargs["log_config"]["Config"] == {
+        "max-size": "4m",
+        "max-file": "1",
+        "compress": "false",
+    }
 
 
 def test_runtime_tags_require_safe_uuid() -> None:
@@ -93,10 +128,16 @@ def test_runtime_tags_require_safe_uuid() -> None:
             validate_execution_id(unsafe)
 
 
-def test_default_policy_is_deny_by_default_but_allows_public_egress_and_proxy_dns() -> None:
+def test_default_policy_is_deny_by_default_but_allows_public_egress_and_proxy_dns() -> (
+    None
+):
     commands = compile_iptables_commands(
-        bridge="br-abc123", dns_proxy_ip="172.30.0.2", mode="default",
-        global_rules=[], agent_rules=[], builtin_blacklist=["10.0.0.0/8", "::/0"],
+        bridge="br-abc123",
+        dns_proxy_ip="172.30.0.2",
+        mode="default",
+        global_rules=[],
+        agent_rules=[],
+        builtin_blacklist=["10.0.0.0/8", "::/0"],
     )
     rendered = " ".join(" ".join(command) for command in commands)
     assert "-I FORWARD" in rendered
@@ -108,11 +149,17 @@ def test_default_policy_is_deny_by_default_but_allows_public_egress_and_proxy_dn
     assert "ip6tables" in rendered
 
 
-def test_restricted_policy_denies_fallback_and_allows_only_ip_or_cidr_allow_rules() -> None:
+def test_restricted_policy_denies_fallback_and_allows_only_ip_or_cidr_allow_rules() -> (
+    None
+):
     rules = [RuleView("r1", "allow", "cidr", "203.0.113.0/24", "443")]
     commands = compile_iptables_commands(
-        bridge="br-abc123", dns_proxy_ip="172.30.0.2", mode="restricted",
-        global_rules=[], agent_rules=rules, builtin_blacklist=["10.0.0.0/8"],
+        bridge="br-abc123",
+        dns_proxy_ip="172.30.0.2",
+        mode="restricted",
+        global_rules=[],
+        agent_rules=rules,
+        builtin_blacklist=["10.0.0.0/8"],
     )
     rendered = " ".join(" ".join(command) for command in commands)
     assert "203.0.113.0/24" in rendered and "--dport 443" in rendered
@@ -122,7 +169,9 @@ def test_restricted_policy_denies_fallback_and_allows_only_ip_or_cidr_allow_rule
 def test_domain_allow_is_rejected_as_unsupported_not_permitted() -> None:
     with pytest.raises(NetworkPolicyError, match="domain"):
         compile_iptables_commands(
-            bridge="br-abc123", dns_proxy_ip="172.30.0.2", mode="restricted",
+            bridge="br-abc123",
+            dns_proxy_ip="172.30.0.2",
+            mode="restricted",
             global_rules=[],
             agent_rules=[RuleView("r1", "allow", "domain", "*.example.com", "443")],
             builtin_blacklist=["10.0.0.0/8"],
@@ -131,9 +180,12 @@ def test_domain_allow_is_rejected_as_unsupported_not_permitted() -> None:
 
 def test_global_deny_cidr_has_kernel_drop_rule() -> None:
     commands = compile_iptables_commands(
-        bridge="br-abc123", dns_proxy_ip="172.30.0.2", mode="default",
+        bridge="br-abc123",
+        dns_proxy_ip="172.30.0.2",
+        mode="default",
         global_rules=[RuleView("g1", "deny", "cidr", "198.51.100.0/24", "80-90")],
-        agent_rules=[], builtin_blacklist=["10.0.0.0/8"],
+        agent_rules=[],
+        builtin_blacklist=["10.0.0.0/8"],
     )
     rendered = " ".join(" ".join(command) for command in commands)
     assert "198.51.100.0/24" in rendered and "--dport 80:90" in rendered
@@ -149,30 +201,53 @@ def test_packet_capture_includes_unconfirmed_denied_syn() -> None:
         source_ip="172.30.0.3",
     )
     assert [(r["target_ip"], r["port"], r["protocol"]) for r in records] == [
-        ("169.254.169.254", 80, "tcp"), ("172.30.0.2", 53, "udp"),
+        ("169.254.169.254", 80, "tcp"),
+        ("172.30.0.2", 53, "udp"),
     ]
 
 
 def test_ipv6_gateway_neighbor_discovery_precedes_host_input_drop() -> None:
     commands = compile_iptables_commands(
-        bridge="br-abc123", dns_proxy_ip="172.30.0.2", mode="restricted",
-        global_rules=[], agent_rules=[], builtin_blacklist=[],
+        bridge="br-abc123",
+        dns_proxy_ip="172.30.0.2",
+        mode="restricted",
+        global_rules=[],
+        agent_rules=[],
+        builtin_blacklist=[],
     )
-    input_rules = [c for c in commands if c[0] == "ip6tables" and c[1] == "-A" and c[2].startswith("AWI")]
+    input_rules = [
+        c
+        for c in commands
+        if c[0] == "ip6tables" and c[1] == "-A" and c[2].startswith("AWI")
+    ]
     assert len(input_rules) == 3
     assert input_rules[-1][-2:] == ["-j", "DROP"]
-    for rule, kind in zip(input_rules[:2], ["neighbor-solicitation", "neighbor-advertisement"], strict=True):
-        assert ["--icmpv6-type", kind] == rule[rule.index("--icmpv6-type"):rule.index("--icmpv6-type") + 2]
+    for rule, kind in zip(
+        input_rules[:2],
+        ["neighbor-solicitation", "neighbor-advertisement"],
+        strict=True,
+    ):
+        assert ["--icmpv6-type", kind] == rule[
+            rule.index("--icmpv6-type") : rule.index("--icmpv6-type") + 2
+        ]
         assert "--hl-eq" in rule and "255" in rule and rule[-1] == "ACCEPT"
 
 
 def test_dns_proxy_return_path_is_allowed_before_private_drops() -> None:
     commands = compile_iptables_commands(
-        bridge="br-abc123", dns_proxy_ip="172.30.0.2", mode="restricted",
-        global_rules=[], agent_rules=[], builtin_blacklist=["172.16.0.0/12"],
+        bridge="br-abc123",
+        dns_proxy_ip="172.30.0.2",
+        mode="restricted",
+        global_rules=[],
+        agent_rules=[],
+        builtin_blacklist=["172.16.0.0/12"],
     )
     rules = [" ".join(command) for command in commands]
-    answer = next(i for i, rule in enumerate(rules) if "-s 172.30.0.2" in rule and "--sport 53" in rule)
+    answer = next(
+        i
+        for i, rule in enumerate(rules)
+        if "-s 172.30.0.2" in rule and "--sport 53" in rule
+    )
     deny = next(i for i, rule in enumerate(rules) if "-d 172.16.0.0/12" in rule)
     assert answer < deny
 
@@ -279,14 +354,21 @@ def test_packet_parser_uses_actual_ipv6_source_not_ipv4_source() -> None:
 
 
 @pytest.mark.parametrize("mode", ["default", "restricted"])
-def test_global_domain_deny_fails_closed_without_install_time_dns(mode, monkeypatch) -> None:
-    resolve = Mock(side_effect=AssertionError("one-shot resolution is not a domain policy"))
+def test_global_domain_deny_fails_closed_without_install_time_dns(
+    mode, monkeypatch
+) -> None:
+    resolve = Mock(
+        side_effect=AssertionError("one-shot resolution is not a domain policy")
+    )
     monkeypatch.setattr("socket.getaddrinfo", resolve)
     with pytest.raises(NetworkPolicyError, match="domain"):
         compile_iptables_commands(
-            bridge="br-abc123", dns_proxy_ip="172.30.0.2", mode=mode,
+            bridge="br-abc123",
+            dns_proxy_ip="172.30.0.2",
+            mode=mode,
             global_rules=[RuleView("g1", "deny", "domain", "*.example.com")],
-            agent_rules=[], builtin_blacklist=[],
+            agent_rules=[],
+            builtin_blacklist=[],
         )
     resolve.assert_not_called()
 
@@ -303,15 +385,26 @@ def _capture_for_collection(*, ipv6: str | None = None):
         b"1763170000.1 IP 172.30.0.3.41001 > 198.18.0.2.80: Flags [S], seq 100, length 0\n"
         b"1763170000.2 IP6 2001:db8::3.41002 > 2606:4700::1.443: Flags [S], seq 200, length 0\n"
     )
-    watcher.logs.side_effect = lambda **kwargs: stderr if kwargs.get("stderr") else events
+    watcher.logs.side_effect = lambda **kwargs: (
+        stderr if kwargs.get("stderr") else events
+    )
     proxy = Mock()
     proxy.logs.return_value = b""
     capture = NetworkCapture(
-        client=Mock(), network=SimpleNamespace(name="sandbox"),
-        execution_id="f4e784e5-1dd9-4ae1-84ad-a0c66bdb761a", mode="default",
-        global_rules=[], agent_rules=[], builtin_blacklist=[], dns_proxy=proxy,
-        dns_proxy_ip="172.30.0.2", bridge="br-abc123",
-        install_commands=[], cleanup_commands=[], source_ip="172.30.0.3", watcher=watcher,
+        client=Mock(),
+        network=SimpleNamespace(name="sandbox"),
+        execution_id="f4e784e5-1dd9-4ae1-84ad-a0c66bdb761a",
+        mode="default",
+        global_rules=[],
+        agent_rules=[],
+        builtin_blacklist=[],
+        dns_proxy=proxy,
+        dns_proxy_ip="172.30.0.2",
+        bridge="br-abc123",
+        install_commands=[],
+        cleanup_commands=[],
+        source_ip="172.30.0.3",
+        watcher=watcher,
     )
     if ipv6:
         capture.source_ipv6 = ipv6
@@ -327,12 +420,15 @@ def test_collection_includes_actual_source_ipv6_and_preserves_packet_time() -> N
     assert records[0]["occurred_at"] == "2025-11-15T01:26:40.100000+00:00"
 
 
-@pytest.mark.parametrize("stderr,exit_status", [
-    (b"1 packets dropped by kernel\n", 0),
-    (b"0 packets dropped by kernel\n2 packets dropped by interface\n", 0),
-    (b"permission denied\n", 1),
-    (b"tcpdump: listening on br-abc123\n", 0),
-])
+@pytest.mark.parametrize(
+    "stderr,exit_status",
+    [
+        (b"1 packets dropped by kernel\n", 0),
+        (b"0 packets dropped by kernel\n2 packets dropped by interface\n", 0),
+        (b"permission denied\n", 1),
+        (b"tcpdump: listening on br-abc123\n", 0),
+    ],
+)
 def test_collection_refuses_incomplete_capture(stderr, exit_status) -> None:
     capture, watcher = _capture_for_collection()
     watcher.wait.return_value = {"StatusCode": exit_status}
@@ -343,14 +439,19 @@ def test_collection_refuses_incomplete_capture(stderr, exit_status) -> None:
     assert capture.watcher is None
 
 
-@pytest.mark.parametrize("stdout", [
-    b"1763170000.1 IP 172.30.0.3.41001 > 198.18.0.2.80: Flags [S], seq 100, length 0\n",
-    b"1763170000.1 IP 172.30.0.3 > 198.18.0.2: ip-proto-17\n",
-])
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        b"1763170000.1 IP 172.30.0.3.41001 > 198.18.0.2.80: Flags [S], seq 100, length 0\n",
+        b"1763170000.1 IP 172.30.0.3 > 198.18.0.2: ip-proto-17\n",
+    ],
+)
 def test_collection_refuses_truncated_or_unparseable_packet_log(stdout) -> None:
     capture, watcher = _capture_for_collection()
     stderr = b"2 packets captured\n2 packets received by filter\n0 packets dropped by kernel\n"
-    watcher.logs.side_effect = lambda **kwargs: stderr if kwargs.get("stderr") else stdout
+    watcher.logs.side_effect = lambda **kwargs: (
+        stderr if kwargs.get("stderr") else stdout
+    )
     with pytest.raises(NetworkPolicyError, match="capture"):
         capture.collect()
 
@@ -361,10 +462,18 @@ def test_capture_ipv6_requires_a_known_prestart_address() -> None:
     capture, _ = _capture_for_collection()
     capture.network.attrs = {"EnableIPv6": True}
     capture.watcher = None
-    capture.client.containers.run.return_value.logs.return_value = b"tcpdump: listening on br-abc123\n"
-    container = SimpleNamespace(attrs={"NetworkSettings": {"Networks": {
-        "sandbox": {"IPAddress": "172.30.0.3"},
-    }}})
+    capture.client.containers.run.return_value.logs.return_value = (
+        b"tcpdump: listening on br-abc123\n"
+    )
+    container = SimpleNamespace(
+        attrs={
+            "NetworkSettings": {
+                "Networks": {
+                    "sandbox": {"IPAddress": "172.30.0.3"},
+                }
+            }
+        }
+    )
     with pytest.raises(NetworkPolicyError, match="IPv6"):
         capture.start_capture(container)
     capture.client.containers.run.assert_not_called()
@@ -376,18 +485,31 @@ def test_prepare_reserves_ipv6_next_to_dns_proxy() -> None:
     from app.executors.egress_network import NetworkCapture
 
     network = SimpleNamespace(
-        name="sandbox", connect=Mock(), disconnect=Mock(), reload=Mock(),
+        name="sandbox",
+        connect=Mock(),
+        disconnect=Mock(),
+        reload=Mock(),
         attrs={"Id": "abcdef123456", "EnableIPv6": True},
     )
     proxy = Mock()
-    proxy.attrs = {"NetworkSettings": {"Networks": {"sandbox": {
-        "IPAddress": "172.30.0.2", "GlobalIPv6Address": "2001:db8::2",
-    }}}}
+    proxy.attrs = {
+        "NetworkSettings": {
+            "Networks": {
+                "sandbox": {
+                    "IPAddress": "172.30.0.2",
+                    "GlobalIPv6Address": "2001:db8::2",
+                }
+            }
+        }
+    }
     client = Mock()
     client.containers.get.return_value = proxy
     client.containers.run.return_value = b""
     capture = NetworkCapture.prepare(
-        client, network, "f4e784e5-1dd9-4ae1-84ad-a0c66bdb761a", {},
+        client,
+        network,
+        "f4e784e5-1dd9-4ae1-84ad-a0c66bdb761a",
+        {},
     )
     assert capture.source_ip == "172.30.0.3"
     assert capture.source_ipv6 == "2001:db8::3"
@@ -399,9 +521,20 @@ def test_capture_rejects_a_different_reserved_ipv6_endpoint() -> None:
     capture, _ = _capture_for_collection(ipv6="2001:db8::3")
     capture.network.attrs = {"EnableIPv6": True}
     capture.watcher = None
-    container = SimpleNamespace(attrs={"NetworkSettings": {"Networks": {
-        "sandbox": {"IPAMConfig": {"IPv4Address": "172.30.0.3", "IPv6Address": "2001:db8::4"}},
-    }}})
+    container = SimpleNamespace(
+        attrs={
+            "NetworkSettings": {
+                "Networks": {
+                    "sandbox": {
+                        "IPAMConfig": {
+                            "IPv4Address": "172.30.0.3",
+                            "IPv6Address": "2001:db8::4",
+                        }
+                    },
+                }
+            }
+        }
+    )
     with pytest.raises(NetworkPolicyError, match="IPv6"):
         capture.start_capture(container)
     capture.client.containers.run.assert_not_called()
@@ -413,10 +546,23 @@ def test_capture_filter_includes_reserved_ipv6_and_absolute_tcp_sequence() -> No
     capture, _ = _capture_for_collection()
     capture.network.attrs = {"EnableIPv6": True}
     capture.watcher = None
-    capture.client.containers.run.return_value.logs.return_value = b"tcpdump: listening on br-abc123\n"
-    container = SimpleNamespace(attrs={"NetworkSettings": {"Networks": {
-        "sandbox": {"IPAMConfig": {"IPv4Address": "172.30.0.3", "IPv6Address": "2001:db8::3"}},
-    }}})
+    capture.client.containers.run.return_value.logs.return_value = (
+        b"tcpdump: listening on br-abc123\n"
+    )
+    container = SimpleNamespace(
+        attrs={
+            "NetworkSettings": {
+                "Networks": {
+                    "sandbox": {
+                        "IPAMConfig": {
+                            "IPv4Address": "172.30.0.3",
+                            "IPv6Address": "2001:db8::3",
+                        }
+                    },
+                }
+            }
+        }
+    )
     capture.start_capture(container)
     command = capture.client.containers.run.call_args.kwargs["command"]
     assert "2001:db8::3" in command and "/opt/aw/packet_capture.py" in command
@@ -428,8 +574,16 @@ def test_conntrack_parser_records_direct_ip_and_ports() -> None:
         "tcp 6 431999 ESTABLISHED src=172.19.0.3 dst=203.0.113.9 sport=42222 dport=8443 packets=3 bytes=256 src=203.0.113.9 dst=172.19.0.3 sport=8443 dport=42222 packets=4 bytes=512\n",
         source_ip="172.19.0.3",
     )
-    assert records == [{
-        "target_ip": "203.0.113.9", "domain": "ip-direct", "port": 8443,
-        "protocol": "tcp", "action": "allow", "matched_rule_id": None,
-        "bytes_out": 256, "source_ip": "172.19.0.3", "source_port": 42222,
-    }]
+    assert records == [
+        {
+            "target_ip": "203.0.113.9",
+            "domain": "ip-direct",
+            "port": 8443,
+            "protocol": "tcp",
+            "action": "allow",
+            "matched_rule_id": None,
+            "bytes_out": 256,
+            "source_ip": "172.19.0.3",
+            "source_port": 42222,
+        }
+    ]

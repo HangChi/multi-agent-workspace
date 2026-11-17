@@ -110,7 +110,9 @@ async def test_external_executor_bounds_result_and_classifies_auth_errors_withou
     assert len(client.calls) == 1
 
     large = FakeClient({"content": [{"type": "text", "text": "x" * 200}]})
-    truncated = await make_executor(large, max_result_chars=20).execute({"query": "hello"})
+    truncated = await make_executor(large, max_result_chars=20).execute(
+        {"query": "hello"}
+    )
     assert truncated["result_truncated"] is True
     assert len(truncated["content"][0]["text"]) <= 20
 
@@ -232,7 +234,9 @@ async def test_abort_check_failure_does_not_leave_the_call_running():
         return False
 
     with pytest.raises(RuntimeError):
-        await make_executor(HangingClient(), abort_check=abort_check).execute({"query": "hello"})
+        await make_executor(HangingClient(), abort_check=abort_check).execute(
+            {"query": "hello"}
+        )
 
     assert started.is_set()
     assert observed.get("cancelled") is True

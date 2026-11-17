@@ -29,21 +29,32 @@ class Step(Base):
         Index("ix_steps_run", "run_id"),
     )
 
-    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
     run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False)
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
-    kind: Mapped[str] = mapped_column(Enum("llm", "tool", "final", name="step_kind"), nullable=False)
+    kind: Mapped[str] = mapped_column(
+        Enum("llm", "tool", "final", name="step_kind"), nullable=False
+    )
     input: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     output: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     tool_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cost_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(
-        Enum("running", "completed", "failed", name="step_status"), nullable=False, default="running"
+        Enum("running", "completed", "failed", name="step_status"),
+        nullable=False,
+        default="running",
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
     run = relationship("Run", back_populates="steps")

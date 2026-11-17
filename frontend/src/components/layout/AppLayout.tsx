@@ -48,7 +48,7 @@ function navClass({ isActive }: { isActive: boolean }) {
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 focus-visible:ring-offset-2',
     isActive
       ? 'bg-brand-50 text-accent ring-1 ring-inset ring-brand-100'
-      : 'text-ink-soft hover:bg-surface-subtle hover:text-ink',
+      : 'text-ink-soft hover:bg-surface-subtle hover:text-ink'
   )
 }
 
@@ -105,7 +105,10 @@ export function AppLayout() {
                   <span className="hidden max-w-[150px] truncate text-[13px] text-ink-soft sm:block">
                     {user?.email}
                   </span>
-                  <Icon name="chevron-down" className="hidden h-3.5 w-3.5 text-ink-faint sm:block" />
+                  <Icon
+                    name="chevron-down"
+                    className="hidden h-3.5 w-3.5 text-ink-faint sm:block"
+                  />
                 </>
               }
             >

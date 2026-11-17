@@ -23,7 +23,9 @@ class TestTargetValidation:
         rule = EgressRuleIn(target_type="cidr", target=target)
         assert rule.target == target
 
-    @pytest.mark.parametrize("target", ["10.0.0.1/8", "not-a-cidr", "10.0.0.0/99", "999.0.0.0/8"])
+    @pytest.mark.parametrize(
+        "target", ["10.0.0.1/8", "not-a-cidr", "10.0.0.0/99", "999.0.0.0/8"]
+    )
     def test_invalid_cidr_rejected(self, target: str) -> None:
         with pytest.raises(ValidationError):
             EgressRuleIn(target_type="cidr", target=target)
@@ -52,7 +54,9 @@ class TestTargetValidation:
     def test_valid_domain(self, target: str) -> None:
         assert EgressRuleIn(target_type="domain", target=target).target == target
 
-    @pytest.mark.parametrize("target", ["", " ", "http://pypi.org", "a b.com", "*.", "-x.com"])
+    @pytest.mark.parametrize(
+        "target", ["", " ", "http://pypi.org", "a b.com", "*.", "-x.com"]
+    )
     def test_invalid_domain_rejected(self, target: str) -> None:
         with pytest.raises(ValidationError):
             EgressRuleIn(target_type="domain", target=target)
@@ -67,7 +71,9 @@ class TestPortRange:
         # 空串归一化为 None，避免 DB 里出现「空字符串」与 NULL 两种表示
         assert rule.port_range == (None if value == "" else value)
 
-    @pytest.mark.parametrize("value", ["abc", "443-", "-443", "0", "65536", "9000-8000", "1-2-3"])
+    @pytest.mark.parametrize(
+        "value", ["abc", "443-", "-443", "0", "65536", "9000-8000", "1-2-3"]
+    )
     def test_invalid_port_range_rejected(self, value: str) -> None:
         with pytest.raises(ValidationError):
             EgressRuleIn(target_type="domain", target="pypi.org", port_range=value)

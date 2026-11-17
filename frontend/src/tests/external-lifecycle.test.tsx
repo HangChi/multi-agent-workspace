@@ -24,40 +24,66 @@ describe('external lifecycle controls', () => {
   it('shows credential metadata only and supports pause/resume and revoke', async () => {
     vi.mocked(fetchExternalServers).mockResolvedValue({
       total: 1,
-      items: [{
-        id: 'server-1',
-        name: 'Reviewed Server',
-        endpoint_url: 'https://example.test/mcp',
-        maintainer: 'Platform',
-        status: 'published',
-        current_validation_status: 'passed',
-        credentials: [{ id: 'credential-1', label: 'production', kind: 'bearer', status: 'active', key_version: 'v1' }],
-        tools: [{
-          id: 'version-1',
-          external_name: 'search',
-          stable_name: 'mcp_reviewed_search_v1',
-          version: '1.0.0',
-          description: 'Reviewed search',
-          required_permissions: ['records.read'],
-          availability: 'valid',
-          listing_id: 'listing-1',
-          listing_status: 'published',
-        }],
-      }],
+      items: [
+        {
+          id: 'server-1',
+          name: 'Reviewed Server',
+          endpoint_url: 'https://example.test/mcp',
+          maintainer: 'Platform',
+          status: 'published',
+          current_validation_status: 'passed',
+          credentials: [
+            {
+              id: 'credential-1',
+              label: 'production',
+              kind: 'bearer',
+              status: 'active',
+              key_version: 'v1',
+            },
+          ],
+          tools: [
+            {
+              id: 'version-1',
+              external_name: 'search',
+              stable_name: 'mcp_reviewed_search_v1',
+              version: '1.0.0',
+              description: 'Reviewed search',
+              required_permissions: ['records.read'],
+              availability: 'valid',
+              listing_id: 'listing-1',
+              listing_status: 'published',
+            },
+          ],
+        },
+      ],
     })
     vi.mocked(pauseMarketplaceTool).mockResolvedValue({} as never)
     vi.mocked(resumeMarketplaceTool).mockResolvedValue({} as never)
     vi.mocked(revokeExternalCredential).mockResolvedValue()
-    vi.mocked(rotateExternalCredential).mockResolvedValue({ id: 'credential-2', label: 'rotated', kind: 'bearer', status: 'active', key_version: 'v1' })
+    vi.mocked(rotateExternalCredential).mockResolvedValue({
+      id: 'credential-2',
+      label: 'rotated',
+      kind: 'bearer',
+      status: 'active',
+      key_version: 'v1',
+    })
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<QueryClientProvider client={queryClient}><ExternalToolServers /></QueryClientProvider>)
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ExternalToolServers />
+      </QueryClientProvider>
+    )
 
     await waitFor(() => expect(screen.getByText('Reviewed Server / search')).toBeInTheDocument())
     expect(screen.getByText('production · active')).toBeInTheDocument()
     expect(screen.queryByText(/secret|ciphertext|token/i)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '暂停' }))
-    await waitFor(() => expect(pauseMarketplaceTool).toHaveBeenCalledWith('listing-1', { reason: expect.any(String) }))
+    await waitFor(() =>
+      expect(pauseMarketplaceTool).toHaveBeenCalledWith('listing-1', { reason: expect.any(String) })
+    )
     fireEvent.click(screen.getByRole('button', { name: '撤销凭证' }))
-    await waitFor(() => expect(revokeExternalCredential).toHaveBeenCalledWith('server-1', 'credential-1'))
+    await waitFor(() =>
+      expect(revokeExternalCredential).toHaveBeenCalledWith('server-1', 'credential-1')
+    )
   })
 })

@@ -79,7 +79,9 @@ async def register(
     if invite.used_count >= invite.max_uses:
         raise AppError("INVALID_INPUT", "邀请码已用尽")
 
-    existing = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    existing = (
+        await db.execute(select(User).where(User.email == email))
+    ).scalar_one_or_none()
     if existing is not None:
         raise AppError("CONFLICT", "邮箱已被注册")
 
@@ -89,7 +91,9 @@ async def register(
     consumed = (
         await db.execute(
             update(InviteCode)
-            .where(InviteCode.id == invite.id, InviteCode.used_count < InviteCode.max_uses)
+            .where(
+                InviteCode.id == invite.id, InviteCode.used_count < InviteCode.max_uses
+            )
             .values(used_count=InviteCode.used_count + 1)
             .returning(InviteCode.role)
         )
@@ -112,7 +116,9 @@ async def register(
     return user, tokens
 
 
-async def login(db: AsyncSession, *, email: str, password: str) -> tuple[User, dict[str, str]]:
+async def login(
+    db: AsyncSession, *, email: str, password: str
+) -> tuple[User, dict[str, str]]:
     """登录：校验邮箱 + 密码 + 账号状态。
 
     bcrypt 走线程池（`verify_password_async`），否则单次 ~174ms 的 CPU 活会把
@@ -121,7 +127,9 @@ async def login(db: AsyncSession, *, email: str, password: str) -> tuple[User, d
     用户不存在时也跑一次 bcrypt（对固定假哈希），让「邮箱没注册」与「密码错」
     耗时一致——否则响应时间可用来枚举已注册邮箱。
     """
-    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    user = (
+        await db.execute(select(User).where(User.email == email))
+    ).scalar_one_or_none()
     if user is None:
         await verify_password_async(password, await _dummy_password_hash())
         raise AppError("FORBIDDEN", "邮箱或密码错误")
@@ -149,7 +157,9 @@ async def refresh(db: AsyncSession, *, refresh_token: str) -> dict[str, str]:
     jti = payload.get("jti")
     if not jti:
         raise AppError("UNAUTHORIZED", "refresh token 缺少标识，请重新登录")
-    if not await consume_refresh_token(jti, grace_seconds=settings.refresh_grace_seconds):
+    if not await consume_refresh_token(
+        jti, grace_seconds=settings.refresh_grace_seconds
+    ):
         # 已使用且超出宽限期：可能是重放，也可能是被撤销
         raise AppError("UNAUTHORIZED", "refresh token 已失效，请重新登录")
 

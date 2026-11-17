@@ -30,7 +30,9 @@ class TestNormalizeUrl:
     def test_adds_https_scheme(self):
         assert _normalize_url("example.com/post") == "https://example.com/post"
 
-    @pytest.mark.parametrize("url", ["file:///etc/passwd", "gopher://x/", "ftp://x/y", "javascript:alert(1)"])
+    @pytest.mark.parametrize(
+        "url", ["file:///etc/passwd", "gopher://x/", "ftp://x/y", "javascript:alert(1)"]
+    )
     def test_rejects_non_http_schemes(self, url: str):
         with pytest.raises(FetchError, match="仅支持 http/https"):
             _normalize_url(url)
@@ -75,7 +77,10 @@ class TestSSRFGuard:
             (socket.AF_INET, 1, 6, "", (PUBLIC_IP, 0)),
         ]
         monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: infos)
-        assert await resolve_public_hosts("example.com") == [PUBLIC_IP, "2606:2800:220:1::1"]
+        assert await resolve_public_hosts("example.com") == [
+            PUBLIC_IP,
+            "2606:2800:220:1::1",
+        ]
 
     async def test_any_internal_answer_rejects_the_whole_name(self, monkeypatch):
         """解析结果里只要有一个内网地址就整体拒绝（多 A 记录投毒）。"""
@@ -108,7 +113,9 @@ class TestHtmlToText:
 
 def _executor(handler, *, resolver=_public) -> ReadUrlExecutor:
     """注入 MockTransport 的 executor（不联网）。"""
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=False)
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), follow_redirects=False
+    )
     return ReadUrlExecutor(client=client, resolver=resolver)
 
 
@@ -140,7 +147,9 @@ class TestExecute:
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(404)
 
-        result = await _executor(handler).execute({"url": "https://example.com/missing"})
+        result = await _executor(handler).execute(
+            {"url": "https://example.com/missing"}
+        )
         assert result["status"] == 404
         assert "error" in result
 
@@ -154,7 +163,9 @@ class TestExecute:
 
         def handler(request: httpx.Request) -> httpx.Response:
             seen.append(request)
-            return httpx.Response(200, headers={"content-type": "text/plain"}, text="ok")
+            return httpx.Response(
+                200, headers={"content-type": "text/plain"}, text="ok"
+            )
 
         result = await _executor(handler).execute({"url": "https://example.com/a?x=1"})
         assert result["status"] == 200
@@ -170,7 +181,9 @@ class TestExecute:
 
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path == "/redir":
-                return httpx.Response(302, headers={"location": "http://127.0.0.1:8080/admin"})
+                return httpx.Response(
+                    302, headers={"location": "http://127.0.0.1:8080/admin"}
+                )
             raise AssertionError("不应真的请求内网地址")
 
         result = await _executor(handler).execute({"url": "https://example.com/redir"})
@@ -183,7 +196,9 @@ class TestExecute:
                 return httpx.Response(301, headers={"location": "/new"})
             assert request.url.host == PUBLIC_IP
             assert request.headers["host"] == "example.com"
-            return httpx.Response(200, headers={"content-type": "text/plain"}, text="moved")
+            return httpx.Response(
+                200, headers={"content-type": "text/plain"}, text="moved"
+            )
 
         result = await _executor(handler).execute({"url": "https://example.com/old"})
         assert result["text"] == "moved"
@@ -209,7 +224,9 @@ class TestExecute:
                 200, headers={"content-type": "text/plain"}, stream=_Chunks()
             )
 
-        result = await _executor(handler).execute({"url": "https://example.com/big.txt"})
+        result = await _executor(handler).execute(
+            {"url": "https://example.com/big.txt"}
+        )
         assert result["body_truncated"] is True
         assert result["truncated"] is True
         # 只读到上限就停：远少于 64 个 chunk
@@ -223,7 +240,9 @@ class TestExecute:
             attempts.append(request.url.host)
             if request.url.host == "93.184.216.1":
                 raise httpx.ConnectError("unreachable", request=request)
-            return httpx.Response(200, headers={"content-type": "text/plain"}, text="second")
+            return httpx.Response(
+                200, headers={"content-type": "text/plain"}, text="second"
+            )
 
         async def resolver(host: str) -> list[str]:
             return ["93.184.216.1", PUBLIC_IP]
@@ -280,12 +299,15 @@ class TestExecute:
 
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.host == "93.184.216.50":
-                return httpx.Response(200, headers={"content-type": "text/plain"}, text="ok")
+                return httpx.Response(
+                    200, headers={"content-type": "text/plain"}, text="ok"
+                )
             raise httpx.ConnectError("edge down", request=request)
 
         async def resolver(host: str) -> list[str]:
-            rounds.append(["93.184.216.1", "93.184.216.2"] if not rounds
-                          else ["93.184.216.50"])
+            rounds.append(
+                ["93.184.216.1", "93.184.216.2"] if not rounds else ["93.184.216.50"]
+            )
             return rounds[-1]
 
         result = await _executor(handler, resolver=resolver).execute(
@@ -328,7 +350,9 @@ class TestExecute:
 
         def handler(request: httpx.Request) -> httpx.Response:
             # 连上了但一直不返回字节：只有总预算能把它停下来
-            return httpx.Response(200, headers={"content-type": "text/plain"}, stream=_Never())
+            return httpx.Response(
+                200, headers={"content-type": "text/plain"}, stream=_Never()
+            )
 
         async def resolver(host: str) -> list[str]:
             return [PUBLIC_IP]

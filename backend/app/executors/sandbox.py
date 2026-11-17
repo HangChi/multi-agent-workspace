@@ -68,11 +68,16 @@ def classify_outcome(outcome: Any) -> tuple[str, str | None]:
         # Require the OS failure plus process-creation context for EAGAIN: a
         # nonblocking network connect can return the same errno as a full cgroup.
         stderr = getattr(outcome, "stderr", b"")
-        text = (stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else str(stderr)).lower()
+        text = (
+            stderr.decode("utf-8", "replace")
+            if isinstance(stderr, bytes)
+            else str(stderr)
+        ).lower()
         if "no space left on device" in text or "[errno 28]" in text:
             return "resource", "disk"
         if ("resource temporarily unavailable" in text or "[errno 11]" in text) and any(
-            marker in text for marker in ("fork:", "os.fork(", "_fork_exec", "posix_spawn")
+            marker in text
+            for marker in ("fork:", "os.fork(", "_fork_exec", "posix_spawn")
         ):
             return "resource", "pids"
         return "failed", "exit_code"
@@ -137,7 +142,9 @@ class SandboxExecutor(ToolExecutor):
         self.execution_id = str(uuid.uuid4())
         self.last_execution_id = self.execution_id
         requested = arguments.get("timeout_s") if arguments is not None else None
-        effective_timeout = clamp_timeout(requested if isinstance(requested, int) else None)
+        effective_timeout = clamp_timeout(
+            requested if isinstance(requested, int) else None
+        )
         if self.timeout_cap is not None:
             effective_timeout = min(effective_timeout, self.timeout_cap)
         self.last_limits = {
@@ -182,9 +189,16 @@ class SandboxExecutor(ToolExecutor):
         if self.timeout_cap is not None:
             if self.timeout_cap <= 0:
                 return self._with_payload(
-                    {"ok": False, "status": "timeout", "error_category": "timeout",
-                     "exit_code": None, "stdout": "", "stderr": "",
-                     "message": _ERROR_MESSAGES["timeout"]}, raw
+                    {
+                        "ok": False,
+                        "status": "timeout",
+                        "error_category": "timeout",
+                        "exit_code": None,
+                        "stdout": "",
+                        "stderr": "",
+                        "message": _ERROR_MESSAGES["timeout"],
+                    },
+                    raw,
                 )
             timeout_s = min(timeout_s, self.timeout_cap)
         self.last_code = raw
@@ -210,8 +224,12 @@ class SandboxExecutor(ToolExecutor):
                 slot = await asyncio.to_thread(acquire_concurrency_slot)
             except Exception as exc:  # noqa: BLE001 - Redis 不可用时视为基础设施故障
                 result = {
-                    "ok": False, "status": "infra", "error_category": "infra",
-                    "exit_code": None, "stdout": "", "stderr": "",
+                    "ok": False,
+                    "status": "infra",
+                    "error_category": "infra",
+                    "exit_code": None,
+                    "stdout": "",
+                    "stderr": "",
                     "message": f"{_ERROR_MESSAGES['infra']}（无法获取并发槽位：{exc}）",
                 }
                 break
@@ -222,25 +240,39 @@ class SandboxExecutor(ToolExecutor):
                 except Exception as exc:  # noqa: BLE001 - 工具边界必须返回结构化失败
                     status, category = classify_error(exc)
                     result = {
-                        "ok": False, "status": status, "error_category": category,
-                        "exit_code": None, "stdout": "", "stderr": "",
+                        "ok": False,
+                        "status": status,
+                        "error_category": category,
+                        "exit_code": None,
+                        "stdout": "",
+                        "stderr": "",
                         "message": f"{_ERROR_MESSAGES.get(category, _ERROR_MESSAGES['infra'])}（{exc}）",
                     }
                 break
             if attempt == len(backoff):
                 break
-            if self.abort_check is not None and await asyncio.to_thread(self.abort_check):
+            if self.abort_check is not None and await asyncio.to_thread(
+                self.abort_check
+            ):
                 result = {
-                    "ok": False, "status": "failed", "error_category": "cancelled",
-                    "exit_code": None, "stdout": "", "stderr": "",
+                    "ok": False,
+                    "status": "failed",
+                    "error_category": "cancelled",
+                    "exit_code": None,
+                    "stdout": "",
+                    "stderr": "",
                     "message": _ERROR_MESSAGES["cancelled"],
                 }
                 break
             remaining = timeout_s - (asyncio.get_running_loop().time() - started)
             if remaining <= 0:
                 result = {
-                    "ok": False, "status": "timeout", "error_category": "timeout",
-                    "exit_code": None, "stdout": "", "stderr": "",
+                    "ok": False,
+                    "status": "timeout",
+                    "error_category": "timeout",
+                    "exit_code": None,
+                    "stdout": "",
+                    "stderr": "",
                     "message": _ERROR_MESSAGES["timeout"],
                 }
                 break
@@ -249,12 +281,18 @@ class SandboxExecutor(ToolExecutor):
         try:
             if result is None:
                 result = {
-                    "ok": False, "status": "resource", "error_category": "resource_busy",
-                    "exit_code": None, "stdout": "", "stderr": "",
+                    "ok": False,
+                    "status": "resource",
+                    "error_category": "resource_busy",
+                    "exit_code": None,
+                    "stdout": "",
+                    "stderr": "",
                     "message": "沙箱繁忙：等待资源超时，请稍后重试。",
                 }
             payload["artifacts"] = result.pop("_sandbox_artifacts", [])
-            payload["artifact_truncated"] = result.pop("_sandbox_artifact_truncated", None)
+            payload["artifact_truncated"] = result.pop(
+                "_sandbox_artifact_truncated", None
+            )
             result["execution_id"] = self.execution_id
             result["artifact_truncated"] = payload["artifact_truncated"]
             result["_sandbox_payload"] = payload
@@ -336,9 +374,13 @@ class SandboxExecutor(ToolExecutor):
                     for item in run.iter_output_files(
                         max_files=settings.sbx_artifact_max_files,
                         max_file_bytes=settings.sbx_artifact_max_file_mb * 1024 * 1024,
-                        max_total_bytes=settings.sbx_artifact_max_total_mb * 1024 * 1024,
+                        max_total_bytes=settings.sbx_artifact_max_total_mb
+                        * 1024
+                        * 1024,
                     ):
-                        files.append({"name": item.name, "size": item.size, "data": item.data})
+                        files.append(
+                            {"name": item.name, "size": item.size, "data": item.data}
+                        )
                 except SandboxOutputLimit as exc:
                     artifact_truncated = {"reason": exc.reason, "message": str(exc)}
                 result["_sandbox_artifacts"] = files
@@ -381,11 +423,15 @@ def sandbox_executors(**kwargs: Any) -> dict[str, ToolExecutor]:
     }
 
 
-def build_executors(names: list[str] | None = None, **kwargs: Any) -> dict[str, ToolExecutor]:
+def build_executors(
+    names: list[str] | None = None, **kwargs: Any
+) -> dict[str, ToolExecutor]:
     """按 Agent 授权名构造执行器；未传 names 时保留旧的全量行为。"""
     from app.executors.http import builtin_tools
 
-    available: dict[str, ToolExecutor] = {executor.name: executor for executor in builtin_tools()}
+    available: dict[str, ToolExecutor] = {
+        executor.name: executor for executor in builtin_tools()
+    }
     available.update(sandbox_executors(**kwargs))
     if names is None:
         return available

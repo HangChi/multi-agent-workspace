@@ -29,8 +29,16 @@ interface ToastApi {
 const ToastContext = createContext<ToastApi | null>(null)
 
 const TONE: Record<ToastTone, { icon: IconName; iconClass: string; bar: string }> = {
-  success: { icon: 'check-circle', iconClass: 'text-emerald-600 dark:text-emerald-400', bar: 'bg-emerald-500' },
-  error: { icon: 'alert-circle', iconClass: 'text-rose-600 dark:text-rose-400', bar: 'bg-rose-500' },
+  success: {
+    icon: 'check-circle',
+    iconClass: 'text-emerald-600 dark:text-emerald-400',
+    bar: 'bg-emerald-500',
+  },
+  error: {
+    icon: 'alert-circle',
+    iconClass: 'text-rose-600 dark:text-rose-400',
+    bar: 'bg-rose-500',
+  },
   info: { icon: 'info', iconClass: 'text-accent', bar: 'bg-brand-500' },
 }
 
@@ -51,7 +59,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       const timer = window.setTimeout(() => dismiss(id), 3800)
       timers.current.push(timer)
     },
-    [dismiss],
+    [dismiss]
   )
 
   useEffect(() => {
@@ -82,7 +90,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               className="pointer-events-auto relative flex items-start gap-2.5 overflow-hidden rounded-xl border border-line/90 bg-surface p-3 pr-9 shadow-pop animate-slide-in-right"
             >
               <span className={cn('absolute inset-y-0 left-0 w-0.5', tone.bar)} />
-              <Icon name={tone.icon} className={cn('mt-px h-[18px] w-[18px] shrink-0', tone.iconClass)} />
+              <Icon
+                name={tone.icon}
+                className={cn('mt-px h-[18px] w-[18px] shrink-0', tone.iconClass)}
+              />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-ink">{item.title}</p>
                 {item.description && (

@@ -74,6 +74,7 @@ async def get_owned_resource(
         raise _forbidden()
     return resource
 
+
 def _resource_id(value: str) -> str:
     """资源 id 必须是 UUID：非法值应得到 4xx，而不是 SQL 层的类型错误 → 500。
 

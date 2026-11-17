@@ -60,11 +60,22 @@ async def list_audit_logs(
         filters.append(AuditLog.user_id == user_id)
     if action:
         filters.append(AuditLog.action == action)
-    total = int((await db.execute(select(func.count()).select_from(AuditLog).where(*filters))).scalar_one())
+    total = int(
+        (
+            await db.execute(select(func.count()).select_from(AuditLog).where(*filters))
+        ).scalar_one()
+    )
     rows = (
-        await db.execute(
-            select(AuditLog).where(*filters).order_by(AuditLog.created_at.desc())
-            .offset((page - 1) * page_size).limit(page_size)
+        (
+            await db.execute(
+                select(AuditLog)
+                .where(*filters)
+                .order_by(AuditLog.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return {"items": [AuditLogOut.model_validate(row) for row in rows], "total": total}

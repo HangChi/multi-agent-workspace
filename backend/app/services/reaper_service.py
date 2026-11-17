@@ -48,10 +48,14 @@ async def reap_stale_runs(
     """
     now = now or datetime.now(UTC)
     queued_before = now - timedelta(
-        minutes=queued_minutes if queued_minutes is not None else settings.stale_queued_minutes
+        minutes=queued_minutes
+        if queued_minutes is not None
+        else settings.stale_queued_minutes
     )
     running_before = now - timedelta(
-        minutes=running_minutes if running_minutes is not None else settings.stale_running_minutes
+        minutes=running_minutes
+        if running_minutes is not None
+        else settings.stale_running_minutes
     )
 
     stmt = select(Run).where(

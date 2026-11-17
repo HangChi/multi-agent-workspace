@@ -143,7 +143,7 @@ export function RegisterPage() {
                     key={i}
                     className={cn(
                       'h-1 flex-1 rounded-full transition-colors duration-200',
-                      i <= strength ? STRENGTH_STYLE[strength] : 'bg-line',
+                      i <= strength ? STRENGTH_STYLE[strength] : 'bg-line'
                     )}
                   />
                 ))}

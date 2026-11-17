@@ -72,7 +72,9 @@ async def load_active_members(db: AsyncSession, group_id: str) -> list[Agent]:
     if group is None:
         return []
     members = sorted(group.members, key=lambda m: m.position)
-    return [m.agent for m in members if m.agent is not None and m.agent.status == "active"]
+    return [
+        m.agent for m in members if m.agent is not None and m.agent.status == "active"
+    ]
 
 
 def _describe(members: list[Agent]) -> str:
@@ -120,7 +122,9 @@ async def route(
     index = _parse_index(response.content, len(members))
     if index is None:
         logger.warning(
-            "router_parse_failed", group_id=group_id[:8], raw=(response.content or "")[:60]
+            "router_parse_failed",
+            group_id=group_id[:8],
+            raw=(response.content or "")[:60],
         )
         return RoutingDecision(
             agent=members[0],

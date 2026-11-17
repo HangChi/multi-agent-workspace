@@ -41,7 +41,9 @@ class CredentialCipher:
 
     def decrypt(self, value: EncryptedCredential) -> str:
         try:
-            return self._fernet.decrypt(value.ciphertext.encode("ascii")).decode("utf-8")
+            return self._fernet.decrypt(value.ciphertext.encode("ascii")).decode(
+                "utf-8"
+            )
         except (InvalidToken, UnicodeDecodeError, ValueError) as exc:
             raise ValueError("credential decrypt failed") from exc
 

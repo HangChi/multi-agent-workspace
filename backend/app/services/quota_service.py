@@ -52,13 +52,10 @@ async def get_month_usage(db: AsyncSession, owner_id: str) -> int:
     Returns:
         int: 月用量（分），无记录为 0
     """
-    stmt = (
-        select(func.coalesce(func.sum(Run.cost_cents), 0))
-        .where(
-            Run.owner_id == owner_id,
-            Run.created_at >= _month_start_utc(),
-            Run.status != "cancelled",
-        )
+    stmt = select(func.coalesce(func.sum(Run.cost_cents), 0)).where(
+        Run.owner_id == owner_id,
+        Run.created_at >= _month_start_utc(),
+        Run.status != "cancelled",
     )
     return int((await db.execute(stmt)).scalar_one())
 

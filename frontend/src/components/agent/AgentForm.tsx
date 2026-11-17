@@ -11,7 +11,6 @@ import { cn } from '../ui/cn'
 import { EgressRules } from './EgressRules'
 import { ExternalToolGrants } from './ExternalToolGrants'
 
-
 export interface AgentFormValues {
   name: string
   description: string | null
@@ -82,9 +81,7 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
   const toggleTool = (tool: string) => {
     set(
       'tools',
-      values.tools.includes(tool)
-        ? values.tools.filter((t) => t !== tool)
-        : [...values.tools, tool],
+      values.tools.includes(tool) ? values.tools.filter((t) => t !== tool) : [...values.tools, tool]
     )
   }
 
@@ -152,7 +149,9 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
         rows={6}
         showCount
         maxLength={8000}
-        placeholder={'你是一个专业的代码审查助手。\n请从可读性、边界条件、安全隐患三个角度审查代码…'}
+        placeholder={
+          '你是一个专业的代码审查助手。\n请从可读性、边界条件、安全隐患三个角度审查代码…'
+        }
         hint="提示词里写清角色、输入输出格式与禁止事项，执行稳定性会明显提升"
         className="font-mono text-[13px] leading-relaxed"
       />
@@ -209,9 +208,11 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
         label="出网模式"
         value={values.egress_mode}
         onChange={(e) => set('egress_mode', e.target.value as 'default' | 'restricted')}
-        hint={values.egress_mode === 'default'
-          ? '默认允许访问公网，同时拦截内网和云元数据地址。'
-          : '仅允许下方已配置的 Agent 出站域名清单；内置黑名单始终生效。'}
+        hint={
+          values.egress_mode === 'default'
+            ? '默认允许访问公网，同时拦截内网和云元数据地址。'
+            : '仅允许下方已配置的 Agent 出站域名清单；内置黑名单始终生效。'
+        }
       >
         <option value="default">默认放行（内网黑名单强制拦截）</option>
         <option value="restricted">限制模式（按 Agent 域名白名单放行）</option>
@@ -246,12 +247,14 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:ring-offset-1',
                   active
                     ? 'border-brand-300 bg-brand-50 text-accent shadow-sm'
-                    : 'border-line bg-surface text-ink-muted hover:border-line-strong hover:bg-surface-muted hover:text-ink-soft',
+                    : 'border-line bg-surface text-ink-muted hover:border-line-strong hover:bg-surface-muted hover:text-ink-soft'
                 )}
               >
                 <Icon name={active ? 'check' : 'plus'} className="h-3 w-3" />
                 <span className="font-mono">{tool.name}</span>
-                <span className={cn('font-sans text-2xs', active ? 'text-brand-400' : 'text-ink-faint')}>
+                <span
+                  className={cn('font-sans text-2xs', active ? 'text-brand-400' : 'text-ink-faint')}
+                >
                   {tool.display_name}
                 </span>
               </button>

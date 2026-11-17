@@ -47,15 +47,28 @@ def _valid_tool(tool: Any) -> bool:
 
 def _tool_digest(tools: list[MCPTool]) -> str:
     definitions = [
-        {"name": item.name, "description": item.description, "input_schema": item.input_schema, "output_schema": item.output_schema}
+        {
+            "name": item.name,
+            "description": item.description,
+            "input_schema": item.input_schema,
+            "output_schema": item.output_schema,
+        }
         for item in tools
     ]
-    return hashlib.sha256(json.dumps(definitions, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps(
+            definitions, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode()
+    ).hexdigest()
 
 
-def _stable_name(server: ExternalToolServer, external_name: str, definition_hash: str) -> str:
+def _stable_name(
+    server: ExternalToolServer, external_name: str, definition_hash: str
+) -> str:
     prefix = re.sub(r"[^a-z0-9]+", "_", server.name.lower()).strip("_")[:40] or "server"
-    suffix = re.sub(r"[^a-zA-Z0-9_]+", "_", external_name).strip("_").lower()[:80] or "tool"
+    suffix = (
+        re.sub(r"[^a-zA-Z0-9_]+", "_", external_name).strip("_").lower()[:80] or "tool"
+    )
     return f"mcp_{prefix}_{suffix}_{definition_hash[:12]}"[:200]
 
 
@@ -97,17 +110,30 @@ async def validate_server(
         endpoint = mcp_security.validate_endpoint(server.endpoint_url)
         headers: dict[str, str] = {}
         if server.auth_mode != "none":
-            credential = (await db.execute(select(ExternalCredential).where(
-                ExternalCredential.server_id == server.id,
-                ExternalCredential.scope_owner_id == server.owner_id,
-                ExternalCredential.status == "active",
-            ).order_by(ExternalCredential.created_at.desc()))).scalars().first()
+            credential = (
+                (
+                    await db.execute(
+                        select(ExternalCredential)
+                        .where(
+                            ExternalCredential.server_id == server.id,
+                            ExternalCredential.scope_owner_id == server.owner_id,
+                            ExternalCredential.status == "active",
+                        )
+                        .order_by(ExternalCredential.created_at.desc())
+                    )
+                )
+                .scalars()
+                .first()
+            )
             if credential is None:
                 raise ValueError("credential unavailable")
             if credential.key_version != "v1":
                 raise ValueError("credential key version unavailable")
             from app.core.secrets import EncryptedCredential
-            secret = credential_cipher().decrypt(EncryptedCredential(credential.ciphertext, credential.key_version))
+
+            secret = credential_cipher().decrypt(
+                EncryptedCredential(credential.ciphertext, credential.key_version)
+            )
             value = f"Bearer {secret}" if credential.kind == "bearer" else secret
             headers[credential.header_name] = value
         async with client_factory(endpoint.url, headers=headers) as client:
@@ -118,7 +144,9 @@ async def validate_server(
         record.discovered_count = len(discovered)
         valid = [tool for tool in discovered if _valid_tool(tool)]
         record.valid_count = len(valid)
-        record.discovery_status = "passed" if len(valid) == len(discovered) else "partial"
+        record.discovery_status = (
+            "passed" if len(valid) == len(discovered) else "partial"
+        )
         record.definition_digest = _tool_digest(valid)
         drift_detected = bool(
             had_prior_digest
@@ -126,12 +154,19 @@ async def validate_server(
             and record.definition_digest != previous_digest
         )
         if drift_detected:
-            record.safe_error = "MCP tool definitions changed; reviewer approval is required"
+            record.safe_error = (
+                "MCP tool definitions changed; reviewer approval is required"
+            )
         discovered_versions: list[ExternalToolVersion] = []
         for tool in valid:
             definition_hash = hashlib.sha256(
                 json.dumps(
-                    [tool.name, tool.description, tool.input_schema, tool.output_schema],
+                    [
+                        tool.name,
+                        tool.description,
+                        tool.input_schema,
+                        tool.output_schema,
+                    ],
                     sort_keys=True,
                     default=str,
                 ).encode()
@@ -154,9 +189,9 @@ async def validate_server(
         existing_versions = set(
             (
                 await db.execute(
-                    select(ExternalToolVersion.external_name, ExternalToolVersion.version).where(
-                        ExternalToolVersion.server_id == server.id
-                    )
+                    select(
+                        ExternalToolVersion.external_name, ExternalToolVersion.version
+                    ).where(ExternalToolVersion.server_id == server.id)
                 )
             ).all()
         )
@@ -168,13 +203,17 @@ async def validate_server(
         record.status = "passed" if len(valid) == len(discovered) else "partial"
         if drift_detected:
             versions = (
-                await db.execute(
-                    select(ExternalToolVersion).where(
-                        ExternalToolVersion.server_id == server.id,
-                        ExternalToolVersion.availability == "valid",
+                (
+                    await db.execute(
+                        select(ExternalToolVersion).where(
+                            ExternalToolVersion.server_id == server.id,
+                            ExternalToolVersion.availability == "valid",
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             for old_version in versions:
                 old_version.availability = "stale"
             record.status = "partial"

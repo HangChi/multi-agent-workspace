@@ -34,7 +34,9 @@ AGENTS_URL = "/api/v1/agents"
 RUNS_URL = "/api/v1/runs"
 
 
-async def _create_agent(client, headers: dict, *, cost_limit_cents: int = 10000) -> dict:
+async def _create_agent(
+    client, headers: dict, *, cost_limit_cents: int = 10000
+) -> dict:
     resp = await client.post(
         AGENTS_URL,
         headers=headers,
@@ -108,11 +110,15 @@ def _fake_llm(monkeypatch: pytest.MonkeyPatch) -> ScriptedLLM:
         # 第 1 次：请求工具（搜索）
         LLMResponse(
             content="",
-            tool_calls=[ToolCall(name="web_search", arguments={"query": "腾讯云 2025 年报"})],
+            tool_calls=[
+                ToolCall(name="web_search", arguments={"query": "腾讯云 2025 年报"})
+            ],
             cost_cents=3,
         ),
         # 第 2 次：给出最终答案
-        LLMResponse(content="根据搜索结果，腾讯云 2025 年营收约 8000 亿元。", cost_cents=4),
+        LLMResponse(
+            content="根据搜索结果，腾讯云 2025 年营收约 8000 亿元。", cost_cents=4
+        ),
     ]
     fake = ScriptedLLM(responses)
     monkeypatch.setattr("app.tasks.execute_run.LiteLLMClient.chat", fake.chat)
@@ -177,12 +183,21 @@ async def test_terminal_state_is_not_visible_before_all_steps_are_committed(
     monkeypatch.setattr(ReActRunner, "run", observe_runner_return)
     await _load_and_execute(db_session, run_id, agent["id"])
     assert snapshots[0]["status"] == "completed"
-    assert [step["kind"] for step in snapshots[0]["steps"]] == ["llm", "tool", "llm", "final"]
+    assert [step["kind"] for step in snapshots[0]["steps"]] == [
+        "llm",
+        "tool",
+        "llm",
+        "final",
+    ]
     final = (await client.get(f"{RUNS_URL}/{run_id}", headers=headers)).json()
-    assert [step["id"] for step in final["steps"]] == [step["id"] for step in snapshots[0]["steps"]]
+    assert [step["id"] for step in final["steps"]] == [
+        step["id"] for step in snapshots[0]["steps"]
+    ]
 
 
-async def test_full_flow_assign_execute_complete(client, make_headers, db_session, _fake_llm):
+async def test_full_flow_assign_execute_complete(
+    client, make_headers, db_session, _fake_llm
+):
     """完整闭环：需求创建 → 拖拽分配（queued）→ 执行 → completed（SC-004）。"""
 
     headers = await make_headers(role="member")
@@ -212,10 +227,14 @@ async def test_full_flow_assign_execute_complete(client, make_headers, db_sessio
 
     # 6. steps 落库：llm → tool → llm → final
     rows = (
-        await db_session.execute(
-            select(Step).where(Step.run_id == run_id).order_by(Step.seq)
+        (
+            await db_session.execute(
+                select(Step).where(Step.run_id == run_id).order_by(Step.seq)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     kinds = [s.kind for s in rows]
     assert kinds == ["llm", "tool", "llm", "final"]
     assert rows[1].tool_name == "web_search"
@@ -286,7 +305,9 @@ async def test_full_flow_fail_then_retry_succeeds(
     assert run.current_step == 0
 
     # 第二次执行：换成正常脚本 → 完成
-    good_llm = ScriptedLLM([LLMResponse(content="重试成功，产出最终答案。", cost_cents=2)])
+    good_llm = ScriptedLLM(
+        [LLMResponse(content="重试成功，产出最终答案。", cost_cents=2)]
+    )
     monkeypatch.setattr("app.tasks.execute_run.LiteLLMClient.chat", good_llm.chat)
     run = await _load_and_execute(db_session, run_id, agent["id"])
     assert run.status == RunStatus.COMPLETED.value
@@ -331,12 +352,16 @@ async def test_full_flow_needs_input_then_reply(
 
     assert run.status == RunStatus.NEEDS_INPUT.value
     assert any(e["type"] == "needs_input" for e in events)
-    first_segment = (await client.get(f"{RUNS_URL}/{run_id}", headers=headers)).json()["steps"]
+    first_segment = (await client.get(f"{RUNS_URL}/{run_id}", headers=headers)).json()[
+        "steps"
+    ]
     assert first_segment, "needs_input 之前必须已经落库至少一个步骤"
 
     # reply 恢复
     resp = await client.post(
-        f"{RUNS_URL}/{run_id}/reply", headers=headers, json={"message": "客户名单：ABC 公司"}
+        f"{RUNS_URL}/{run_id}/reply",
+        headers=headers,
+        json={"message": "客户名单：ABC 公司"},
     )
     assert resp.status_code == 200
     assert resp.json()["status"] == "running"
@@ -360,4 +385,6 @@ async def test_full_flow_needs_input_then_reply(
     assert [step["id"] for step in first_segment] == kept_ids[: len(first_segment)]
     seqs = [step["seq"] for step in steps]
     assert seqs == sorted(seqs) and len(seqs) == len(set(seqs)), seqs
-    assert max(seqs) > max(step["seq"] for step in first_segment), "新步骤应从历史最大 seq 之后续写"
+    assert max(seqs) > max(step["seq"] for step in first_segment), (
+        "新步骤应从历史最大 seq 之后续写"
+    )

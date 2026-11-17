@@ -27,7 +27,15 @@ EXTERNAL_AUDIT_ACTIONS = frozenset(
         "external_tool_invocation",
     }
 )
-_SENSITIVE_KEYS = {"authorization", "token", "secret", "password", "credential", "api_key", "api-key"}
+_SENSITIVE_KEYS = {
+    "authorization",
+    "token",
+    "secret",
+    "password",
+    "credential",
+    "api_key",
+    "api-key",
+}
 
 
 def _safe_value(value: Any, *, key: str = "", depth: int = 0) -> Any:
@@ -36,7 +44,10 @@ def _safe_value(value: Any, *, key: str = "", depth: int = 0) -> Any:
     if any(marker in key.lower() for marker in _SENSITIVE_KEYS):
         return "[redacted]"
     if isinstance(value, dict):
-        return {str(k)[:80]: _safe_value(v, key=str(k), depth=depth + 1) for k, v in list(value.items())[:50]}
+        return {
+            str(k)[:80]: _safe_value(v, key=str(k), depth=depth + 1)
+            for k, v in list(value.items())[:50]
+        }
     if isinstance(value, (list, tuple)):
         return [_safe_value(item, depth=depth + 1) for item in value[:50]]
     if isinstance(value, str):
@@ -50,7 +61,9 @@ def payload_hash(value: Any) -> str:
     """Return a stable digest without persisting the original payload."""
     import json
 
-    serialized = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+    serialized = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str
+    )
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 

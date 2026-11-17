@@ -76,4 +76,6 @@ async def acquire_slot(
             return lease
         if asyncio.get_running_loop().time() >= deadline:
             return None
-        await asyncio.sleep(min(0.05, max(0.0, deadline - asyncio.get_running_loop().time())))
+        await asyncio.sleep(
+            min(0.05, max(0.0, deadline - asyncio.get_running_loop().time()))
+        )

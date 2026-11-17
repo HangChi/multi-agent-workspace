@@ -22,7 +22,9 @@ def _request_payload(**overrides: str) -> dict:
 
 
 async def _create_request(client, headers: dict, **overrides: str) -> dict:
-    resp = await client.post(REQUESTS_URL, headers=headers, json=_request_payload(**overrides))
+    resp = await client.post(
+        REQUESTS_URL, headers=headers, json=_request_payload(**overrides)
+    )
     assert resp.status_code == 201
     return resp.json()
 
@@ -157,7 +159,9 @@ async def test_list_requests_search(client, make_headers):
     """?q= 关键词过滤（标题/描述/期望产出）。"""
     headers = await make_headers(role="member")
     await _create_request(client, headers, title="payroll batch")
-    await _create_request(client, headers, title="inventory sync", description="daily stock")
+    await _create_request(
+        client, headers, title="inventory sync", description="daily stock"
+    )
     await _create_request(client, headers, title="unrelated")
 
     resp = await client.get(f"{REQUESTS_URL}?q=stock", headers=headers)
@@ -185,7 +189,9 @@ async def test_list_requests_pagination(client, make_headers):
 # ---------- 运行结果构成（混合结果不再只是个「失败」） ----------
 
 
-async def _add_run(db_session, request: dict, *, status: str, owner_id: str, index: int) -> None:
+async def _add_run(
+    db_session, request: dict, *, status: str, owner_id: str, index: int
+) -> None:
     from app.models.run import Run
 
     db_session.add(
@@ -202,18 +208,30 @@ async def _add_run(db_session, request: dict, *, status: str, owner_id: str, ind
     await db_session.commit()
 
 
-async def test_request_detail_exposes_the_run_outcome_mix(client, make_headers, db_session):
+async def test_request_detail_exposes_the_run_outcome_mix(
+    client, make_headers, db_session
+):
     """部分失败的需求仍判 failed，但构成要说清楚：3 完成 / 1 失败 / 1 取消。"""
     headers = await make_headers(role="member")
     request = await _create_request(client, headers)
     owner_id = request["owner_id"]
-    for index, status in enumerate(("completed", "completed", "completed", "failed", "cancelled")):
-        await _add_run(db_session, request, status=status, owner_id=owner_id, index=index)
+    for index, status in enumerate(
+        ("completed", "completed", "completed", "failed", "cancelled")
+    ):
+        await _add_run(
+            db_session, request, status=status, owner_id=owner_id, index=index
+        )
 
     detail = await client.get(f"{REQUESTS_URL}/{request['id']}", headers=headers)
     assert detail.status_code == 200
     summary = detail.json()["runs_summary"]
-    assert summary == {"total": 5, "completed": 3, "failed": 1, "cancelled": 1, "active": 0}
+    assert summary == {
+        "total": 5,
+        "completed": 3,
+        "failed": 1,
+        "cancelled": 1,
+        "active": 0,
+    }
 
 
 async def test_list_requests_carries_the_same_summary(client, make_headers, db_session):
@@ -227,7 +245,11 @@ async def test_list_requests_carries_the_same_summary(client, make_headers, db_s
     items = (await client.get(REQUESTS_URL, headers=headers)).json()["items"]
     mine = next(item for item in items if item["id"] == request["id"])
     assert mine["runs_summary"] == {
-        "total": 1, "completed": 0, "failed": 0, "cancelled": 0, "active": 1,
+        "total": 1,
+        "completed": 0,
+        "failed": 0,
+        "cancelled": 0,
+        "active": 1,
     }
 
 

@@ -15,7 +15,9 @@ from app.models.user import User
 from app.services.request_service import settle_request_status
 
 
-async def _request_with_runs(db_session, statuses: list[str], request_status: str = "running") -> Request:
+async def _request_with_runs(
+    db_session, statuses: list[str], request_status: str = "running"
+) -> Request:
     owner = User(
         email=f"settle-{uuid.uuid4().hex[:8]}@test.com",
         password_hash="x",
@@ -80,7 +82,9 @@ async def test_cancellation_wins_over_completion_but_loses_to_failure(db_session
 async def test_a_settled_or_unassigned_request_is_never_rewritten(db_session):
     """只收敛 running 的需求：reaper 的判定和未分配的卡片都不能被覆盖。"""
     for status in ("completed", "failed", "cancelled", "created", "assigned"):
-        request = await _request_with_runs(db_session, ["failed"], request_status=status)
+        request = await _request_with_runs(
+            db_session, ["failed"], request_status=status
+        )
         assert await settle_request_status(db_session, request.id) is None
         await db_session.commit()
         await db_session.refresh(request)

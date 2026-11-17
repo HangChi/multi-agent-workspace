@@ -63,7 +63,10 @@ CATALOG: dict[str, ToolSpec] = {
         param_schema={
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "搜索关键词（中文/英文均可）"}
+                "query": {
+                    "type": "string",
+                    "description": "搜索关键词（中文/英文均可）",
+                }
             },
             "required": ["query"],
         },
@@ -80,7 +83,10 @@ CATALOG: dict[str, ToolSpec] = {
         param_schema={
             "type": "object",
             "properties": {
-                "url": {"type": "string", "description": "完整网址，如 https://example.com/post"}
+                "url": {
+                    "type": "string",
+                    "description": "完整网址，如 https://example.com/post",
+                }
             },
             "required": ["url"],
         },

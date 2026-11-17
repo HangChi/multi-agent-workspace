@@ -59,7 +59,9 @@ class MCPClient:
         self._next_id = 0
         self._initialized = False
         self.max_response_bytes = max_response_bytes or settings.mcp_max_response_bytes
-        self.handshake_timeout = handshake_timeout or settings.mcp_handshake_timeout_seconds
+        self.handshake_timeout = (
+            handshake_timeout or settings.mcp_handshake_timeout_seconds
+        )
         self.call_timeout = call_timeout or settings.mcp_call_timeout_seconds
 
     async def __aenter__(self) -> Self:
@@ -67,7 +69,9 @@ class MCPClient:
             self._owned_http = httpx.AsyncClient(
                 follow_redirects=False,
                 timeout=httpx.Timeout(self.call_timeout),
-                limits=httpx.Limits(max_connections=settings.mcp_max_concurrency_per_server),
+                limits=httpx.Limits(
+                    max_connections=settings.mcp_max_concurrency_per_server
+                ),
             )
             self._http = self._owned_http
         return self
@@ -82,9 +86,17 @@ class MCPClient:
         self._next_id += 1
         return self._next_id
 
-    async def _request(self, method: str, params: dict[str, Any] | None = None, *, timeout: float | None = None) -> dict[str, Any]:
+    async def _request(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        *,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
         if self._http is None:
-            raise MCPTransportError("MCP client must be used as an async context manager or receive an HTTP client")
+            raise MCPTransportError(
+                "MCP client must be used as an async context manager or receive an HTTP client"
+            )
         message: dict[str, Any] = {"jsonrpc": "2.0", "id": self._id(), "method": method}
         if params is not None:
             message["params"] = params
@@ -106,12 +118,16 @@ class MCPClient:
                 response.raise_for_status()
                 content_length = response.headers.get("content-length")
                 if content_length and int(content_length) > self.max_response_bytes:
-                    raise MCPTransportError("MCP server response exceeded the size limit")
+                    raise MCPTransportError(
+                        "MCP server response exceeded the size limit"
+                    )
                 body = bytearray()
                 async for chunk in response.aiter_bytes():
                     body.extend(chunk)
                     if len(body) > self.max_response_bytes:
-                        raise MCPTransportError("MCP server response exceeded the size limit")
+                        raise MCPTransportError(
+                            "MCP server response exceeded the size limit"
+                        )
         except MCPTransportError:
             raise
         except (httpx.TimeoutException, TimeoutError):
@@ -132,7 +148,11 @@ class MCPClient:
             raise MCPProtocolError("MCP server returned an invalid JSON-RPC envelope")
         if payload.get("error") is not None:
             error = payload.get("error")
-            message_text = error.get("message", "protocol error") if isinstance(error, dict) else "protocol error"
+            message_text = (
+                error.get("message", "protocol error")
+                if isinstance(error, dict)
+                else "protocol error"
+            )
             raise MCPProtocolError(str(message_text)[:200])
         result = payload.get("result")
         if not isinstance(result, dict):
@@ -179,20 +199,35 @@ class MCPClient:
         seen: set[str] = set()
         while True:
             params = {"cursor": cursor} if cursor else None
-            result = await self._request("tools/list", params, timeout=self.handshake_timeout)
+            result = await self._request(
+                "tools/list", params, timeout=self.handshake_timeout
+            )
             page = result.get("tools")
             if not isinstance(page, list):
                 raise MCPProtocolError("MCP tools/list result is missing tools")
             for raw in page:
-                if not isinstance(raw, dict) or not isinstance(raw.get("name"), str) or not raw.get("name"):
+                if (
+                    not isinstance(raw, dict)
+                    or not isinstance(raw.get("name"), str)
+                    or not raw.get("name")
+                ):
                     raise MCPProtocolError("MCP tool definition is missing a name")
                 name = raw["name"]
                 if name in seen:
                     raise MCPProtocolError(f"duplicate MCP tool name: {name}")
-                if not isinstance(raw.get("description"), str) or not isinstance(raw.get("inputSchema"), dict):
+                if not isinstance(raw.get("description"), str) or not isinstance(
+                    raw.get("inputSchema"), dict
+                ):
                     raise MCPProtocolError(f"MCP tool definition is incomplete: {name}")
                 seen.add(name)
-                tools.append(MCPTool(name=name, description=raw["description"][:4000], input_schema=raw["inputSchema"], output_schema=raw.get("outputSchema")))
+                tools.append(
+                    MCPTool(
+                        name=name,
+                        description=raw["description"][:4000],
+                        input_schema=raw["inputSchema"],
+                        output_schema=raw.get("outputSchema"),
+                    )
+                )
                 if len(tools) > settings.mcp_max_tools_per_server:
                     raise MCPProtocolError("MCP server returned too many tools")
             next_cursor = result.get("nextCursor")
@@ -202,10 +237,14 @@ class MCPClient:
                 raise MCPProtocolError("MCP tools/list pagination cursor is invalid")
             cursor = next_cursor
 
-    async def call_tool(self, name: str, arguments: dict[str, Any], *, timeout: float | None = None) -> dict[str, Any]:
+    async def call_tool(
+        self, name: str, arguments: dict[str, Any], *, timeout: float | None = None
+    ) -> dict[str, Any]:
         if not self._initialized:
             raise MCPProtocolError("MCP client is not initialized")
-        result = await self._request("tools/call", {"name": name, "arguments": arguments}, timeout=timeout)
+        result = await self._request(
+            "tools/call", {"name": name, "arguments": arguments}, timeout=timeout
+        )
         if result.get("isError") is True:
             raise MCPToolError("MCP tool returned an error")
         return result
@@ -216,7 +255,11 @@ class MCPClient:
         try:
             await self._http.post(
                 self.endpoint,
-                json={"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": request_id, "reason": "run cancelled"}},
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "notifications/cancelled",
+                    "params": {"requestId": request_id, "reason": "run cancelled"},
+                },
                 headers={
                     "Accept": "application/json, text/event-stream",
                     "Content-Type": "application/json",

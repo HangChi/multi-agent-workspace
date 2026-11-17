@@ -30,14 +30,23 @@ class Run(Base):
         Index("ix_runs_parent_sequence", "parent_run_id", "sequence"),
     )
 
-    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=new_uuid)
+    id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), primary_key=True, default=new_uuid
+    )
     request_id: Mapped[str] = mapped_column(ForeignKey("requests.id"), nullable=False)
-    parent_run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id"), nullable=True)
-    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
-    assignee_type: Mapped[str] = mapped_column(Enum("agent", "group", name="run_assignee_type"), nullable=False)
+    parent_run_id: Mapped[str | None] = mapped_column(
+        ForeignKey("runs.id"), nullable=True
+    )
+    owner_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
+    assignee_type: Mapped[str] = mapped_column(
+        Enum("agent", "group", name="run_assignee_type"), nullable=False
+    )
     assignee_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), nullable=False)
     strategy: Mapped[str] = mapped_column(
-        Enum("direct", "fan_out", "pipeline", "router", name="run_strategy"), nullable=False
+        Enum("direct", "fan_out", "pipeline", "router", name="run_strategy"),
+        nullable=False,
     )
     status: Mapped[str] = mapped_column(
         Enum(
@@ -60,23 +69,36 @@ class Run(Base):
     )
     # Assignment-time grants (router: first member selection). NULL means legacy
     # history was not recorded, not that the run had no tools. Never reset on retry.
-    tool_grants_snapshot: Mapped[list[str] | None] = mapped_column(JSON(none_as_null=True), nullable=True)
+    tool_grants_snapshot: Mapped[list[str] | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     # needs_input 挂起时的用户回复（FR-021）：reply 端点写入，恢复执行时注入对话上下文
     user_reply: Mapped[str | None] = mapped_column(Text, nullable=True)
     cost_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
     request = relationship("Request", back_populates="runs")
     owner = relationship("User", back_populates="runs")
     steps = relationship("Step", back_populates="run", cascade="all, delete-orphan")
-    artifacts = relationship("Artifact", back_populates="run", cascade="all, delete-orphan")
+    artifacts = relationship(
+        "Artifact", back_populates="run", cascade="all, delete-orphan"
+    )
     parent_run = relationship("Run", remote_side=[id], back_populates="child_runs")
     child_runs = relationship("Run", back_populates="parent_run")
 

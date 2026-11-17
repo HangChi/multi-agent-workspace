@@ -36,5 +36,8 @@ class Tool(Base):
     # 单次调用上限。sandbox 类会被执行配额覆盖（取两者较小值）。
     timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )

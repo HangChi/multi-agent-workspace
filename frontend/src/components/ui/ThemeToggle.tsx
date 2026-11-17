@@ -24,7 +24,7 @@ export function ThemeToggle({ className }: { className?: string }) {
       panelClassName="w-44"
       triggerClassName={cn(
         'h-8 w-8 justify-center border border-line bg-surface text-ink-muted hover:bg-surface-subtle hover:text-ink',
-        className,
+        className
       )}
       trigger={<Icon name={current.icon} className="h-4 w-4" />}
     >
@@ -41,7 +41,7 @@ export function ThemeToggle({ className }: { className?: string }) {
               'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors',
               active
                 ? 'bg-brand-50 font-medium text-accent'
-                : 'text-ink-soft hover:bg-surface-subtle',
+                : 'text-ink-soft hover:bg-surface-subtle'
             )}
           >
             <Icon name={m.icon} className="h-4 w-4 shrink-0 opacity-80" />

@@ -38,7 +38,9 @@ def _attachment_payload(**overrides) -> dict:
     return payload
 
 
-async def _upload_attachment(client, headers: dict, request_id: str, **overrides) -> dict:
+async def _upload_attachment(
+    client, headers: dict, request_id: str, **overrides
+) -> dict:
     resp = await client.post(
         f"{REQUESTS_URL}/{request_id}/attachments",
         headers=headers,
@@ -66,7 +68,9 @@ async def test_upload_returns_policy_and_can_post(client, make_headers):
     headers = await make_headers(role="member")
     req = await _create_request(client, headers)
 
-    body = await _upload_attachment(client, headers, req["id"], filename="notes.txt", size=64)
+    body = await _upload_attachment(
+        client, headers, req["id"], filename="notes.txt", size=64
+    )
     att = body["attachments"][0]
     assert att["name"] == "notes.txt"
     assert att["size"] == 64
@@ -103,7 +107,11 @@ async def test_object_store_enforces_size_limit(client, make_headers):
     # 声明一个很小的 size（应用层校验通过），实际传超限内容
     att = (
         await _upload_attachment(
-            client, headers, req["id"], filename="sneaky.bin", size=10,
+            client,
+            headers,
+            req["id"],
+            filename="sneaky.bin",
+            size=10,
             mime_type="application/zip",
         )
     )["attachments"][0]
@@ -165,7 +173,9 @@ async def test_download_returns_presigned_get_url(client, make_headers):
     """下载 → 302 到预签名 GET URL，可真实 GET 回内容。"""
     headers = await make_headers(role="member")
     req = await _create_request(client, headers)
-    body = await _upload_attachment(client, headers, req["id"], filename="dl.txt", size=32)
+    body = await _upload_attachment(
+        client, headers, req["id"], filename="dl.txt", size=32
+    )
     att = body["attachments"][0]
 
     # 先上传内容

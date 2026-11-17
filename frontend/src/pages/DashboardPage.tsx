@@ -51,7 +51,12 @@ function StatCard({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-xs font-medium text-ink-muted">{label}</p>
-          <p className={cn('mt-1.5 text-2xl font-semibold tabular-nums tracking-tight', TONE_TEXT[tone])}>
+          <p
+            className={cn(
+              'mt-1.5 text-2xl font-semibold tabular-nums tracking-tight',
+              TONE_TEXT[tone]
+            )}
+          >
             {value}
           </p>
         </div>
@@ -92,7 +97,10 @@ function CostTrend({ data }: { data: number[] }) {
 
       <div className="relative mt-5 h-40">
         {/* 网格线 */}
-        <div aria-hidden="true" className="absolute inset-x-0 top-0 bottom-6 flex flex-col justify-between">
+        <div
+          aria-hidden="true"
+          className="absolute inset-x-0 top-0 bottom-6 flex flex-col justify-between"
+        >
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="border-t border-dashed border-line-subtle" />
           ))}
@@ -109,7 +117,7 @@ function CostTrend({ data }: { data: number[] }) {
                       'w-full rounded-t-md transition-all duration-200',
                       v > 0
                         ? 'bg-gradient-to-t from-brand-500 to-brand-400 group-hover:from-brand-600 group-hover:to-brand-500'
-                        : 'bg-line',
+                        : 'bg-line'
                     )}
                     style={{ height: `${pct}%` }}
                   />
@@ -203,12 +211,11 @@ function CostCard({ cents, trend }: { cents: number; trend: number[] }) {
               <span
                 className={cn(
                   'inline-flex items-center gap-0.5 font-medium',
-                  delta > 0 ? 'text-rose-600' : 'text-emerald-600',
+                  delta > 0 ? 'text-rose-600' : 'text-emerald-600'
                 )}
               >
                 <Icon name={delta > 0 ? 'arrow-up' : 'arrow-down'} className="h-3 w-3" />
-                {Math.abs(delta)}%
-                <span className="font-normal text-ink-faint">较昨日</span>
+                {Math.abs(delta)}%<span className="font-normal text-ink-faint">较昨日</span>
               </span>
             )}
           </p>
@@ -299,7 +306,11 @@ export function DashboardPage() {
     return (
       <Page>
         {header}
-        <ErrorBanner error={error ?? '统计加载失败'} retry={() => void refetch()} className="mt-0" />
+        <ErrorBanner
+          error={error ?? '统计加载失败'}
+          retry={() => void refetch()}
+          className="mt-0"
+        />
       </Page>
     )
   }

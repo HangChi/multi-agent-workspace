@@ -31,7 +31,9 @@ class LLM:
 
     async def chat(self, _messages, **_kwargs):
         self.calls += 1
-        return Response(tool_calls=[ToolCall("mcp_fixture_lookup_ab12", {"query": "x"})])
+        return Response(
+            tool_calls=[ToolCall("mcp_fixture_lookup_ab12", {"query": "x"})]
+        )
 
 
 class ExternalFailureExecutor:
@@ -40,7 +42,10 @@ class ExternalFailureExecutor:
     version = "1.0.0"
 
     def schema(self):
-        return {"type": "function", "function": {"name": self.name, "parameters": {"type": "object"}}}
+        return {
+            "type": "function",
+            "function": {"name": self.name, "parameters": {"type": "object"}},
+        }
 
     async def execute(self, _arguments):
         raise ExternalToolExecutionError("auth_error", "safe auth failure")
@@ -70,7 +75,9 @@ class Run:
 @pytest.mark.asyncio
 async def test_external_tool_failure_fails_run_without_llm_success_or_raw_error():
     llm = LLM()
-    runner = ReActRunner(llm=llm, executors={"mcp_fixture_lookup_ab12": ExternalFailureExecutor()})
+    runner = ReActRunner(
+        llm=llm, executors={"mcp_fixture_lookup_ab12": ExternalFailureExecutor()}
+    )
     run = Run()
     steps, events = [], []
 
@@ -107,7 +114,10 @@ async def test_external_tool_failure_fails_run_without_llm_success_or_raw_error(
 
 class ExternalSuccessExecutor(ExternalFailureExecutor):
     async def execute(self, _arguments):
-        return {"content": [{"type": "text", "text": "sensitive remote output"}], "result_truncated": False}
+        return {
+            "content": [{"type": "text", "text": "sensitive remote output"}],
+            "result_truncated": False,
+        }
 
 
 @pytest.mark.asyncio
@@ -121,11 +131,17 @@ async def test_external_tool_raw_arguments_and_results_are_not_persisted_or_emit
             self.messages.append(_messages)
             self.calls += 1
             if self.calls == 1:
-                return Response(tool_calls=[ToolCall("mcp_fixture_lookup_ab12", {"query": "private query"})])
+                return Response(
+                    tool_calls=[
+                        ToolCall("mcp_fixture_lookup_ab12", {"query": "private query"})
+                    ]
+                )
             return Response(content="done")
 
     llm = SuccessLLM()
-    runner = ReActRunner(llm=llm, executors={"mcp_fixture_lookup_ab12": ExternalSuccessExecutor()})
+    runner = ReActRunner(
+        llm=llm, executors={"mcp_fixture_lookup_ab12": ExternalSuccessExecutor()}
+    )
     run = Run()
     steps, events = [], []
 
@@ -153,7 +169,9 @@ async def test_external_tool_raw_arguments_and_results_are_not_persisted_or_emit
     assert "sensitive remote output" not in str(steps)
     assert "private query" not in str(events)
     assert "sensitive remote output" not in str(events)
-    assert "sensitive remote output" in str(llm.messages[1])  # Model context may receive bounded output.
+    assert "sensitive remote output" in str(
+        llm.messages[1]
+    )  # Model context may receive bounded output.
 
 
 class ExternalCancelledExecutor(ExternalFailureExecutor):

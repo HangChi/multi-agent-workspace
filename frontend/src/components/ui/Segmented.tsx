@@ -35,7 +35,7 @@ export function SegmentedControl<T extends string>({
       aria-label={ariaLabel}
       className={cn(
         'inline-flex items-center gap-0.5 rounded-lg border border-line bg-surface-subtle/80 p-0.5',
-        className,
+        className
       )}
     >
       {options.map((opt) => {
@@ -51,7 +51,7 @@ export function SegmentedControl<T extends string>({
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
               active
                 ? 'bg-surface text-accent shadow-sm ring-1 ring-line/60'
-                : 'text-ink-muted hover:text-ink',
+                : 'text-ink-muted hover:text-ink'
             )}
           >
             {opt.icon && <Icon name={opt.icon} className="h-3.5 w-3.5" />}
@@ -94,7 +94,11 @@ export function OptionCards<T extends string>({
         : 'sm:grid-cols-2 lg:grid-cols-4'
 
   return (
-    <div role="radiogroup" aria-label={name} className={cn('grid grid-cols-1 gap-2', grid, className)}>
+    <div
+      role="radiogroup"
+      aria-label={name}
+      className={cn('grid grid-cols-1 gap-2', grid, className)}
+    >
       {options.map((opt) => {
         const active = opt.value === value
         return (
@@ -109,7 +113,7 @@ export function OptionCards<T extends string>({
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:ring-offset-1',
               active
                 ? 'border-brand-400 bg-brand-50/70 ring-1 ring-brand-500/20'
-                : 'border-line bg-surface hover:border-line-strong hover:bg-surface-muted',
+                : 'border-line bg-surface hover:border-line-strong hover:bg-surface-muted'
             )}
           >
             {opt.icon && (
@@ -118,7 +122,7 @@ export function OptionCards<T extends string>({
                   'mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md ring-1 ring-inset transition-colors',
                   active
                     ? 'bg-surface text-accent ring-brand-200'
-                    : 'bg-surface-muted text-ink-faint ring-line/70 group-hover:text-ink-soft',
+                    : 'bg-surface-muted text-ink-faint ring-line/70 group-hover:text-ink-soft'
                 )}
               >
                 <Icon name={opt.icon} className="h-3.5 w-3.5" />
@@ -126,10 +130,7 @@ export function OptionCards<T extends string>({
             )}
             <span className="min-w-0 flex-1">
               <span
-                className={cn(
-                  'block text-sm font-medium',
-                  active ? 'text-accent' : 'text-ink',
-                )}
+                className={cn('block text-sm font-medium', active ? 'text-accent' : 'text-ink')}
               >
                 {opt.label}
               </span>

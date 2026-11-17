@@ -52,22 +52,35 @@ def _executor(http: httpx.AsyncClient, *, scenario: str = "normal", **overrides)
 
 @pytest.mark.asyncio
 async def test_fixture_server_success_and_protocol_discovery():
-    async with httpx.AsyncClient(transport=_transport("normal")) as http, MCPClient("https://fixture.example.test/rpc", http_client=http) as client:
+    async with (
+        httpx.AsyncClient(transport=_transport("normal")) as http,
+        MCPClient("https://fixture.example.test/rpc", http_client=http) as client,
+    ):
         await client.initialize()
         tools = await client.list_tools()
-        assert [tool.name for tool in tools] == ["search", "slow_search", "error_search"]
+        assert [tool.name for tool in tools] == [
+            "search",
+            "slow_search",
+            "error_search",
+        ]
         result = await client.call_tool("search", {"query": "fixture"})
         assert result["isError"] is False
 
 
 @pytest.mark.asyncio
 async def test_fixture_server_classifies_tool_protocol_and_bound_failures():
-    async with httpx.AsyncClient(transport=_transport("tool-error")) as http, MCPClient("https://fixture.example.test/rpc", http_client=http) as client:
+    async with (
+        httpx.AsyncClient(transport=_transport("tool-error")) as http,
+        MCPClient("https://fixture.example.test/rpc", http_client=http) as client,
+    ):
         await client.initialize()
         with pytest.raises(MCPToolError):
             await client.call_tool("error_search", {})
 
-    async with httpx.AsyncClient(transport=_transport("malformed")) as http, MCPClient("https://fixture.example.test/rpc", http_client=http) as client:
+    async with (
+        httpx.AsyncClient(transport=_transport("malformed")) as http,
+        MCPClient("https://fixture.example.test/rpc", http_client=http) as client,
+    ):
         await client.initialize()
         with pytest.raises(MCPProtocolError):
             await client.list_tools()
@@ -174,7 +187,11 @@ async def test_fixture_successful_tool_result_continues_the_existing_runner():
         async def chat(self, _messages, **_kwargs):
             self.calls += 1
             if self.calls == 1:
-                return Response(tool_calls=[ToolCall("mcp_fixture_search_a1b2", {"query": "fixture"})])
+                return Response(
+                    tool_calls=[
+                        ToolCall("mcp_fixture_search_a1b2", {"query": "fixture"})
+                    ]
+                )
             return Response(content="fixture result consumed")
 
     @dataclass

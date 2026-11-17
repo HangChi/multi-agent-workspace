@@ -30,7 +30,9 @@ async def test_run_summary_and_execution_detail_are_split(
     execution.finished_at = execution.created_at
     await db_session.commit()
 
-    summary_response = await client.get(f"{RUNS_URL}/{execution.run_id}", headers=headers)
+    summary_response = await client.get(
+        f"{RUNS_URL}/{execution.run_id}", headers=headers
+    )
     assert summary_response.status_code == 200, summary_response.text
     body = summary_response.json()
     assert body["executions"] == [
@@ -88,7 +90,9 @@ async def test_execution_detail_does_not_misattribute_artifact_truncation(
     headers = await make_headers(user=owner)
     execution = await sandbox_factory(owner=owner, status="ok", exit_code=0)
     step = await db_session.get(Step, execution.step_id)
-    output = {"artifact_truncated": {"reason": "files", "message": "different execution"}}
+    output = {
+        "artifact_truncated": {"reason": "files", "message": "different execution"}
+    }
     if output_kind == "other_execution":
         output["execution_id"] = str(uuid.uuid4())
     step.output = None if output_kind == "legacy" else output

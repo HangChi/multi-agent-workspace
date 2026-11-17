@@ -57,7 +57,9 @@ async def _run(args: argparse.Namespace) -> None:
         )
         db.add(invite)
         await db.commit()
-        print(f"邀请码: {code} (role={args.invite_role}, max_uses={args.invite_max_uses})")
+        print(
+            f"邀请码: {code} (role={args.invite_role}, max_uses={args.invite_max_uses})"
+        )
 
 
 def main() -> None:

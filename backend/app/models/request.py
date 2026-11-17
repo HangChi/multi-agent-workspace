@@ -14,23 +14,42 @@ class Request(Base):
 
     __tablename__ = "requests"
 
-    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=new_uuid)
-    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), primary_key=True, default=new_uuid
+    )
+    owner_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     expected_output: Mapped[str | None] = mapped_column(Text, nullable=True)
     priority: Mapped[str] = mapped_column(
-        Enum("high", "normal", "low", name="request_priority"), nullable=False, default="normal"
+        Enum("high", "normal", "low", name="request_priority"),
+        nullable=False,
+        default="normal",
     )
     status: Mapped[str] = mapped_column(
-        Enum("created", "assigned", "running", "completed", "failed", "cancelled", name="request_status"),
+        Enum(
+            "created",
+            "assigned",
+            "running",
+            "completed",
+            "failed",
+            "cancelled",
+            name="request_status",
+        ),
         nullable=False,
         default="created",
     )
     attachments: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
     owner = relationship("User", back_populates="requests")

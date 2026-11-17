@@ -15,7 +15,9 @@ _MIN_INVITE_CODE_LEN = 12
 class Settings(BaseSettings):
     """全局配置，从环境变量读取。"""
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     # 基础
     app_name: str = "agent-workbench"
@@ -23,7 +25,9 @@ class Settings(BaseSettings):
     log_level: str = "info"
 
     # 数据库（默认对齐 deploy/docker-compose.yml 的本地开发配置）
-    database_url: str = "postgresql+asyncpg://aw:aw-dev-password@localhost:5432/agent_workbench"
+    database_url: str = (
+        "postgresql+asyncpg://aw:aw-dev-password@localhost:5432/agent_workbench"
+    )
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
@@ -155,7 +159,9 @@ class Settings(BaseSettings):
 
     @property
     def allowed_attachment_type_list(self) -> list[str]:
-        return [t.strip() for t in self.allowed_attachment_types.split(",") if t.strip()]
+        return [
+            t.strip() for t in self.allowed_attachment_types.split(",") if t.strip()
+        ]
 
     @property
     def sbx_allowed_image_list(self) -> list[str]:
@@ -163,7 +169,9 @@ class Settings(BaseSettings):
 
     @property
     def egress_builtin_blacklist_list(self) -> list[str]:
-        return [c.strip() for c in self.egress_builtin_blacklist.split(",") if c.strip()]
+        return [
+            c.strip() for c in self.egress_builtin_blacklist.split(",") if c.strip()
+        ]
 
     @property
     def is_production(self) -> bool:
@@ -237,11 +245,20 @@ class Settings(BaseSettings):
             return self
 
         problems: list[str] = []
-        if self.jwt_secret in _WEAK_DEFAULT_SECRETS or len(self.jwt_secret) < _MIN_JWT_SECRET_LEN:
+        if (
+            self.jwt_secret in _WEAK_DEFAULT_SECRETS
+            or len(self.jwt_secret) < _MIN_JWT_SECRET_LEN
+        ):
             problems.append(f"JWT_SECRET（需 ≥{_MIN_JWT_SECRET_LEN} 字符且非默认值）")
-        if self.invite_code in _WEAK_DEFAULT_SECRETS or len(self.invite_code) < _MIN_INVITE_CODE_LEN:
+        if (
+            self.invite_code in _WEAK_DEFAULT_SECRETS
+            or len(self.invite_code) < _MIN_INVITE_CODE_LEN
+        ):
             problems.append(f"INVITE_CODE（需 ≥{_MIN_INVITE_CODE_LEN} 字符且非默认值）")
-        if self.mcp_credential_key == "dev-only-mcp-credential-key-change-me" or len(self.mcp_credential_key) < 32:
+        if (
+            self.mcp_credential_key == "dev-only-mcp-credential-key-change-me"
+            or len(self.mcp_credential_key) < 32
+        ):
             problems.append("MCP_CREDENTIAL_KEY（需 ≥32 字符且非默认值）")
         if problems:
             raise ValueError(

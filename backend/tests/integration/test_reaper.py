@@ -154,7 +154,9 @@ async def test_ignores_terminal_runs(db_session, status: str):
     """终态 Run 永不被回收（幂等，不覆盖已有结果）。"""
     user = await _user(db_session)
     req = await _request(db_session, user)
-    old = await _run(db_session, req, user, status=status, age_minutes=500, started=True)
+    old = await _run(
+        db_session, req, user, status=status, age_minutes=500, started=True
+    )
 
     reaped = await reap_stale_runs(db_session)
     await db_session.commit()

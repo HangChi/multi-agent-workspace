@@ -43,7 +43,9 @@ async def register_refresh_token(jti: str, user_id: str, ttl_seconds: int) -> No
     try:
         await client.set(_key(jti), user_id, ex=max(ttl_seconds, 1))
     except Exception as exc:  # noqa: BLE001 - 存储不可用不应阻断登录
-        logger.warning("refresh_store_unavailable", op="register", error=type(exc).__name__)
+        logger.warning(
+            "refresh_store_unavailable", op="register", error=type(exc).__name__
+        )
     finally:
         await client.aclose()
 
@@ -71,7 +73,9 @@ async def consume_refresh_token(jti: str, *, grace_seconds: int = 0) -> bool:
             await client.set(_grace_key(jti), "1", ex=grace_seconds)
         return True
     except Exception as exc:  # noqa: BLE001
-        logger.warning("refresh_store_unavailable", op="consume", error=type(exc).__name__)
+        logger.warning(
+            "refresh_store_unavailable", op="consume", error=type(exc).__name__
+        )
         return True
     finally:
         await client.aclose()
@@ -91,7 +95,9 @@ async def revoke_all_refresh_tokens(user_id: str) -> int:
                 await client.delete(key)
                 revoked += 1
     except Exception as exc:  # noqa: BLE001
-        logger.warning("refresh_store_unavailable", op="revoke", error=type(exc).__name__)
+        logger.warning(
+            "refresh_store_unavailable", op="revoke", error=type(exc).__name__
+        )
     finally:
         await client.aclose()
     return revoked

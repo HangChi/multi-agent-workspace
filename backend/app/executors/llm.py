@@ -131,8 +131,16 @@ class LiteLLMClient:
             # litellm 返回 ChatCompletionMessageToolCall 对象（非 dict）：
             # function 可能是对象或 dict，arguments 可能是 dict 或 JSON 字符串
             fn = tc.get("function") or {}
-            name = fn.get("name", "") if isinstance(fn, dict) else getattr(fn, "name", "") or ""
-            raw_args = fn.get("arguments") if isinstance(fn, dict) else getattr(fn, "arguments", "")
+            name = (
+                fn.get("name", "")
+                if isinstance(fn, dict)
+                else getattr(fn, "name", "") or ""
+            )
+            raw_args = (
+                fn.get("arguments")
+                if isinstance(fn, dict)
+                else getattr(fn, "arguments", "")
+            )
             if isinstance(raw_args, str):
                 try:
                     parsed = json.loads(raw_args)

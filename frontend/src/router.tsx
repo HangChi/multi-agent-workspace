@@ -21,33 +21,23 @@ import { useAuth } from './hooks/useAuth'
  * ⚠️ React.lazy 的默认导出要求：用 `.then(m => ({ default: m.XxxPage }))`
  * 适配命名导出，别为了偷懒去改各页面的导出形式。
  */
-const LoginPage = lazy(() =>
-  import('./pages/LoginPage').then((m) => ({ default: m.LoginPage })),
-)
+const LoginPage = lazy(() => import('./pages/LoginPage').then((m) => ({ default: m.LoginPage })))
 const RegisterPage = lazy(() =>
-  import('./pages/RegisterPage').then((m) => ({ default: m.RegisterPage })),
+  import('./pages/RegisterPage').then((m) => ({ default: m.RegisterPage }))
 )
-const BoardPage = lazy(() =>
-  import('./pages/BoardPage').then((m) => ({ default: m.BoardPage })),
-)
+const BoardPage = lazy(() => import('./pages/BoardPage').then((m) => ({ default: m.BoardPage })))
 const DashboardPage = lazy(() =>
-  import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage })),
+  import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage }))
 )
-const AgentPage = lazy(() =>
-  import('./pages/AgentPage').then((m) => ({ default: m.AgentPage })),
-)
-const GroupPage = lazy(() =>
-  import('./pages/GroupPage').then((m) => ({ default: m.GroupPage })),
-)
+const AgentPage = lazy(() => import('./pages/AgentPage').then((m) => ({ default: m.AgentPage })))
+const GroupPage = lazy(() => import('./pages/GroupPage').then((m) => ({ default: m.GroupPage })))
 const MarketplacePage = lazy(() =>
-  import('./pages/MarketplacePage').then((m) => ({ default: m.MarketplacePage })),
+  import('./pages/MarketplacePage').then((m) => ({ default: m.MarketplacePage }))
 )
 const RunDetailPage = lazy(() =>
-  import('./pages/RunDetailPage').then((m) => ({ default: m.RunDetailPage })),
+  import('./pages/RunDetailPage').then((m) => ({ default: m.RunDetailPage }))
 )
-const AdminPage = lazy(() =>
-  import('./pages/AdminPage').then((m) => ({ default: m.AdminPage })),
-)
+const AdminPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminPage })))
 
 /** 全屏加载：恢复会话期间别让用户看到白屏。 */
 function FullPageLoading() {
@@ -145,10 +135,7 @@ export function AppRouter() {
           <Route path="dashboard" element={<Suspended element={<DashboardPage />} />} />
           <Route path="agents" element={<Suspended element={<AgentPage />} />} />
           <Route path="groups" element={<Suspended element={<GroupPage />} />} />
-          <Route
-            path="marketplace"
-            element={<Suspended element={<MarketplacePage />} />}
-          />
+          <Route path="marketplace" element={<Suspended element={<MarketplacePage />} />} />
           <Route path="runs/:runId" element={<Suspended element={<RunDetailPage />} />} />
           <Route
             path="admin"

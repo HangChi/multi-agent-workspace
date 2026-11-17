@@ -23,7 +23,10 @@ def _check_owner(agent: Agent, user_id: str) -> None:
     if agent.owner_id != user_id:
         raise AppError("FORBIDDEN", "无权操作他人 Agent")
 
-async def create_agent(db: AsyncSession, *, user_id: str, payload: AgentCreate) -> Agent:
+
+async def create_agent(
+    db: AsyncSession, *, user_id: str, payload: AgentCreate
+) -> Agent:
     """创建 Agent（member/admin 已由路由层校验）。"""
     await validate_grants(db, payload.tools)
     agent = Agent(
@@ -95,8 +98,8 @@ async def update_agent(
     """编辑 Agent（归属校验）。"""
     agent = await get_agent(db, agent_id, user_id)
     changes = payload.model_dump(exclude_unset=True)
-    if 'tools' in changes:
-        await validate_grants(db, changes['tools'])
+    if "tools" in changes:
+        await validate_grants(db, changes["tools"])
     else:
         specs = await enabled_tool_specs(db, lock=True)
         reconcile_agent_grants(agent, (spec.name for spec in specs))

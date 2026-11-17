@@ -53,8 +53,8 @@ export const useThemeStore = create<ThemeState>()(
       onRehydrateStorage: () => (state) => {
         if (state) applyTheme(state.mode)
       },
-    },
-  ),
+    }
+  )
 )
 
 /** 挂在 App 顶层：应用主题 + 跟随系统变化 */

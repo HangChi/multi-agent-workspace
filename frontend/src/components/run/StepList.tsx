@@ -58,7 +58,7 @@ export function StepList({ steps }: { steps: RunStep[] }) {
                   ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300'
                   : step.status === 'failed'
                     ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300'
-                    : 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-300',
+                    : 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-300'
               )}
             >
               {step.status === 'running' ? (
@@ -98,8 +98,7 @@ export function StepList({ steps }: { steps: RunStep[] }) {
                   {formatDuration(step.duration_ms)}
                 </span>
                 <span className="inline-flex items-center gap-1 tabular-nums">
-                  <Icon name="coins" className="h-3 w-3" />
-                  ¥{(step.cost_cents / 100).toFixed(2)}
+                  <Icon name="coins" className="h-3 w-3" />¥{(step.cost_cents / 100).toFixed(2)}
                 </span>
                 <span className="ml-auto tabular-nums">
                   {new Date(step.created_at).toLocaleTimeString('zh-CN')}

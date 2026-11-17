@@ -49,7 +49,9 @@ async def _make_world(db) -> tuple[User, Request, AgentGroup, list[Agent]]:
     db.add(user)
     await db.flush()
 
-    request = Request(owner_id=user.id, title="流水线需求", priority="normal", status="running")
+    request = Request(
+        owner_id=user.id, title="流水线需求", priority="normal", status="running"
+    )
     db.add(request)
 
     group = AgentGroup(
@@ -79,7 +81,9 @@ async def _make_world(db) -> tuple[User, Request, AgentGroup, list[Agent]]:
     return user, request, group, agents
 
 
-async def _build_chain(db, request: Request, user: User, agents: list[Agent]) -> tuple[Run, list[Run]]:
+async def _build_chain(
+    db, request: Request, user: User, agents: list[Agent]
+) -> tuple[Run, list[Run]]:
     """按 assignment_service 的规则造 pipeline Run 链（直接建，不经过 API）。"""
     parent = Run(
         request_id=request.id,
@@ -138,7 +142,9 @@ async def test_second_stage_receives_previous_output(db_session, monkeypatch, en
     _parent, children = await _build_chain(db_session, request, user, agents)
 
     # 先让第 1 阶段有产出
-    _script_llm(monkeypatch, [LLMResponse(content="初稿：关于 XX 的三个要点", cost_cents=2)])
+    _script_llm(
+        monkeypatch, [LLMResponse(content="初稿：关于 XX 的三个要点", cost_cents=2)]
+    )
     await _execute(db_session, children[0], agents[0])
 
     # 第 2 阶段：捕获它收到的 messages
@@ -205,6 +211,8 @@ async def test_parent_finalize_is_idempotent(db_session, monkeypatch, enqueued):
     first_result = dict(parent.result)
 
     # 再次收敛（模拟重复触发）
-    await _finalize_parent(db_session, parent.id, failed=False, error=None, stages=children)
+    await _finalize_parent(
+        db_session, parent.id, failed=False, error=None, stages=children
+    )
     await db_session.refresh(parent)
     assert parent.result == first_result, "已完成父 Run 不应被二次改写"

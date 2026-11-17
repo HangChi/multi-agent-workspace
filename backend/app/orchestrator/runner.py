@@ -62,21 +62,34 @@ def _step_input(message: Any) -> Any:
     if not isinstance(message, dict):
         return message
     sanitized = dict(message)
-    if sanitized.get("role") == "tool" and sanitized.get("name") in {"run_python", "run_shell"}:
+    if sanitized.get("role") == "tool" and sanitized.get("name") in {
+        "run_python",
+        "run_shell",
+    }:
         sanitized["content"] = "[sandbox output is available in execution detail]"
-    elif sanitized.get("role") == "tool" and isinstance(sanitized.get("name"), str) and sanitized["name"].startswith("mcp_"):
+    elif (
+        sanitized.get("role") == "tool"
+        and isinstance(sanitized.get("name"), str)
+        and sanitized["name"].startswith("mcp_")
+    ):
         try:
             content = json.loads(str(sanitized.get("content", "{}")))
             sanitized["content"] = json.dumps(
                 {
-                    "status": content.get("status") if isinstance(content, dict) else "succeeded",
-                    "result_truncated": bool(content.get("result_truncated")) if isinstance(content, dict) else False,
+                    "status": content.get("status")
+                    if isinstance(content, dict)
+                    else "succeeded",
+                    "result_truncated": bool(content.get("result_truncated"))
+                    if isinstance(content, dict)
+                    else False,
                 },
                 ensure_ascii=False,
             )
         except (TypeError, ValueError, json.JSONDecodeError):
             sanitized["content"] = "[external tool output omitted]"
-    if sanitized.get("role") == "assistant" and isinstance(sanitized.get("tool_calls"), list):
+    if sanitized.get("role") == "assistant" and isinstance(
+        sanitized.get("tool_calls"), list
+    ):
         sanitized["tool_calls"] = _redact_tool_calls(sanitized["tool_calls"])
     return sanitized
 
@@ -240,7 +253,10 @@ class ReActRunner:
                 "kind": "llm",
                 "status": "completed",
                 "input": _step_input(messages[-1]),
-                "output": {"content": resp.content, "tool_calls": _redact_tool_calls(resp.tool_calls)},
+                "output": {
+                    "content": resp.content,
+                    "tool_calls": _redact_tool_calls(resp.tool_calls),
+                },
                 "cost_cents": resp.cost_cents,
                 "duration_ms": duration_ms,
             }
@@ -279,9 +295,13 @@ class ReActRunner:
                     sandbox_step_id: str | None = None
                     external_step_id: str | None = None
                     external_failure: ExternalToolExecutionError | None = None
-                    if executor is not None and getattr(executor, "is_external_tool", False):
+                    if executor is not None and getattr(
+                        executor, "is_external_tool", False
+                    ):
                         external_step_id = str(uuid.uuid4())
-                        set_invocation_context = getattr(executor, "set_invocation_context", None)
+                        set_invocation_context = getattr(
+                            executor, "set_invocation_context", None
+                        )
                         if callable(set_invocation_context):
                             set_invocation_context(external_step_id)
                         await publish_event(
@@ -309,7 +329,9 @@ class ReActRunner:
                     if executor is None:
                         if denied:
                             denied_count += 1
-                            output = DeniedToolResult.build(tc.name, sorted(self.executors))
+                            output = DeniedToolResult.build(
+                                tc.name, sorted(self.executors)
+                            )
                         else:
                             # 完全未知的工具名不是「越权」，保留旧的可读错误语义。
                             output = {"error": f"未知工具 {tc.name}：执行器未注册"}
@@ -355,7 +377,8 @@ class ReActRunner:
                         set_timeout_cap = getattr(executor, "set_timeout_cap", None)
                         if callable(set_timeout_cap):
                             remaining = max(
-                                0, int(self.timeout_seconds - (time.monotonic() - start))
+                                0,
+                                int(self.timeout_seconds - (time.monotonic() - start)),
                             )
                             set_timeout_cap(remaining)
                         prepare_execution = getattr(executor, "prepare_execution", None)
@@ -374,10 +397,15 @@ class ReActRunner:
                                             "execution_id": execution_id,
                                             "step_seq": seq,
                                             "step_id": sandbox_step_id,
-                                            "language": getattr(executor, "language", "python"),
+                                            "language": getattr(
+                                                executor, "language", "python"
+                                            ),
                                             "limits": limits,
                                             "code": tc.arguments.get(
-                                                getattr(executor, "argument_name", "code"), ""
+                                                getattr(
+                                                    executor, "argument_name", "code"
+                                                ),
+                                                "",
                                             ),
                                             "tool_name": tc.name,
                                         }
@@ -389,7 +417,8 @@ class ReActRunner:
                                 if isinstance(raw_payload, dict):
                                     sandbox_payload = raw_payload
                                     sandbox_payload["artifacts"] = result.pop(
-                                        "_sandbox_artifacts", sandbox_payload.get("artifacts", [])
+                                        "_sandbox_artifacts",
+                                        sandbox_payload.get("artifacts", []),
                                     )
                                     sandbox_payload["artifact_truncated"] = result.pop(
                                         "_sandbox_artifact_truncated",
@@ -423,34 +452,56 @@ class ReActRunner:
                     sandbox_step_summary = {
                         key: output[key]
                         for key in (
-                            "ok", "status", "error_category", "exit_code", "message",
-                            "duration_ms", "stdout_truncated", "stdout_full_bytes",
-                            "execution_id", "artifact_truncated", "policy_denied",
+                            "ok",
+                            "status",
+                            "error_category",
+                            "exit_code",
+                            "message",
+                            "duration_ms",
+                            "stdout_truncated",
+                            "stdout_full_bytes",
+                            "execution_id",
+                            "artifact_truncated",
+                            "policy_denied",
                         )
                         if sandbox_payload is not None and key in output
                     }
-                    external_tool = bool(executor is not None and getattr(executor, "is_external_tool", False))
+                    external_tool = bool(
+                        executor is not None
+                        and getattr(executor, "is_external_tool", False)
+                    )
                     external_step_summary = {
-                        "status": external_failure.category if external_failure else "succeeded",
-                        "error_category": external_failure.category if external_failure else None,
+                        "status": external_failure.category
+                        if external_failure
+                        else "succeeded",
+                        "error_category": external_failure.category
+                        if external_failure
+                        else None,
                         "result_truncated": bool(
                             isinstance(output, dict) and output.get("result_truncated")
                         ),
                     }
                     tool_step: dict[str, Any] = {
-                        "id": sandbox_step_id or external_step_id or (str(uuid.uuid4()) if sandbox_payload is not None else None),
+                        "id": sandbox_step_id
+                        or external_step_id
+                        or (str(uuid.uuid4()) if sandbox_payload is not None else None),
                         "seq": seq,
                         "kind": "tool",
-                        "status": "failed" if denied or external_failure else "completed",
+                        "status": "failed"
+                        if denied or external_failure
+                        else "completed",
                         "input": (
                             {"execution_id": sandbox_payload["execution_id"]}
                             if sandbox_payload is not None
-                            else {"argument_keys": sorted(tc.arguments)} if external_tool
+                            else {"argument_keys": sorted(tc.arguments)}
+                            if external_tool
                             else tc.arguments
                         ),
                         "output": (
-                            sandbox_step_summary if sandbox_payload is not None
-                            else external_step_summary if external_tool
+                            sandbox_step_summary
+                            if sandbox_payload is not None
+                            else external_step_summary
+                            if external_tool
                             else output
                         ),
                         "tool_name": tool_name,
@@ -464,7 +515,10 @@ class ReActRunner:
                         }
                     )
                     await save_step(tool_step)
-                    if sandbox_payload is not None and self.on_sandbox_result is not None:
+                    if (
+                        sandbox_payload is not None
+                        and self.on_sandbox_result is not None
+                    ):
                         await self.on_sandbox_result(
                             {
                                 "run_id": run_id,
@@ -516,13 +570,15 @@ class ReActRunner:
                                 "step_seq": seq,
                                 "status": (
                                     "result_truncated"
-                                    if isinstance(output, dict) and output.get("result_truncated")
+                                    if isinstance(output, dict)
+                                    and output.get("result_truncated")
                                     else "succeeded"
                                 ),
                                 "duration_ms": tool_duration_ms,
                                 "error_category": None,
                                 "result_truncated": bool(
-                                    isinstance(output, dict) and output.get("result_truncated")
+                                    isinstance(output, dict)
+                                    and output.get("result_truncated")
                                 ),
                             }
                         )
@@ -548,7 +604,12 @@ class ReActRunner:
                                 {
                                     "id": f"call_{seq}",
                                     "type": "function",
-                                    "function": {"name": tc.name, "arguments": json.dumps(tc.arguments, ensure_ascii=False)},
+                                    "function": {
+                                        "name": tc.name,
+                                        "arguments": json.dumps(
+                                            tc.arguments, ensure_ascii=False
+                                        ),
+                                    },
                                 }
                             ],
                         }
@@ -575,7 +636,10 @@ class ReActRunner:
                 "duration_ms": 0,
             }
             await publish_event(
-                {"type": "step_new", "step": {"seq": seq, "kind": "final", "status": "running"}}
+                {
+                    "type": "step_new",
+                    "step": {"seq": seq, "kind": "final", "status": "running"},
+                }
             )
             await save_step(final_step)
             await publish_event({"type": "step_update", "step": final_step})

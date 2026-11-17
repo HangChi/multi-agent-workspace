@@ -41,7 +41,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 
   const confirm = useCallback<ConfirmFn>(
     (options) => new Promise<boolean>((resolve) => setPending({ options, resolve })),
-    [],
+    []
   )
 
   const settle = useCallback(
@@ -49,13 +49,10 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       pending?.resolve(value)
       setPending(null)
     },
-    [pending],
+    [pending]
   )
 
-  const meta = useMemo(
-    () => TONE_META[pending?.options.tone ?? 'primary'],
-    [pending?.options.tone],
-  )
+  const meta = useMemo(() => TONE_META[pending?.options.tone ?? 'primary'], [pending?.options.tone])
 
   return (
     <ConfirmContext.Provider value={confirm}>

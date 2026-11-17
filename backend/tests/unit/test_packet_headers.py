@@ -1,4 +1,5 @@
 """Actual header decoder tests: no sockets, root, payload execution or DB."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -16,18 +17,38 @@ headers = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(headers)
 
 
-def ipv4(*, protocol=6, frag=0, payload=b"", source="172.30.0.3", target="93.184.216.34"):
+def ipv4(
+    *, protocol=6, frag=0, payload=b"", source="172.30.0.3", target="93.184.216.34"
+):
     ethernet = b"\0" * 12 + struct.pack("!H", 0x800)
-    ip = struct.pack("!BBHHHBBH4s4s", 0x45, 0, 40 + len(payload), 1, frag, 64, protocol, 0,
-                     ipaddress.ip_address(source).packed, ipaddress.ip_address(target).packed)
+    ip = struct.pack(
+        "!BBHHHBBH4s4s",
+        0x45,
+        0,
+        40 + len(payload),
+        1,
+        frag,
+        64,
+        protocol,
+        0,
+        ipaddress.ip_address(source).packed,
+        ipaddress.ip_address(target).packed,
+    )
     tcp = struct.pack("!HHIIBBHHH", 41001, 443, 123, 0, 0x50, 2, 1024, 0, 0)
     return ethernet + ip + tcp + payload
 
 
 def ipv6(*, protocol=6, payload=b"", source="2001:db8::3", target="2606:4700::1111"):
     ethernet = b"\0" * 12 + struct.pack("!H", 0x86DD)
-    ip = struct.pack("!IHBB16s16s", 6 << 28, 20 + len(payload), protocol, 64,
-                     ipaddress.ip_address(source).packed, ipaddress.ip_address(target).packed)
+    ip = struct.pack(
+        "!IHBB16s16s",
+        6 << 28,
+        20 + len(payload),
+        protocol,
+        64,
+        ipaddress.ip_address(source).packed,
+        ipaddress.ip_address(target).packed,
+    )
     tcp = struct.pack("!HHIIBBHHH", 41001, 443, 123, 0, 0x50, 2, 1024, 0, 0)
     return ethernet + ip + tcp + payload
 
@@ -46,7 +67,11 @@ def test_tcp_header_keeps_tuple_initial_sequence_and_timestamp_never_payload():
 def test_first_and_noninitial_ipv4_fragments_emit_denied_target_facts(frag):
     line = headers.decode(ipv4(frag=frag), {"172.30.0.3"}, 1)
     record = parse_packet_output(line, source_ip="172.30.0.3")[0]
-    assert record["action"] == "deny" and record["protocol"] == "fragment" and record["port"] == 0
+    assert (
+        record["action"] == "deny"
+        and record["protocol"] == "fragment"
+        and record["port"] == 0
+    )
     assert record["target_ip"] == "93.184.216.34"
 
 
@@ -59,15 +84,25 @@ def test_dont_fragment_bit_alone_is_not_a_fragment():
 def test_ipv6_extension_and_fragment_paths_are_attributable_denied(protocol):
     line = headers.decode(ipv6(protocol=protocol), {"2001:db8::3"}, 1)
     record = parse_packet_output(line, source_ip="2001:db8::3")[0]
-    assert record["protocol"] == "extension" and record["action"] == "deny" and record["port"] == 0
+    assert (
+        record["protocol"] == "extension"
+        and record["action"] == "deny"
+        and record["port"] == 0
+    )
     assert record["target_ip"] == "2606:4700::1111"
 
 
-@pytest.mark.parametrize("protocol,name", [(1, "icmp"), (47, "ip-47"), (50, "ip-50"), (132, "ip-132")])
+@pytest.mark.parametrize(
+    "protocol,name", [(1, "icmp"), (47, "ip-47"), (50, "ip-50"), (132, "ip-132")]
+)
 def test_non_tcp_udp_ipv4_protocols_never_silently_disappear(protocol, name):
     line = headers.decode(ipv4(protocol=protocol), {"172.30.0.3"}, 1)
     record = parse_packet_output(line, source_ip="172.30.0.3")[0]
-    assert record["protocol"] == name and record["action"] == "deny" and record["port"] == 0
+    assert (
+        record["protocol"] == name
+        and record["action"] == "deny"
+        and record["port"] == 0
+    )
 
 
 def test_ipv6_icmp_is_observed_as_denied_for_routed_egress():
@@ -79,7 +114,11 @@ def test_ipv6_icmp_is_observed_as_denied_for_routed_egress():
 def test_udp_headers_keep_source_and_destination_ports():
     line = headers.decode(ipv4(protocol=17), {"172.30.0.3"}, 1)
     record = parse_packet_output(line, source_ip="172.30.0.3")[0]
-    assert record["protocol"] == "udp" and record["source_port"] == 41001 and record["port"] == 443
+    assert (
+        record["protocol"] == "udp"
+        and record["source_port"] == 41001
+        and record["port"] == 443
+    )
 
 
 def test_actual_execution_source_is_required():
@@ -87,7 +126,10 @@ def test_actual_execution_source_is_required():
     assert headers.decode(ipv6(source="2001:db8::4"), {"2001:db8::3"}, 1) is None
 
 
-@pytest.mark.parametrize("frame", [b"", b"\0" * 13, b"\0" * 12 + b"\x08\0", b"\0" * 12 + b"\x86\xdd" + b"\0" * 39])
+@pytest.mark.parametrize(
+    "frame",
+    [b"", b"\0" * 13, b"\0" * 12 + b"\x08\0", b"\0" * 12 + b"\x86\xdd" + b"\0" * 39],
+)
 def test_truncated_frames_do_not_fabricate_addresses(frame):
     assert headers.decode(frame, {"172.30.0.3", "2001:db8::3"}, 1) is None
 

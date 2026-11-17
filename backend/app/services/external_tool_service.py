@@ -27,7 +27,9 @@ def _safe_server(
 ) -> dict:
     if validations_loaded:
         validations = server.validations
-        last = max(validations, key=lambda item: item.started_at) if validations else None
+        last = (
+            max(validations, key=lambda item: item.started_at) if validations else None
+        )
     else:
         last = last_validation
     return {
@@ -40,9 +42,15 @@ def _safe_server(
         "maintainer": server.maintainer,
         "auth_mode": server.auth_mode,
         "status": server.status,
-        "created_at": server.created_at.isoformat() if server.created_at else datetime.now(UTC).isoformat(),
-        "updated_at": server.updated_at.isoformat() if server.updated_at else datetime.now(UTC).isoformat(),
-        "last_validated_at": server.last_validated_at.isoformat() if server.last_validated_at else None,
+        "created_at": server.created_at.isoformat()
+        if server.created_at
+        else datetime.now(UTC).isoformat(),
+        "updated_at": server.updated_at.isoformat()
+        if server.updated_at
+        else datetime.now(UTC).isoformat(),
+        "last_validated_at": server.last_validated_at.isoformat()
+        if server.last_validated_at
+        else None,
         "current_validation_status": server.current_validation_status,
         "tools": [
             {
@@ -70,22 +78,30 @@ def _safe_server(
                 "header_name": credential.header_name,
                 "status": credential.status,
                 "key_version": credential.key_version,
-                "last_used_at": credential.last_used_at.isoformat() if credential.last_used_at else None,
+                "last_used_at": credential.last_used_at.isoformat()
+                if credential.last_used_at
+                else None,
             }
             for credential in server.credentials
         ],
-        "last_validation": ({
-            "id": last.id,
-            "status": last.status,
-            "connection_status": last.connection_status,
-            "auth_status": last.auth_status,
-            "discovery_status": last.discovery_status,
-            "discovered_count": last.discovered_count,
-            "valid_count": last.valid_count,
-            "safe_error": last.safe_error,
-            "started_at": last.started_at.isoformat(),
-            "completed_at": last.completed_at.isoformat() if last.completed_at else None,
-        } if last else None),
+        "last_validation": (
+            {
+                "id": last.id,
+                "status": last.status,
+                "connection_status": last.connection_status,
+                "auth_status": last.auth_status,
+                "discovery_status": last.discovery_status,
+                "discovered_count": last.discovered_count,
+                "valid_count": last.valid_count,
+                "safe_error": last.safe_error,
+                "started_at": last.started_at.isoformat(),
+                "completed_at": last.completed_at.isoformat()
+                if last.completed_at
+                else None,
+            }
+            if last
+            else None
+        ),
     }
 
 
@@ -96,10 +112,12 @@ async def create_server(
         endpoint = validate_endpoint(payload.endpoint_url)
     except ValueError as exc:
         raise AppError("INVALID_INPUT", str(exc)) from exc
-    existing = await db.scalar(select(ExternalToolServer.id).where(
-        ExternalToolServer.owner_id == owner_id,
-        ExternalToolServer.normalized_endpoint_url == endpoint.url,
-    ))
+    existing = await db.scalar(
+        select(ExternalToolServer.id).where(
+            ExternalToolServer.owner_id == owner_id,
+            ExternalToolServer.normalized_endpoint_url == endpoint.url,
+        )
+    )
     if existing:
         raise AppError("CONFLICT", "该外部服务器 endpoint 已登记")
     server = ExternalToolServer(
@@ -143,20 +161,46 @@ async def create_server(
 
 
 async def list_servers(
-    db: AsyncSession, *, owner_id: str, is_admin: bool, status: str | None, q: str | None, page: int, page_size: int
+    db: AsyncSession,
+    *,
+    owner_id: str,
+    is_admin: bool,
+    status: str | None,
+    q: str | None,
+    page: int,
+    page_size: int,
 ) -> tuple[list[dict], int]:
     filters = [] if is_admin else [ExternalToolServer.owner_id == owner_id]
     if status:
         filters.append(ExternalToolServer.status == status)
     if q:
         filters.append(ExternalToolServer.name.ilike(f"%{q}%"))
-    total = int((await db.execute(select(func.count()).select_from(ExternalToolServer).where(*filters))).scalar_one())
-    rows = (await db.execute(
-        select(ExternalToolServer).options(
-            selectinload(ExternalToolServer.credentials),
-            selectinload(ExternalToolServer.tools).selectinload(ExternalToolVersion.listings),
-        ).where(*filters).order_by(ExternalToolServer.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
-    )).scalars().all()
+    total = int(
+        (
+            await db.execute(
+                select(func.count()).select_from(ExternalToolServer).where(*filters)
+            )
+        ).scalar_one()
+    )
+    rows = (
+        (
+            await db.execute(
+                select(ExternalToolServer)
+                .options(
+                    selectinload(ExternalToolServer.credentials),
+                    selectinload(ExternalToolServer.tools).selectinload(
+                        ExternalToolVersion.listings
+                    ),
+                )
+                .where(*filters)
+                .order_by(ExternalToolServer.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        )
+        .scalars()
+        .all()
+    )
     if not rows:
         return [], total
 
@@ -166,7 +210,10 @@ async def list_servers(
             func.row_number()
             .over(
                 partition_by=ServerValidation.server_id,
-                order_by=(ServerValidation.started_at.desc(), ServerValidation.id.desc()),
+                order_by=(
+                    ServerValidation.started_at.desc(),
+                    ServerValidation.id.desc(),
+                ),
             )
             .label("row_number"),
         )
@@ -174,13 +221,22 @@ async def list_servers(
         .subquery()
     )
     latest_validations = (
-        await db.execute(
-            select(ServerValidation)
-            .join(latest_validation_ids, ServerValidation.id == latest_validation_ids.c.id)
-            .where(latest_validation_ids.c.row_number == 1)
+        (
+            await db.execute(
+                select(ServerValidation)
+                .join(
+                    latest_validation_ids,
+                    ServerValidation.id == latest_validation_ids.c.id,
+                )
+                .where(latest_validation_ids.c.row_number == 1)
+            )
         )
-    ).scalars().all()
-    latest_by_server = {validation.server_id: validation for validation in latest_validations}
+        .scalars()
+        .all()
+    )
+    latest_by_server = {
+        validation.server_id: validation for validation in latest_validations
+    }
     return [
         _safe_server(
             row, last_validation=latest_by_server.get(row.id), validations_loaded=False
@@ -197,10 +253,17 @@ async def get_server(
     # it lazy makes the read-back of a freshly loaded server raise
     # MissingGreenlet instead of returning the server, which is only invisible in
     # tests that build the whole graph in one session.
-    stmt = select(ExternalToolServer).options(
-        selectinload(ExternalToolServer.credentials), selectinload(ExternalToolServer.validations),
-        selectinload(ExternalToolServer.tools).selectinload(ExternalToolVersion.listings),
-    ).where(ExternalToolServer.id == server_id)
+    stmt = (
+        select(ExternalToolServer)
+        .options(
+            selectinload(ExternalToolServer.credentials),
+            selectinload(ExternalToolServer.validations),
+            selectinload(ExternalToolServer.tools).selectinload(
+                ExternalToolVersion.listings
+            ),
+        )
+        .where(ExternalToolServer.id == server_id)
+    )
     if not is_admin:
         stmt = stmt.where(ExternalToolServer.owner_id == owner_id)
     server = (await db.execute(stmt)).scalars().first()
@@ -218,11 +281,13 @@ async def update_server(
             endpoint = validate_endpoint(changes["endpoint_url"])
         except ValueError as exc:
             raise AppError("INVALID_INPUT", str(exc)) from exc
-        duplicate = await db.scalar(select(ExternalToolServer.id).where(
-            ExternalToolServer.owner_id == server.owner_id,
-            ExternalToolServer.normalized_endpoint_url == endpoint.url,
-            ExternalToolServer.id != server.id,
-        ))
+        duplicate = await db.scalar(
+            select(ExternalToolServer.id).where(
+                ExternalToolServer.owner_id == server.owner_id,
+                ExternalToolServer.normalized_endpoint_url == endpoint.url,
+                ExternalToolServer.id != server.id,
+            )
+        )
         if duplicate:
             raise AppError("CONFLICT", "该外部服务器 endpoint 已登记")
         server.endpoint_url = changes["endpoint_url"]
@@ -235,7 +300,9 @@ async def update_server(
             setattr(server, field, changes[field])
     server.updated_at = datetime.now(UTC)
     await db.commit()
-    return await get_server(db, server_id=server.id, owner_id=server.owner_id, is_admin=True)
+    return await get_server(
+        db, server_id=server.id, owner_id=server.owner_id, is_admin=True
+    )
 
 
 def server_projection(server: ExternalToolServer) -> dict:

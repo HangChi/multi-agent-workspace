@@ -63,13 +63,13 @@ export function Pagination({
     <div
       className={cn(
         'flex flex-wrap items-center justify-between gap-2 border-t border-line-subtle pt-3',
-        className,
+        className
       )}
     >
       <p className="text-xs text-ink-muted">
         第 <span className="font-medium text-ink-soft">{page}</span> / {totalPages} 页
-        <span className="mx-1.5 text-ink-faint">·</span>
-        共 <span className="font-medium text-ink-soft">{total}</span> 条
+        <span className="mx-1.5 text-ink-faint">·</span>共{' '}
+        <span className="font-medium text-ink-soft">{total}</span> 条
         <span className="mx-1.5 text-ink-faint">·</span>
         每页 {pageSize} 条
       </p>

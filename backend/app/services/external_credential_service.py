@@ -18,7 +18,11 @@ def credential_cipher() -> CredentialCipher:
 
 
 def _validate_header(kind: str, header_name: str | None) -> str:
-    header = (header_name or ("authorization" if kind == "bearer" else "x-api-key")).strip().lower()
+    header = (
+        (header_name or ("authorization" if kind == "bearer" else "x-api-key"))
+        .strip()
+        .lower()
+    )
     if header not in _ALLOWED_HEADERS:
         raise AppError("INVALID_INPUT", "仅允许 Authorization 或 X-API-Key 凭证头")
     if kind == "bearer" and header != "authorization":
@@ -108,7 +112,9 @@ async def load_credential_value(
     if credential.key_version != "v1":
         raise AppError("INVALID_STATE", "外部工具凭证密钥版本不可用")
     value = credential_cipher().decrypt(
-        __import__("app.core.secrets", fromlist=["EncryptedCredential"]).EncryptedCredential(
+        __import__(
+            "app.core.secrets", fromlist=["EncryptedCredential"]
+        ).EncryptedCredential(
             ciphertext=credential.ciphertext, key_version=credential.key_version
         )
     )

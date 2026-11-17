@@ -25,8 +25,12 @@ class Agent(Base):
 
     __tablename__ = "agents"
 
-    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=new_uuid)
-    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), primary_key=True, default=new_uuid
+    )
+    owner_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
@@ -45,14 +49,25 @@ class Agent(Base):
         default="default",
         server_default="default",
     )
-    cost_limit_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=10000)
-    status: Mapped[str] = mapped_column(
-        Enum("active", "archived", name="agent_status"), nullable=False, default="active"
+    cost_limit_cents: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=10000
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    status: Mapped[str] = mapped_column(
+        Enum("active", "archived", name="agent_status"),
+        nullable=False,
+        default="active",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
     owner = relationship("User", back_populates="agents")
-    memberships = relationship("GroupMember", back_populates="agent", cascade="all, delete-orphan")
+    memberships = relationship(
+        "GroupMember", back_populates="agent", cascade="all, delete-orphan"
+    )

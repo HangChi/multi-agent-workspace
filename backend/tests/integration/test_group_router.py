@@ -19,7 +19,9 @@ from app.orchestrator.router import _describe, _parse_index, load_active_members
 class FakeLLM:
     """可编程的 LLM：返回固定内容或抛异常。"""
 
-    def __init__(self, content: str = "1", cost_cents: int = 0, error: Exception | None = None):
+    def __init__(
+        self, content: str = "1", cost_cents: int = 0, error: Exception | None = None
+    ):
         self.content = content
         self.cost_cents = cost_cents
         self.error = error
@@ -67,7 +69,9 @@ class TestDescribe:
 
 
 async def _make_group(db, *, member_count: int, owner: User) -> AgentGroup:
-    group = AgentGroup(owner_id=owner.id, name="路由组", routing_strategy="router", status="active")
+    group = AgentGroup(
+        owner_id=owner.id, name="路由组", routing_strategy="router", status="active"
+    )
     db.add(group)
     await db.flush()
     for index in range(1, member_count + 1):
@@ -116,7 +120,9 @@ async def test_selects_member_by_llm_choice(db_session, owner):
     group = await _make_group(db_session, member_count=3, owner=owner)
     llm = FakeLLM(content="2", cost_cents=3)
 
-    decision = await route(db_session, group_id=group.id, request_text="写个文案", llm=llm)
+    decision = await route(
+        db_session, group_id=group.id, request_text="写个文案", llm=llm
+    )
 
     assert decision is not None
     assert decision.agent.name == "专家2"

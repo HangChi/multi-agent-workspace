@@ -113,7 +113,9 @@ export interface ReviewDecision {
   reason: string
 }
 
-export async function fetchMarketplaceTools(query: MarketplaceQuery = {}): Promise<MarketplaceList> {
+export async function fetchMarketplaceTools(
+  query: MarketplaceQuery = {}
+): Promise<MarketplaceList> {
   const { data } = await apiClient.get<MarketplaceList>('/marketplace/tools', { params: query })
   return data
 }
@@ -126,11 +128,11 @@ export async function fetchMarketplaceTool(listingId: string): Promise<Marketpla
 export async function approveExternalTool(
   serverId: string,
   versionId: string,
-  payload: ReviewDecision,
+  payload: ReviewDecision
 ): Promise<MarketplaceListing> {
   const { data } = await apiClient.post<MarketplaceListing>(
     `/external-tool-servers/${serverId}/tools/${versionId}/approve`,
-    payload,
+    payload
   )
   return data
 }
@@ -138,47 +140,74 @@ export async function approveExternalTool(
 export async function rejectExternalTool(
   serverId: string,
   versionId: string,
-  payload: ReviewDecision,
+  payload: ReviewDecision
 ): Promise<MarketplaceListing> {
   const { data } = await apiClient.post<MarketplaceListing>(
     `/external-tool-servers/${serverId}/tools/${versionId}/reject`,
-    payload,
+    payload
   )
   return data
 }
 
-export async function pauseMarketplaceTool(listingId: string, payload: ReviewDecision): Promise<MarketplaceListing> {
-  const { data } = await apiClient.post<MarketplaceListing>(`/marketplace/tools/${listingId}/pause`, payload)
+export async function pauseMarketplaceTool(
+  listingId: string,
+  payload: ReviewDecision
+): Promise<MarketplaceListing> {
+  const { data } = await apiClient.post<MarketplaceListing>(
+    `/marketplace/tools/${listingId}/pause`,
+    payload
+  )
   return data
 }
 
-export async function revokeMarketplaceTool(listingId: string, payload: ReviewDecision): Promise<MarketplaceListing> {
-  const { data } = await apiClient.post<MarketplaceListing>(`/marketplace/tools/${listingId}/revoke`, payload)
+export async function revokeMarketplaceTool(
+  listingId: string,
+  payload: ReviewDecision
+): Promise<MarketplaceListing> {
+  const { data } = await apiClient.post<MarketplaceListing>(
+    `/marketplace/tools/${listingId}/revoke`,
+    payload
+  )
   return data
 }
 
-export async function resumeMarketplaceTool(listingId: string, payload: ReviewDecision): Promise<MarketplaceListing> {
-  const { data } = await apiClient.post<MarketplaceListing>(`/marketplace/tools/${listingId}/resume`, payload)
+export async function resumeMarketplaceTool(
+  listingId: string,
+  payload: ReviewDecision
+): Promise<MarketplaceListing> {
+  const { data } = await apiClient.post<MarketplaceListing>(
+    `/marketplace/tools/${listingId}/resume`,
+    payload
+  )
   return data
 }
 
 export async function upgradeMarketplaceInstallation(
   installationId: string,
-  payload: { listing_id: string; reason: string },
+  payload: { listing_id: string; reason: string }
 ): Promise<ToolInstallation> {
-  const { data } = await apiClient.post<ToolInstallation>(`/marketplace/installations/${installationId}/upgrade`, payload)
+  const { data } = await apiClient.post<ToolInstallation>(
+    `/marketplace/installations/${installationId}/upgrade`,
+    payload
+  )
   return data
 }
 
 export async function rotateExternalCredential(
   serverId: string,
-  payload: { label: string; kind?: 'bearer' | 'api_key'; value: string },
+  payload: { label: string; kind?: 'bearer' | 'api_key'; value: string }
 ): Promise<{ id: string; label: string; kind: string; status: string; key_version: string }> {
-  const { data } = await apiClient.post(`/external-tool-servers/${serverId}/credentials/rotate`, payload)
+  const { data } = await apiClient.post(
+    `/external-tool-servers/${serverId}/credentials/rotate`,
+    payload
+  )
   return data
 }
 
-export async function revokeExternalCredential(serverId: string, credentialId: string): Promise<void> {
+export async function revokeExternalCredential(
+  serverId: string,
+  credentialId: string
+): Promise<void> {
   await apiClient.post(`/external-tool-servers/${serverId}/credentials/${credentialId}/revoke`)
 }
 
@@ -198,16 +227,18 @@ export interface ExternalInvocationAudit {
   completed_at: string | null
 }
 
-export async function fetchExternalInvocationAudit(query: {
-  server_id?: string
-  run_id?: string
-  status?: string
-  page?: number
-  page_size?: number
-} = {}): Promise<{ items: ExternalInvocationAudit[]; total: number }> {
+export async function fetchExternalInvocationAudit(
+  query: {
+    server_id?: string
+    run_id?: string
+    status?: string
+    page?: number
+    page_size?: number
+  } = {}
+): Promise<{ items: ExternalInvocationAudit[]; total: number }> {
   const { data } = await apiClient.get<{ items: ExternalInvocationAudit[]; total: number }>(
     '/audit-logs/external-invocations',
-    { params: query },
+    { params: query }
   )
   return data
 }
@@ -236,7 +267,9 @@ export interface ExternalServer {
 }
 
 export async function fetchExternalServers(): Promise<{ items: ExternalServer[]; total: number }> {
-  const { data } = await apiClient.get<{ items: ExternalServer[]; total: number }>('/external-tool-servers')
+  const { data } = await apiClient.get<{ items: ExternalServer[]; total: number }>(
+    '/external-tool-servers'
+  )
   return data
 }
 
@@ -262,26 +295,49 @@ export interface ExternalGrant {
   credential: { id: string; label: string; kind: string; status: string } | null
 }
 
-export async function installMarketplaceTool(listingId: string, version_policy: 'pinned' | 'allow_patch' = 'pinned'): Promise<ToolInstallation> {
-  const { data } = await apiClient.post<ToolInstallation>(`/marketplace/tools/${listingId}/install`, { version_policy })
+export async function installMarketplaceTool(
+  listingId: string,
+  version_policy: 'pinned' | 'allow_patch' = 'pinned'
+): Promise<ToolInstallation> {
+  const { data } = await apiClient.post<ToolInstallation>(
+    `/marketplace/tools/${listingId}/install`,
+    { version_policy }
+  )
   return data
 }
 
-export async function fetchMarketplaceInstallations(): Promise<{ items: ToolInstallation[]; total: number }> {
-  const { data } = await apiClient.get<{ items: ToolInstallation[]; total: number }>('/marketplace/installations')
+export async function fetchMarketplaceInstallations(): Promise<{
+  items: ToolInstallation[]
+  total: number
+}> {
+  const { data } = await apiClient.get<{ items: ToolInstallation[]; total: number }>(
+    '/marketplace/installations'
+  )
   return data
 }
 
-export async function fetchExternalToolGrants(agentId: string): Promise<{ items: ExternalGrant[]; total: number }> {
-  const { data } = await apiClient.get<{ items: ExternalGrant[]; total: number }>(`/agents/${agentId}/external-tool-grants`)
+export async function fetchExternalToolGrants(
+  agentId: string
+): Promise<{ items: ExternalGrant[]; total: number }> {
+  const { data } = await apiClient.get<{ items: ExternalGrant[]; total: number }>(
+    `/agents/${agentId}/external-tool-grants`
+  )
   return data
 }
 
 export async function createExternalToolGrant(
   agentId: string,
-  payload: { installation_id: string; tool_version_id: string; permissions: string[]; credential_id?: string },
+  payload: {
+    installation_id: string
+    tool_version_id: string
+    permissions: string[]
+    credential_id?: string
+  }
 ): Promise<ExternalGrant> {
-  const { data } = await apiClient.post<ExternalGrant>(`/agents/${agentId}/external-tool-grants`, payload)
+  const { data } = await apiClient.post<ExternalGrant>(
+    `/agents/${agentId}/external-tool-grants`,
+    payload
+  )
   return data
 }
 
@@ -355,10 +411,7 @@ export async function createAgent(payload: AgentCreateRequest): Promise<Agent> {
 }
 
 /** 编辑 Agent。 */
-export async function updateAgent(
-  id: string,
-  payload: AgentUpdateRequest,
-): Promise<Agent> {
+export async function updateAgent(id: string, payload: AgentUpdateRequest): Promise<Agent> {
   const { data } = await apiClient.patch<Agent>(`/agents/${id}`, payload)
   return data
 }
@@ -438,7 +491,7 @@ export async function createGroup(payload: GroupCreateRequest): Promise<Group> {
 /** 编辑组。 */
 export async function updateGroup(
   id: string,
-  payload: Partial<GroupCreateRequest>,
+  payload: Partial<GroupCreateRequest>
 ): Promise<Group> {
   const { data } = await apiClient.patch<Group>(`/groups/${id}`, payload)
   return data
@@ -447,32 +500,23 @@ export async function updateGroup(
 /** 添加组成员。 */
 export async function addGroupMember(
   groupId: string,
-  payload: AddMemberRequest,
+  payload: AddMemberRequest
 ): Promise<GroupMember> {
-  const { data } = await apiClient.post<GroupMember>(
-    `/groups/${groupId}/members`,
-    payload,
-  )
+  const { data } = await apiClient.post<GroupMember>(`/groups/${groupId}/members`, payload)
   return data
 }
 
 /** 移除组成员。 */
-export async function removeGroupMember(
-  groupId: string,
-  agentId: string,
-): Promise<void> {
+export async function removeGroupMember(groupId: string, agentId: string): Promise<void> {
   await apiClient.delete(`/groups/${groupId}/members/${agentId}`)
 }
 
 /** 保存成员排序。 */
 export async function reorderGroupMembers(
   groupId: string,
-  positions: { agent_id: string; position: number }[],
+  positions: { agent_id: string; position: number }[]
 ): Promise<Group> {
-  const { data } = await apiClient.patch<Group>(
-    `/groups/${groupId}/members`,
-    { positions },
-  )
+  const { data } = await apiClient.patch<Group>(`/groups/${groupId}/members`, { positions })
   return data
 }
 
@@ -485,12 +529,7 @@ export async function deleteGroup(id: string): Promise<void> {
 
 export type RequestPriority = 'high' | 'normal' | 'low'
 export type RequestStatus =
-  | 'created'
-  | 'assigned'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'cancelled'
+  'created' | 'assigned' | 'running' | 'completed' | 'failed' | 'cancelled'
 
 export interface AttachmentMeta {
   key: string
@@ -575,12 +614,12 @@ export async function createRequest(payload: RequestCreateRequest): Promise<Work
 /** 附件上传：申请预签名 PUT URL。 */
 export async function requestAttachmentUpload(
   requestId: string,
-  params: AttachmentUploadParams,
+  params: AttachmentUploadParams
 ): Promise<AttachmentUploadResult> {
   const { data } = await apiClient.post<{ attachments: AttachmentUploadResult[] }>(
     `/requests/${requestId}/attachments`,
     null,
-    { params },
+    { params }
   )
   return data.attachments[0]
 }
@@ -606,25 +645,16 @@ export interface AssignResult {
 /** 分配需求到 Agent/组（202 受理入队）。 */
 export async function assignRequest(
   requestId: string,
-  payload: AssignRequestPayload,
+  payload: AssignRequestPayload
 ): Promise<AssignResult> {
-  const { data } = await apiClient.post<AssignResult>(
-    `/requests/${requestId}/assign`,
-    payload,
-  )
+  const { data } = await apiClient.post<AssignResult>(`/requests/${requestId}/assign`, payload)
   return data
 }
 
 // ---------- 运行（T072，US5）----------
 
 export type RunStatus =
-  | 'queued'
-  | 'running'
-  | 'needs_input'
-  | 'completed'
-  | 'failed'
-  | 'cancelled'
-  | 'timeout'
+  'queued' | 'running' | 'needs_input' | 'completed' | 'failed' | 'cancelled' | 'timeout'
 
 export interface RunStep {
   id: string
@@ -710,8 +740,13 @@ export interface EgressAccessList {
   summary?: Record<string, number>
 }
 
-export async function fetchExecutionEgress(runId: string, executionId: string): Promise<EgressAccessList> {
-  const { data } = await apiClient.get<EgressAccessList>(`/runs/${runId}/executions/${executionId}/egress`)
+export async function fetchExecutionEgress(
+  runId: string,
+  executionId: string
+): Promise<EgressAccessList> {
+  const { data } = await apiClient.get<EgressAccessList>(
+    `/runs/${runId}/executions/${executionId}/egress`
+  )
   return data
 }
 
@@ -749,7 +784,7 @@ export async function fetchAgentEgressRules(
     page_size?: number
     /** 返回全部规则（忽略分页）。编辑表单要能列出并逐条删除全部规则。 */
     all?: boolean
-  },
+  }
 ): Promise<EgressRuleList> {
   const { data } = await apiClient.get<EgressRuleList>(`/agents/${agentId}/egress-rules`, {
     params,
@@ -757,7 +792,10 @@ export async function fetchAgentEgressRules(
   return data
 }
 
-export async function createAgentEgressRule(agentId: string, payload: EgressRuleInput): Promise<EgressRule> {
+export async function createAgentEgressRule(
+  agentId: string,
+  payload: EgressRuleInput
+): Promise<EgressRule> {
   const { data } = await apiClient.post<EgressRule>(`/agents/${agentId}/egress-rules`, payload)
   return data
 }
@@ -778,7 +816,9 @@ export interface BlacklistRule {
   created_at?: string | null
 }
 
-export interface BlacklistList { items: BlacklistRule[] }
+export interface BlacklistList {
+  items: BlacklistRule[]
+}
 export interface EgressAccessQuery {
   run_id?: string
   agent_id?: string
@@ -801,8 +841,12 @@ export async function deleteBlacklist(ruleId: string): Promise<void> {
   await apiClient.delete(`/admin/egress-blacklist/${ruleId}`)
 }
 
-export async function fetchEgressAccesses(query: EgressAccessQuery = {}): Promise<EgressAccessList> {
-  const { data } = await apiClient.get<EgressAccessList>('/admin/egress-accesses', { params: query })
+export async function fetchEgressAccesses(
+  query: EgressAccessQuery = {}
+): Promise<EgressAccessList> {
+  const { data } = await apiClient.get<EgressAccessList>('/admin/egress-accesses', {
+    params: query,
+  })
   return data
 }
 
@@ -878,22 +922,22 @@ export async function replyRun(id: string, message: string): Promise<{ status: s
  */
 export async function resolveArtifactDownloadUrl(
   runId: string,
-  artifactId: string,
+  artifactId: string
 ): Promise<{ url: string; filename: string }> {
   const { data } = await apiClient.get<{ url: string; filename: string }>(
     `/runs/${runId}/artifacts/${artifactId}`,
-    { params: { redirect: false } },
+    { params: { redirect: false } }
   )
   return data
 }
 
 export async function resolveAttachmentDownloadUrl(
   requestId: string,
-  key: string,
+  key: string
 ): Promise<{ url: string; filename: string }> {
   const { data } = await apiClient.get<{ url: string; filename: string }>(
     `/requests/${requestId}/attachments/${encodeURIComponent(key)}`,
-    { params: { redirect: false } },
+    { params: { redirect: false } }
   )
   return data
 }
@@ -961,8 +1005,6 @@ export async function fetchAuditLogs(query: AuditLogQuery = {}): Promise<AuditLo
   if (query.page) params.set('page', String(query.page))
   if (query.page_size) params.set('page_size', String(query.page_size))
   const qs = params.toString()
-  const { data } = await apiClient.get<AuditLogList>(
-    `/audit-logs${qs ? `?${qs}` : ''}`,
-  )
+  const { data } = await apiClient.get<AuditLogList>(`/audit-logs${qs ? `?${qs}` : ''}`)
   return data
 }

@@ -16,10 +16,7 @@ interface PageHeaderProps {
 export function PageHeader({ title, description, icon, actions, className }: PageHeaderProps) {
   return (
     <div
-      className={cn(
-        'flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between',
-        className,
-      )}
+      className={cn('flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between', className)}
     >
       <div className="flex min-w-0 items-start gap-3">
         {icon}

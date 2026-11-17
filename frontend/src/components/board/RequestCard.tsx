@@ -66,14 +66,14 @@ export function RequestCard({ request, draggable = true, onOpen }: Props) {
           ? 'cursor-grabbing border-dashed border-brand-300 bg-brand-50/40 opacity-60 shadow-none'
           : draggable
             ? 'cursor-grab hover:-translate-y-0.5 hover:border-line-strong hover:shadow-pop'
-            : 'hover:border-line-strong',
+            : 'hover:border-line-strong'
       )}
     >
       <span
         aria-hidden="true"
         className={cn(
           'absolute inset-y-2.5 left-0 w-[3px] rounded-full',
-          PRIORITY_ACCENT[request.priority] ?? 'bg-line-strong',
+          PRIORITY_ACCENT[request.priority] ?? 'bg-line-strong'
         )}
       />
 
@@ -125,9 +125,7 @@ export function RequestCard({ request, draggable = true, onOpen }: Props) {
             查看运行
           </Link>
         ) : (
-          <span className="text-2xs text-ink-faint">
-            {draggable ? '拖拽分配' : ''}
-          </span>
+          <span className="text-2xs text-ink-faint">{draggable ? '拖拽分配' : ''}</span>
         )}
 
         {onOpen && (

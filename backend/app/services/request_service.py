@@ -157,9 +157,7 @@ async def list_requests(
 
     # 总数
     total = (
-        await db.execute(
-            select(func.count()).select_from(Request).where(*conditions)
-        )
+        await db.execute(select(func.count()).select_from(Request).where(*conditions))
     ).scalar_one()
 
     # 分页列表（默认按创建时间倒序）

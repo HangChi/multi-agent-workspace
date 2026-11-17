@@ -32,7 +32,9 @@ async def _seed_agents(client, headers: dict, count: int) -> list[dict]:
     created = []
     for i in range(count):
         resp = await client.post(
-            AGENTS_URL, headers=headers, json=_agent_payload(f"page-agent-{i}-{uuid.uuid4().hex[:6]}")
+            AGENTS_URL,
+            headers=headers,
+            json=_agent_payload(f"page-agent-{i}-{uuid.uuid4().hex[:6]}"),
         )
         assert resp.status_code == 201, resp.text
         created.append(resp.json())
@@ -42,19 +44,25 @@ async def _seed_agents(client, headers: dict, count: int) -> list[dict]:
 # ---------- /agents ----------
 
 
-async def test_agents_pagination_total_is_filtered_count_not_page_length(client, make_headers):
+async def test_agents_pagination_total_is_filtered_count_not_page_length(
+    client, make_headers
+):
     """total 必须是全量条数：返回当页长度会让前端分页器永远只有一页。"""
     headers = await make_headers(role="member")
     await _seed_agents(client, headers, 5)
 
-    first = await client.get(AGENTS_URL, headers=headers, params={"page": 1, "page_size": 2})
+    first = await client.get(
+        AGENTS_URL, headers=headers, params={"page": 1, "page_size": 2}
+    )
     assert first.status_code == 200, first.text
     data = first.json()
     assert len(data["items"]) == 2
     # 关键断言：total 是 5 而不是 2
     assert data["total"] == 5
 
-    third = await client.get(AGENTS_URL, headers=headers, params={"page": 3, "page_size": 2})
+    third = await client.get(
+        AGENTS_URL, headers=headers, params={"page": 3, "page_size": 2}
+    )
     third_data = third.json()
     assert len(third_data["items"]) == 1  # 末页只剩 1 条
     assert third_data["total"] == 5
@@ -68,19 +76,25 @@ async def test_agents_pagination_pages_do_not_overlap(client, make_headers):
 
     seen: list[str] = []
     for page in (1, 2):
-        resp = await client.get(AGENTS_URL, headers=headers, params={"page": page, "page_size": 2})
+        resp = await client.get(
+            AGENTS_URL, headers=headers, params={"page": page, "page_size": 2}
+        )
         seen.extend(item["id"] for item in resp.json()["items"])
 
     assert len(seen) == len(set(seen)), "分页出现重复项"
     assert set(seen) == seeded_ids
 
 
-async def test_agents_page_beyond_last_returns_empty_but_keeps_total(client, make_headers):
+async def test_agents_page_beyond_last_returns_empty_but_keeps_total(
+    client, make_headers
+):
     """越界页返回空 items，但 total 仍须正确 —— 前端靠它判断边界。"""
     headers = await make_headers(role="member")
     await _seed_agents(client, headers, 2)
 
-    resp = await client.get(AGENTS_URL, headers=headers, params={"page": 99, "page_size": 20})
+    resp = await client.get(
+        AGENTS_URL, headers=headers, params={"page": 99, "page_size": 20}
+    )
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["items"] == []
@@ -92,7 +106,9 @@ async def test_agents_all_param_returns_every_item(client, make_headers):
     headers = await make_headers(role="member")
     await _seed_agents(client, headers, 5)
 
-    paged = await client.get(AGENTS_URL, headers=headers, params={"page": 1, "page_size": 2})
+    paged = await client.get(
+        AGENTS_URL, headers=headers, params={"page": 1, "page_size": 2}
+    )
     assert len(paged.json()["items"]) == 2
 
     full = await client.get(AGENTS_URL, headers=headers, params={"all": "true"})
@@ -115,7 +131,9 @@ async def test_agents_pagination_respects_status_filter(client, make_headers):
     active = await client.get(AGENTS_URL, headers=headers, params={"status": "active"})
     assert active.json()["total"] == 2
 
-    archived_list = await client.get(AGENTS_URL, headers=headers, params={"status": "archived"})
+    archived_list = await client.get(
+        AGENTS_URL, headers=headers, params={"status": "archived"}
+    )
     assert archived_list.json()["total"] == 1
 
     everything = await client.get(AGENTS_URL, headers=headers)
@@ -137,17 +155,23 @@ async def test_groups_pagination_total_is_full_count(client, make_headers):
     headers = await make_headers(role="member")
     for i in range(3):
         resp = await client.post(
-            GROUPS_URL, headers=headers, json={"name": f"grp-{i}-{uuid.uuid4().hex[:6]}"}
+            GROUPS_URL,
+            headers=headers,
+            json={"name": f"grp-{i}-{uuid.uuid4().hex[:6]}"},
         )
         assert resp.status_code == 201, resp.text
 
-    page1 = await client.get(GROUPS_URL, headers=headers, params={"page": 1, "page_size": 2})
+    page1 = await client.get(
+        GROUPS_URL, headers=headers, params={"page": 1, "page_size": 2}
+    )
     assert page1.status_code == 200, page1.text
     data = page1.json()
     assert len(data["items"]) == 2
     assert data["total"] == 3
 
-    page2 = await client.get(GROUPS_URL, headers=headers, params={"page": 2, "page_size": 2})
+    page2 = await client.get(
+        GROUPS_URL, headers=headers, params={"page": 2, "page_size": 2}
+    )
     assert len(page2.json()["items"]) == 1
     assert page2.json()["total"] == 3
 
@@ -157,7 +181,9 @@ async def test_groups_all_param_returns_every_item(client, make_headers):
     headers = await make_headers(role="member")
     for i in range(3):
         await client.post(
-            GROUPS_URL, headers=headers, json={"name": f"grp-all-{i}-{uuid.uuid4().hex[:6]}"}
+            GROUPS_URL,
+            headers=headers,
+            json={"name": f"grp-all-{i}-{uuid.uuid4().hex[:6]}"},
         )
 
     full = await client.get(GROUPS_URL, headers=headers, params={"all": "true"})
@@ -181,7 +207,9 @@ async def test_groups_pagination_keeps_members_expanded(client, make_headers):
     )
     assert added.status_code in (200, 201), added.text
 
-    resp = await client.get(GROUPS_URL, headers=headers, params={"page": 1, "page_size": 10})
+    resp = await client.get(
+        GROUPS_URL, headers=headers, params={"page": 1, "page_size": 10}
+    )
     item = resp.json()["items"][0]
     assert "members" in item
     assert len(item["members"]) == 1
@@ -205,7 +233,9 @@ async def test_egress_rules_pagination_and_all_param(client, make_headers):
         )
         assert resp.status_code == 201, resp.text
 
-    paged = await client.get(rules_url, headers=headers, params={"page": 1, "page_size": 2})
+    paged = await client.get(
+        rules_url, headers=headers, params={"page": 1, "page_size": 2}
+    )
     assert paged.status_code == 200, paged.text
     assert len(paged.json()["items"]) == 2
     # egress_mode 必须随分页一起返回（前端据此决定提示文案）

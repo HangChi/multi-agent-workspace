@@ -27,7 +27,7 @@ function AgentDropCard({ agent }: { agent: Agent }) {
         'rounded-lg border p-2.5 transition-all duration-150',
         isOver
           ? 'border-brand-400 bg-brand-50 shadow-md ring-2 ring-brand-200'
-          : 'border-line bg-surface hover:border-line-strong hover:bg-surface-muted/70',
+          : 'border-line bg-surface hover:border-line-strong hover:bg-surface-muted/70'
       )}
     >
       <div className="flex items-center gap-2">
@@ -67,7 +67,7 @@ function GroupDropCard({ group }: { group: Group }) {
         'rounded-lg border p-2.5 transition-all duration-150',
         isOver
           ? 'border-sky-400 bg-sky-50 shadow-md ring-2 ring-sky-200'
-          : 'border-line bg-surface hover:border-line-strong hover:bg-surface-muted/70',
+          : 'border-line bg-surface hover:border-line-strong hover:bg-surface-muted/70'
       )}
     >
       <div className="flex items-center gap-2">

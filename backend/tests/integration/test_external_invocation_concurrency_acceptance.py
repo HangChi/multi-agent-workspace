@@ -52,8 +52,10 @@ async def test_twenty_success_and_twenty_failure_calls_remain_bounded():
             executor = ExternalToolExecutor(
                 stable_name=f"mcp_load_search_{index}",
                 external_name=(
-                    "error_search" if 20 <= index < 30
-                    else "timeout_search" if index >= 30
+                    "error_search"
+                    if 20 <= index < 30
+                    else "timeout_search"
+                    if index >= 30
                     else "search"
                 ),
                 description="fixture load test",

@@ -16,7 +16,9 @@ def test_unhealthy_egress_prevents_user_process_start(fake_docker, monkeypatch):
     monkeypatch.setattr(FakeNetworkCapture, "assert_healthy", health, raising=False)
     with (
         pytest.raises(SandboxInfraError, match="出站.*不可用"),
-        SandboxRun(execution_id=EXECUTION_ID, language="python", code="print(1)") as run,
+        SandboxRun(
+            execution_id=EXECUTION_ID, language="python", code="print(1)"
+        ) as run,
     ):
         run.execute()
     assert health.call_count == 1
@@ -30,7 +32,9 @@ def test_lost_egress_health_kills_running_user_process(fake_docker, monkeypatch)
     monkeypatch.setattr(FakeNetworkCapture, "assert_healthy", health, raising=False)
     with (
         pytest.raises(SandboxInfraError, match="出站.*不可用"),
-        SandboxRun(execution_id=EXECUTION_ID, language="python", code="print(1)") as run,
+        SandboxRun(
+            execution_id=EXECUTION_ID, language="python", code="print(1)"
+        ) as run,
     ):
         run.execute()
     assert health.call_count == 2
@@ -41,7 +45,10 @@ def test_lost_egress_health_kills_running_user_process(fake_docker, monkeypatch)
 
 def test_cancellation_during_setup_never_starts_user_code(fake_docker):
     with SandboxRun(
-        execution_id=EXECUTION_ID, language="python", code="print(1)", abort_check=lambda: True,
+        execution_id=EXECUTION_ID,
+        language="python",
+        code="print(1)",
+        abort_check=lambda: True,
     ) as run:
         outcome = run.execute()
     assert outcome.cancelled

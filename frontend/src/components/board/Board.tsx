@@ -47,14 +47,7 @@ interface Props {
   onOpenDetail?: (request: WorkRequest) => void
 }
 
-export function Board({
-  requests,
-  agents,
-  groups,
-  isLoading,
-  onAssignStart,
-  onOpenDetail,
-}: Props) {
+export function Board({ requests, agents, groups, isLoading, onAssignStart, onOpenDetail }: Props) {
   const [q, setQ] = useState('')
   const [active, setActive] = useState<WorkRequest | null>(null)
 
@@ -65,7 +58,7 @@ export function Board({
       (r) =>
         r.title.toLowerCase().includes(like) ||
         (r.description ?? '').toLowerCase().includes(like) ||
-        (r.expected_output ?? '').toLowerCase().includes(like),
+        (r.expected_output ?? '').toLowerCase().includes(like)
     )
   }, [requests, q])
 
@@ -132,51 +125,51 @@ export function Board({
             <div className="relative">
               <div className="scrollbar-none flex gap-3 overflow-x-auto pb-1">
                 {COLUMNS.map((col) => {
-                const items = filtered.filter((r) => r.status === col.status)
-                return (
-                  <section
-                    key={col.status}
-                    aria-label={col.label}
-                    className="flex w-[248px] shrink-0 flex-col rounded-xl border border-line/70 bg-surface-subtle/50 p-2 sm:w-[262px] xl:min-h-[420px] xl:w-auto xl:min-w-0 xl:flex-1"
-                  >
-                    <header className="mb-2 flex items-center justify-between gap-2 px-1 py-0.5">
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <Badge tone={col.tone} dot pulse={col.status === 'running'}>
-                          {col.label}
-                        </Badge>
-                      </div>
-                      <span className="shrink-0 rounded-full bg-surface px-1.5 py-0.5 text-2xs font-medium tabular-nums text-ink-muted ring-1 ring-inset ring-line/80">
-                        {isLoading ? '·' : items.length}
-                      </span>
-                    </header>
-
-                    <div className="space-y-2">
-                      {isLoading ? (
-                        <>
-                          <Skeleton className="h-[86px] rounded-lg" />
-                          <Skeleton className="h-[86px] rounded-lg opacity-60" />
-                        </>
-                      ) : (
-                        items.map((r) => (
-                          <RequestCard
-                            key={r.id}
-                            request={r}
-                            draggable={DRAGGABLE_STATUSES.has(r.status)}
-                            onOpen={onOpenDetail ? () => onOpenDetail(r) : undefined}
-                          />
-                        ))
-                      )}
-
-                      {!isLoading && items.length === 0 && (
-                        <div className="flex h-20 flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-line-strong/80 text-center">
-                          <span className="text-2xs text-ink-faint">暂无需求</span>
-                          <span className="text-[10px] text-ink-faint">{col.hint}</span>
+                  const items = filtered.filter((r) => r.status === col.status)
+                  return (
+                    <section
+                      key={col.status}
+                      aria-label={col.label}
+                      className="flex w-[248px] shrink-0 flex-col rounded-xl border border-line/70 bg-surface-subtle/50 p-2 sm:w-[262px] xl:min-h-[420px] xl:w-auto xl:min-w-0 xl:flex-1"
+                    >
+                      <header className="mb-2 flex items-center justify-between gap-2 px-1 py-0.5">
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <Badge tone={col.tone} dot pulse={col.status === 'running'}>
+                            {col.label}
+                          </Badge>
                         </div>
-                      )}
-                    </div>
-                  </section>
-                )
-              })}
+                        <span className="shrink-0 rounded-full bg-surface px-1.5 py-0.5 text-2xs font-medium tabular-nums text-ink-muted ring-1 ring-inset ring-line/80">
+                          {isLoading ? '·' : items.length}
+                        </span>
+                      </header>
+
+                      <div className="space-y-2">
+                        {isLoading ? (
+                          <>
+                            <Skeleton className="h-[86px] rounded-lg" />
+                            <Skeleton className="h-[86px] rounded-lg opacity-60" />
+                          </>
+                        ) : (
+                          items.map((r) => (
+                            <RequestCard
+                              key={r.id}
+                              request={r}
+                              draggable={DRAGGABLE_STATUSES.has(r.status)}
+                              onOpen={onOpenDetail ? () => onOpenDetail(r) : undefined}
+                            />
+                          ))
+                        )}
+
+                        {!isLoading && items.length === 0 && (
+                          <div className="flex h-20 flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-line-strong/80 text-center">
+                            <span className="text-2xs text-ink-faint">暂无需求</span>
+                            <span className="text-[10px] text-ink-faint">{col.hint}</span>
+                          </div>
+                        )}
+                      </div>
+                    </section>
+                  )
+                })}
               </div>
               <div
                 aria-hidden="true"
@@ -193,7 +186,16 @@ export function Board({
           {active && (
             <div className="w-[232px] -translate-x-1 -translate-y-2 rotate-2 cursor-grabbing rounded-lg border border-brand-300 bg-surface p-3 shadow-pop ring-2 ring-brand-200/60">
               <div className="mb-1.5 flex items-center justify-between gap-2">
-                <Badge tone={active.priority === 'high' ? 'rose' : active.priority === 'low' ? 'slate' : 'brand'} className="px-1.5 py-0">
+                <Badge
+                  tone={
+                    active.priority === 'high'
+                      ? 'rose'
+                      : active.priority === 'low'
+                        ? 'slate'
+                        : 'brand'
+                  }
+                  className="px-1.5 py-0"
+                >
                   {PRIORITY_LABEL[active.priority] ?? active.priority}
                 </Badge>
                 <Icon name="grip" className="h-3.5 w-3.5 text-ink-faint" />

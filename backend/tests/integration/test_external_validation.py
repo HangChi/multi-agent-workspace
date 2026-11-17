@@ -59,7 +59,9 @@ def _patch_endpoint(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_unreachable_server_persists_safe_failed_validation(db_session, make_user, monkeypatch):
+async def test_unreachable_server_persists_safe_failed_validation(
+    db_session, make_user, monkeypatch
+):
     from app.services import external_validation_service
 
     user, _ = await make_user(role="admin")
@@ -70,7 +72,9 @@ async def test_unreachable_server_persists_safe_failed_validation(db_session, ma
         db_session,
         server=server,
         requested_by=user.id,
-        client_factory=lambda _endpoint, **_: FakeClient(initialize_error=TimeoutError()),
+        client_factory=lambda _endpoint, **_: FakeClient(
+            initialize_error=TimeoutError()
+        ),
     )
     assert result.status == "failed"
     assert result.connection_status == "failed"
@@ -117,9 +121,15 @@ async def test_auth_failure_and_partial_discovery_are_classified_and_audited(
     assert partial_result.valid_count == 1
 
     await db_session.commit()
-    audits = (await db_session.execute(
-        select(AuditLog).where(AuditLog.action == "external_server_validate")
-    )).scalars().all()
+    audits = (
+        (
+            await db_session.execute(
+                select(AuditLog).where(AuditLog.action == "external_server_validate")
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert len(audits) >= 2
     assert all("authentication failed" not in str(audit.detail) for audit in audits)
 
@@ -141,7 +151,9 @@ async def test_complete_discovery_creates_versions_and_digest_tracks_drift(
         client_factory=lambda _endpoint, **_: FakeClient(tools=[first_tool]),
     )
     second_tool = MCPTool(
-        "search", "Search v2", {"type": "object", "properties": {"q": {"type": "string"}}}
+        "search",
+        "Search v2",
+        {"type": "object", "properties": {"q": {"type": "string"}}},
     )
     second = await external_validation_service.validate_server(
         db_session,
@@ -150,12 +162,23 @@ async def test_complete_discovery_creates_versions_and_digest_tracks_drift(
         client_factory=lambda _endpoint, **_: FakeClient(tools=[second_tool]),
     )
 
-    versions = (await db_session.execute(
-        select(ExternalToolVersion).where(ExternalToolVersion.server_id == server.id)
-    )).scalars().all()
+    versions = (
+        (
+            await db_session.execute(
+                select(ExternalToolVersion).where(
+                    ExternalToolVersion.server_id == server.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert first.status == "passed"
     assert second.status == "partial"
-    assert second.safe_error == "MCP tool definitions changed; reviewer approval is required"
+    assert (
+        second.safe_error
+        == "MCP tool definitions changed; reviewer approval is required"
+    )
     assert first.definition_digest != second.definition_digest
     assert len(versions) == 2
     assert {version.availability for version in versions} == {"stale", "valid"}

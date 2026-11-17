@@ -61,7 +61,10 @@ async def check_login_allowed(*, email: str, ip: str) -> None:
     client = _client()
     try:
         acct_raw = await client.get(_account_key(email, ip))
-        if acct_raw is not None and int(acct_raw) >= settings.login_max_fails_per_account:
+        if (
+            acct_raw is not None
+            and int(acct_raw) >= settings.login_max_fails_per_account
+        ):
             logger.warning("login_rate_limited", scope="account", ip=ip[:64])
             raise AppError(
                 "RATE_LIMITED",
@@ -81,7 +84,9 @@ async def check_login_allowed(*, email: str, ip: str) -> None:
     except Exception as exc:  # noqa: BLE001 - 见模块 docstring：不可用即放行
         # 不能只捕 RedisError：客户端对象本身异常（AttributeError 等）
         # 同样会穿透成登录 500，而限流绝不该成为登录的单点故障。
-        logger.warning("login_limiter_unavailable", op="check", error=type(exc).__name__)
+        logger.warning(
+            "login_limiter_unavailable", op="check", error=type(exc).__name__
+        )
     finally:
         await _safe_close(client)
 
@@ -99,7 +104,9 @@ async def record_login_failure(*, email: str, ip: str) -> None:
             pipe.expire(_ip_key(ip), ttl)
             await pipe.execute()
     except Exception as exc:  # noqa: BLE001
-        logger.warning("login_limiter_unavailable", op="record", error=type(exc).__name__)
+        logger.warning(
+            "login_limiter_unavailable", op="record", error=type(exc).__name__
+        )
     finally:
         await _safe_close(client)
 
@@ -110,6 +117,8 @@ async def reset_login_failures(*, email: str, ip: str) -> None:
     try:
         await client.delete(_account_key(email, ip))
     except Exception as exc:  # noqa: BLE001
-        logger.warning("login_limiter_unavailable", op="reset", error=type(exc).__name__)
+        logger.warning(
+            "login_limiter_unavailable", op="reset", error=type(exc).__name__
+        )
     finally:
         await _safe_close(client)

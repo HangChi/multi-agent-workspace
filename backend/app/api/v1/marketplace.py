@@ -45,7 +45,9 @@ async def browse_marketplace(
     return {"items": items, "total": total}
 
 
-@router.post("/installations/{installation_id}/upgrade", response_model=ToolInstallationOut)
+@router.post(
+    "/installations/{installation_id}/upgrade", response_model=ToolInstallationOut
+)
 async def upgrade_marketplace_installation(
     installation_id: str,
     payload: InstallationUpgrade,
@@ -69,7 +71,9 @@ async def get_installations(_member: MemberUser, user: CurrentUser, db: DB):
     return {"items": items, "total": len(items)}
 
 
-@router.post("/tools/{listing_id}/install", response_model=ToolInstallationOut, status_code=201)
+@router.post(
+    "/tools/{listing_id}/install", response_model=ToolInstallationOut, status_code=201
+)
 async def install_tool(
     listing_id: str,
     payload: ToolInstallCreate,
@@ -104,7 +108,11 @@ async def resume_marketplace_listing(
     user: CurrentUser,
 ):
     return await marketplace_service.transition_listing(
-        db, listing_id=listing_id, reviewer_id=user.id, action="resume", reason=payload.reason
+        db,
+        listing_id=listing_id,
+        reviewer_id=user.id,
+        action="resume",
+        reason=payload.reason,
     )
 
 
@@ -112,9 +120,19 @@ async def resume_marketplace_listing(
     "/tools/{listing_id}/pause",
     response_model=ListingOut,
 )
-async def pause_marketplace_listing(listing_id: str, payload: ReviewDecision, _reviewer: Reviewer, db: DB, user: CurrentUser):
+async def pause_marketplace_listing(
+    listing_id: str,
+    payload: ReviewDecision,
+    _reviewer: Reviewer,
+    db: DB,
+    user: CurrentUser,
+):
     return await marketplace_service.transition_listing(
-        db, listing_id=listing_id, reviewer_id=user.id, action="pause", reason=payload.reason
+        db,
+        listing_id=listing_id,
+        reviewer_id=user.id,
+        action="pause",
+        reason=payload.reason,
     )
 
 
@@ -122,7 +140,17 @@ async def pause_marketplace_listing(listing_id: str, payload: ReviewDecision, _r
     "/tools/{listing_id}/revoke",
     response_model=ListingOut,
 )
-async def revoke_marketplace_listing(listing_id: str, payload: ReviewDecision, _reviewer: Reviewer, db: DB, user: CurrentUser):
+async def revoke_marketplace_listing(
+    listing_id: str,
+    payload: ReviewDecision,
+    _reviewer: Reviewer,
+    db: DB,
+    user: CurrentUser,
+):
     return await marketplace_service.transition_listing(
-        db, listing_id=listing_id, reviewer_id=user.id, action="revoke", reason=payload.reason
+        db,
+        listing_id=listing_id,
+        reviewer_id=user.id,
+        action="revoke",
+        reason=payload.reason,
     )

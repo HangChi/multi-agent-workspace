@@ -49,7 +49,7 @@ export function Card({
         PADDINGS[padding],
         interactive &&
           'transition-[box-shadow,border-color,transform] duration-200 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-pop',
-        className,
+        className
       )}
     >
       {children}
@@ -80,7 +80,7 @@ export function CardHeader({
       className={cn(
         'flex items-start justify-between gap-3',
         divider && 'border-b border-line-subtle pb-3.5',
-        className,
+        className
       )}
     >
       <div className="flex min-w-0 items-start gap-2.5">
@@ -130,7 +130,7 @@ export function IconTile({
         'inline-flex shrink-0 items-center justify-center ring-1 ring-inset',
         tones[tone],
         sizes[size],
-        className,
+        className
       )}
     >
       {children}

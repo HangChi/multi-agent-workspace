@@ -134,22 +134,41 @@ async def test_run_polling_does_not_select_verbose_step_or_execution_payloads(
     headers = await make_headers()
     run = await _setup_run(client, headers, db_session, "running")
     step = Step(
-        run_id=run.id, seq=1, kind="tool", status="completed", tool_name="run_python",
-        input={"code": "sensitive source" * 10000}, output={"stdout": "large output" * 10000},
+        run_id=run.id,
+        seq=1,
+        kind="tool",
+        status="completed",
+        tool_name="run_python",
+        input={"code": "sensitive source" * 10000},
+        output={"stdout": "large output" * 10000},
     )
     db_session.add(step)
     await db_session.flush()
     execution = SandboxExecution(
-        run_id=run.id, step_id=step.id, agent_id=run.assignee_id,
-        language="python", code="print('private')", code_sha256="a" * 64,
-        status="ok", exit_code=0, stdout="large output" * 10000,
-        stderr="private stderr", image="test-only", limits={}, duration_ms=123,
+        run_id=run.id,
+        step_id=step.id,
+        agent_id=run.assignee_id,
+        language="python",
+        code="print('private')",
+        code_sha256="a" * 64,
+        status="ok",
+        exit_code=0,
+        stdout="large output" * 10000,
+        stderr="private stderr",
+        image="test-only",
+        limits={},
+        duration_ms=123,
     )
     db_session.add(execution)
-    db_session.add(Artifact(
-        run_id=run.id, step_id=step.id, object_key="private-object-key",
-        filename="result.txt", size_bytes=7,
-    ))
+    db_session.add(
+        Artifact(
+            run_id=run.id,
+            step_id=step.id,
+            object_key="private-object-key",
+            filename="result.txt",
+            size_bytes=7,
+        )
+    )
     await db_session.commit()
     statements = []
 
@@ -172,11 +191,18 @@ async def test_run_polling_does_not_select_verbose_step_or_execution_payloads(
         "sandbox_executions": ("code", "stdout", "stderr", "limits", "error_message"),
         "artifacts": ("object_key",),
     }.items():
-        selected = [sql.split("FROM", 1)[0] for sql in statements if f"FROM {table}" in sql]
+        selected = [
+            sql.split("FROM", 1)[0] for sql in statements if f"FROM {table}" in sql
+        ]
         assert selected, table
         for column in excluded:
-            assert all(f"{table}.{column}," not in sql and f"{table}.{column} " not in sql for sql in selected), column
-    detail = await client.get(f"{RUNS_URL}/{run.id}/executions/{execution.id}", headers=headers)
+            assert all(
+                f"{table}.{column}," not in sql and f"{table}.{column} " not in sql
+                for sql in selected
+            ), column
+    detail = await client.get(
+        f"{RUNS_URL}/{run.id}/executions/{execution.id}", headers=headers
+    )
     assert detail.status_code == 200
     assert detail.json()["code"] == "print('private')"
     assert detail.json()["stdout"] == "large output" * 10000
@@ -288,7 +314,9 @@ async def test_cancel_parent_cascades_to_children(client, make_headers, db_sessi
     assert request_row.status == "cancelled"
 
 
-async def test_cancel_finished_fan_out_parent_still_stops_children(client, make_headers, db_session):
+async def test_cancel_finished_fan_out_parent_still_stops_children(
+    client, make_headers, db_session
+):
     """fan_out 的父 Run 建好即 completed，但取消它仍须停下还在跑的子 Run。
 
     前端只拿得到父 Run id（assign 返回的就是它），如果这里返回 409，用户就永远
@@ -356,7 +384,9 @@ async def test_reply_needs_input_resumes(client, make_headers, db_session):
     headers = await make_headers()
     run = await _setup_run(client, headers, db_session, status="needs_input")
     resp = await client.post(
-        f"{RUNS_URL}/{run.id}/reply", headers=headers, json={"message": "客户名单：ABC 公司"}
+        f"{RUNS_URL}/{run.id}/reply",
+        headers=headers,
+        json={"message": "客户名单：ABC 公司"},
     )
     assert resp.status_code == 200
     assert resp.json()["status"] == "running"
@@ -401,7 +431,9 @@ async def test_artifact_download_redirects(client, make_headers, db_session):
     await db_session.commit()
 
     resp = await client.get(
-        f"{RUNS_URL}/{run_id}/artifacts/{art.id}", headers=headers, follow_redirects=False
+        f"{RUNS_URL}/{run_id}/artifacts/{art.id}",
+        headers=headers,
+        follow_redirects=False,
     )
     assert resp.status_code == 302
     location = resp.headers.get("location", "")

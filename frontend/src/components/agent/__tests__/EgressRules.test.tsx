@@ -25,13 +25,21 @@ describe('EgressRules', () => {
     render(<EgressRules agentId="agent-1" mode="restricted" />)
     fireEvent.change(screen.getByLabelText('域名或网段'), { target: { value: target } })
     fireEvent.click(screen.getByRole('button', { name: '添加规则' }))
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(
-      '/agents/agent-1/egress-rules', expect.objectContaining({ target_type: targetType, target }),
-    ))
+    await waitFor(() =>
+      expect(apiClient.post).toHaveBeenCalledWith(
+        '/agents/agent-1/egress-rules',
+        expect.objectContaining({ target_type: targetType, target })
+      )
+    )
   })
 
   it('explains controlled DNS domain rules without promising application identity checks', async () => {
-    vi.mocked(apiClient.get).mockResolvedValueOnce({ data: { items: [{ id: 'r1', target_type: 'domain', target: 'pypi.org', port_range: null }], egress_mode: 'restricted' } })
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      data: {
+        items: [{ id: 'r1', target_type: 'domain', target: 'pypi.org', port_range: null }],
+        egress_mode: 'restricted',
+      },
+    })
     render(<EgressRules agentId="agent-1" mode="restricted" />)
     await screen.findByText('pypi.org')
     expect(screen.getByText(/仅允许清单内/)).toHaveTextContent('域名、IP/网段和端口')
@@ -43,11 +51,23 @@ describe('EgressRules', () => {
   })
 
   it('renders existing rules and adds a domain rule', async () => {
-    vi.mocked(apiClient.get).mockResolvedValueOnce({ data: { items: [{ id: 'r1', target_type: 'domain', target: 'pypi.org', port_range: '443', note: null }], egress_mode: 'restricted' } })
+    vi.mocked(apiClient.get).mockResolvedValueOnce({
+      data: {
+        items: [
+          { id: 'r1', target_type: 'domain', target: 'pypi.org', port_range: '443', note: null },
+        ],
+        egress_mode: 'restricted',
+      },
+    })
     render(<EgressRules agentId="agent-1" mode="restricted" />)
     await waitFor(() => expect(screen.getByText('pypi.org')).toBeInTheDocument())
     fireEvent.change(screen.getByLabelText('域名或网段'), { target: { value: 'api.example.com' } })
     fireEvent.click(screen.getByRole('button', { name: '添加规则' }))
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/agents/agent-1/egress-rules', expect.objectContaining({ target_type: 'domain', target: 'api.example.com' })))
+    await waitFor(() =>
+      expect(apiClient.post).toHaveBeenCalledWith(
+        '/agents/agent-1/egress-rules',
+        expect.objectContaining({ target_type: 'domain', target: 'api.example.com' })
+      )
+    )
   })
 })

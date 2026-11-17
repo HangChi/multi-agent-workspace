@@ -16,7 +16,12 @@ async def test_malformed_resource_id_is_a_client_error(client, make_headers):
     ]
     for method, path in cases:
         response = await client.request(method, path, headers=headers, json={})
-        assert response.status_code == 422, (method, path, response.status_code, response.text)
+        assert response.status_code == 422, (
+            method,
+            path,
+            response.status_code,
+            response.text,
+        )
         assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
 

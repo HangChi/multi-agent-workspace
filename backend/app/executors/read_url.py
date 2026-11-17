@@ -185,8 +185,9 @@ class _Fetched:
 
     __slots__ = ("body", "encoding", "headers", "location", "status")
 
-    def __init__(self, status: int, response: httpx.Response, body: bytes,
-                 location: str | None) -> None:
+    def __init__(
+        self, status: int, response: httpx.Response, body: bytes, location: str | None
+    ) -> None:
         self.status = status
         self.headers = response.headers
         self.encoding = response.encoding
@@ -209,7 +210,10 @@ class ReadUrlExecutor(ToolExecutor):
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "url": {"type": "string", "description": "完整网址，如 https://example.com/post"}
+                    "url": {
+                        "type": "string",
+                        "description": "完整网址，如 https://example.com/post",
+                    }
                 },
                 "required": ["url"],
             },
@@ -289,7 +293,10 @@ class ReadUrlExecutor(ToolExecutor):
             if response.is_redirect:
                 # 不读 body：重定向只需要 Location
                 return _Fetched(
-                    response.status_code, response, b"", response.headers.get("location", "")
+                    response.status_code,
+                    response,
+                    b"",
+                    response.headers.get("location", ""),
                 )
             if response.status_code >= 400:
                 return _Fetched(response.status_code, response, b"", None)

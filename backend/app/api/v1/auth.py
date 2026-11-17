@@ -37,7 +37,11 @@ async def register(payload: RegisterRequest, db: DB):
         invite_code=payload.invite_code,
     )
     await write_audit(
-        db, user_id=user.id, action="user_register", target_type="user", target_id=user.id
+        db,
+        user_id=user.id,
+        action="user_register",
+        target_type="user",
+        target_id=user.id,
     )
     await db.commit()  # 审计落库（register 业务已在 service 内提交）
     return {"user": UserOut.model_validate(user), "tokens": TokenPair(**tokens)}
@@ -55,7 +59,9 @@ async def login(payload: LoginRequest, request: Request, db: DB):
 
     await login_limiter.check_login_allowed(email=email, ip=ip)
     try:
-        user, tokens = await auth_service.login(db, email=email, password=payload.password)
+        user, tokens = await auth_service.login(
+            db, email=email, password=payload.password
+        )
     except AppError as exc:
         # 仅「凭证错误/账号禁用」计入爆破计数；参数校验类错误不算（打错格式不等于猜密码）
         if exc.code == "FORBIDDEN":

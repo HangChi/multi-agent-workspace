@@ -13,14 +13,7 @@ import { Spinner } from './Spinner'
 import { cn } from './cn'
 
 export type ButtonVariant =
-  | 'primary'
-  | 'secondary'
-  | 'outline'
-  | 'ghost'
-  | 'danger'
-  | 'success'
-  | 'warning'
-  | 'link'
+  'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'success' | 'warning' | 'link'
 
 export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg'
 
@@ -86,7 +79,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     type = 'button',
     ...rest
   },
-  ref,
+  ref
 ) {
   return (
     <button
@@ -123,13 +116,15 @@ const ICON_BTN_SIZES = {
 
 const ICON_BTN_VARIANTS = {
   ghost: 'text-ink-muted hover:bg-surface-subtle hover:text-ink',
-  secondary: 'border border-line-strong bg-surface text-ink-muted hover:border-ink-faint hover:text-ink',
-  danger: 'text-ink-muted hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/15 dark:hover:text-rose-300',
+  secondary:
+    'border border-line-strong bg-surface text-ink-muted hover:border-ink-faint hover:text-ink',
+  danger:
+    'text-ink-muted hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/15 dark:hover:text-rose-300',
 } as const
 
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
   { icon, label, variant = 'ghost', size = 'sm', className, type = 'button', ...rest },
-  ref,
+  ref
 ) {
   const iconSize = size === 'xs' ? 'h-3.5 w-3.5' : 'h-4 w-4'
   return (
@@ -144,7 +139,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
         'disabled:cursor-not-allowed disabled:opacity-40',
         ICON_BTN_SIZES[size],
         ICON_BTN_VARIANTS[variant],
-        className,
+        className
       )}
       {...rest}
     >

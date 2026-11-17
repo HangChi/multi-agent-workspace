@@ -59,7 +59,9 @@ class TestNetworkAndNaming:
         second = SandboxRun(execution_id="exec-b", language="python", code="print(2)")
         first.execute()
         second.execute()
-        names = [n.name for n in fake_docker.networks.created if "ipam" in n.created_kwargs]
+        names = [
+            n.name for n in fake_docker.networks.created if "ipam" in n.created_kwargs
+        ]
         assert len(names) == 2
         assert len(set(names)) == 2
         assert first.network_name != second.network_name
@@ -116,7 +118,9 @@ class TestContainerLimits:
         run.execute()
         volume = fake_docker.volumes.created[1]
         assert volume.created_kwargs["driver_opts"]["type"] == "tmpfs"
-        assert f"size={settings.sbx_disk_mb}m" in volume.created_kwargs["driver_opts"]["o"]
+        assert (
+            f"size={settings.sbx_disk_mb}m" in volume.created_kwargs["driver_opts"]["o"]
+        )
 
     def test_zero_nano_cpus_would_mean_unlimited(self, fake_docker) -> None:
         """0 在 docker 里表示「不限制」，所以换算绝不能截断成 0。"""
@@ -225,7 +229,10 @@ class TestWaitLoop:
         outcome = run.execute()
         # 前两次轮询超时，第三次拿到结果
         assert len(fake_docker.container.wait_calls) == 3
-        assert all(call is not None and call <= 1.0 for call in fake_docker.container.wait_calls)
+        assert all(
+            call is not None and call <= 1.0
+            for call in fake_docker.container.wait_calls
+        )
         assert outcome.timed_out is False
 
     def test_timeout_kills_with_sigkill(self, fake_docker, advancing_clock) -> None:
@@ -259,7 +266,9 @@ class TestWaitLoop:
         assert outcome.cancelled is True
         # 唯一允许的 wait 是杀完之后取退出码那次（timeout=10），
         # 不能出现任何 1s 级别的轮询
-        assert all(call is None or call > 1.0 for call in fake_docker.container.wait_calls)
+        assert all(
+            call is None or call > 1.0 for call in fake_docker.container.wait_calls
+        )
 
     def test_normal_exit_has_no_kill(self, fake_docker) -> None:
         fake_docker.exit_code = 0

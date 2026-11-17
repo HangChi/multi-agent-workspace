@@ -29,7 +29,9 @@ def installation_projection(row: ToolInstallation) -> dict:
     }
 
 
-def _grant_projection(grant: ExternalToolGrant, *, unavailable_reason: str | None = None) -> dict:
+def _grant_projection(
+    grant: ExternalToolGrant, *, unavailable_reason: str | None = None
+) -> dict:
     version = grant.tool_version
     credential = grant.credential
     return {
@@ -40,35 +42,50 @@ def _grant_projection(grant: ExternalToolGrant, *, unavailable_reason: str | Non
         "stable_name": version.stable_name,
         "version": version.version,
         "permissions": list(grant.permission_snapshot or []),
-        "credential": ({
-            "id": credential.id,
-            "label": credential.label,
-            "kind": credential.kind,
-            "header_name": credential.header_name,
-            "status": credential.status,
-            "key_version": credential.key_version,
-            "last_used_at": credential.last_used_at,
-        } if credential else None),
+        "credential": (
+            {
+                "id": credential.id,
+                "label": credential.label,
+                "kind": credential.kind,
+                "header_name": credential.header_name,
+                "status": credential.status,
+                "key_version": credential.key_version,
+                "last_used_at": credential.last_used_at,
+            }
+            if credential
+            else None
+        ),
         "status": grant.status,
         "unavailable_reason": unavailable_reason,
     }
 
 
 async def install_listing(
-    db: AsyncSession, *, listing_id: str, owner_id: str, installed_by: str, version_policy: str
+    db: AsyncSession,
+    *,
+    listing_id: str,
+    owner_id: str,
+    installed_by: str,
+    version_policy: str,
 ) -> ToolInstallation:
     listing = await db.scalar(
         select(MarketplaceListing)
         .options(joinedload(MarketplaceListing.tool_version))
         .where(MarketplaceListing.id == listing_id)
     )
-    if listing is None or listing.status != "published" or listing.tool_version.availability != "valid":
+    if (
+        listing is None
+        or listing.status != "published"
+        or listing.tool_version.availability != "valid"
+    ):
         raise AppError("NOT_FOUND", "已发布且有效的工具 listing 不存在")
-    existing = await db.scalar(select(ToolInstallation).where(
-        ToolInstallation.owner_id == owner_id,
-        ToolInstallation.listing_id == listing_id,
-        ToolInstallation.status == "installed",
-    ))
+    existing = await db.scalar(
+        select(ToolInstallation).where(
+            ToolInstallation.owner_id == owner_id,
+            ToolInstallation.listing_id == listing_id,
+            ToolInstallation.status == "installed",
+        )
+    )
     if existing:
         return existing
     installation = ToolInstallation(
@@ -81,8 +98,12 @@ async def install_listing(
     db.add(installation)
     await db.flush()
     await write_external_audit(
-        db, user_id=installed_by, action="external_tool_install", target_type="tool_installation",
-        target_id=installation.id, detail={"listing_id": listing_id, "version_policy": version_policy},
+        db,
+        user_id=installed_by,
+        action="external_tool_install",
+        target_type="tool_installation",
+        target_id=installation.id,
+        detail={"listing_id": listing_id, "version_policy": version_policy},
     )
     await db.commit()
     await db.refresh(installation)
@@ -90,10 +111,17 @@ async def install_listing(
 
 
 async def list_installations(db: AsyncSession, *, owner_id: str) -> list[dict]:
-    rows = (await db.execute(
-        select(ToolInstallation).where(ToolInstallation.owner_id == owner_id)
-        .order_by(ToolInstallation.installed_at.desc())
-    )).scalars().all()
+    rows = (
+        (
+            await db.execute(
+                select(ToolInstallation)
+                .where(ToolInstallation.owner_id == owner_id)
+                .order_by(ToolInstallation.installed_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
     return [installation_projection(row) for row in rows]
 
 
@@ -110,13 +138,19 @@ async def create_grant(
     await get_agent(db, agent_id, user_id)
     installation = await db.scalar(
         select(ToolInstallation)
-        .options(joinedload(ToolInstallation.listing).joinedload(MarketplaceListing.tool_version))
+        .options(
+            joinedload(ToolInstallation.listing).joinedload(
+                MarketplaceListing.tool_version
+            )
+        )
         .where(ToolInstallation.id == installation_id)
     )
     if installation is None or installation.owner_id != user_id:
         raise AppError("FORBIDDEN", "安装不属于当前用户")
     listing = installation.listing
-    version = await db.scalar(select(ExternalToolVersion).where(ExternalToolVersion.id == tool_version_id))
+    version = await db.scalar(
+        select(ExternalToolVersion).where(ExternalToolVersion.id == tool_version_id)
+    )
     if (
         installation.status != "installed"
         or listing.status != "published"
@@ -131,19 +165,23 @@ async def create_grant(
         raise AppError("INVALID_INPUT", "授权权限必须是工具声明权限的子集")
     credential = None
     if credential_id:
-        credential = await db.scalar(select(ExternalCredential).where(
-            ExternalCredential.id == credential_id,
-            ExternalCredential.server_id == version.server_id,
-            ExternalCredential.scope_owner_id == user_id,
-            ExternalCredential.status == "active",
-        ))
+        credential = await db.scalar(
+            select(ExternalCredential).where(
+                ExternalCredential.id == credential_id,
+                ExternalCredential.server_id == version.server_id,
+                ExternalCredential.scope_owner_id == user_id,
+                ExternalCredential.status == "active",
+            )
+        )
         if credential is None:
             raise AppError("FORBIDDEN", "凭证不属于该服务器或当前用户")
-    existing = await db.scalar(select(ExternalToolGrant).where(
-        ExternalToolGrant.agent_id == agent_id,
-        ExternalToolGrant.tool_version_id == tool_version_id,
-        ExternalToolGrant.status == "active",
-    ))
+    existing = await db.scalar(
+        select(ExternalToolGrant).where(
+            ExternalToolGrant.agent_id == agent_id,
+            ExternalToolGrant.tool_version_id == tool_version_id,
+            ExternalToolGrant.status == "active",
+        )
+    )
     if existing:
         raise AppError("CONFLICT", "Agent 已拥有该版本的活动授权")
     grant = ExternalToolGrant(
@@ -152,15 +190,26 @@ async def create_grant(
         tool_version_id=version.id,
         credential_id=credential_id,
         permission_snapshot=sorted(requested),
-        schema_snapshot={"input": version.input_schema, "output": version.output_schema},
+        schema_snapshot={
+            "input": version.input_schema,
+            "output": version.output_schema,
+        },
         status="active",
         granted_by=user_id,
     )
     db.add(grant)
     await db.flush()
     await write_external_audit(
-        db, user_id=user_id, action="external_tool_grant", target_type="external_tool_grant",
-        target_id=grant.id, detail={"agent_id": agent_id, "tool_version_id": version.id, "permissions": sorted(requested)},
+        db,
+        user_id=user_id,
+        action="external_tool_grant",
+        target_type="external_tool_grant",
+        target_id=grant.id,
+        detail={
+            "agent_id": agent_id,
+            "tool_version_id": version.id,
+            "permissions": sorted(requested),
+        },
     )
     await db.commit()
     return await get_grant(db, grant_id=grant.id)
@@ -181,14 +230,26 @@ async def get_grant(db: AsyncSession, *, grant_id: str) -> ExternalToolGrant:
     return grant
 
 
-async def list_agent_grants(db: AsyncSession, *, agent_id: str, user_id: str) -> list[dict]:
+async def list_agent_grants(
+    db: AsyncSession, *, agent_id: str, user_id: str
+) -> list[dict]:
     await get_agent(db, agent_id, user_id)
-    rows = (await db.execute(
-        select(ExternalToolGrant)
-        .options(joinedload(ExternalToolGrant.tool_version), joinedload(ExternalToolGrant.credential), joinedload(ExternalToolGrant.installation))
-        .where(ExternalToolGrant.agent_id == agent_id)
-        .order_by(ExternalToolGrant.granted_at.desc())
-    )).scalars().all()
+    rows = (
+        (
+            await db.execute(
+                select(ExternalToolGrant)
+                .options(
+                    joinedload(ExternalToolGrant.tool_version),
+                    joinedload(ExternalToolGrant.credential),
+                    joinedload(ExternalToolGrant.installation),
+                )
+                .where(ExternalToolGrant.agent_id == agent_id)
+                .order_by(ExternalToolGrant.granted_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
     result = []
     for grant in rows:
         reason = None
@@ -196,26 +257,36 @@ async def list_agent_grants(db: AsyncSession, *, agent_id: str, user_id: str) ->
             reason = "installation_unavailable"
         elif grant.tool_version.availability != "valid":
             reason = "version_unavailable"
-        elif grant.credential_id and (grant.credential is None or grant.credential.status != "active"):
+        elif grant.credential_id and (
+            grant.credential is None or grant.credential.status != "active"
+        ):
             reason = "credential_unavailable"
         result.append(_grant_projection(grant, unavailable_reason=reason))
     return result
 
 
-async def revoke_grant(db: AsyncSession, *, agent_id: str, grant_id: str, user_id: str) -> None:
+async def revoke_grant(
+    db: AsyncSession, *, agent_id: str, grant_id: str, user_id: str
+) -> None:
     await get_agent(db, agent_id, user_id)
-    grant = await db.scalar(select(ExternalToolGrant).where(
-        ExternalToolGrant.id == grant_id,
-        ExternalToolGrant.agent_id == agent_id,
-    ))
+    grant = await db.scalar(
+        select(ExternalToolGrant).where(
+            ExternalToolGrant.id == grant_id,
+            ExternalToolGrant.agent_id == agent_id,
+        )
+    )
     if grant is None:
         raise AppError("NOT_FOUND", "外部工具授权不存在")
     if grant.status == "revoked":
         return
     grant.status = "revoked"
     await write_external_audit(
-        db, user_id=user_id, action="external_tool_grant_revoke", target_type="external_tool_grant",
-        target_id=grant.id, detail={"agent_id": agent_id},
+        db,
+        user_id=user_id,
+        action="external_tool_grant_revoke",
+        target_type="external_tool_grant",
+        target_id=grant.id,
+        detail={"agent_id": agent_id},
     )
     await db.commit()
 
@@ -233,7 +304,11 @@ async def upgrade_installation(
         raise AppError("INVALID_INPUT", "升级说明至少需要 5 个字符")
     installation = await db.scalar(
         select(ToolInstallation)
-        .options(joinedload(ToolInstallation.listing).joinedload(MarketplaceListing.tool_version))
+        .options(
+            joinedload(ToolInstallation.listing).joinedload(
+                MarketplaceListing.tool_version
+            )
+        )
         .where(ToolInstallation.id == installation_id)
     )
     if installation is None:
@@ -264,13 +339,17 @@ async def upgrade_installation(
         raise AppError("CONFLICT", "工具安装已经是该版本")
 
     grants = (
-        await db.execute(
-            select(ExternalToolGrant).where(
-                ExternalToolGrant.installation_id == installation.id,
-                ExternalToolGrant.status == "active",
+        (
+            await db.execute(
+                select(ExternalToolGrant).where(
+                    ExternalToolGrant.installation_id == installation.id,
+                    ExternalToolGrant.status == "active",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     target_permissions = set(target_version.required_permissions or [])
     for grant in grants:
         if not target_permissions.issubset(set(grant.permission_snapshot or [])):

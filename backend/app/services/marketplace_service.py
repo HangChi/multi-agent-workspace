@@ -58,8 +58,10 @@ async def _refresh_server_status(db: AsyncSession, server: ExternalToolServer) -
         select(func.count())
         .select_from(MarketplaceListing)
         .join(MarketplaceListing.tool_version)
-        .where(ExternalToolVersion.server_id == server.id,
-               MarketplaceListing.status == "published")
+        .where(
+            ExternalToolVersion.server_id == server.id,
+            MarketplaceListing.status == "published",
+        )
     )
     if published and server.status not in {"rejected", "revoked"}:
         server.status = "published"
@@ -70,7 +72,11 @@ async def _refresh_server_status(db: AsyncSession, server: ExternalToolServer) -
 async def _listing(db: AsyncSession, listing_id: str) -> MarketplaceListing:
     listing = await db.scalar(
         select(MarketplaceListing)
-        .options(joinedload(MarketplaceListing.tool_version).joinedload(ExternalToolVersion.server))
+        .options(
+            joinedload(MarketplaceListing.tool_version).joinedload(
+                ExternalToolVersion.server
+            )
+        )
         .where(MarketplaceListing.id == listing_id)
     )
     if listing is None:
@@ -89,7 +95,10 @@ async def browse_listings(
     page: int = 1,
     page_size: int = 50,
 ) -> tuple[list[dict], int]:
-    filters = [MarketplaceListing.status == "published", ExternalToolVersion.availability == "valid"]
+    filters = [
+        MarketplaceListing.status == "published",
+        ExternalToolVersion.availability == "valid",
+    ]
     if q:
         term = f"%{q}%"
         filters.append(
@@ -109,11 +118,19 @@ async def browse_listings(
         select(MarketplaceListing)
         .join(MarketplaceListing.tool_version)
         .join(ExternalToolVersion.server)
-        .options(joinedload(MarketplaceListing.tool_version).joinedload(ExternalToolVersion.server))
+        .options(
+            joinedload(MarketplaceListing.tool_version).joinedload(
+                ExternalToolVersion.server
+            )
+        )
         .where(*filters)
         .order_by(MarketplaceListing.published_at.desc().nullslast())
     )
-    rows = (await db.execute(query.offset((page - 1) * page_size).limit(page_size))).scalars().all()
+    rows = (
+        (await db.execute(query.offset((page - 1) * page_size).limit(page_size)))
+        .scalars()
+        .all()
+    )
     count_query = (
         select(func.count())
         .select_from(MarketplaceListing)
@@ -148,17 +165,25 @@ async def _review_listing(
     version = await db.scalar(
         select(ExternalToolVersion)
         .options(joinedload(ExternalToolVersion.server))
-        .where(ExternalToolVersion.id == tool_version_id, ExternalToolVersion.server_id == server_id)
+        .where(
+            ExternalToolVersion.id == tool_version_id,
+            ExternalToolVersion.server_id == server_id,
+        )
     )
     if version is None:
         raise AppError("NOT_FOUND", "外部工具版本不存在")
     if require_valid and (
-        version.server.current_validation_status != "passed" or version.availability != "valid"
+        version.server.current_validation_status != "passed"
+        or version.availability != "valid"
     ):
         raise AppError("CONFLICT", "只有通过验证且有效的版本可以发布")
     listing = await db.scalar(
         select(MarketplaceListing)
-        .options(joinedload(MarketplaceListing.tool_version).joinedload(ExternalToolVersion.server))
+        .options(
+            joinedload(MarketplaceListing.tool_version).joinedload(
+                ExternalToolVersion.server
+            )
+        )
         .where(MarketplaceListing.tool_version_id == version.id)
     )
     if listing is None:
@@ -193,7 +218,12 @@ async def _review_listing(
 
 
 async def approve_listing(
-    db: AsyncSession, *, server_id: str, tool_version_id: str, reviewer_id: str, reason: str
+    db: AsyncSession,
+    *,
+    server_id: str,
+    tool_version_id: str,
+    reviewer_id: str,
+    reason: str,
 ) -> dict:
     return await _review_listing(
         db,
@@ -208,7 +238,12 @@ async def approve_listing(
 
 
 async def reject_listing(
-    db: AsyncSession, *, server_id: str, tool_version_id: str, reviewer_id: str, reason: str
+    db: AsyncSession,
+    *,
+    server_id: str,
+    tool_version_id: str,
+    reviewer_id: str,
+    reason: str,
 ) -> dict:
     return await _review_listing(
         db,
@@ -235,7 +270,10 @@ async def transition_listing(
     elif action == "resume":
         if listing.status != "paused":
             raise AppError("CONFLICT", "只有已暂停 listing 可以恢复")
-        if listing.tool_version.availability != "valid" or listing.tool_version.server.status != "published":
+        if (
+            listing.tool_version.availability != "valid"
+            or listing.tool_version.server.status != "published"
+        ):
             raise AppError("CONFLICT", "工具版本或服务器当前不可用")
         listing.status = "published"
         listing.published_at = datetime.now(UTC)

@@ -34,7 +34,7 @@ function wsUrl(runId: string, token: string): string {
 export function useRunSocket(
   runId: string | null | undefined,
   onEvent: (event: RunSocketEvent) => void,
-  enabled = true,
+  enabled = true
 ): { connected: boolean } {
   const accessToken = useAuthStore((s) => s.accessToken)
   const [connected, setConnected] = useState(false)

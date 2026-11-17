@@ -15,8 +15,12 @@ async def test_cancellation_poll_reads_external_commit_without_overwriting_local
     assert cached.status == "running"
     assert not await _is_cancelled(db_session, cached.id)
     async with AsyncSession(bind=db_session.bind, expire_on_commit=False) as cancelling:
-        await cancelling.execute(update(Run).where(Run.id == cached.id).values(status="cancelled"))
+        await cancelling.execute(
+            update(Run).where(Run.id == cached.id).values(status="cancelled")
+        )
         await cancelling.commit()
     assert cached.status == "running", "test requires a stale ORM identity-map entry"
     assert await _is_cancelled(db_session, cached.id)
-    assert cached.status == "running", "poll must not overwrite unrelated unflushed run data"
+    assert cached.status == "running", (
+        "poll must not overwrite unrelated unflushed run data"
+    )

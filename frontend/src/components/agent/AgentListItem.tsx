@@ -36,7 +36,7 @@ export function AgentListItem({ agent, onEdit, onArchive, onDelete }: Props) {
               'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white shadow-sm ring-1 ring-inset',
               active
                 ? 'bg-gradient-to-br from-sky-500 to-brand-600 ring-brand-700/20'
-                : 'bg-line-strong ring-line-strong/40',
+                : 'bg-line-strong ring-line-strong/40'
             )}
           >
             <Icon name="bot" className="h-[18px] w-[18px]" />
@@ -47,7 +47,7 @@ export function AgentListItem({ agent, onEdit, onArchive, onDelete }: Props) {
               <h3
                 className={cn(
                   'truncate text-[15px] font-semibold',
-                  active ? 'text-ink' : 'text-ink-muted',
+                  active ? 'text-ink' : 'text-ink-muted'
                 )}
               >
                 {agent.name}
@@ -59,7 +59,7 @@ export function AgentListItem({ agent, onEdit, onArchive, onDelete }: Props) {
             <p
               className={cn(
                 'mt-1 line-clamp-2 text-[13px] leading-relaxed',
-                agent.description ? 'text-ink-muted' : 'text-ink-faint',
+                agent.description ? 'text-ink-muted' : 'text-ink-faint'
               )}
             >
               {agent.description || '暂无描述'}
@@ -92,9 +92,7 @@ export function AgentListItem({ agent, onEdit, onArchive, onDelete }: Props) {
         <span className="inline-flex items-center gap-1.5 rounded-md bg-surface px-1.5 py-0.5 font-mono text-2xs text-ink-soft ring-1 ring-inset ring-line">
           {agent.model}
         </span>
-        <Meta icon="layers">
-          {agent.tools.length > 0 ? agent.tools.join(' · ') : '无工具'}
-        </Meta>
+        <Meta icon="layers">{agent.tools.length > 0 ? agent.tools.join(' · ') : '无工具'}</Meta>
         <Meta icon="coins">上限 ¥{(agent.cost_limit_cents / 100).toFixed(2)}</Meta>
         <Meta icon="clock">
           {new Date(agent.created_at).toLocaleDateString('zh-CN', {
@@ -104,7 +102,8 @@ export function AgentListItem({ agent, onEdit, onArchive, onDelete }: Props) {
           })}
         </Meta>
         <span className="ml-auto hidden text-2xs text-ink-faint sm:block">
-          温度 {agent.temperature.toFixed(1)} · 最多 {agent.max_steps} 步 · 超时 {agent.max_run_seconds}s
+          温度 {agent.temperature.toFixed(1)} · 最多 {agent.max_steps} 步 · 超时{' '}
+          {agent.max_run_seconds}s
         </span>
       </div>
     </Card>

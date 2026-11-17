@@ -38,7 +38,7 @@ async function requestNewAccessToken(): Promise<string | null> {
     // 走裸 axios（不经 apiClient）：否则刷新失败又触发拦截器 → 递归
     const { data } = await axios.post<{ tokens: { access: string; refresh: string } }>(
       `/api/v1${REFRESH_URL}`,
-      { refresh_token: refreshToken },
+      { refresh_token: refreshToken }
     )
     setTokens(data.tokens)
     return data.tokens.access
@@ -94,12 +94,11 @@ apiClient.interceptors.response.use(
 
     original.headers.Authorization = `Bearer ${token}`
     return apiClient(original)
-  },
+  }
 )
 
 /** 统一错误提取：`{"error": {"code": "...", "message": "..."}}` */
 export function extractError(error: unknown): string {
-  const data = (error as { response?: { data?: { error?: { message?: string } } } })
-    ?.response?.data
+  const data = (error as { response?: { data?: { error?: { message?: string } } } })?.response?.data
   return data?.error?.message ?? '请求失败，请稍后重试'
 }

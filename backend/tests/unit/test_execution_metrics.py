@@ -54,10 +54,16 @@ class FakeSession:
 
 def _aggregate(**values: int) -> dict[str, int]:
     return {
-        'running': 0, 'queued': 0, 'completed_today': 0, 'failed_today': 0,
-        'success_7d': 0, 'fail_7d': 0, 'cost_today_cents': 0,
-        'sandbox_runs_today': 0, 'sandbox_duration_ms': 0,
-        **{f'cost_day_{i}': 0 for i in range(7)},
+        "running": 0,
+        "queued": 0,
+        "completed_today": 0,
+        "failed_today": 0,
+        "success_7d": 0,
+        "fail_7d": 0,
+        "cost_today_cents": 0,
+        "sandbox_runs_today": 0,
+        "sandbox_duration_ms": 0,
+        **{f"cost_day_{i}": 0 for i in range(7)},
         **values,
     }
 
@@ -120,11 +126,24 @@ async def test_start_and_finish_execution_store_payload_and_audit():
 
 @pytest.mark.asyncio
 async def test_overview_aggregates_sandbox_runs_and_minutes_for_owner():
-    db = FakeSession([[_aggregate(
-        running=2, queued=1, completed_today=1, failed_today=1,
-        success_7d=1, fail_7d=1, cost_today_cents=30, cost_day_6=30,
-        sandbox_runs_today=2, sandbox_duration_ms=120_000,
-    )]])
+    db = FakeSession(
+        [
+            [
+                _aggregate(
+                    running=2,
+                    queued=1,
+                    completed_today=1,
+                    failed_today=1,
+                    success_7d=1,
+                    fail_7d=1,
+                    cost_today_cents=30,
+                    cost_day_6=30,
+                    sandbox_runs_today=2,
+                    sandbox_duration_ms=120_000,
+                )
+            ]
+        ]
+    )
 
     result = await overview(db, "owner-id")
 

@@ -54,7 +54,9 @@ class FakeLLM:
         self.responses = list(responses)
         self.calls: list[list[dict[str, Any]]] = []
 
-    async def chat(self, messages: list[dict[str, Any]], **kwargs: Any) -> FakeLLMResponse:
+    async def chat(
+        self, messages: list[dict[str, Any]], **kwargs: Any
+    ) -> FakeLLMResponse:
         self.calls.append(messages)
         if not self.responses:
             raise RuntimeError("脚本耗尽：测试预期之外的 LLM 调用")
@@ -207,7 +209,10 @@ async def test_tool_call_then_final():
     web = FakeExecutor(result="搜索到：腾讯云 2025 年报营收 8000 亿")
     llm = FakeLLM(
         [
-            FakeLLMResponse(tool_calls=[FakeToolCall("web_search", {"query": "腾讯云 2025"})], cost_cents=3),
+            FakeLLMResponse(
+                tool_calls=[FakeToolCall("web_search", {"query": "腾讯云 2025"})],
+                cost_cents=3,
+            ),
             FakeLLMResponse(content="根据搜索结果，营收 8000 亿", cost_cents=4),
         ]
     )
@@ -227,14 +232,18 @@ async def test_tool_call_then_final():
     assert run.cost_cents == 7  # 3 + 4
     # tool 步骤记录了 tool_name
     assert sink.steps[1]["tool_name"] == "web_search"
-    assert sink.steps[1]["output"] == {"content": "搜索到：腾讯云 2025 年报营收 8000 亿"}
+    assert sink.steps[1]["output"] == {
+        "content": "搜索到：腾讯云 2025 年报营收 8000 亿"
+    }
 
 
 async def test_unknown_tool_returns_error_to_llm():
     """未知工具：不中断，向 LLM 回填错误说明后继续。"""
     llm = FakeLLM(
         [
-            FakeLLMResponse(tool_calls=[FakeToolCall("nonexistent_tool", {})], cost_cents=1),
+            FakeLLMResponse(
+                tool_calls=[FakeToolCall("nonexistent_tool", {})], cost_cents=1
+            ),
             FakeLLMResponse(content="工具不存在，我改用其他方式", cost_cents=2),
         ]
     )
@@ -254,9 +263,12 @@ async def test_unknown_tool_returns_error_to_llm():
 async def test_max_steps_exceeded_fails():
     """LLM 反复调工具不收敛 → max_steps 超限 → failed。"""
     llm = FakeLLM(
-        [FakeLLMResponse(tool_calls=[FakeToolCall("web_search", {})], cost_cents=1)] * 11
+        [FakeLLMResponse(tool_calls=[FakeToolCall("web_search", {})], cost_cents=1)]
+        * 11
     )
-    runner, run, sink = _make_runner(llm, executors={"web_search": FakeExecutor()}, max_steps=10)
+    runner, run, sink = _make_runner(
+        llm, executors={"web_search": FakeExecutor()}, max_steps=10
+    )
     with pytest.raises(MaxStepsExceeded):
         await _run(runner, run, sink)
 
@@ -270,18 +282,26 @@ async def test_max_steps_exceeded_fails():
 
 async def test_timeout_terminates():
     """运行超时 → timeout 状态。"""
-    llm = FakeLLM([FakeLLMResponse(tool_calls=[FakeToolCall("web_search", {})], cost_cents=1)] * 5)
+    llm = FakeLLM(
+        [FakeLLMResponse(tool_calls=[FakeToolCall("web_search", {})], cost_cents=1)] * 5
+    )
 
     class SlowLLM(FakeLLM):
         """每次调用都睡 0.2s，叠加后超过 timeout_seconds=0.3。"""
 
-        async def chat(self, messages: list[dict[str, Any]], **kwargs: Any) -> FakeLLMResponse:
+        async def chat(
+            self, messages: list[dict[str, Any]], **kwargs: Any
+        ) -> FakeLLMResponse:
             import asyncio
 
             await asyncio.sleep(0.2)
             return await super().chat(messages, **kwargs)
 
-    runner, run, sink = _make_runner(SlowLLM(llm.responses), executors={"web_search": FakeExecutor()}, timeout_seconds=0.3)
+    runner, run, sink = _make_runner(
+        SlowLLM(llm.responses),
+        executors={"web_search": FakeExecutor()},
+        timeout_seconds=0.3,
+    )
     with pytest.raises(ExecutionTimeout):
         await _run(runner, run, sink)
 
@@ -301,7 +321,9 @@ async def test_cost_breaker_terminates():
             FakeLLMResponse(content="本不该执行到这", cost_cents=1),
         ]
     )
-    runner, run, sink = _make_runner(llm, executors={"web_search": FakeExecutor()}, cost_limit_cents=100)
+    runner, run, sink = _make_runner(
+        llm, executors={"web_search": FakeExecutor()}, cost_limit_cents=100
+    )
     with pytest.raises(CostLimitExceeded):
         await _run(runner, run, sink)
 
@@ -375,7 +397,9 @@ async def test_llm_exception_becomes_readable_error():
     """LLM 抛异常 → 捕获并转为可读错误，run 标记 failed。"""
 
     class ExplodingLLM:
-        async def chat(self, messages: list[dict[str, Any]], **kwargs: Any) -> FakeLLMResponse:
+        async def chat(
+            self, messages: list[dict[str, Any]], **kwargs: Any
+        ) -> FakeLLMResponse:
             raise ConnectionError("连接被拒绝")
 
     runner, run, sink = _make_runner(ExplodingLLM())  # type: ignore[arg-type]
@@ -413,7 +437,9 @@ async def test_tool_receives_cancellation_probe_and_run_timeout_cap():
     executor = SandboxLikeExecutor()
     llm = FakeLLM(
         [
-            FakeLLMResponse(tool_calls=[FakeToolCall("run_python", {"code": "print(1)"})]),
+            FakeLLMResponse(
+                tool_calls=[FakeToolCall("run_python", {"code": "print(1)"})]
+            ),
             FakeLLMResponse(content="完成"),
         ]
     )
@@ -430,7 +456,10 @@ async def test_tool_receives_cancellation_probe_and_run_timeout_cap():
 
     assert status == RunStatus.COMPLETED.value
     assert executor.prepared
-    assert executor.timeout_cap is not None and 1 <= executor.timeout_cap <= runner.timeout_seconds
+    assert (
+        executor.timeout_cap is not None
+        and 1 <= executor.timeout_cap <= runner.timeout_seconds
+    )
     assert sink.steps[1]["output"] == {"aborted": False}
 
 
@@ -469,7 +498,9 @@ async def test_sandbox_lifecycle_callbacks_bracket_tool_execution():
     executor = SandboxExecutor()
     llm = FakeLLM(
         [
-            FakeLLMResponse(tool_calls=[FakeToolCall("run_python", {"code": "print(1)"})]),
+            FakeLLMResponse(
+                tool_calls=[FakeToolCall("run_python", {"code": "print(1)"})]
+            ),
             FakeLLMResponse(content="done"),
         ]
     )
@@ -525,8 +556,11 @@ class _ExternalExecutor:
     def schema(self) -> dict:
         return {
             "type": "function",
-            "function": {"name": "mcp_search_v1", "description": "search",
-                         "parameters": {"type": "object", "properties": {}}},
+            "function": {
+                "name": "mcp_search_v1",
+                "description": "search",
+                "parameters": {"type": "object", "properties": {}},
+            },
         }
 
     async def execute(self, arguments: dict[str, Any]):

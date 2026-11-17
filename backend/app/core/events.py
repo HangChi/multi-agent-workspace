@@ -30,7 +30,9 @@ async def publish_run_event(run_id: str, payload: dict[str, Any]) -> None:
     """向 run:{run_id} 频道发布一条事件。"""
     client = _redis_client()
     try:
-        await client.publish(channel_for_run(run_id), json.dumps(payload, ensure_ascii=False))
+        await client.publish(
+            channel_for_run(run_id), json.dumps(payload, ensure_ascii=False)
+        )
     finally:
         await client.aclose()
 

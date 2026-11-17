@@ -69,14 +69,10 @@ describe('refreshAccessToken', () => {
     postMock.mockReturnValue(
       new Promise((resolve) => {
         resolvePost = resolve
-      }),
+      })
     )
 
-    const results = Promise.all([
-      refreshAccessToken(),
-      refreshAccessToken(),
-      refreshAccessToken(),
-    ])
+    const results = Promise.all([refreshAccessToken(), refreshAccessToken(), refreshAccessToken()])
     expect(postMock).toHaveBeenCalledTimes(1)
 
     resolvePost({ data: { tokens: NEW_TOKENS } })

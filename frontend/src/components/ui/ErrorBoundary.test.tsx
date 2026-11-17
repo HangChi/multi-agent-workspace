@@ -16,7 +16,7 @@ describe('ErrorBoundary', () => {
     render(
       <ErrorBoundary>
         <Bomb boom={false} />
-      </ErrorBoundary>,
+      </ErrorBoundary>
     )
     expect(screen.getByText('正常内容')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).toBeNull()
@@ -29,7 +29,7 @@ describe('ErrorBoundary', () => {
       render(
         <ErrorBoundary>
           <Bomb boom />
-        </ErrorBoundary>,
+        </ErrorBoundary>
       )
       const alert = screen.getByRole('alert')
       expect(alert).toHaveTextContent('这部分内容加载失败')
@@ -45,7 +45,7 @@ describe('ErrorBoundary', () => {
       const { unmount } = render(
         <ErrorBoundary variant="section">
           <Bomb boom />
-        </ErrorBoundary>,
+        </ErrorBoundary>
       )
       expect(screen.getByText('返回看板')).toBeInTheDocument()
       unmount()
@@ -53,7 +53,7 @@ describe('ErrorBoundary', () => {
       render(
         <ErrorBoundary variant="page">
           <Bomb boom />
-        </ErrorBoundary>,
+        </ErrorBoundary>
       )
       expect(screen.getByText('页面出错了')).toBeInTheDocument()
       expect(screen.queryByText('返回看板')).toBeNull()
@@ -69,7 +69,7 @@ describe('ErrorBoundary', () => {
       render(
         <ErrorBoundary onError={onError}>
           <Bomb boom />
-        </ErrorBoundary>,
+        </ErrorBoundary>
       )
       expect(onError).toHaveBeenCalledTimes(1)
       expect(onError.mock.calls[0][0]).toBeInstanceOf(Error)
@@ -91,7 +91,7 @@ describe('ErrorBoundary', () => {
       render(
         <ErrorBoundary>
           <Flaky />
-        </ErrorBoundary>,
+        </ErrorBoundary>
       )
       expect(screen.getByRole('alert')).toBeInTheDocument()
 
@@ -109,7 +109,7 @@ describe('ErrorBoundary', () => {
       const { rerender } = render(
         <ErrorBoundary resetKey="a">
           <Bomb boom />
-        </ErrorBoundary>,
+        </ErrorBoundary>
       )
       expect(screen.getByRole('alert')).toBeInTheDocument()
 
@@ -117,7 +117,7 @@ describe('ErrorBoundary', () => {
       rerender(
         <ErrorBoundary resetKey="b">
           <Bomb boom={false} />
-        </ErrorBoundary>,
+        </ErrorBoundary>
       )
       expect(screen.queryByRole('alert')).toBeNull()
       expect(screen.getByText('正常内容')).toBeInTheDocument()
@@ -130,7 +130,7 @@ describe('ErrorBoundary', () => {
     /** 模拟发版后旧 chunk 404 的异常（真实浏览器措辞）。 */
     function ChunkBomb(): React.ReactNode {
       throw new TypeError(
-        'Failed to fetch dynamically imported module: http://x/assets/BoardPage-abc.js',
+        'Failed to fetch dynamically imported module: http://x/assets/BoardPage-abc.js'
       )
     }
 
@@ -146,7 +146,7 @@ describe('ErrorBoundary', () => {
         render(
           <ErrorBoundary variant="section">
             <ChunkBomb />
-          </ErrorBoundary>,
+          </ErrorBoundary>
         )
         const alert = screen.getByRole('alert')
         expect(alert).toHaveTextContent('检测到新版本')
@@ -165,7 +165,7 @@ describe('ErrorBoundary', () => {
         render(
           <ErrorBoundary variant="section">
             <ChunkBomb />
-          </ErrorBoundary>,
+          </ErrorBoundary>
         )
         // 模块已打包成新文件名，重新 import 仍是 404 → 重试按钮无意义
         expect(screen.queryByText('重试')).toBeNull()
@@ -190,7 +190,7 @@ describe('ErrorBoundary', () => {
         render(
           <ErrorBoundary>
             <ChunkBomb />
-          </ErrorBoundary>,
+          </ErrorBoundary>
         )
         expect(reload).not.toHaveBeenCalled()
       } finally {

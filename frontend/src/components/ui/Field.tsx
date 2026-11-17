@@ -115,8 +115,7 @@ function FieldShell({
 // ---------------------------------------------------------------- Input
 
 export interface InputProps
-  extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'>,
-    FieldExtras {
+  extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'>, FieldExtras {
   controlSize?: 'sm' | 'md'
   leftIcon?: IconName
   /** 右侧附加（清除按钮、单位、显隐切换等） */
@@ -138,7 +137,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     id,
     ...rest
   },
-  ref,
+  ref
 ) {
   const autoId = useId()
   const inputId = id ?? autoId
@@ -172,7 +171,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
             controlTone(error),
             leftIcon && 'pl-9',
             rightSlot ? 'pr-10' : null,
-            className,
+            className
           )}
           {...rest}
         />
@@ -209,7 +208,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
     value,
     ...rest
   },
-  ref,
+  ref
 ) {
   const autoId = useId()
   const fieldId = id ?? autoId
@@ -246,7 +245,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
           CONTROL_BASE,
           'min-h-[88px] resize-y px-3 py-2.5 leading-relaxed',
           controlTone(error),
-          className,
+          className
         )}
         {...rest}
       />
@@ -277,7 +276,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
     children,
     ...rest
   },
-  ref,
+  ref
 ) {
   const autoId = useId()
   const fieldId = id ?? autoId
@@ -304,7 +303,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
             HEIGHTS[controlSize],
             'cursor-pointer appearance-none pr-9',
             controlTone(error),
-            className,
+            className
           )}
           {...rest}
         >
@@ -327,7 +326,8 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
 // ----------------------------------------------------------- NumberInput
 
 export interface NumberInputProps
-  extends Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type' | 'size'>,
+  extends
+    Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type' | 'size'>,
     FieldExtras {
   value: number
   onValueChange: (value: number) => void
@@ -390,7 +390,7 @@ export function NumberInput({
             ? 'border-rose-300 focus-within:border-rose-500 focus-within:ring-rose-500/10'
             : 'border-line-strong hover:border-line-strong focus-within:border-brand-500 focus-within:ring-brand-500/10',
           disabled && 'cursor-not-allowed border-line bg-surface-muted shadow-none',
-          className,
+          className
         )}
       >
         <button
@@ -415,13 +415,13 @@ export function NumberInput({
           required={required}
           aria-invalid={error ? true : undefined}
           aria-describedby={error || hint ? `${fieldId}-msg` : undefined}
-          onChange={(e) => onValueChange(clamp(e.target.value === '' ? (min ?? 0) : Number(e.target.value)))}
+          onChange={(e) =>
+            onValueChange(clamp(e.target.value === '' ? (min ?? 0) : Number(e.target.value)))
+          }
           className="min-w-0 flex-1 border-0 bg-transparent text-center text-sm tabular-nums text-ink outline-none focus:ring-0 disabled:bg-transparent"
           {...rest}
         />
-        {suffix && (
-          <span className="flex items-center pr-1 text-xs text-ink-faint">{suffix}</span>
-        )}
+        {suffix && <span className="flex items-center pr-1 text-xs text-ink-faint">{suffix}</span>}
         <button
           type="button"
           aria-label="增加"

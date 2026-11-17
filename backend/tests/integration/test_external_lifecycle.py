@@ -18,8 +18,12 @@ from app.services.external_credential_service import create_credential
 from app.services.external_grant_service import create_grant
 
 
-async def _server_version_listing(db, owner_id: str, *, version: str, status: str = "published"):
-    server = await db.scalar(select(ExternalToolServer).where(ExternalToolServer.owner_id == owner_id))
+async def _server_version_listing(
+    db, owner_id: str, *, version: str, status: str = "published"
+):
+    server = await db.scalar(
+        select(ExternalToolServer).where(ExternalToolServer.owner_id == owner_id)
+    )
     if server is None:
         server = ExternalToolServer(
             owner_id=owner_id,
@@ -66,7 +70,9 @@ async def test_credential_rotation_revocation_is_immediate_and_secret_safe(
 ):
     owner, _ = await make_user(role="admin")
     headers = await make_headers(user=owner)
-    server, _tool, _listing = await _server_version_listing(db_session, owner.id, version="1.0.0")
+    server, _tool, _listing = await _server_version_listing(
+        db_session, owner.id, version="1.0.0"
+    )
     first = await create_credential(
         db_session,
         server_id=server.id,

@@ -57,7 +57,12 @@ class TestObjectKey:
 
     @pytest.mark.parametrize(
         "filename",
-        ["../../etc/passwd", "..\\..\\windows\\x.txt", "/abs/path/a.txt", "a/b/../c.txt"],
+        [
+            "../../etc/passwd",
+            "..\\..\\windows\\x.txt",
+            "/abs/path/a.txt",
+            "a/b/../c.txt",
+        ],
     )
     def test_path_traversal_is_stripped(self, filename: str) -> None:
         """沙箱脚本能写任意文件名，`../` 必须被削掉，否则键会逃出执行前缀。"""

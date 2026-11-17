@@ -50,22 +50,57 @@ def needs_input(run_id: str, message: str) -> None:
     _publish(run_id, {"type": "needs_input", "message": message})
 
 
-def sandbox_started(run_id: str, execution_id: str, step_seq: int, language: str, limits: dict[str, Any]) -> None:
-    _publish(run_id, {"type": "sandbox_started", "execution_id": execution_id, "step_seq": step_seq, "language": language, "limits": limits})
+def sandbox_started(
+    run_id: str, execution_id: str, step_seq: int, language: str, limits: dict[str, Any]
+) -> None:
+    _publish(
+        run_id,
+        {
+            "type": "sandbox_started",
+            "execution_id": execution_id,
+            "step_seq": step_seq,
+            "language": language,
+            "limits": limits,
+        },
+    )
 
 
 def sandbox_output(run_id: str, execution_id: str, stream: str, chunk: str) -> None:
     data = chunk.encode("utf-8", errors="replace")
     offset = 0
     while offset < len(data):
-        text = data[offset:offset + 4096].decode("utf-8", errors="ignore")
+        text = data[offset : offset + 4096].decode("utf-8", errors="ignore")
         offset += len(text.encode("utf-8"))
-        _publish(run_id, {"type": "sandbox_output", "execution_id": execution_id,
-                          "stream": stream, "chunk": text})
+        _publish(
+            run_id,
+            {
+                "type": "sandbox_output",
+                "execution_id": execution_id,
+                "stream": stream,
+                "chunk": text,
+            },
+        )
 
 
-def sandbox_finished(run_id: str, execution_id: str, status: str, exit_code: int | None, duration_ms: int, artifacts: int = 0) -> None:
-    _publish(run_id, {"type": "sandbox_finished", "execution_id": execution_id, "status": status, "exit_code": exit_code, "duration_ms": duration_ms, "artifacts": artifacts})
+def sandbox_finished(
+    run_id: str,
+    execution_id: str,
+    status: str,
+    exit_code: int | None,
+    duration_ms: int,
+    artifacts: int = 0,
+) -> None:
+    _publish(
+        run_id,
+        {
+            "type": "sandbox_finished",
+            "execution_id": execution_id,
+            "status": status,
+            "exit_code": exit_code,
+            "duration_ms": duration_ms,
+            "artifacts": artifacts,
+        },
+    )
 
 
 def egress_denied(
@@ -106,4 +141,6 @@ def _publish(run_id: str, payload: dict[str, Any]) -> None:
     except (ConnectionError, OSError, ValueError) as exc:
         import structlog
 
-        structlog.get_logger(__name__).warning("event_publish_failed", run_id=run_id, error=str(exc))
+        structlog.get_logger(__name__).warning(
+            "event_publish_failed", run_id=run_id, error=str(exc)
+        )

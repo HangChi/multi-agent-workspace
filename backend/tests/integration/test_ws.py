@@ -75,8 +75,11 @@ async def _make_run(*, role: str = "member") -> tuple[str, str]:
 def test_ws_rejects_invalid_token():
     """无效 token → 握手拒绝。"""
     client = TestClient(app)
-    with pytest.raises(WebSocketDisconnect), client.websocket_connect(
-        f"{WS_URL}/{uuid.uuid4()}", params={"token": "invalid-token"}
+    with (
+        pytest.raises(WebSocketDisconnect),
+        client.websocket_connect(
+            f"{WS_URL}/{uuid.uuid4()}", params={"token": "invalid-token"}
+        ),
     ):
         pass  # 不应走到这里
 
@@ -84,7 +87,10 @@ def test_ws_rejects_invalid_token():
 def test_ws_rejects_missing_token():
     """缺 token → 握手拒绝。"""
     client = TestClient(app)
-    with pytest.raises(WebSocketDisconnect), client.websocket_connect(f"{WS_URL}/{uuid.uuid4()}"):
+    with (
+        pytest.raises(WebSocketDisconnect),
+        client.websocket_connect(f"{WS_URL}/{uuid.uuid4()}"),
+    ):
         pass
 
 
@@ -108,8 +114,11 @@ def test_ws_rejects_non_owner():
     intruder_id, _ = asyncio.run(_make_run())
 
     client = TestClient(app)
-    with pytest.raises(WebSocketDisconnect) as exc, client.websocket_connect(
-        f"{WS_URL}/{run_id}", params={"token": _token(intruder_id)}
+    with (
+        pytest.raises(WebSocketDisconnect) as exc,
+        client.websocket_connect(
+            f"{WS_URL}/{run_id}", params={"token": _token(intruder_id)}
+        ),
     ):
         pass
     # 1008 = policy violation（鉴权/权限语义）
@@ -120,8 +129,11 @@ def test_ws_rejects_unknown_run():
     """不存在的 run_id → 拒绝（不泄漏是否存在）。"""
     user_id, _ = asyncio.run(_make_run())
     client = TestClient(app)
-    with pytest.raises(WebSocketDisconnect), client.websocket_connect(
-        f"{WS_URL}/{uuid.uuid4()}", params={"token": _token(user_id)}
+    with (
+        pytest.raises(WebSocketDisconnect),
+        client.websocket_connect(
+            f"{WS_URL}/{uuid.uuid4()}", params={"token": _token(user_id)}
+        ),
     ):
         pass
 
@@ -158,10 +170,18 @@ def test_ws_events_arrive_in_order():
         assert ws.receive_json() == {"type": "ready"}
         events = [
             {"type": "status_change", "status": "running", "ts": "t1"},
-            {"type": "step_new", "step": {"seq": 1, "kind": "llm", "status": "running"}},
+            {
+                "type": "step_new",
+                "step": {"seq": 1, "kind": "llm", "status": "running"},
+            },
             {
                 "type": "step_update",
-                "step": {"seq": 1, "kind": "llm", "status": "completed", "cost_cents": 5},
+                "step": {
+                    "seq": 1,
+                    "kind": "llm",
+                    "status": "completed",
+                    "cost_cents": 5,
+                },
             },
             {"type": "log_line", "line": "正在调用工具 web_search...", "level": "info"},
             {"type": "cost_update", "cost_cents": 5},
@@ -189,13 +209,14 @@ def test_ws_events_isolated_per_run():
 
     client = TestClient(app)
     token = _token(user_id)
-    with client.websocket_connect(
-        f"{WS_URL}/{run_a}", params={"token": token}
-    ) as ws_a, client.websocket_connect(
-        f"{WS_URL}/{run_b}", params={"token": token}
+    with (
+        client.websocket_connect(f"{WS_URL}/{run_a}", params={"token": token}) as ws_a,
+        client.websocket_connect(f"{WS_URL}/{run_b}", params={"token": token}),
     ):
         assert ws_a.receive_json() == {"type": "ready"}
-        asyncio.run(publish_run_event(run_a, {"type": "status_change", "status": "running"}))
+        asyncio.run(
+            publish_run_event(run_a, {"type": "status_change", "status": "running"})
+        )
         # run A 收到
         assert ws_a.receive_json()["type"] == "status_change"
 

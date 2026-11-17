@@ -82,7 +82,7 @@ export function Modal({
         className={cn(
           'relative w-full rounded-t-2xl bg-surface shadow-pop outline-none ring-1 ring-line/60 animate-pop-in',
           'max-h-[92vh] overflow-y-auto sm:rounded-2xl',
-          SIZES[size],
+          SIZES[size]
         )}
       >
         {(title || description) && (
@@ -117,6 +117,6 @@ export function Modal({
         )}
       </div>
     </div>,
-    document.body,
+    document.body
   )
 }

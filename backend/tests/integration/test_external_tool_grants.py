@@ -64,7 +64,9 @@ async def _agent(db_session, owner_id: str) -> Agent:
 
 
 @pytest.mark.asyncio
-async def test_install_and_grant_pin_version_and_permissions(client, db_session, make_user, make_headers):
+async def test_install_and_grant_pin_version_and_permissions(
+    client, db_session, make_user, make_headers
+):
     owner, _ = await make_user(role="member")
     headers = await make_headers(user=owner)
     _server, version, listing = await _published_listing(db_session, owner.id)
@@ -96,7 +98,9 @@ async def test_install_and_grant_pin_version_and_permissions(client, db_session,
     assert "credential" not in body or body["credential"] is None
     assert "ciphertext" not in granted.text
 
-    fetched = await client.get(f"/api/v1/agents/{agent.id}/external-tool-grants", headers=headers)
+    fetched = await client.get(
+        f"/api/v1/agents/{agent.id}/external-tool-grants", headers=headers
+    )
     assert fetched.status_code == 200
     assert fetched.json()["total"] == 1
     assert fetched.json()["items"][0]["tool_version_id"] == version.id
@@ -108,7 +112,9 @@ async def test_install_and_grant_pin_version_and_permissions(client, db_session,
 
 
 @pytest.mark.asyncio
-async def test_grant_rejects_wrong_owner_permission_escalation_and_viewer(client, db_session, make_user, make_headers):
+async def test_grant_rejects_wrong_owner_permission_escalation_and_viewer(
+    client, db_session, make_user, make_headers
+):
     owner, _ = await make_user(role="member")
     stranger, _ = await make_user(role="member")
     owner_headers = await make_headers(user=owner)
@@ -128,14 +134,22 @@ async def test_grant_rejects_wrong_owner_permission_escalation_and_viewer(client
     escalation = await client.post(
         f"/api/v1/agents/{agent.id}/external-tool-grants",
         headers=owner_headers,
-        json={"installation_id": install_id, "tool_version_id": version.id, "permissions": ["records.write"]},
+        json={
+            "installation_id": install_id,
+            "tool_version_id": version.id,
+            "permissions": ["records.write"],
+        },
     )
     assert escalation.status_code == 400
 
     wrong_owner = await client.post(
         f"/api/v1/agents/{agent.id}/external-tool-grants",
         headers=stranger_headers,
-        json={"installation_id": install_id, "tool_version_id": version.id, "permissions": ["records.read"]},
+        json={
+            "installation_id": install_id,
+            "tool_version_id": version.id,
+            "permissions": ["records.read"],
+        },
     )
     assert wrong_owner.status_code == 403
 

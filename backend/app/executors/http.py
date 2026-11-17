@@ -33,7 +33,10 @@ class WebSearchExecutor(ToolExecutor):
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "query": {"type": "string", "description": "搜索关键词（中文/英文均可）"}
+                        "query": {
+                            "type": "string",
+                            "description": "搜索关键词（中文/英文均可）",
+                        }
                     },
                     "required": ["query"],
                 },
@@ -80,7 +83,9 @@ class NoopExecutor:
     新代码不要使用。
     """
 
-    def __init__(self, name: str, description: str, params: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self, name: str, description: str, params: dict[str, Any] | None = None
+    ) -> None:
         self.name = name
         self._description = description
         self._params = params or {

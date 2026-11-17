@@ -51,7 +51,6 @@ async def verify_password_async(plain: str, hashed: str) -> bool:
     return await asyncio.to_thread(verify_password, plain, hashed)
 
 
-
 def _create_token(
     *,
     user_id: str,

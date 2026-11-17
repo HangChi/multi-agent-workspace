@@ -69,7 +69,13 @@ async def test_admin_list_all(client, db_session, make_headers, make_user):
     # 输出字段完整（任意一条即可，跨文件残留不影响字段形状）
     first = body["items"][0]
     assert set(first.keys()) == {
-        "id", "user_id", "action", "target_type", "target_id", "detail", "created_at",
+        "id",
+        "user_id",
+        "action",
+        "target_type",
+        "target_id",
+        "detail",
+        "created_at",
     }
 
     # 排序与相对顺序：筛选本用户，两条 seed 日志最新在前
@@ -147,26 +153,34 @@ async def test_pagination(client, db_session, make_headers, make_user):
     await _seed_audit(db_session, user_id=u1.id, action=action, n=5)
 
     # 第一页 2 条
-    resp = await client.get(f"/api/v1/audit-logs?page=1&page_size=2&action={action}", headers=headers)
+    resp = await client.get(
+        f"/api/v1/audit-logs?page=1&page_size=2&action={action}", headers=headers
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["total"] == 5
     assert len(body["items"]) == 2
 
     # 第三页 1 条（共 5 条，page_size=2 → 3 页）
-    resp = await client.get(f"/api/v1/audit-logs?page=3&page_size=2&action={action}", headers=headers)
+    resp = await client.get(
+        f"/api/v1/audit-logs?page=3&page_size=2&action={action}", headers=headers
+    )
     body = resp.json()
     assert body["total"] == 5
     assert len(body["items"]) == 1
 
     # 超页返回空列表，total 不变
-    resp = await client.get(f"/api/v1/audit-logs?page=99&page_size=2&action={action}", headers=headers)
+    resp = await client.get(
+        f"/api/v1/audit-logs?page=99&page_size=2&action={action}", headers=headers
+    )
     body = resp.json()
     assert body["total"] == 5
     assert body["items"] == []
 
 
-async def test_audit_created_by_user_action(client, db_session, make_headers, make_user):
+async def test_audit_created_by_user_action(
+    client, db_session, make_headers, make_user
+):
     """真实链路：登录写审计日志（auth 已接入 write_audit，action=user_login）。"""
     admin, _ = await make_user(role="admin")
     headers = await make_headers(user=admin)

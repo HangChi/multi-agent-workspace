@@ -22,9 +22,17 @@ async def list_blacklist(_user: CurrentUser, _admin: AdminUser, db: DB):
 
 
 @router.post("/egress-blacklist", response_model=BlacklistOut, status_code=201)
-async def create_blacklist(payload: BlacklistIn, user: CurrentUser, _admin: AdminUser, db: DB):
+async def create_blacklist(
+    payload: BlacklistIn, user: CurrentUser, _admin: AdminUser, db: DB
+):
     rule = await egress_service.create_global_rule(db, user_id=user.id, payload=payload)
-    await write_audit(db, user_id=user.id, action="egress_blacklist_create", target_type="egress_rule", target_id=rule.id)
+    await write_audit(
+        db,
+        user_id=user.id,
+        action="egress_blacklist_create",
+        target_type="egress_rule",
+        target_id=rule.id,
+    )
     await db.commit()
     await db.refresh(rule)
     return rule
@@ -33,7 +41,13 @@ async def create_blacklist(payload: BlacklistIn, user: CurrentUser, _admin: Admi
 @router.delete("/egress-blacklist/{rule_id:path}", status_code=204)
 async def delete_blacklist(rule_id: str, user: CurrentUser, _admin: AdminUser, db: DB):
     await egress_service.delete_global_rule(db, rule_id=rule_id)
-    await write_audit(db, user_id=user.id, action="egress_blacklist_delete", target_type="egress_rule", target_id=rule_id)
+    await write_audit(
+        db,
+        user_id=user.id,
+        action="egress_blacklist_delete",
+        target_type="egress_rule",
+        target_id=rule_id,
+    )
     await db.commit()
 
 
@@ -46,7 +60,8 @@ async def list_egress_accesses(
     agent_id: str | None = None,
     action: str | None = Query(default=None, pattern="^(allow|deny)$"),
     from_time: Annotated[
-        AwareDatetime | None, Query(alias="from", description="包含此时刻；必须含 Z 或时区偏移")
+        AwareDatetime | None,
+        Query(alias="from", description="包含此时刻；必须含 Z 或时区偏移"),
     ] = None,
     to_time: Annotated[
         AwareDatetime | None,
@@ -56,7 +71,13 @@ async def list_egress_accesses(
     page_size: int = Query(default=50, ge=1, le=100),
 ):
     rows, total, summary = await egress_service.list_accesses(
-        db, run_id=run_id, agent_id=agent_id, action=action,
-        from_time=from_time, to_time=to_time, page=page, page_size=page_size
+        db,
+        run_id=run_id,
+        agent_id=agent_id,
+        action=action,
+        from_time=from_time,
+        to_time=to_time,
+        page=page,
+        page_size=page_size,
     )
     return {"items": rows, "total": total, "summary": summary}

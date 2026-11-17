@@ -29,20 +29,33 @@ async def test_delete_rule_audits_same_session_before_commit(monkeypatch):
 
     assert [call[0] for call in calls.mock_calls] == ["delete", "audit", "commit"]
     audit.assert_awaited_once_with(
-        db, user_id="user-1", action="egress_rule_delete", target_type="agent",
-        target_id="agent-1", strict=True,
+        db,
+        user_id="user-1",
+        action="egress_rule_delete",
+        target_type="agent",
+        target_id="agent-1",
+        strict=True,
         detail={
-            "agent_id": "agent-1", "rule_id": "rule-1", "target_type": "domain",
-            "target": "api.example.test", "port_range": "443",
+            "agent_id": "agent-1",
+            "rule_id": "rule-1",
+            "target_type": "domain",
+            "target": "api.example.test",
+            "port_range": "443",
         },
     )
 
 
 async def test_delete_rule_does_not_commit_after_audit_failure(monkeypatch):
     db = SimpleNamespace(commit=AsyncMock())
-    rule = SimpleNamespace(id="rule-1", target_type="domain", target="x.test", port_range=None)
-    monkeypatch.setattr(agent_egress.egress_service, "delete_agent_rule", AsyncMock(return_value=rule))
-    monkeypatch.setattr(agent_egress, "write_audit", AsyncMock(side_effect=SQLAlchemyError("failed")))
+    rule = SimpleNamespace(
+        id="rule-1", target_type="domain", target="x.test", port_range=None
+    )
+    monkeypatch.setattr(
+        agent_egress.egress_service, "delete_agent_rule", AsyncMock(return_value=rule)
+    )
+    monkeypatch.setattr(
+        agent_egress, "write_audit", AsyncMock(side_effect=SQLAlchemyError("failed"))
+    )
 
     with pytest.raises(SQLAlchemyError):
         await agent_egress.delete_rule(
@@ -54,10 +67,14 @@ async def test_delete_rule_does_not_commit_after_audit_failure(monkeypatch):
 @pytest.mark.parametrize("strict", [False, True])
 async def test_audit_failure_rolls_back_and_raises_only_when_strict(strict):
     error = SQLAlchemyError("audit insert failed")
-    db = SimpleNamespace(add=Mock(), flush=AsyncMock(side_effect=error), rollback=AsyncMock())
+    db = SimpleNamespace(
+        add=Mock(), flush=AsyncMock(side_effect=error), rollback=AsyncMock()
+    )
     if strict:
         with pytest.raises(SQLAlchemyError) as caught:
-            await write_audit(db, user_id="user-1", action="egress_rule_delete", strict=True)
+            await write_audit(
+                db, user_id="user-1", action="egress_rule_delete", strict=True
+            )
         assert caught.value is error
     else:
         await write_audit(db, user_id="user-1", action="existing_caller")

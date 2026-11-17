@@ -40,10 +40,14 @@ class SandboxExecution(Base):
         Index("ix_sandbox_executions_status", "status"),
     )
 
-    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=new_uuid)
+    id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), primary_key=True, default=new_uuid
+    )
     run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False)
     # UNIQUE：一次执行只对应一个步骤，一个步骤最多一次执行（data-model 不变量 1）
-    step_id: Mapped[str] = mapped_column(ForeignKey("steps.id"), nullable=False, unique=True)
+    step_id: Mapped[str] = mapped_column(
+        ForeignKey("steps.id"), nullable=False, unique=True
+    )
     # 冗余：供按 Agent 统计与配额核算，避免每次 join steps→runs→agents
     agent_id: Mapped[str] = mapped_column(ForeignKey("agents.id"), nullable=False)
 
@@ -83,7 +87,9 @@ class SandboxExecution(Base):
         BigInteger, nullable=False, default=0, server_default="0"
     )
 
-    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    duration_ms: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     # 资源峰值：从 cgroup 读，读不到为 NULL（不编造 0，否则监控看不出「没测到」）
     cpu_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mem_peak_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
@@ -98,7 +104,9 @@ class SandboxExecution(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     run = relationship("Run")
     step = relationship("Step")

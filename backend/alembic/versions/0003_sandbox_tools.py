@@ -22,6 +22,7 @@ Create Date: 2026-11-14 20:52:07.038769
 改名是有损的——`http` 被移除后原值已丢失，且 Agent 可能在此后又改过 tools 列表，
 反向猜写会覆盖用户的新配置。因此降级后旧名字不会自动回来，需人工处理。
 """
+
 import json
 from collections.abc import Sequence
 
@@ -48,7 +49,12 @@ TOOL_SEED: list[dict] = [
         "timeout_seconds": 30,
         "param_schema": {
             "type": "object",
-            "properties": {"query": {"type": "string", "description": "搜索关键词（中文/英文均可）"}},
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "搜索关键词（中文/英文均可）",
+                }
+            },
             "required": ["query"],
         },
     },
@@ -64,7 +70,10 @@ TOOL_SEED: list[dict] = [
         "param_schema": {
             "type": "object",
             "properties": {
-                "url": {"type": "string", "description": "完整网址，如 https://example.com/post"}
+                "url": {
+                    "type": "string",
+                    "description": "完整网址，如 https://example.com/post",
+                }
             },
             "required": ["url"],
         },
@@ -82,7 +91,10 @@ TOOL_SEED: list[dict] = [
         "param_schema": {
             "type": "object",
             "properties": {
-                "expression": {"type": "string", "description": "待计算的表达式，如 (1250*0.8+300)/3"}
+                "expression": {
+                    "type": "string",
+                    "description": "待计算的表达式，如 (1250*0.8+300)/3",
+                }
             },
             "required": ["expression"],
         },
@@ -175,7 +187,9 @@ def _migrate_agent_tools() -> None:
         )
 
     # 迁移日志：受影响数量必须可见，否则运维无法判断这次升级动了谁
-    print(f"[0003] agents.tools 改名：扫描 {len(rows)} 个 Agent，改写 {len(changed)} 个")
+    print(
+        f"[0003] agents.tools 改名：扫描 {len(rows)} 个 Agent，改写 {len(changed)} 个"
+    )
     for agent_id, agent_name, before, after in changed:
         print(f"[0003]   {agent_name} ({agent_id}): {before} -> {after}")
 
@@ -188,7 +202,9 @@ def upgrade() -> None:
         sa.Column("name", sa.String(length=50), nullable=False),
         sa.Column("display_name", sa.String(length=100), nullable=False),
         sa.Column("description", sa.Text(), nullable=False),
-        sa.Column("kind", sa.Enum("builtin", "sandbox", name="tool_kind"), nullable=False),
+        sa.Column(
+            "kind", sa.Enum("builtin", "sandbox", name="tool_kind"), nullable=False
+        ),
         sa.Column("enabled", sa.Boolean(), server_default="true", nullable=False),
         sa.Column("param_schema", sa.JSON(), nullable=False),
         sa.Column("timeout_seconds", sa.Integer(), nullable=False),
@@ -206,9 +222,13 @@ def upgrade() -> None:
     op.create_table(
         "egress_rules",
         sa.Column("id", sa.Uuid(as_uuid=False), nullable=False),
-        sa.Column("scope", sa.Enum("global", "agent", name="egress_scope"), nullable=False),
+        sa.Column(
+            "scope", sa.Enum("global", "agent", name="egress_scope"), nullable=False
+        ),
         sa.Column("agent_id", sa.Uuid(as_uuid=False), nullable=True),
-        sa.Column("action", sa.Enum("deny", "allow", name="egress_action"), nullable=False),
+        sa.Column(
+            "action", sa.Enum("deny", "allow", name="egress_action"), nullable=False
+        ),
         sa.Column(
             "target_type",
             sa.Enum("domain", "cidr", "ip", name="egress_target_type"),
@@ -229,7 +249,12 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["created_by"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
-            "scope", "agent_id", "action", "target_type", "target", "port_range",
+            "scope",
+            "agent_id",
+            "action",
+            "target_type",
+            "target",
+            "port_range",
             name="uq_egress_rule",
         ),
         # 全局规则只能 deny 且无归属；Agent 规则只能 allow 且必须有归属。
@@ -240,9 +265,14 @@ def upgrade() -> None:
             name="ck_egress_rule_scope_action",
         ),
     )
-    op.create_index("ix_egress_rules_enabled", "egress_rules", ["enabled"], unique=False)
     op.create_index(
-        "ix_egress_rules_scope_agent", "egress_rules", ["scope", "agent_id"], unique=False
+        "ix_egress_rules_enabled", "egress_rules", ["enabled"], unique=False
+    )
+    op.create_index(
+        "ix_egress_rules_scope_agent",
+        "egress_rules",
+        ["scope", "agent_id"],
+        unique=False,
     )
 
     # --- 3. sandbox_executions：执行事实（与 steps 1:1） ---
@@ -253,14 +283,22 @@ def upgrade() -> None:
         sa.Column("step_id", sa.Uuid(as_uuid=False), nullable=False),
         sa.Column("agent_id", sa.Uuid(as_uuid=False), nullable=False),
         sa.Column(
-            "language", sa.Enum("python", "shell", name="sandbox_language"), nullable=False
+            "language",
+            sa.Enum("python", "shell", name="sandbox_language"),
+            nullable=False,
         ),
         sa.Column("code", sa.Text(), nullable=False),
         sa.Column("code_sha256", sa.String(length=64), nullable=False),
         sa.Column(
             "status",
             sa.Enum(
-                "running", "ok", "failed", "timeout", "resource", "policy", "infra",
+                "running",
+                "ok",
+                "failed",
+                "timeout",
+                "resource",
+                "policy",
+                "infra",
                 name="sandbox_status",
             ),
             server_default="running",
@@ -269,8 +307,12 @@ def upgrade() -> None:
         sa.Column("exit_code", sa.Integer(), nullable=True),
         sa.Column("stdout", sa.Text(), nullable=True),
         sa.Column("stderr", sa.Text(), nullable=True),
-        sa.Column("stdout_truncated", sa.Boolean(), server_default="false", nullable=False),
-        sa.Column("stdout_full_bytes", sa.BigInteger(), server_default="0", nullable=False),
+        sa.Column(
+            "stdout_truncated", sa.Boolean(), server_default="false", nullable=False
+        ),
+        sa.Column(
+            "stdout_full_bytes", sa.BigInteger(), server_default="0", nullable=False
+        ),
         sa.Column("duration_ms", sa.Integer(), server_default="0", nullable=False),
         # 资源峰值读不到就留 NULL，不写 0——否则监控无法区分「没测到」与「真的是 0」
         sa.Column("cpu_ms", sa.Integer(), nullable=True),
@@ -299,7 +341,9 @@ def upgrade() -> None:
         ["agent_id", "created_at"],
         unique=False,
     )
-    op.create_index("ix_sandbox_executions_run", "sandbox_executions", ["run_id"], unique=False)
+    op.create_index(
+        "ix_sandbox_executions_run", "sandbox_executions", ["run_id"], unique=False
+    )
     op.create_index(
         "ix_sandbox_executions_status", "sandbox_executions", ["status"], unique=False
     )
@@ -316,7 +360,9 @@ def upgrade() -> None:
         sa.Column("target_ip", postgresql.INET(), nullable=False),
         sa.Column("target_domain", sa.String(length=255), nullable=True),
         sa.Column("port", sa.Integer(), nullable=False),
-        sa.Column("protocol", sa.String(length=10), server_default="tcp", nullable=False),
+        sa.Column(
+            "protocol", sa.String(length=10), server_default="tcp", nullable=False
+        ),
         sa.Column(
             "action",
             sa.Enum("allow", "deny", name="egress_access_action"),
@@ -331,14 +377,21 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.ForeignKeyConstraint(["agent_id"], ["agents.id"]),
-        sa.ForeignKeyConstraint(["execution_id"], ["sandbox_executions.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["matched_rule_id"], ["egress_rules.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(
+            ["execution_id"], ["sandbox_executions.id"], ondelete="SET NULL"
+        ),
+        sa.ForeignKeyConstraint(
+            ["matched_rule_id"], ["egress_rules.id"], ondelete="SET NULL"
+        ),
         sa.ForeignKeyConstraint(["run_id"], ["runs.id"]),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(
-        "ix_egress_accesses_action_time", "egress_accesses", ["action", "occurred_at"], unique=False
+        "ix_egress_accesses_action_time",
+        "egress_accesses",
+        ["action", "occurred_at"],
+        unique=False,
     )
     op.create_index(
         "ix_egress_accesses_agent_time",
@@ -346,18 +399,24 @@ def upgrade() -> None:
         ["agent_id", "occurred_at"],
         unique=False,
     )
-    op.create_index("ix_egress_accesses_run", "egress_accesses", ["run_id"], unique=False)
+    op.create_index(
+        "ix_egress_accesses_run", "egress_accesses", ["run_id"], unique=False
+    )
 
     # --- 5. 既有表加列 ---
     # 存量 Agent 一律 default 模式：升级本身不改变任何现有行为（安全默认）
     #
     # 注意：`sa.Enum` 在 `create_table` 里会隐式建 PG 类型，但在 `add_column` 里**不会**，
     # 必须先显式建 type，否则报 `type "agent_egress_mode" does not exist`。
-    agent_egress_mode = postgresql.ENUM("default", "restricted", name="agent_egress_mode")
+    agent_egress_mode = postgresql.ENUM(
+        "default", "restricted", name="agent_egress_mode"
+    )
     agent_egress_mode.create(op.get_bind(), checkfirst=True)
     op.add_column(
         "agents",
-        sa.Column("egress_mode", agent_egress_mode, server_default="default", nullable=False),
+        sa.Column(
+            "egress_mode", agent_egress_mode, server_default="default", nullable=False
+        ),
     )
     # 存量制品 sha256 留 NULL（不回填，见文件头说明）
     op.add_column("artifacts", sa.Column("sha256", sa.String(length=64), nullable=True))
@@ -399,7 +458,9 @@ def downgrade() -> None:
 
     op.drop_index("ix_sandbox_executions_status", table_name="sandbox_executions")
     op.drop_index("ix_sandbox_executions_run", table_name="sandbox_executions")
-    op.drop_index("ix_sandbox_executions_agent_created", table_name="sandbox_executions")
+    op.drop_index(
+        "ix_sandbox_executions_agent_created", table_name="sandbox_executions"
+    )
     op.drop_table("sandbox_executions")
 
     op.drop_index("ix_egress_rules_scope_agent", table_name="egress_rules")

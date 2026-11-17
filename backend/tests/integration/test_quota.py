@@ -47,9 +47,13 @@ async def _create_request(client, headers: dict, title: str) -> dict:
     return resp.json()
 
 
-async def _make_run(db_session, owner_id: str, cost_cents: int, *, status: str = "completed") -> Run:
+async def _make_run(
+    db_session, owner_id: str, cost_cents: int, *, status: str = "completed"
+) -> Run:
     """直接建 Run（绕过分配，模拟已发生的执行成本）。"""
-    request = Request(owner_id=owner_id, title=f"quota-{uuid.uuid4().hex[:6]}", status="completed")
+    request = Request(
+        owner_id=owner_id, title=f"quota-{uuid.uuid4().hex[:6]}", status="completed"
+    )
     db_session.add(request)
     await db_session.flush()
     run = Run(
@@ -90,7 +94,9 @@ async def test_month_usage_sums_current_month_real_db(
     assert usage == now_run.cost_cents + now_run2.cost_cents  # 120 + 80 = 200
 
 
-async def test_assign_rejected_when_quota_exceeded(client, db_session, auth_headers, monkeypatch):
+async def test_assign_rejected_when_quota_exceeded(
+    client, db_session, auth_headers, monkeypatch
+):
     """月用量超限：新分配 429 RATE_LIMITED，不建 Run，需求保持可分配。"""
     headers, user = await auth_headers()
     agent = await _create_agent(client, headers)
@@ -111,17 +117,23 @@ async def test_assign_rejected_when_quota_exceeded(client, db_session, auth_head
 
     # 不建 Run
     runs = (
-        await db_session.execute(
-            __import__("sqlalchemy").select(Run).where(Run.request_id == req["id"])
+        (
+            await db_session.execute(
+                __import__("sqlalchemy").select(Run).where(Run.request_id == req["id"])
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert runs == []
     # 需求保持可分配
     fresh = await db_session.get(Request, req["id"])
     assert fresh.status == "created"
 
 
-async def test_assign_allowed_under_quota(client, db_session, auth_headers, monkeypatch):
+async def test_assign_allowed_under_quota(
+    client, db_session, auth_headers, monkeypatch
+):
     """未超限：正常分配 202。"""
     headers, user = await auth_headers()
     agent = await _create_agent(client, headers)
@@ -169,7 +181,9 @@ async def test_quota_isolated_per_user(client, db_session, auth_headers, monkeyp
     assert resp_a.status_code == 429
 
 
-async def test_execute_entry_asserts_quota(client, db_session, auth_headers, monkeypatch):
+async def test_execute_entry_asserts_quota(
+    client, db_session, auth_headers, monkeypatch
+):
     """执行入口熔断：直接调用 assert_quota_available 模拟 execute_run 前置检查。"""
     _, user = await auth_headers()
     monkeypatch.setattr(quota_service, "MONTHLY_QUOTA_CENTS", 100)

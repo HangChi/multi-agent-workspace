@@ -27,7 +27,9 @@ def _agent_payload(**overrides: str) -> dict:
 
 
 async def _create_agent(client, headers: dict, **overrides: str) -> dict:
-    resp = await client.post(AGENTS_URL, headers=headers, json=_agent_payload(**overrides))
+    resp = await client.post(
+        AGENTS_URL, headers=headers, json=_agent_payload(**overrides)
+    )
     assert resp.status_code == 201
     return resp.json()
 
@@ -127,7 +129,9 @@ async def test_archive_non_owner_forbidden(client, auth_headers):
     agent = await _create_agent(client, owner_headers)
 
     other_headers, _ = await auth_headers(role="member")
-    resp = await client.post(f"{AGENTS_URL}/{agent['id']}/archive", headers=other_headers)
+    resp = await client.post(
+        f"{AGENTS_URL}/{agent['id']}/archive", headers=other_headers
+    )
     assert resp.status_code == 403
 
 
@@ -165,12 +169,12 @@ async def test_delete_agent_with_group_ref_conflict(client, make_headers, db_ses
     agent = await _create_agent(client, headers)
 
     # 直接建组引用（组管理在 T030 覆盖）
-    group = AgentGroup(owner_id=agent["owner_id"], name="g1", routing_strategy="fan_out")
+    group = AgentGroup(
+        owner_id=agent["owner_id"], name="g1", routing_strategy="fan_out"
+    )
     db_session.add(group)
     await db_session.flush()
-    db_session.add(
-        GroupMember(group_id=group.id, agent_id=agent["id"], position=1)
-    )
+    db_session.add(GroupMember(group_id=group.id, agent_id=agent["id"], position=1))
     await db_session.commit()
 
     resp = await client.delete(f"{AGENTS_URL}/{agent['id']}", headers=headers)

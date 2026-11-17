@@ -99,29 +99,39 @@ class ExternalToolExecutor:
         call_id = str(uuid.uuid4())
         started = asyncio.get_running_loop().time()
 
-        async def record(status: str, category: str | None = None, result: Any = None) -> None:
+        async def record(
+            status: str, category: str | None = None, result: Any = None
+        ) -> None:
             if self.invocation_recorder is not None:
                 await self.invocation_recorder(
                     call_id=call_id,
                     status=status,
-                    duration_ms=int((asyncio.get_running_loop().time() - started) * 1000),
+                    duration_ms=int(
+                        (asyncio.get_running_loop().time() - started) * 1000
+                    ),
                     error_category=category,
                     step_id=self.invocation_step_id,
                     arguments=arguments,
                     result=result,
                 )
 
-        if self.policy_error or (self.authorize_call is not None and not await self.authorize_call()):
+        if self.policy_error or (
+            self.authorize_call is not None and not await self.authorize_call()
+        ):
             await record("policy_denied", "policy_denied")
             raise ExternalToolExecutionError("policy_denied", "外部工具当前不可用")
         if not self.required_permissions.issubset(self.permission_snapshot):
             await record("policy_denied", "policy_denied")
-            raise ExternalToolExecutionError("policy_denied", "外部工具授权权限当前不可用")
+            raise ExternalToolExecutionError(
+                "policy_denied", "外部工具授权权限当前不可用"
+            )
         try:
             validate(instance=arguments, schema=self.input_schema)
         except (ValidationError, TypeError, ValueError) as exc:
             await record("parameter_error", "parameter_error")
-            raise ExternalToolExecutionError("parameter_error", "工具参数不符合已验证的输入格式") from exc
+            raise ExternalToolExecutionError(
+                "parameter_error", "工具参数不符合已验证的输入格式"
+            ) from exc
 
         deadline = started + self.timeout_seconds
         lease: str | None = None
@@ -172,16 +182,24 @@ class ExternalToolExecutor:
                         while not call.done():
                             remaining = deadline - asyncio.get_running_loop().time()
                             if remaining <= 0:
-                                raise ExternalToolExecutionError("timeout", "外部工具调用超时")
-                            done, _ = await asyncio.wait({call}, timeout=min(0.1, remaining))
+                                raise ExternalToolExecutionError(
+                                    "timeout", "外部工具调用超时"
+                                )
+                            done, _ = await asyncio.wait(
+                                {call}, timeout=min(0.1, remaining)
+                            )
                             if done:
                                 break
                             if await self.abort_check():
                                 await client.cancel(call_id)
-                                raise ExternalToolExecutionError("cancelled", "外部工具调用已取消")
+                                raise ExternalToolExecutionError(
+                                    "cancelled", "外部工具调用已取消"
+                                )
                         result = await call
                         if await self.abort_check():
-                            raise ExternalToolExecutionError("cancelled", "外部工具调用已取消")
+                            raise ExternalToolExecutionError(
+                                "cancelled", "外部工具调用已取消"
+                            )
                 finally:
                     if not call.done():
                         call.cancel()
@@ -203,16 +221,22 @@ class ExternalToolExecutor:
             raise ExternalToolExecutionError("timeout", "外部工具调用超时") from exc
         except MCPAuthError as exc:
             await record("auth_error", "auth_error")
-            raise ExternalToolExecutionError("auth_error", "外部工具服务器认证失败") from exc
+            raise ExternalToolExecutionError(
+                "auth_error", "外部工具服务器认证失败"
+            ) from exc
         except MCPToolError as exc:
             await record("tool_error", "tool_error")
             raise ExternalToolExecutionError("tool_error", "外部工具执行失败") from exc
         except (MCPTransportError, MCPProtocolError, httpx.HTTPError, OSError) as exc:
             await record("transport_error", "transport_error")
-            raise ExternalToolExecutionError("transport_error", "外部工具服务器暂不可用") from exc
+            raise ExternalToolExecutionError(
+                "transport_error", "外部工具服务器暂不可用"
+            ) from exc
         except MCPError as exc:
             await record("transport_error", "transport_error")
-            raise ExternalToolExecutionError("transport_error", "外部工具调用失败") from exc
+            raise ExternalToolExecutionError(
+                "transport_error", "外部工具调用失败"
+            ) from exc
         finally:
             if self.release_concurrency_slot is not None and lease is not None:
                 with suppress(Exception):
@@ -222,7 +246,9 @@ class ExternalToolExecutor:
 
         bounded = self._bound_result(result)
         status = "result_truncated" if bounded["result_truncated"] else "succeeded"
-        await record(status, "result_truncated" if bounded["result_truncated"] else None, bounded)
+        await record(
+            status, "result_truncated" if bounded["result_truncated"] else None, bounded
+        )
         return bounded
 
     def _bound_result(self, result: Any) -> dict[str, Any]:

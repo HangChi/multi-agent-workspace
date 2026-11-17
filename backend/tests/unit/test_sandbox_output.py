@@ -5,7 +5,9 @@ from app.executors.sandbox_client import truncate_output
 
 
 def test_output_keeps_tail_and_original_size() -> None:
-    data, truncated, full = truncate_output(b"head" + b"x" * (3 * 1024 * 1024) + b"tail", 1024 * 1024)
+    data, truncated, full = truncate_output(
+        b"head" + b"x" * (3 * 1024 * 1024) + b"tail", 1024 * 1024
+    )
     assert truncated is True
     assert len(data) == 1024 * 1024
     assert data.endswith(b"tail")

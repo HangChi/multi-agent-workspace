@@ -14,14 +14,14 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = '0004_tool_grant_history'
-down_revision: str | Sequence[str] | None = '0003_sandbox_tools'
+revision: str = "0004_tool_grant_history"
+down_revision: str | Sequence[str] | None = "0003_sandbox_tools"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column('runs', sa.Column('tool_grants_snapshot', sa.JSON(), nullable=True))
+    op.add_column("runs", sa.Column("tool_grants_snapshot", sa.JSON(), nullable=True))
     # One bounded upgrade reconciliation, not a scan on every request. Keep the
     # historical migration self-contained rather than importing a live catalog.
     op.execute("""
@@ -100,9 +100,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute('DROP TRIGGER runs_preserve_tool_grants ON runs')
-    op.execute('DROP FUNCTION preserve_run_tool_grants()')
-    op.execute('DROP TRIGGER tools_prune_agent_grants ON tools')
-    op.execute('DROP FUNCTION prune_disabled_tool_grants()')
-    op.drop_column('runs', 'tool_grants_snapshot')
+    op.execute("DROP TRIGGER runs_preserve_tool_grants ON runs")
+    op.execute("DROP FUNCTION preserve_run_tool_grants()")
+    op.execute("DROP TRIGGER tools_prune_agent_grants ON tools")
+    op.execute("DROP FUNCTION prune_disabled_tool_grants()")
+    op.drop_column("runs", "tool_grants_snapshot")
     # Pruned grants cannot be reconstructed honestly on downgrade.

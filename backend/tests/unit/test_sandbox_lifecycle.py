@@ -23,7 +23,9 @@ def test_prepare_limits_honor_requested_timeout_and_run_remainder() -> None:
     assert first != second
 
 
-async def test_busy_acquisition_retries_three_times_then_records_failure(monkeypatch) -> None:
+async def test_busy_acquisition_retries_three_times_then_records_failure(
+    monkeypatch,
+) -> None:
     sleep = AsyncMock()
     attempts = []
 

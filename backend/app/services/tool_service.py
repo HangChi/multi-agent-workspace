@@ -29,12 +29,12 @@ def filter_grants(names: Iterable[str] | None, enabled: Iterable[str]) -> list[s
 
 async def validate_grants(db: AsyncSession, names: list[str] | None) -> None:
     if names is None:
-        raise AppError('INVALID_INPUT', '工具集必须为列表；不授权任何工具请传 []')
+        raise AppError("INVALID_INPUT", "工具集必须为列表；不授权任何工具请传 []")
     enabled = [spec.name for spec in await enabled_tool_specs(db, lock=True)]
     unavailable = set(names) - set(enabled)
     if unavailable:
         raise AppError(
-            'INVALID_INPUT',
+            "INVALID_INPUT",
             f"工具未启用或已下线: {', '.join(sorted(unavailable))}；可选工具: {', '.join(enabled) or '无'}",
         )
 

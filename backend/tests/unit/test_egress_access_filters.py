@@ -21,7 +21,13 @@ async def test_time_filters_are_shared_by_items_total_and_summary():
     db = SimpleNamespace(execute=AsyncMock(side_effect=results))
 
     rows, total, summary = await list_accesses(
-        db, from_time=start, to_time=end, run_id="run-1", action="allow", page=3, page_size=1
+        db,
+        from_time=start,
+        to_time=end,
+        run_id="run-1",
+        action="allow",
+        page=3,
+        page_size=1,
     )
 
     assert rows == []
@@ -41,12 +47,15 @@ async def test_time_filters_are_shared_by_items_total_and_summary():
         assert "egress_accesses.action =" in sql
 
 
-@pytest.mark.parametrize("start,end", [
-    (datetime(2026, 1, 1), None),
-    (None, datetime(2026, 1, 1)),
-    (datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 1, tzinfo=UTC)),
-    (datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 1, tzinfo=UTC)),
-])
+@pytest.mark.parametrize(
+    "start,end",
+    [
+        (datetime(2026, 1, 1), None),
+        (None, datetime(2026, 1, 1)),
+        (datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 1, tzinfo=UTC)),
+        (datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 1, tzinfo=UTC)),
+    ],
+)
 async def test_invalid_time_bounds_are_rejected_before_querying(start, end):
     db = SimpleNamespace(execute=AsyncMock())
     with pytest.raises(AppError):

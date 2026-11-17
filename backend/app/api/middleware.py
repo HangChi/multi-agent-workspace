@@ -58,7 +58,9 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         # 只接受客户端传来的合理值，避免日志注入（换行/超长）
         request_id = (
             incoming.strip()[:64]
-            if incoming and incoming.strip().isprintable() and len(incoming.strip()) <= 64
+            if incoming
+            and incoming.strip().isprintable()
+            and len(incoming.strip()) <= 64
             else uuid.uuid4().hex[:16]
         )
 

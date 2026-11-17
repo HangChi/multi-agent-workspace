@@ -54,7 +54,7 @@ export function Dropdown({
         className={cn(
           'inline-flex items-center gap-2 rounded-lg transition-colors',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 focus-visible:ring-offset-2',
-          triggerClassName,
+          triggerClassName
         )}
       >
         {trigger}
@@ -66,7 +66,7 @@ export function Dropdown({
           className={cn(
             'absolute z-50 mt-2 min-w-[12rem] rounded-xl border border-line bg-surface p-1.5 shadow-pop animate-pop-in',
             align === 'end' ? 'right-0' : 'left-0',
-            panelClassName,
+            panelClassName
           )}
         >
           {children}
@@ -98,7 +98,7 @@ export function DropdownItem({
         'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors',
         tone === 'danger'
           ? 'text-rose-600 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/15'
-          : 'text-ink-soft hover:bg-surface-subtle',
+          : 'text-ink-soft hover:bg-surface-subtle'
       )}
     >
       {icon && <Icon name={icon} className="h-4 w-4 shrink-0 opacity-80" />}

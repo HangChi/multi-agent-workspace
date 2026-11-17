@@ -47,11 +47,7 @@ async def create_group(
 
 async def get_group(db: AsyncSession, group_id: str, user_id: str) -> AgentGroup:
     """取单个组（归属校验，预加载成员）。"""
-    stmt = (
-        select(AgentGroup)
-        .options(_with_members())
-        .where(AgentGroup.id == group_id)
-    )
+    stmt = select(AgentGroup).options(_with_members()).where(AgentGroup.id == group_id)
     group = (await db.execute(stmt)).scalars().first()
     if group is None:
         raise AppError("NOT_FOUND", "组不存在")
@@ -127,24 +123,32 @@ async def add_member(
 
     # 重复成员 / position 冲突
     existing = (
-        await db.execute(
-            select(GroupMember).where(
-                GroupMember.group_id == group_id,
-                GroupMember.agent_id == agent_id,
+        (
+            await db.execute(
+                select(GroupMember).where(
+                    GroupMember.group_id == group_id,
+                    GroupMember.agent_id == agent_id,
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if existing is not None:
         raise AppError("CONFLICT", "该 Agent 已在组中")
 
     pos_taken = (
-        await db.execute(
-            select(GroupMember).where(
-                GroupMember.group_id == group_id,
-                GroupMember.position == position,
+        (
+            await db.execute(
+                select(GroupMember).where(
+                    GroupMember.group_id == group_id,
+                    GroupMember.position == position,
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if pos_taken is not None:
         raise AppError("CONFLICT", "该位置已被占用")
 
@@ -160,13 +164,17 @@ async def remove_member(
     """移除成员（归属校验）。"""
     group = await get_group(db, group_id, user_id)
     member = (
-        await db.execute(
-            select(GroupMember).where(
-                GroupMember.group_id == group.id,
-                GroupMember.agent_id == agent_id,
+        (
+            await db.execute(
+                select(GroupMember).where(
+                    GroupMember.group_id == group.id,
+                    GroupMember.agent_id == agent_id,
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if member is None:
         raise AppError("NOT_FOUND", "组内不存在该成员")
     await db.delete(member)
@@ -187,11 +195,7 @@ async def reorder_members(
     """
     group = await get_group(db, group_id, user_id)
     members = list(
-        (
-            await db.execute(
-                select(GroupMember).where(GroupMember.group_id == group.id)
-            )
-        )
+        (await db.execute(select(GroupMember).where(GroupMember.group_id == group.id)))
         .scalars()
         .all()
     )

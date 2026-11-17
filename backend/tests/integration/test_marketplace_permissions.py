@@ -37,7 +37,9 @@ async def _pending_version(db_session, owner_id: str) -> ExternalToolVersion:
 
 
 @pytest.mark.asyncio
-async def test_member_can_browse_but_cannot_approve_or_pause(client, db_session, make_headers, make_user):
+async def test_member_can_browse_but_cannot_approve_or_pause(
+    client, db_session, make_headers, make_user
+):
     owner, _ = await make_user(role="admin")
     member_headers = await make_headers(role="member")
     version = await _pending_version(db_session, owner.id)
@@ -55,14 +57,22 @@ async def test_member_can_browse_but_cannot_approve_or_pause(client, db_session,
 
 
 @pytest.mark.asyncio
-async def test_reject_requires_reason_and_viewer_cannot_review(client, db_session, make_headers, make_user):
+async def test_reject_requires_reason_and_viewer_cannot_review(
+    client, db_session, make_headers, make_user
+):
     owner, _ = await make_user(role="admin")
     viewer_headers = await make_headers(role="viewer")
     version = await _pending_version(db_session, owner.id)
     await db_session.commit()
-    base = f"/api/v1/external-tool-servers/{version.server_id}/tools/{version.id}/reject"
+    base = (
+        f"/api/v1/external-tool-servers/{version.server_id}/tools/{version.id}/reject"
+    )
 
-    missing_reason = await client.post(base, headers=await make_headers(role="admin"), json={})
+    missing_reason = await client.post(
+        base, headers=await make_headers(role="admin"), json={}
+    )
     assert missing_reason.status_code == 422
-    denied = await client.post(base, headers=viewer_headers, json={"reason": "Not reviewed"})
+    denied = await client.post(
+        base, headers=viewer_headers, json={"reason": "Not reviewed"}
+    )
     assert denied.status_code == 403

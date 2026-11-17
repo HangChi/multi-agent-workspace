@@ -48,9 +48,17 @@ class ExternalServerCreate(BaseModel):
             raise ValueError("anonymous server must not include credentials")
         if auth_mode != "none" and value is None:
             raise ValueError("configured authentication requires a credential")
-        if value is not None and auth_mode == "static_bearer" and value.kind != "bearer":
+        if (
+            value is not None
+            and auth_mode == "static_bearer"
+            and value.kind != "bearer"
+        ):
             raise ValueError("static_bearer requires a bearer credential")
-        if value is not None and auth_mode == "static_api_key" and value.kind != "api_key":
+        if (
+            value is not None
+            and auth_mode == "static_api_key"
+            and value.kind != "api_key"
+        ):
             raise ValueError("static_api_key requires an api_key credential")
         return value
 

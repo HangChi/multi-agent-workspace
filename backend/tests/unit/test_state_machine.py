@@ -206,7 +206,9 @@ def test_queued_cannot_skip_to_other_states(to: str):
         transition(run, RunStatus(to))
 
 
-@pytest.mark.parametrize("to", ["completed", "needs_input", "cancelled", "timeout", "failed"])
+@pytest.mark.parametrize(
+    "to", ["completed", "needs_input", "cancelled", "timeout", "failed"]
+)
 def test_running_restricted_exits(to: str):
     """running → completed/failed/needs_input/cancelled/timeout 全为合法；回到 queued 才非法。"""
     run = FakeRun(status="running")

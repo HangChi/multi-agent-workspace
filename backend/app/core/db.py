@@ -18,15 +18,21 @@ class Base(DeclarativeBase):
 # Celery worker 同理（DB_POOL=null）：worker 用 asyncio.run 每次新建事件循环，
 # 连接池的连接绑定旧 loop 会报 "attached to a different loop"。
 _is_worker_or_test = os.getenv("TESTING") == "1" or os.getenv("DB_POOL") == "null"
-_pool_kwargs = {"poolclass": NullPool} if _is_worker_or_test else {
-    "pool_size": 10,
-    "max_overflow": 20,
-    "pool_pre_ping": True,
-}
+_pool_kwargs = (
+    {"poolclass": NullPool}
+    if _is_worker_or_test
+    else {
+        "pool_size": 10,
+        "max_overflow": 20,
+        "pool_pre_ping": True,
+    }
+)
 
 engine = create_async_engine(settings.database_url, echo=False, **_pool_kwargs)
 
-SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
+SessionLocal = async_sessionmaker(
+    engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
+)
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

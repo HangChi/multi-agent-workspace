@@ -77,7 +77,9 @@ async def overview(db: AsyncSession, owner_id: str, *, cache: bool = False) -> d
         func.count().filter(today, failed).label("failed_today"),
         func.count().filter(this_week, completed).label("success_7d"),
         func.count().filter(this_week, failed).label("fail_7d"),
-        func.coalesce(func.sum(Run.cost_cents).filter(today, billable), 0).label("cost_today_cents"),
+        func.coalesce(func.sum(Run.cost_cents).filter(today, billable), 0).label(
+            "cost_today_cents"
+        ),
     ]
     # Fixed-size conditional sums avoid timezone-dependent date casts and keep
     # the returned result bounded to seven days, regardless of history size.
@@ -101,10 +103,14 @@ async def overview(db: AsyncSession, owner_id: str, *, cache: bool = False) -> d
     sandbox_totals = (
         select(
             func.count().label("sandbox_runs_today"),
-            func.coalesce(func.sum(SandboxExecution.duration_ms), 0).label("sandbox_duration_ms"),
+            func.coalesce(func.sum(SandboxExecution.duration_ms), 0).label(
+                "sandbox_duration_ms"
+            ),
         )
         .where(
-            SandboxExecution.agent_id.in_(select(Agent.id).where(Agent.owner_id == owner_id)),
+            SandboxExecution.agent_id.in_(
+                select(Agent.id).where(Agent.owner_id == owner_id)
+            ),
             SandboxExecution.created_at >= today_start,
         )
         .subquery("sandbox_totals")
@@ -112,12 +118,16 @@ async def overview(db: AsyncSession, owner_id: str, *, cache: bool = False) -> d
     # Each aggregate subquery always returns exactly one row (including empty
     # inputs). Joining after aggregation cannot multiply runs by executions.
     row = (
-        await db.execute(
-            select(*run_totals.c, *sandbox_totals.c).select_from(
-                run_totals.join(sandbox_totals, true())
+        (
+            await db.execute(
+                select(*run_totals.c, *sandbox_totals.c).select_from(
+                    run_totals.join(sandbox_totals, true())
+                )
             )
         )
-    ).mappings().one()
+        .mappings()
+        .one()
+    )
     total_7d = row["success_7d"] + row["fail_7d"]
     snapshot = {
         "running": row["running"],

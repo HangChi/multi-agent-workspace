@@ -5,8 +5,15 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 InvocationStatus = Literal[
-    "succeeded", "tool_error", "parameter_error", "transport_error", "auth_error",
-    "timeout", "policy_denied", "cancelled", "result_truncated",
+    "succeeded",
+    "tool_error",
+    "parameter_error",
+    "transport_error",
+    "auth_error",
+    "timeout",
+    "policy_denied",
+    "cancelled",
+    "result_truncated",
 ]
 
 

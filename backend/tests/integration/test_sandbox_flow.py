@@ -63,14 +63,17 @@ def fake_docker(monkeypatch: pytest.MonkeyPatch) -> FakeDockerClient:
 
     def network_create(name, **kwargs):
         network = create_network(name, **kwargs)
-        network.attrs.update({
-            "Id": "0123456789abcdef",
-            "Options": {"com.docker.network.bridge.name": "br-0123456789ab"},
-        })
+        network.attrs.update(
+            {
+                "Id": "0123456789abcdef",
+                "Options": {"com.docker.network.bridge.name": "br-0123456789ab"},
+            }
+        )
 
         def connect(proxy):
             proxy.attrs["NetworkSettings"]["Networks"][name] = {
-                "IPAddress": "172.30.0.2", "GlobalIPv6Address": "fd00:1234::2",
+                "IPAddress": "172.30.0.2",
+                "GlobalIPv6Address": "fd00:1234::2",
             }
 
         network.connect = connect
@@ -87,7 +90,9 @@ def fake_docker(monkeypatch: pytest.MonkeyPatch) -> FakeDockerClient:
         if "network" in kwargs:
             container.attrs["NetworkSettings"]["Networks"][kwargs["network"]] = {
                 "IPAddress": "172.30.0.3",
-                "IPAMConfig": kwargs["networking_config"][kwargs["network"]]["IPAMConfig"],
+                "IPAMConfig": kwargs["networking_config"][kwargs["network"]][
+                    "IPAMConfig"
+                ],
             }
         return container
 
@@ -96,16 +101,20 @@ def fake_docker(monkeypatch: pytest.MonkeyPatch) -> FakeDockerClient:
         return dns_proxy
 
     def run_helper(image, **kwargs):
-        assert image == NET_IMAGE, "user code must use create/put_archive/start, never run"
+        assert image == NET_IMAGE, (
+            "user code must use create/put_archive/start, never run"
+        )
         fake.helper_commands.append(kwargs)
         if kwargs.get("detach"):
             return SimpleNamespace(
                 stop=lambda **kwargs: None,
                 logs=lambda **kwargs: (
-                    (b"listening on br-0123456789ab\n"
-                     b"1 packet captured\n1 packet received by filter\n0 packets dropped by kernel\n")
-                    if kwargs.get("stderr") else
-                    b"1763170000.123 IP 172.30.0.3.42222 > 203.0.113.44.443: Flags [S], length 0\n"
+                    (
+                        b"listening on br-0123456789ab\n"
+                        b"1 packet captured\n1 packet received by filter\n0 packets dropped by kernel\n"
+                    )
+                    if kwargs.get("stderr")
+                    else b"1763170000.123 IP 172.30.0.3.42222 > 203.0.113.44.443: Flags [S], length 0\n"
                 ),
                 remove=lambda **kwargs: None,
                 wait=lambda **kwargs: {"StatusCode": 0},
@@ -124,7 +133,9 @@ def fake_docker(monkeypatch: pytest.MonkeyPatch) -> FakeDockerClient:
 def fake_object_store(monkeypatch: pytest.MonkeyPatch) -> MemoryObjectStore:
     """Fake only the MinIO SDK boundary; keep artifact_service.put_bytes real."""
     store = MemoryObjectStore()
-    monkeypatch.setattr("app.services.artifact_service.Minio", lambda *args, **kwargs: store)
+    monkeypatch.setattr(
+        "app.services.artifact_service.Minio", lambda *args, **kwargs: store
+    )
     return store
 
 
@@ -134,20 +145,30 @@ async def test_real_execute_persists_stdout_audit_and_artifact(
     """No fake runner/executor/service: only LLM transport and Docker SDK are replaced."""
     event_types = []
     for event_name in ("sandbox_started", "sandbox_output", "sandbox_finished"):
+
         def record_event(*_args, _name=event_name, **_kwargs):
             event_types.append(_name)
 
-        monkeypatch.setattr(f"app.tasks.execute_run.run_events.{event_name}", record_event)
+        monkeypatch.setattr(
+            f"app.tasks.execute_run.run_events.{event_name}", record_event
+        )
     headers = await make_headers(role="member")
     code = "print('hello from container')\nopen('/workspace/output/report.txt', 'w').write('report')"
     report = b"artifact from sandbox"
     fake_docker.stdout = b"hello from container\n"
-    fake_docker.output_files = {"output/report.txt": report, "output/omitted.txt": b"not collected"}
+    fake_docker.output_files = {
+        "output/report.txt": report,
+        "output/omitted.txt": b"not collected",
+    }
     monkeypatch.setattr(settings, "sbx_artifact_max_files", 1)
     replies = iter(
         [
             LLMResponse(
-                tool_calls=[ToolCall(name="run_python", arguments={"code": code, "timeout_s": 30})],
+                tool_calls=[
+                    ToolCall(
+                        name="run_python", arguments={"code": code, "timeout_s": 30}
+                    )
+                ],
                 cost_cents=2,
             ),
             LLMResponse(content="sandbox complete", cost_cents=3),
@@ -182,7 +203,11 @@ async def test_real_execute_persists_stdout_audit_and_artifact(
     request_response = await client.post(
         "/api/v1/requests",
         headers=headers,
-        json={"title": "sandbox flow", "description": "print and emit a report", "priority": "normal"},
+        json={
+            "title": "sandbox flow",
+            "description": "print and emit a report",
+            "priority": "normal",
+        },
     )
     assert request_response.status_code == 201
     assigned = await client.post(
@@ -201,7 +226,9 @@ async def test_real_execute_persists_stdout_audit_and_artifact(
     assert run.result == {"answer": "sandbox complete"}
     assert run.cost_cents == 5
     execution = (
-        await db_session.execute(select(SandboxExecution).where(SandboxExecution.run_id == run.id))
+        await db_session.execute(
+            select(SandboxExecution).where(SandboxExecution.run_id == run.id)
+        )
     ).scalar_one()
     assert execution.status == "ok", execution.error_message
     assert execution.stdout == "hello from container\n"
@@ -215,8 +242,14 @@ async def test_real_execute_persists_stdout_audit_and_artifact(
     assert execution.finished_at is not None
 
     steps = (
-        await db_session.execute(select(Step).where(Step.run_id == run.id).order_by(Step.seq))
-    ).scalars().all()
+        (
+            await db_session.execute(
+                select(Step).where(Step.run_id == run.id).order_by(Step.seq)
+            )
+        )
+        .scalars()
+        .all()
+    )
     assert [step.kind for step in steps] == ["llm", "tool", "llm", "final"]
     assert [step.seq for step in steps] == [1, 2, 3, 4]
     assert steps[1].id == execution.step_id
@@ -233,7 +266,10 @@ async def test_real_execute_persists_stdout_audit_and_artifact(
         f"/api/v1/runs/{run.id}/executions/{execution.id}", headers=headers
     )
     assert detail_response.status_code == 200
-    assert detail_response.json()["artifact_truncated"] == model_result["artifact_truncated"]
+    assert (
+        detail_response.json()["artifact_truncated"]
+        == model_result["artifact_truncated"]
+    )
 
     artifact = (
         await db_session.execute(select(Artifact).where(Artifact.run_id == run.id))
@@ -242,8 +278,13 @@ async def test_real_execute_persists_stdout_audit_and_artifact(
     assert artifact.sha256 == hashlib.sha256(report).hexdigest()
     assert artifact.step_id == execution.step_id
     assert artifact.size_bytes == len(report)
-    assert fake_object_store.objects[(settings.minio_bucket, artifact.object_key)] == report
-    artifact_service._minio_client().remove_object(settings.minio_bucket, artifact.object_key)
+    assert (
+        fake_object_store.objects[(settings.minio_bucket, artifact.object_key)]
+        == report
+    )
+    artifact_service._minio_client().remove_object(
+        settings.minio_bucket, artifact.object_key
+    )
 
     audit = (
         await db_session.execute(
@@ -275,7 +316,9 @@ async def test_real_execute_persists_stdout_audit_and_artifact(
         if helper["command"][:2] == ["python3", "/opt/aw/command_batch.py"]
     ]
     assert batches, "real policy must install through the fixed trusted batch helper"
-    assert any(command[0] == "iptables" for batch in batches for command in batch["commands"])
+    assert any(
+        command[0] == "iptables" for batch in batches for command in batch["commands"]
+    )
     assert event_types.count("sandbox_started") == 1
     assert event_types.count("sandbox_finished") == 1
     assert event_types.index("sandbox_started") < event_types.index("sandbox_output")

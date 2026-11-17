@@ -57,7 +57,9 @@ async def list_requests(
         page=page,
         page_size=page_size,
     )
-    summaries = await request_service.run_outcome_summaries(db, [row.id for row in rows])
+    summaries = await request_service.run_outcome_summaries(
+        db, [row.id for row in rows]
+    )
     return {
         "items": [
             RequestOut.model_validate(row).model_copy(
@@ -99,7 +101,9 @@ async def get_request(request_id: ResourceId, user: CurrentUser, db: DB):
     )
 
 
-@router.post("/{request_id}/attachments", response_model=AttachmentListOut, status_code=201)
+@router.post(
+    "/{request_id}/attachments", response_model=AttachmentListOut, status_code=201
+)
 async def upload_attachment(
     request_id: ResourceId,
     user: CurrentUser,
@@ -142,7 +146,9 @@ async def download_attachment(
     key: str,
     user: CurrentUser,
     db: DB,
-    redirect: Annotated[bool, Query(description="false 时返回 JSON URL 而不是 302")] = True,
+    redirect: Annotated[
+        bool, Query(description="false 时返回 JSON URL 而不是 302")
+    ] = True,
 ):
     """附件下载（归属校验）→ 302 预签名 GET URL。
 
@@ -153,9 +159,7 @@ async def download_attachment(
     normalized = artifact_service.normalize_key(key)
     url = artifact_service.download_url(request, normalized)
     if not redirect:
-        return JSONResponse(
-            {"url": url, "filename": normalized.rsplit("/", 1)[-1]}
-        )
+        return JSONResponse({"url": url, "filename": normalized.rsplit("/", 1)[-1]})
     return RedirectResponse(url, status_code=302)
 
 

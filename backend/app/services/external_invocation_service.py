@@ -131,12 +131,29 @@ async def build_external_executors(
                 MarketplaceListing,
                 ExternalCredential,
             )
-            .join(ExternalToolServer, ExternalToolServer.id == RunExternalToolSnapshot.server_id)
-            .join(ExternalToolVersion, ExternalToolVersion.id == RunExternalToolSnapshot.tool_version_id)
-            .join(ExternalToolGrant, ExternalToolGrant.id == RunExternalToolSnapshot.grant_id)
-            .join(ToolInstallation, ToolInstallation.id == ExternalToolGrant.installation_id)
-            .join(MarketplaceListing, MarketplaceListing.id == ToolInstallation.listing_id)
-            .outerjoin(ExternalCredential, ExternalCredential.id == RunExternalToolSnapshot.credential_id)
+            .join(
+                ExternalToolServer,
+                ExternalToolServer.id == RunExternalToolSnapshot.server_id,
+            )
+            .join(
+                ExternalToolVersion,
+                ExternalToolVersion.id == RunExternalToolSnapshot.tool_version_id,
+            )
+            .join(
+                ExternalToolGrant,
+                ExternalToolGrant.id == RunExternalToolSnapshot.grant_id,
+            )
+            .join(
+                ToolInstallation,
+                ToolInstallation.id == ExternalToolGrant.installation_id,
+            )
+            .join(
+                MarketplaceListing, MarketplaceListing.id == ToolInstallation.listing_id
+            )
+            .outerjoin(
+                ExternalCredential,
+                ExternalCredential.id == RunExternalToolSnapshot.credential_id,
+            )
             .where(
                 RunExternalToolSnapshot.run_id == run_id,
                 RunExternalToolSnapshot.grant_id == ExternalToolGrant.id,
@@ -155,18 +172,26 @@ async def build_external_executors(
             or listing.status != "published"
         ):
             policy_error = "current_state_unavailable"
-        if not set(snapshot.permission_snapshot or []).issubset(set(grant.permission_snapshot or [])):
+        if not set(snapshot.permission_snapshot or []).issubset(
+            set(grant.permission_snapshot or [])
+        ):
             policy_error = "permissions_changed"
         if server.auth_mode != "none" and credential is None:
             policy_error = "credential_unavailable"
         headers: dict[str, str] = {}
         if credential is not None:
-            if credential.status != "active" or credential.server_id != server.id or credential.scope_owner_id != owner_id:
+            if (
+                credential.status != "active"
+                or credential.server_id != server.id
+                or credential.scope_owner_id != owner_id
+            ):
                 policy_error = "credential_unavailable"
             else:
                 try:
                     value = CredentialCipher(settings.mcp_credential_key).decrypt(
-                        EncryptedCredential(credential.ciphertext, credential.key_version)
+                        EncryptedCredential(
+                            credential.ciphertext, credential.key_version
+                        )
                     )
                     headers[credential.header_name] = (
                         f"Bearer {value}" if credential.kind == "bearer" else value
@@ -188,7 +213,9 @@ async def build_external_executors(
             listing_id: str = listing.id,
             credential_id: str | None = credential.id if credential else None,
             expected_endpoint: str = endpoint,
-            snapshot_permissions: tuple[str, ...] = tuple(snapshot.permission_snapshot or []),
+            snapshot_permissions: tuple[str, ...] = tuple(
+                snapshot.permission_snapshot or []
+            ),
         ) -> bool:
             state = (
                 await db.execute(
@@ -204,11 +231,25 @@ async def build_external_executors(
                         ExternalCredential.status,
                     )
                     .select_from(ExternalToolServer)
-                    .join(ExternalToolVersion, ExternalToolVersion.server_id == ExternalToolServer.id)
-                    .join(ExternalToolGrant, ExternalToolGrant.tool_version_id == ExternalToolVersion.id)
-                    .join(ToolInstallation, ToolInstallation.id == ExternalToolGrant.installation_id)
-                    .join(MarketplaceListing, MarketplaceListing.id == ToolInstallation.listing_id)
-                    .outerjoin(ExternalCredential, ExternalCredential.id == credential_id)
+                    .join(
+                        ExternalToolVersion,
+                        ExternalToolVersion.server_id == ExternalToolServer.id,
+                    )
+                    .join(
+                        ExternalToolGrant,
+                        ExternalToolGrant.tool_version_id == ExternalToolVersion.id,
+                    )
+                    .join(
+                        ToolInstallation,
+                        ToolInstallation.id == ExternalToolGrant.installation_id,
+                    )
+                    .join(
+                        MarketplaceListing,
+                        MarketplaceListing.id == ToolInstallation.listing_id,
+                    )
+                    .outerjoin(
+                        ExternalCredential, ExternalCredential.id == credential_id
+                    )
                     .where(
                         ExternalToolServer.id == server_id,
                         ExternalToolVersion.id == version_id,
@@ -232,7 +273,9 @@ async def build_external_executors(
                 credential_status,
             ) = state
             try:
-                endpoint_is_safe = validate_endpoint(current_endpoint).url == expected_endpoint
+                endpoint_is_safe = (
+                    validate_endpoint(current_endpoint).url == expected_endpoint
+                )
             except ValueError:
                 endpoint_is_safe = False
             return (
@@ -291,7 +334,8 @@ async def build_external_executors(
             endpoint=endpoint,
             input_schema=dict(snapshot.schema_snapshot.get("input") or {}),
             permission_snapshot=sorted(
-                set(snapshot.permission_snapshot or []) & set(grant.permission_snapshot or [])
+                set(snapshot.permission_snapshot or [])
+                & set(grant.permission_snapshot or [])
             ),
             required_permissions=[],
             headers=headers,
@@ -313,24 +357,31 @@ async def _snapshot_active_grants(
     agent_id: str,
 ) -> None:
     grants = (
-        await db.execute(
-            select(ExternalToolGrant)
-            .options(joinedload(ExternalToolGrant.tool_version))
-            .join(ExternalToolGrant.installation)
-            .join(ExternalToolGrant.tool_version)
-            .join(ExternalToolVersion.server)
-            .join(MarketplaceListing, MarketplaceListing.tool_version_id == ExternalToolVersion.id)
-            .where(
-                ExternalToolGrant.agent_id == agent_id,
-                ExternalToolGrant.status == "active",
-                ToolInstallation.owner_id == owner_id,
-                ToolInstallation.status == "installed",
-                MarketplaceListing.status == "published",
-                ExternalToolVersion.availability == "valid",
-                ExternalToolServer.status == "published",
+        (
+            await db.execute(
+                select(ExternalToolGrant)
+                .options(joinedload(ExternalToolGrant.tool_version))
+                .join(ExternalToolGrant.installation)
+                .join(ExternalToolGrant.tool_version)
+                .join(ExternalToolVersion.server)
+                .join(
+                    MarketplaceListing,
+                    MarketplaceListing.tool_version_id == ExternalToolVersion.id,
+                )
+                .where(
+                    ExternalToolGrant.agent_id == agent_id,
+                    ExternalToolGrant.status == "active",
+                    ToolInstallation.owner_id == owner_id,
+                    ToolInstallation.status == "installed",
+                    MarketplaceListing.status == "published",
+                    ExternalToolVersion.availability == "valid",
+                    ExternalToolServer.status == "published",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for grant in grants:
         version = grant.tool_version
         db.add(
@@ -394,36 +445,50 @@ def invocation_projection(invocation: ExternalToolInvocation) -> dict[str, Any]:
         "version": version.version,
         "status": invocation.status,
         "duration_ms": invocation.duration_ms,
-        "error_category": invocation.status if invocation.status != "succeeded" else None,
+        "error_category": invocation.status
+        if invocation.status != "succeeded"
+        else None,
         "result_truncated": invocation.status == "result_truncated",
         "created_at": invocation.created_at,
     }
 
 
-async def list_run_invocations(db: AsyncSession, *, run_id: str) -> list[dict[str, Any]]:
+async def list_run_invocations(
+    db: AsyncSession, *, run_id: str
+) -> list[dict[str, Any]]:
     rows = (
-        await db.execute(
-            select(ExternalToolInvocation)
-            .options(
-                # Polling needs metadata, not result JSON, server endpoints or
-                # tool schemas. Raise if the projection accidentally grows I/O.
-                load_only(
-                    ExternalToolInvocation.id, ExternalToolInvocation.step_id,
-                    ExternalToolInvocation.status, ExternalToolInvocation.duration_ms,
-                    ExternalToolInvocation.created_at, raiseload=True,
-                ),
-                joinedload(ExternalToolInvocation.tool_version).load_only(
-                    ExternalToolVersion.external_name, ExternalToolVersion.stable_name,
-                    ExternalToolVersion.version, raiseload=True,
-                ),
-                joinedload(ExternalToolInvocation.server).load_only(
-                    ExternalToolServer.name, raiseload=True,
-                ),
+        (
+            await db.execute(
+                select(ExternalToolInvocation)
+                .options(
+                    # Polling needs metadata, not result JSON, server endpoints or
+                    # tool schemas. Raise if the projection accidentally grows I/O.
+                    load_only(
+                        ExternalToolInvocation.id,
+                        ExternalToolInvocation.step_id,
+                        ExternalToolInvocation.status,
+                        ExternalToolInvocation.duration_ms,
+                        ExternalToolInvocation.created_at,
+                        raiseload=True,
+                    ),
+                    joinedload(ExternalToolInvocation.tool_version).load_only(
+                        ExternalToolVersion.external_name,
+                        ExternalToolVersion.stable_name,
+                        ExternalToolVersion.version,
+                        raiseload=True,
+                    ),
+                    joinedload(ExternalToolInvocation.server).load_only(
+                        ExternalToolServer.name,
+                        raiseload=True,
+                    ),
+                )
+                .where(ExternalToolInvocation.run_id == run_id)
+                .order_by(ExternalToolInvocation.created_at.asc())
             )
-            .where(ExternalToolInvocation.run_id == run_id)
-            .order_by(ExternalToolInvocation.created_at.asc())
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [invocation_projection(row) for row in rows]
 
 
@@ -457,18 +522,22 @@ async def list_invocation_audit(
         ).scalar_one()
     )
     rows = (
-        await db.execute(
-            select(ExternalToolInvocation)
-            .options(
-                joinedload(ExternalToolInvocation.server),
-                joinedload(ExternalToolInvocation.tool_version),
+        (
+            await db.execute(
+                select(ExternalToolInvocation)
+                .options(
+                    joinedload(ExternalToolInvocation.server),
+                    joinedload(ExternalToolInvocation.tool_version),
+                )
+                .where(*filters)
+                .order_by(ExternalToolInvocation.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
             )
-            .where(*filters)
-            .order_by(ExternalToolInvocation.created_at.desc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [
         {
             "id": row.id,

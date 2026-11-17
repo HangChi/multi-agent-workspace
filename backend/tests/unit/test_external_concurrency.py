@@ -28,26 +28,39 @@ class FakeRedis:
 
 
 @pytest.mark.asyncio
-async def test_external_server_leases_enforce_limit_and_release_only_owned_slot(monkeypatch):
+async def test_external_server_leases_enforce_limit_and_release_only_owned_slot(
+    monkeypatch,
+):
     store = FakeRedis()
     monkeypatch.setattr(external_concurrency, "_redis_client", lambda: store)
-    monkeypatch.setattr(external_concurrency.settings, "mcp_max_concurrency_per_server", 1)
+    monkeypatch.setattr(
+        external_concurrency.settings, "mcp_max_concurrency_per_server", 1
+    )
 
     lease = await external_concurrency.acquire_slot(
         "https://tools.example.test/rpc", wait_seconds=0.05
     )
     assert lease is not None
-    assert await external_concurrency.acquire_slot(
-        "https://tools.example.test/rpc", wait_seconds=0.02
-    ) is None
-    assert await external_concurrency.acquire_slot(
-        "https://other.example.test/rpc", wait_seconds=0.02
-    ) is not None
+    assert (
+        await external_concurrency.acquire_slot(
+            "https://tools.example.test/rpc", wait_seconds=0.02
+        )
+        is None
+    )
+    assert (
+        await external_concurrency.acquire_slot(
+            "https://other.example.test/rpc", wait_seconds=0.02
+        )
+        is not None
+    )
 
     external_concurrency.release_slot("https://tools.example.test/rpc", "stale-token")
-    assert await external_concurrency.acquire_slot(
-        "https://tools.example.test/rpc", wait_seconds=0.02
-    ) is None
+    assert (
+        await external_concurrency.acquire_slot(
+            "https://tools.example.test/rpc", wait_seconds=0.02
+        )
+        is None
+    )
 
     external_concurrency.release_slot("https://tools.example.test/rpc", lease)
     replacement = await external_concurrency.acquire_slot(

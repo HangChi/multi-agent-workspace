@@ -48,7 +48,7 @@ export function AttachmentUploader({ requestId, onUploaded }: Props) {
         throw new Error(
           resp.status === 400
             ? '文件超过大小限制或类型不符，上传被对象存储拒绝'
-            : '上传对象存储失败',
+            : '上传对象存储失败'
         )
       }
       return put
@@ -88,7 +88,7 @@ export function AttachmentUploader({ requestId, onUploaded }: Props) {
           dragOver
             ? 'border-brand-400 bg-brand-50/80'
             : 'border-line-strong bg-surface-muted/60 hover:border-brand-300 hover:bg-brand-50/40',
-          uploadMut.isPending && 'pointer-events-none opacity-70',
+          uploadMut.isPending && 'pointer-events-none opacity-70'
         )}
       >
         <input

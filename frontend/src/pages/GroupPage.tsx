@@ -283,7 +283,7 @@ export function GroupPage() {
             const isExpanded = expanded === group.id
             const sortedMembers = [...group.members].sort((a, b) => a.position - b.position)
             const availableAgents = activeAgents.filter(
-              (a) => !group.members.some((m) => m.agent_id === a.id),
+              (a) => !group.members.some((m) => m.agent_id === a.id)
             )
             const meta = STRATEGY_META[group.routing_strategy]
 
@@ -307,7 +307,7 @@ export function GroupPage() {
                       <p
                         className={cn(
                           'mt-1 line-clamp-2 text-[13px] leading-relaxed',
-                          group.description ? 'text-ink-muted' : 'text-ink-faint',
+                          group.description ? 'text-ink-muted' : 'text-ink-faint'
                         )}
                       >
                         {group.description || '暂无描述'}
@@ -324,7 +324,12 @@ export function GroupPage() {
                     >
                       {isExpanded ? '收起' : '管理成员'}
                     </Button>
-                    <Button size="sm" variant="ghost" leftIcon="edit" onClick={() => setEditing(group)}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      leftIcon="edit"
+                      onClick={() => setEditing(group)}
+                    >
                       编辑
                     </Button>
                     <Button
@@ -420,7 +425,11 @@ export function GroupPage() {
                           if (agentId) {
                             const nextPosition =
                               group.members.reduce((max, m) => Math.max(max, m.position), -1) + 1
-                            addMemberMut.mutate({ groupId: group.id, agentId, position: nextPosition })
+                            addMemberMut.mutate({
+                              groupId: group.id,
+                              agentId,
+                              position: nextPosition,
+                            })
                           }
                         }}
                         controlSize="sm"
@@ -439,9 +448,7 @@ export function GroupPage() {
                           </option>
                         ))}
                       </Select>
-                      <p className="shrink-0 text-2xs text-ink-faint">
-                        顺序 = 流水线执行顺序
-                      </p>
+                      <p className="shrink-0 text-2xs text-ink-faint">顺序 = 流水线执行顺序</p>
                     </div>
                   </div>
                 )}

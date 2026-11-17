@@ -61,13 +61,7 @@ const LOG_LEVEL_CLASS: Record<string, string> = {
   debug: 'text-slate-500',
 }
 
-function MetaTile({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
+function MetaTile({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-line/80 bg-surface-muted/70 px-3 py-2">
       <dt className="text-2xs text-ink-faint">{label}</dt>
@@ -110,15 +104,11 @@ export function RunDetailPage() {
   const onEvent = useCallback((event: RunSocketEvent) => {
     switch (event.type) {
       case 'status_change':
-        setRun((prev) =>
-          prev ? { ...prev, status: event.status as api.RunStatus } : prev,
-        )
+        setRun((prev) => (prev ? { ...prev, status: event.status as api.RunStatus } : prev))
         break
       case 'cost_update':
         setRun((prev) =>
-          prev
-            ? { ...prev, cost_cents: (event.cost_cents as number) ?? prev.cost_cents }
-            : prev,
+          prev ? { ...prev, cost_cents: (event.cost_cents as number) ?? prev.cost_cents } : prev
         )
         break
       case 'step_new':
@@ -158,7 +148,13 @@ export function RunDetailPage() {
             stdout_truncated: false,
             artifacts: 0,
           }
-          return { ...prev, executions: [...(prev.executions ?? []).filter((item) => item.id !== execution.id), execution] }
+          return {
+            ...prev,
+            executions: [
+              ...(prev.executions ?? []).filter((item) => item.id !== execution.id),
+              execution,
+            ],
+          }
         })
         break
       case 'sandbox_finished':
@@ -166,14 +162,25 @@ export function RunDetailPage() {
           if (!prev) return prev
           return {
             ...prev,
-            executions: (prev.executions ?? []).map((item) => item.id === event.execution_id
-              ? { ...item, status: event.status as string, exit_code: event.exit_code as number | null, duration_ms: event.duration_ms as number, artifacts: event.artifacts as number }
-              : item),
+            executions: (prev.executions ?? []).map((item) =>
+              item.id === event.execution_id
+                ? {
+                    ...item,
+                    status: event.status as string,
+                    exit_code: event.exit_code as number | null,
+                    duration_ms: event.duration_ms as number,
+                    artifacts: event.artifacts as number,
+                  }
+                : item
+            ),
           }
         })
         break
       case 'sandbox_output':
-        setLogs((prev) => [...prev.slice(-199), { line: event.chunk as string, level: event.stream === 'stderr' ? 'error' : 'info' }])
+        setLogs((prev) => [
+          ...prev.slice(-199),
+          { line: event.chunk as string, level: event.stream === 'stderr' ? 'error' : 'info' },
+        ])
         break
       case 'external_tool_call_started':
         setRun((prev) => {
@@ -193,7 +200,13 @@ export function RunDetailPage() {
             result_truncated: false,
             created_at: new Date().toISOString(),
           }
-          return { ...prev, external_tool_invocations: [...(prev.external_tool_invocations ?? []).filter((item) => item.id !== invocation.id), invocation] }
+          return {
+            ...prev,
+            external_tool_invocations: [
+              ...(prev.external_tool_invocations ?? []).filter((item) => item.id !== invocation.id),
+              invocation,
+            ],
+          }
         })
         break
       case 'external_tool_call_update':
@@ -203,9 +216,19 @@ export function RunDetailPage() {
           const seq = Number(event.step_seq)
           return {
             ...prev,
-            external_tool_invocations: (prev.external_tool_invocations ?? []).map((item) => item.id === `pending-${seq}`
-              ? { ...item, status: String(event.status ?? 'policy_denied'), duration_ms: Number(event.duration_ms ?? 0), error_category: (event.error_category as string | null) ?? (event.type === 'external_tool_policy_denied' ? 'policy_denied' : null), result_truncated: Boolean(event.result_truncated) }
-              : item),
+            external_tool_invocations: (prev.external_tool_invocations ?? []).map((item) =>
+              item.id === `pending-${seq}`
+                ? {
+                    ...item,
+                    status: String(event.status ?? 'policy_denied'),
+                    duration_ms: Number(event.duration_ms ?? 0),
+                    error_category:
+                      (event.error_category as string | null) ??
+                      (event.type === 'external_tool_policy_denied' ? 'policy_denied' : null),
+                    result_truncated: Boolean(event.result_truncated),
+                  }
+                : item
+            ),
           }
         })
         break
@@ -214,9 +237,7 @@ export function RunDetailPage() {
         break
       case 'run_failed':
         setRun((prev) =>
-          prev
-            ? { ...prev, status: 'failed', error: (event.error as string) ?? prev.error }
-            : prev,
+          prev ? { ...prev, status: 'failed', error: (event.error as string) ?? prev.error } : prev
         )
         break
       case 'run_completed':
@@ -227,7 +248,7 @@ export function RunDetailPage() {
                 status: 'completed',
                 result: (event.result as Record<string, unknown>) ?? prev.result,
               }
-            : prev,
+            : prev
         )
         break
     }
@@ -392,8 +413,8 @@ export function RunDetailPage() {
                 运行 {run.id.slice(0, 8)}
               </h1>
               <p className="mt-0.5 text-xs text-ink-faint">
-                {run.assignee_type === 'agent' ? 'Agent' : '组'}{' '}
-                {run.assignee_id.slice(0, 8)} · 请求 {run.request_id.slice(0, 8)} ·{' '}
+                {run.assignee_type === 'agent' ? 'Agent' : '组'} {run.assignee_id.slice(0, 8)} ·
+                请求 {run.request_id.slice(0, 8)} ·{' '}
                 {new Date(run.created_at).toLocaleString('zh-CN')}
               </p>
             </div>
@@ -465,7 +486,10 @@ export function RunDetailPage() {
         </dl>
 
         {actionError && (
-          <p className="mt-3 flex items-start gap-1.5 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600 dark:bg-rose-500/10 dark:text-rose-300" role="alert">
+          <p
+            className="mt-3 flex items-start gap-1.5 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600 dark:bg-rose-500/10 dark:text-rose-300"
+            role="alert"
+          >
             <Icon name="alert-circle" className="mt-0.5 h-4 w-4 shrink-0" />
             {actionError}
           </p>
@@ -625,7 +649,7 @@ export function RunDetailPage() {
               <span
                 className={cn(
                   'h-1.5 w-1.5 rounded-full',
-                  connected ? 'bg-emerald-400' : 'bg-slate-600',
+                  connected ? 'bg-emerald-400' : 'bg-slate-600'
                 )}
               />
               {connected ? '实时接收中' : '未连接'}
@@ -656,7 +680,12 @@ export function RunDetailPage() {
                   {String(i + 1).padStart(3, '0')}
                 </span>
                 <span className="shrink-0 uppercase opacity-70">{log.level.padEnd(5, ' ')}</span>
-                <span className={cn('min-w-0 whitespace-pre-wrap break-words', LOG_LEVEL_CLASS[log.level] ?? 'text-slate-300')}>
+                <span
+                  className={cn(
+                    'min-w-0 whitespace-pre-wrap break-words',
+                    LOG_LEVEL_CLASS[log.level] ?? 'text-slate-300'
+                  )}
+                >
                   {log.line}
                 </span>
               </p>

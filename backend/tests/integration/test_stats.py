@@ -31,7 +31,9 @@ async def _make_run(
     created_at: datetime | None = None,
     finished_at: datetime | None = None,
 ) -> Run:
-    request = Request(owner_id=owner_id, title=f"stats-{uuid.uuid4().hex[:6]}", status="completed")
+    request = Request(
+        owner_id=owner_id, title=f"stats-{uuid.uuid4().hex[:6]}", status="completed"
+    )
     db_session.add(request)
     await db_session.flush()
     run = Run(
@@ -108,7 +110,9 @@ async def test_stats_success_rate_7d(client, db_session, auth_headers):
 
     resp = await client.get(STATS_URL, headers=headers)
     data = resp.json()
-    assert data["success_rate_7d"] == pytest.approx(2 / 3, abs=1e-4)  # 2 completed / 3 total
+    assert data["success_rate_7d"] == pytest.approx(
+        2 / 3, abs=1e-4
+    )  # 2 completed / 3 total
 
 
 async def test_stats_cost_today_and_trend(client, db_session, auth_headers):
@@ -120,7 +124,9 @@ async def test_stats_cost_today_and_trend(client, db_session, auth_headers):
     await _make_run(db_session, user.id, 50, status="failed", created_at=now)
     # 6 天前（计入 7d 窗口，不计今日）
     six_days_ago = now - timedelta(days=6)
-    await _make_run(db_session, user.id, 20, status="completed", created_at=six_days_ago)
+    await _make_run(
+        db_session, user.id, 20, status="completed", created_at=six_days_ago
+    )
     await db_session.commit()
 
     resp = await client.get(STATS_URL, headers=headers)

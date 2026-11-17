@@ -8,7 +8,7 @@ export function Skeleton({ className }: { className?: string }) {
       aria-hidden="true"
       className={cn(
         'relative overflow-hidden rounded-md bg-line-strong/50',
-        className ?? 'h-4 w-full',
+        className ?? 'h-4 w-full'
       )}
     >
       <span className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/70 to-transparent dark:via-white/10" />

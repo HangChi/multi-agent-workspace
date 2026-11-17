@@ -38,7 +38,7 @@ export function isChunkLoadError(error: unknown): boolean {
   if (!(error instanceof Error)) return false
   const msg = `${error.name}: ${error.message}`
   return /dynamically imported module|Importing a module script failed|MIME type of|ChunkLoadError/i.test(
-    msg,
+    msg
   )
 }
 

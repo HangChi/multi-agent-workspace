@@ -32,7 +32,10 @@ class TestRedaction:
         out = _redact(
             {
                 "event": "payload",
-                "detail": {"user": {"password_hash": "$2b$12$..."}, "refresh_token": "r"},
+                "detail": {
+                    "user": {"password_hash": "$2b$12$..."},
+                    "refresh_token": "r",
+                },
                 "items": [{"secret": "s1"}, {"ok": 1}],
             }
         )
@@ -63,7 +66,11 @@ class TestRedaction:
 
     def test_key_match_is_case_insensitive_and_substring(self):
         out = _redact({"Access_Token": "a", "MINIO_SECRET_KEY": "b", "x-api-key": "c"})
-        assert out == {"Access_Token": "***", "MINIO_SECRET_KEY": "***", "x-api-key": "***"}
+        assert out == {
+            "Access_Token": "***",
+            "MINIO_SECRET_KEY": "***",
+            "x-api-key": "***",
+        }
 
     def test_depth_limit_does_not_crash(self):
         deep: dict = {"secret": "s"}

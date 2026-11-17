@@ -7,8 +7,6 @@
 - 非 owner 访问他人资源 → 403
 """
 
-
-
 REGISTER_URL = "/api/v1/auth/register"
 ME_URL = "/api/v1/auth/me"
 

@@ -4,12 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback } from 'react'
 
 import { extractError } from '../api/client'
-import {
-  assignRequest,
-  AssignRequestPayload,
-  fetchRequests,
-  WorkRequest,
-} from '../api/endpoints'
+import { assignRequest, AssignRequestPayload, fetchRequests, WorkRequest } from '../api/endpoints'
 import { useBoardStore } from '../stores/boardStore'
 
 /** 需求列表（看板用，含 refetch）。 */
@@ -33,13 +28,8 @@ export function useAssignRequest(onSettled?: (error: string | null) => void) {
   const qc = useQueryClient()
 
   const mutate = useMutation({
-    mutationFn: ({
-      requestId,
-      payload,
-    }: {
-      requestId: string
-      payload: AssignRequestPayload
-    }) => assignRequest(requestId, payload),
+    mutationFn: ({ requestId, payload }: { requestId: string; payload: AssignRequestPayload }) =>
+      assignRequest(requestId, payload),
     onMutate: async ({ requestId }) => {
       // 乐观更新：取消进行中的请求，避免覆盖
       await qc.cancelQueries({ queryKey: ['requests'] })
@@ -48,7 +38,7 @@ export function useAssignRequest(onSettled?: (error: string | null) => void) {
         qc.setQueryData<{ items: WorkRequest[] }>(['requests'], {
           ...prev,
           items: prev.items.map((r) =>
-            r.id === requestId ? { ...r, status: 'assigned' as const } : r,
+            r.id === requestId ? { ...r, status: 'assigned' as const } : r
           ),
         })
       }

@@ -78,7 +78,9 @@ async def test_ip_level_limit_catches_password_spraying(client, make_user):
         await make_user(email=email, password="RealPass123!")
         for _ in range(3):
             await client.post(
-                LOGIN_URL, json={"email": email, "password": "WrongPass"}, headers=ip_header
+                LOGIN_URL,
+                json={"email": email, "password": "WrongPass"},
+                headers=ip_header,
             )
         if i >= 10:
             break
@@ -124,7 +126,9 @@ async def test_malformed_password_not_counted_as_bruteforce(client, make_user):
 
     for _ in range(6):
         resp = await client.post(
-            LOGIN_URL, json={"email": "not-an-email", "password": "x"}, headers=ip_header
+            LOGIN_URL,
+            json={"email": "not-an-email", "password": "x"},
+            headers=ip_header,
         )
         assert resp.status_code == 422
 

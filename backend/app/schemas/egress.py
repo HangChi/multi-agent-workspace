@@ -13,7 +13,9 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 # 域名：允许字母数字、连字符、点；可选前置 `*.` 通配
-_DOMAIN_RE = re.compile(r"^(\*\.)?([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$")
+_DOMAIN_RE = re.compile(
+    r"^(\*\.)?([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$"
+)
 # 端口：单个端口或闭区间
 _PORT_RANGE_RE = re.compile(r"^\d{1,5}(-\d{1,5})?$")
 
@@ -65,7 +67,9 @@ class EgressRuleIn(BaseModel):
                 raise ValueError(f"非法 IP: {target}") from exc
         else:  # domain
             if not _DOMAIN_RE.match(target):
-                raise ValueError(f"非法域名: {target}（支持 example.com 与 *.example.com）")
+                raise ValueError(
+                    f"非法域名: {target}（支持 example.com 与 *.example.com）"
+                )
         # 归一化结果必须回写：空串要变成 None，否则 DB 里「空串」与 NULL 两种表示
         # 都会存在，查重与唯一约束都会出岔子
         self.port_range = _check_port_range(self.port_range)

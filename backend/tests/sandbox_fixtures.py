@@ -101,9 +101,9 @@ class FakeContainer:
         def chunks() -> Iterator[tuple[bytes | None, bytes | None]]:
             assert self.start_event.wait(timeout=2)
             for offset in range(0, len(self.stdout), 65536):
-                yield self.stdout[offset:offset + 65536], None
+                yield self.stdout[offset : offset + 65536], None
             for offset in range(0, len(self.stderr), 65536):
-                yield None, self.stderr[offset:offset + 65536]
+                yield None, self.stderr[offset : offset + 65536]
 
         return chunks()
 
@@ -148,10 +148,13 @@ class FakeNetwork:
             "EnableIPv6": True,
             "Containers": {},
             "Labels": kwargs.get("labels", {}),
-            "IPAM": kwargs.get("ipam") or {"Config": [
-                {"Subnet": "172.30.0.0/24", "Gateway": "172.30.0.1"},
-                {"Subnet": "fd00:1234::/64", "Gateway": "fd00:1234::1"},
-            ]},
+            "IPAM": kwargs.get("ipam")
+            or {
+                "Config": [
+                    {"Subnet": "172.30.0.0/24", "Gateway": "172.30.0.1"},
+                    {"Subnet": "fd00:1234::/64", "Gateway": "fd00:1234::1"},
+                ]
+            },
         }
 
     def reload(self) -> None:
@@ -290,8 +293,11 @@ class FakeDockerClient:
 
     @property
     def storage(self) -> FakeContainer:
-        return next(c for c in reversed(self.containers.created)
-                    if c.created_kwargs.get("labels", {}).get("aw.role") == "storage")
+        return next(
+            c
+            for c in reversed(self.containers.created)
+            if c.created_kwargs.get("labels", {}).get("aw.role") == "storage"
+        )
 
     @property
     def network(self) -> FakeNetwork:
@@ -330,9 +336,7 @@ def fake_docker(monkeypatch: pytest.MonkeyPatch) -> FakeDockerClient:
     fake = FakeDockerClient()
     fake.existing_images = {settings.sbx_image}
 
-    monkeypatch.setattr(
-        "app.executors.sandbox_client.docker.from_env", lambda: fake
-    )
+    monkeypatch.setattr("app.executors.sandbox_client.docker.from_env", lambda: fake)
     monkeypatch.setattr(
         "app.executors.sandbox_client.NetworkCapture.prepare",
         FakeNetworkCapture.prepare,
@@ -449,7 +453,9 @@ def sandbox_factory(db_session: Any) -> Callable[..., Any]:
         db_session.add(run)
         await db_session.flush()
 
-        step = Step(run_id=run.id, seq=1, kind="tool", status="running", tool_name="run_python")
+        step = Step(
+            run_id=run.id, seq=1, kind="tool", status="running", tool_name="run_python"
+        )
         db_session.add(step)
         await db_session.flush()
 
@@ -463,7 +469,13 @@ def sandbox_factory(db_session: Any) -> Callable[..., Any]:
             status=status,
             exit_code=exit_code,
             image="aw-sandbox-python:3.12",
-            limits={"timeout_s": 120, "cpu": 1.0, "mem_mb": 512, "disk_mb": 256, "pids": 128},
+            limits={
+                "timeout_s": 120,
+                "cpu": 1.0,
+                "mem_mb": 512,
+                "disk_mb": 256,
+                "pids": 128,
+            },
             error_category=error_category,
         )
         db_session.add(execution)

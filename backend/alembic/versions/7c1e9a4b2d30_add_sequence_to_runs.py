@@ -7,6 +7,7 @@ Create Date: 2026-11-14 19:05:00.000000
 pipeline 策略需要知道各子 Run 的先后顺序：组内成员按 position 展开后，
 子 Run 依次填 sequence=1..N，执行时取 sequence-1 的产出作为本阶段输入。
 """
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa

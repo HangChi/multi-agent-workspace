@@ -58,7 +58,9 @@ def validate_endpoint(
         raise ValueError("redirect responses are not permitted")
 
     parsed = urlsplit(url)
-    https_required = settings.mcp_require_https if require_https is None else require_https
+    https_required = (
+        settings.mcp_require_https if require_https is None else require_https
+    )
     if parsed.scheme.lower() != "https" and https_required:
         raise ValueError("MCP endpoint must use HTTPS")
     if parsed.scheme.lower() not in {"https", "http"}:
@@ -76,7 +78,9 @@ def validate_endpoint(
     except (UnicodeError, ValueError) as exc:
         raise ValueError("invalid MCP endpoint host or port") from exc
     port_allowlist = allowed_ports or {
-        int(part.strip()) for part in settings.mcp_allowed_ports.split(",") if part.strip()
+        int(part.strip())
+        for part in settings.mcp_allowed_ports.split(",")
+        if part.strip()
     }
     if port not in port_allowlist:
         raise ValueError("MCP endpoint port is not allowed")
@@ -91,7 +95,9 @@ def validate_endpoint(
     else:
         try:
             records = resolver(host, port, type=socket.SOCK_STREAM)
-            addresses = tuple(dict.fromkeys(_validate_address(record[4][0]) for record in records))
+            addresses = tuple(
+                dict.fromkeys(_validate_address(record[4][0]) for record in records)
+            )
         except (OSError, ValueError, IndexError, TypeError) as exc:
             raise ValueError("MCP endpoint DNS validation failed") from exc
         if not addresses:
@@ -100,5 +106,7 @@ def validate_endpoint(
     normalized_netloc = f"[{host}]" if ":" in host else host
     if port != (443 if parsed.scheme.lower() == "https" else 80):
         normalized_netloc = f"{normalized_netloc}:{port}"
-    normalized = urlunsplit((parsed.scheme.lower(), normalized_netloc, parsed.path or "/", "", ""))
+    normalized = urlunsplit(
+        (parsed.scheme.lower(), normalized_netloc, parsed.path or "/", "", "")
+    )
     return ValidatedEndpoint(url=normalized, host=host, port=port, addresses=addresses)

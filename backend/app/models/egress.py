@@ -67,14 +67,18 @@ class EgressRule(Base):
         # 因此「同目标不同端口为空」的两条规则可能重复插入——应用层插入前需查重。
     )
 
-    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=new_uuid)
+    id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), primary_key=True, default=new_uuid
+    )
     scope: Mapped[str] = mapped_column(
         Enum("global", "agent", name="egress_scope"), nullable=False
     )
     agent_id: Mapped[str | None] = mapped_column(
         ForeignKey("agents.id", ondelete="CASCADE"), nullable=True
     )
-    action: Mapped[str] = mapped_column(Enum("deny", "allow", name="egress_action"), nullable=False)
+    action: Mapped[str] = mapped_column(
+        Enum("deny", "allow", name="egress_action"), nullable=False
+    )
     target_type: Mapped[str] = mapped_column(
         Enum("domain", "cidr", "ip", name="egress_target_type"), nullable=False
     )
@@ -111,7 +115,9 @@ class EgressAccess(Base):
         Index("ix_egress_accesses_action_time", "action", "occurred_at"),
     )
 
-    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=new_uuid)
+    id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), primary_key=True, default=new_uuid
+    )
     run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False)
     # 非沙箱场景（如 read_url）也可记录，故可为 NULL
     execution_id: Mapped[str | None] = mapped_column(
@@ -127,7 +133,9 @@ class EgressAccess(Base):
     protocol: Mapped[str] = mapped_column(
         String(10), nullable=False, default="tcp", server_default="tcp"
     )
-    action: Mapped[str] = mapped_column(Enum("allow", "deny", name="egress_access_action"), nullable=False)
+    action: Mapped[str] = mapped_column(
+        Enum("allow", "deny", name="egress_access_action"), nullable=False
+    )
     # deny 时必填：要能说清「被哪条规则拦的」
     matched_rule_id: Mapped[str | None] = mapped_column(
         ForeignKey("egress_rules.id", ondelete="SET NULL"), nullable=True

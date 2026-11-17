@@ -14,7 +14,9 @@ from app.tasks.celery_app import celery_app
 def validate_external_server(server_id: str, requested_by: str) -> str:
     async def _run() -> str:
         async with SessionLocal() as db:
-            server = await db.scalar(select(ExternalToolServer).where(ExternalToolServer.id == server_id))
+            server = await db.scalar(
+                select(ExternalToolServer).where(ExternalToolServer.id == server_id)
+            )
             if server is None:
                 return "not_found"
             result = await validate_server(db, server=server, requested_by=requested_by)

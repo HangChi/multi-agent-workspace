@@ -37,9 +37,7 @@ class AgentCreate(BaseModel):
     def _check_tools(cls, v: list[str]) -> list[str]:
         bad = [t for t in v if t not in ALLOWED_TOOLS]
         if bad:
-            raise ValueError(
-                f"工具不在白名单: {bad}（允许: {sorted(ALLOWED_TOOLS)}）"
-            )
+            raise ValueError(f"工具不在白名单: {bad}（允许: {sorted(ALLOWED_TOOLS)}）")
         return v
 
 
@@ -64,9 +62,7 @@ class AgentUpdate(BaseModel):
             return v
         bad = [t for t in v if t not in ALLOWED_TOOLS]
         if bad:
-            raise ValueError(
-                f"工具不在白名单: {bad}（允许: {sorted(ALLOWED_TOOLS)}）"
-            )
+            raise ValueError(f"工具不在白名单: {bad}（允许: {sorted(ALLOWED_TOOLS)}）")
         return v
 
 

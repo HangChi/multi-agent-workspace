@@ -28,12 +28,28 @@ def test_rejects_unsafe_endpoint_forms(url):
 
 @pytest.mark.parametrize(
     "address",
-    ["127.0.0.1", "10.1.2.3", "169.254.169.254", "::1", "fc00::1", "fe80::1", "224.0.0.1"],
+    [
+        "127.0.0.1",
+        "10.1.2.3",
+        "169.254.169.254",
+        "::1",
+        "fc00::1",
+        "fe80::1",
+        "224.0.0.1",
+    ],
 )
 def test_rejects_non_public_dns_answers(address):
     def resolver(*_args, **_kwargs):
         family = socket.AF_INET6 if ":" in address else socket.AF_INET
-        return [(family, socket.SOCK_STREAM, 6, "", (address, 443, 0, 0) if family == socket.AF_INET6 else (address, 443))]
+        return [
+            (
+                family,
+                socket.SOCK_STREAM,
+                6,
+                "",
+                (address, 443, 0, 0) if family == socket.AF_INET6 else (address, 443),
+            )
+        ]
 
     with pytest.raises(ValueError):
         validate_endpoint("https://tools.example.test/mcp", resolver=resolver)
@@ -48,4 +64,8 @@ def test_normalizes_public_https_endpoint():
 
 def test_rejects_redirect_targets_before_following():
     with pytest.raises(ValueError, match="redirect"):
-        validate_endpoint("https://tools.example.test/mcp", resolver=_resolver, redirect_url="http://127.0.0.1/")
+        validate_endpoint(
+            "https://tools.example.test/mcp",
+            resolver=_resolver,
+            redirect_url="http://127.0.0.1/",
+        )

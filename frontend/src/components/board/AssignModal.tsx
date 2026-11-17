@@ -57,9 +57,7 @@ const PRIORITY_LABEL: Record<string, string> = {
   low: '低',
 }
 
-export type AssignTarget =
-  | { kind: 'agent'; id: string }
-  | { kind: 'group'; id: string }
+export type AssignTarget = { kind: 'agent'; id: string } | { kind: 'group'; id: string }
 
 interface Props {
   request: WorkRequest
@@ -125,7 +123,11 @@ export function AssignModal({
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface-muted/80 px-3 py-2.5">
           <span className="text-xs text-ink-muted">优先级</span>
-          <Badge tone={request.priority === 'high' ? 'rose' : request.priority === 'low' ? 'slate' : 'brand'}>
+          <Badge
+            tone={
+              request.priority === 'high' ? 'rose' : request.priority === 'low' ? 'slate' : 'brand'
+            }
+          >
             {PRIORITY_LABEL[request.priority] ?? request.priority}
           </Badge>
           <span className="ml-1 text-xs text-ink-muted">执行方式</span>

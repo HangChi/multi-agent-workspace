@@ -61,30 +61,73 @@ async def get_run(run_id: ResourceId, user: CurrentUser, db: DB):
     # Polling returns summaries, not potentially large code/output/JSON payloads.
     # Raise on accidental deferred access instead of silently adding lazy I/O.
     steps = (
-        await db.execute(
-            select(Step).where(Step.run_id == run.id).order_by(Step.seq).options(load_only(
-                Step.id, Step.seq, Step.kind, Step.status, Step.tool_name,
-                Step.duration_ms, Step.cost_cents, Step.created_at, raiseload=True,
-            ))
+        (
+            await db.execute(
+                select(Step)
+                .where(Step.run_id == run.id)
+                .order_by(Step.seq)
+                .options(
+                    load_only(
+                        Step.id,
+                        Step.seq,
+                        Step.kind,
+                        Step.status,
+                        Step.tool_name,
+                        Step.duration_ms,
+                        Step.cost_cents,
+                        Step.created_at,
+                        raiseload=True,
+                    )
+                )
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     artifacts = (
-        await db.execute(
-            select(Artifact).where(Artifact.run_id == run.id).options(load_only(
-                Artifact.id, Artifact.step_id, Artifact.filename, Artifact.size_bytes,
-                Artifact.mime_type, Artifact.sha256, Artifact.created_at, raiseload=True,
-            ))
+        (
+            await db.execute(
+                select(Artifact)
+                .where(Artifact.run_id == run.id)
+                .options(
+                    load_only(
+                        Artifact.id,
+                        Artifact.step_id,
+                        Artifact.filename,
+                        Artifact.size_bytes,
+                        Artifact.mime_type,
+                        Artifact.sha256,
+                        Artifact.created_at,
+                        raiseload=True,
+                    )
+                )
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     executions = (
-        await db.execute(
-            select(SandboxExecution).where(SandboxExecution.run_id == run.id).options(load_only(
-                SandboxExecution.id, SandboxExecution.step_id, SandboxExecution.language,
-                SandboxExecution.status, SandboxExecution.exit_code, SandboxExecution.duration_ms,
-                SandboxExecution.stdout_truncated, raiseload=True,
-            ))
+        (
+            await db.execute(
+                select(SandboxExecution)
+                .where(SandboxExecution.run_id == run.id)
+                .options(
+                    load_only(
+                        SandboxExecution.id,
+                        SandboxExecution.step_id,
+                        SandboxExecution.language,
+                        SandboxExecution.status,
+                        SandboxExecution.exit_code,
+                        SandboxExecution.duration_ms,
+                        SandboxExecution.stdout_truncated,
+                        raiseload=True,
+                    )
+                )
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     step_seq = {step.id: step.seq for step in steps}
     artifact_counts = Counter(artifact.step_id for artifact in artifacts)
     execution_summaries = [
@@ -113,7 +156,9 @@ async def get_run(run_id: ResourceId, user: CurrentUser, db: DB):
 
 
 @router.get("/{run_id}/executions/{execution_id}", response_model=ExecutionDetail)
-async def get_execution(run_id: ResourceId, execution_id: ResourceId, user: CurrentUser, db: DB):
+async def get_execution(
+    run_id: ResourceId, execution_id: ResourceId, user: CurrentUser, db: DB
+):
     """查看一次沙箱执行的完整详情（代码/输出仅在此接口返回）。"""
     run = await _get_owned_run(db, run_id, user)
     execution = await db.get(SandboxExecution, execution_id)
@@ -121,8 +166,14 @@ async def get_execution(run_id: ResourceId, execution_id: ResourceId, user: Curr
         raise AppError("NOT_FOUND", "沙箱执行不存在")
     step = await db.get(Step, execution.step_id)
     artifacts = (
-        await db.execute(select(Artifact).where(Artifact.step_id == execution.step_id))
-    ).scalars().all()
+        (
+            await db.execute(
+                select(Artifact).where(Artifact.step_id == execution.step_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     return ExecutionDetail.model_validate(
         {
             **execution.__dict__,
@@ -142,20 +193,28 @@ async def get_execution(run_id: ResourceId, execution_id: ResourceId, user: Curr
     )
 
 
-@router.get("/{run_id}/executions/{execution_id}/egress", response_model=EgressAccessList)
-async def get_execution_egress(run_id: ResourceId, execution_id: ResourceId, user: CurrentUser, db: DB):
+@router.get(
+    "/{run_id}/executions/{execution_id}/egress", response_model=EgressAccessList
+)
+async def get_execution_egress(
+    run_id: ResourceId, execution_id: ResourceId, user: CurrentUser, db: DB
+):
     """查看某次执行的网络访问记录。"""
     run = await _get_owned_run(db, run_id, user)
     execution = await db.get(SandboxExecution, execution_id)
     if execution is None or execution.run_id != run.id:
         raise AppError("NOT_FOUND", "沙箱执行不存在")
     rows = (
-        await db.execute(
-            select(EgressAccess)
-            .where(EgressAccess.execution_id == execution_id)
-            .order_by(EgressAccess.occurred_at.asc())
+        (
+            await db.execute(
+                select(EgressAccess)
+                .where(EgressAccess.execution_id == execution_id)
+                .order_by(EgressAccess.occurred_at.asc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return {"items": rows}
 
 
@@ -179,8 +238,10 @@ async def _cancel_descendants(db: AsyncSession, root_id: str) -> list[str]:
             continue
         seen.add(parent_id)
         children = (
-            await db.execute(select(Run).where(Run.parent_run_id == parent_id))
-        ).scalars().all()
+            (await db.execute(select(Run).where(Run.parent_run_id == parent_id)))
+            .scalars()
+            .all()
+        )
         for child in children:
             frontier.append(child.id)
             if child.status in _CANCELLABLE:
@@ -223,7 +284,9 @@ async def cancel_run(run_id: ResourceId, _m: MemberUser, user: CurrentUser, db: 
     await db.commit()
     return {
         "status": "cancelled" if cancellable else run.status,
-        "cancelled_runs": 1 + len(cancelled_children) if cancellable else len(cancelled_children),
+        "cancelled_runs": 1 + len(cancelled_children)
+        if cancellable
+        else len(cancelled_children),
     }
 
 
@@ -252,7 +315,9 @@ async def retry_run(run_id: ResourceId, _m: MemberUser, user: CurrentUser, db: D
 
 
 @router.post("/{run_id}/reply")
-async def reply_run(run_id: ResourceId, user: CurrentUser, db: DB, payload: dict | None = None):
+async def reply_run(
+    run_id: ResourceId, user: CurrentUser, db: DB, payload: dict | None = None
+):
     """回复运行（FR-021）：needs_input → running（继续执行）；其余 409。
 
     用户回复内容保存到 run.user_reply，恢复执行时注入对话上下文（缺陷 A 修复）。
@@ -289,7 +354,9 @@ async def download_artifact(
     artifact_id: ResourceId,
     user: CurrentUser,
     db: DB,
-    redirect: Annotated[bool, Query(description="false 时返回 JSON URL 而不是 302")] = True,
+    redirect: Annotated[
+        bool, Query(description="false 时返回 JSON URL 而不是 302")
+    ] = True,
 ):
     """制品下载（归属校验）→ 302 预签名 GET URL（FR-016）。
 
@@ -304,6 +371,10 @@ async def download_artifact(
     url = artifact_service.presign_get(artifact.object_key)
     if not redirect:
         return JSONResponse(
-            {"url": url, "filename": artifact.filename, "size_bytes": artifact.size_bytes}
+            {
+                "url": url,
+                "filename": artifact.filename,
+                "size_bytes": artifact.size_bytes,
+            }
         )
     return RedirectResponse(url, status_code=302)

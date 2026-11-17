@@ -48,7 +48,9 @@ def test_catalog_schema_matches_executor(name: str) -> None:
 def test_catalog_names_are_unique_and_wellformed() -> None:
     """工具名非空、无空格、且 key 与 name 字段一致（防手写错位）。"""
     for key, spec in CATALOG.items():
-        assert spec.name == key, f"CATALOG key {key!r} 与 ToolSpec.name {spec.name!r} 不一致"
+        assert spec.name == key, (
+            f"CATALOG key {key!r} 与 ToolSpec.name {spec.name!r} 不一致"
+        )
         assert spec.name and " " not in spec.name
         assert spec.display_name.strip()
         assert spec.description.strip()
@@ -61,14 +63,18 @@ def test_catalog_kind_is_known() -> None:
         assert spec.timeout_seconds > 0
         if spec.kind == "sandbox":
             # 装包、跑数据处理很容易超过 30s；给太小会让正常脚本频繁超时
-            assert spec.timeout_seconds >= 60, f"{spec.name} 是沙箱工具，超时不应小于 60s"
+            assert spec.timeout_seconds >= 60, (
+                f"{spec.name} 是沙箱工具，超时不应小于 60s"
+            )
 
 
 def test_catalog_param_schema_shape() -> None:
     """param_schema 必须是合法 JSON Schema 对象段，required 里的键必须存在于 properties。"""
     for spec in CATALOG.values():
         schema = spec.param_schema
-        assert schema.get("type") == "object", f"{spec.name} 的 param_schema 缺 type=object"
+        assert schema.get("type") == "object", (
+            f"{spec.name} 的 param_schema 缺 type=object"
+        )
         props = schema.get("properties")
         assert isinstance(props, dict) and props, f"{spec.name} 无 properties"
         for req in schema.get("required", []):

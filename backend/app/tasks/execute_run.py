@@ -66,7 +66,9 @@ def _acquire_lock(run_id: str) -> bool:
     """Redis SET NX EX：获取执行锁，失败说明已有 Worker 在执行。"""
     client = redis.from_url(settings.redis_url, decode_responses=True)
     try:
-        return bool(client.set(f"run:lock:{run_id}", "1", nx=True, ex=_LOCK_TTL_SECONDS))
+        return bool(
+            client.set(f"run:lock:{run_id}", "1", nx=True, ex=_LOCK_TTL_SECONDS)
+        )
     finally:
         client.close()
 
@@ -180,12 +182,17 @@ def _enqueue(run_ids: list[str]) -> None:
 async def _previous_stage_output(db, run: Run) -> str | None:
     """pipeline：取上一阶段的产出文本（result.answer）。"""
     prev = (
-        await db.execute(
-            select(Run).where(
-                Run.parent_run_id == run.parent_run_id, Run.sequence == run.sequence - 1
+        (
+            await db.execute(
+                select(Run).where(
+                    Run.parent_run_id == run.parent_run_id,
+                    Run.sequence == run.sequence - 1,
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if prev is None or not isinstance(prev.result, dict):
         return None
     answer = prev.result.get("answer")
@@ -262,7 +269,9 @@ async def _advance_pipeline(db, run: Run) -> None:
             run_events.log_line(
                 run.id, f"第 {run.sequence} 阶段未成功，已取消剩余 {cancelled} 个阶段"
             )
-        await _finalize_parent(db, parent_id, failed=True, error=run.error, stages=siblings)
+        await _finalize_parent(
+            db, parent_id, failed=True, error=run.error, stages=siblings
+        )
         return
 
     # 最后一阶段完成：收敛父 Run
@@ -370,6 +379,7 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
             await ensure_external_snapshots(
                 db, run_id=run.id, owner_id=run.owner_id, agent_id=agent.id
             )
+
     async def external_abort_check() -> bool:
         return await _is_cancelled(db, run.id)
 
@@ -401,13 +411,18 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
         await db.commit()
 
     runner = _build_runner(
-        run, agent, tool_names=tool_names, external_executors=external_executors,
+        run,
+        agent,
+        tool_names=tool_names,
+        external_executors=external_executors,
         on_external_started=publish_external_started,
     )
 
     async def authorize_tool(name: str) -> bool:
         if name in external_executors:
-            return True  # Per-call current-state check runs inside the external executor.
+            return (
+                True  # Per-call current-state check runs inside the external executor.
+            )
         if agent is None:
             return False
         # Query scalar columns so operator disables and Agent edits committed
@@ -425,9 +440,8 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
         ).all()
         current_grants = current_rows[0][0] if current_rows else []
         current_enabled = [row[1] for row in current_rows if row[1] is not None]
-        return (
-            name in (run.tool_grants_snapshot or [])
-            and name in filter_grants(current_grants, current_enabled)
+        return name in (run.tool_grants_snapshot or []) and name in filter_grants(
+            current_grants, current_enabled
         )
 
     runner.authorize_tool = authorize_tool
@@ -451,11 +465,15 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
     # external_tool_invocations.step_id / sandbox_executions.step_id 指向不存在的行，
     # 运行详情里就会出现悬挂的调用记录。
     last_seq = int(
-        (await db.execute(select(func.max(Step.seq)).where(Step.run_id == run.id))).scalar()
+        (
+            await db.execute(select(func.max(Step.seq)).where(Step.run_id == run.id))
+        ).scalar()
         or 0
     )
     if last_seq:
-        logger.info("run_resume_continue_seq", run_id=_run_id_for_log(run), from_seq=last_seq)
+        logger.info(
+            "run_resume_continue_seq", run_id=_run_id_for_log(run), from_seq=last_seq
+        )
     user_reply = run.user_reply
     extra_messages = [user_reply] if user_reply else None
     if user_reply:
@@ -499,7 +517,9 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
             raise RuntimeError(f"沙箱步骤 {step_id} 未初始化")
         persisted_step.output = step.get("output")
         persisted_step.duration_ms = step.get("duration_ms", 0)
-        persisted_step.status = "failed" if not detail["result"].get("ok", False) else "completed"
+        persisted_step.status = (
+            "failed" if not detail["result"].get("ok", False) else "completed"
+        )
         await db.flush()
         payload = detail["payload"]
         result = detail["result"]
@@ -573,9 +593,11 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
             set_output_callback(publish_output)
         set_egress_snapshot = getattr(executor, "set_egress_snapshot", None)
         if callable(set_egress_snapshot):
-            mode, global_rules, agent_rules = await egress_service.snapshot_for_execution(
-                db, agent_id=agent.id
-            )
+            (
+                mode,
+                global_rules,
+                agent_rules,
+            ) = await egress_service.snapshot_for_execution(db, agent_id=agent.id)
             set_egress_snapshot(
                 {
                     "mode": mode,
@@ -744,6 +766,7 @@ def execute_run(self, run_id: str) -> str:
                     run_events.run_failed(run_id, run.error)
                     if await settle_request_status(db, run.request_id):
                         await db.commit()
+
         asyncio.run(_fail())
         return "failed"
     finally:

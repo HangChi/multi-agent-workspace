@@ -74,9 +74,7 @@ async def list_groups(
 
 
 @router.post("", response_model=GroupWithMembers, status_code=201)
-async def create_group(
-    payload: GroupCreate, _m: MemberUser, user: CurrentUser, db: DB
-):
+async def create_group(payload: GroupCreate, _m: MemberUser, user: CurrentUser, db: DB):
     """创建组（routing_strategy 默认 fan_out）。"""
     group = await group_service.create_group(db, user_id=user.id, payload=payload)
     await db.commit()
@@ -143,8 +141,10 @@ async def add_member(
     )
     # 预取 Agent 名（避免 async 懒加载 MissingGreenlet）
     agent = (
-        await db.execute(select(Agent).where(Agent.id == member.agent_id))
-    ).scalars().first()
+        (await db.execute(select(Agent).where(Agent.id == member.agent_id)))
+        .scalars()
+        .first()
+    )
     await db.commit()
     await db.refresh(member)
     await write_audit(

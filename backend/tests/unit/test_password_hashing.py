@@ -63,7 +63,9 @@ async def test_verify_async_does_not_block_event_loop():
             verify_password("secret", hashed)
 
     async def async_style() -> None:
-        await asyncio.gather(*[verify_password_async("secret", hashed) for _ in range(3)])
+        await asyncio.gather(
+            *[verify_password_async("secret", hashed) for _ in range(3)]
+        )
 
     _, sync_stall = await _loop_stall_ms(sync_style)
     _, async_stall = await _loop_stall_ms(async_style)

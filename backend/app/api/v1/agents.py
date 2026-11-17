@@ -59,15 +59,19 @@ async def list_agents(
     `total` 为过滤后的全量条数，前端据此算总页数。
     """
     rows, total = await agent_service.list_agents(
-        db, user_id=user.id, status=status, q=q, page=page, page_size=page_size, fetch_all=all
+        db,
+        user_id=user.id,
+        status=status,
+        q=q,
+        page=page,
+        page_size=page_size,
+        fetch_all=all,
     )
     return {"items": [AgentOut.model_validate(r) for r in rows], "total": total}
 
 
 @router.post("", response_model=AgentSaveOut, status_code=201)
-async def create_agent(
-    payload: AgentCreate, _m: MemberUser, user: CurrentUser, db: DB
-):
+async def create_agent(payload: AgentCreate, _m: MemberUser, user: CurrentUser, db: DB):
     """创建 Agent（member/admin；viewer 403）。"""
     agent = await agent_service.create_agent(db, user_id=user.id, payload=payload)
     await db.commit()

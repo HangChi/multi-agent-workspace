@@ -17,7 +17,9 @@ def test_live_resource_facts_are_not_lost_when_post_exit_stats_are_empty(fake_do
         original_wait = container.wait
 
         def stats(*, stream=False, one_shot=False):
-            assert not stream and one_shot, "metrics must not block for a second Docker sample"
+            assert not stream and one_shot, (
+                "metrics must not block for a second Docker sample"
+            )
             if container.status == "running":
                 sampled.set()
                 return {
@@ -35,7 +37,9 @@ def test_live_resource_facts_are_not_lost_when_post_exit_stats_are_empty(fake_do
         return container
 
     fake_docker.containers.create = create
-    with SandboxRun(execution_id=EXECUTION_ID, language="python", code="print(1)") as run:
+    with SandboxRun(
+        execution_id=EXECUTION_ID, language="python", code="print(1)"
+    ) as run:
         outcome = run.execute()
     assert outcome.cpu_ms == 23
     assert outcome.mem_peak_bytes == 4_000_000
@@ -43,8 +47,10 @@ def test_live_resource_facts_are_not_lost_when_post_exit_stats_are_empty(fake_do
 
 def test_empty_post_exit_cgroup_is_missing_not_measured_zero():
     run = SandboxRun(execution_id=EXECUTION_ID, language="python", code="print(1)")
-    container = SimpleNamespace(stats=lambda **kwargs: {
-        "cpu_stats": {"cpu_usage": {"total_usage": 0}},
-        "memory_stats": {},
-    })
+    container = SimpleNamespace(
+        stats=lambda **kwargs: {
+            "cpu_stats": {"cpu_usage": {"total_usage": 0}},
+            "memory_stats": {},
+        }
+    )
     assert run._sample_stats(container) == (None, None)

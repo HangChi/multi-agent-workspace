@@ -55,10 +55,13 @@ export function ErrorBanner({
       className={cn(
         'mt-4 flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50/80 px-3.5 py-3 text-sm text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300',
         'animate-fade-in',
-        className,
+        className
       )}
     >
-      <Icon name="alert-circle" className="mt-0.5 h-4 w-4 shrink-0 text-rose-500 dark:text-rose-400" />
+      <Icon
+        name="alert-circle"
+        className="mt-0.5 h-4 w-4 shrink-0 text-rose-500 dark:text-rose-400"
+      />
       <span className="min-w-0 flex-1 break-words leading-relaxed">{message}</span>
       <span className="flex shrink-0 items-center gap-1">
         {retry && (
