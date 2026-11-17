@@ -30,6 +30,15 @@ const DashboardPage = lazy(() =>
   import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage }))
 )
 const AgentPage = lazy(() => import('./pages/AgentPage').then((m) => ({ default: m.AgentPage })))
+/**
+ * 模板管理页（005）。
+ *
+ * 单独分包而不是并进 AgentPage：它带一套模板表单 + 两段列表，
+ * 且 viewer 永远进不来（模板端点一律 403），不该为它付这份下载代价。
+ */
+const AgentTemplatesPage = lazy(() =>
+  import('./pages/AgentTemplatesPage').then((m) => ({ default: m.AgentTemplatesPage }))
+)
 const GroupPage = lazy(() => import('./pages/GroupPage').then((m) => ({ default: m.GroupPage })))
 /**
  * 调度页（004）。
@@ -143,6 +152,9 @@ export function AppRouter() {
           <Route index element={<Suspended element={<BoardHome />} />} />
           <Route path="dashboard" element={<Suspended element={<DashboardPage />} />} />
           <Route path="agents" element={<Suspended element={<AgentPage />} />} />
+          {/* 模板页自己处理 viewer 的 403（与调度页同一套路）：页面内文案
+              比通用守卫更具体，因此这里不再叠一层 RequireMember。 */}
+          <Route path="agent-templates" element={<Suspended element={<AgentTemplatesPage />} />} />
           <Route path="groups" element={<Suspended element={<GroupPage />} />} />
           <Route path="marketplace" element={<Suspended element={<MarketplacePage />} />} />
           {/* 调度页自己处理 viewer 的 403（页面内文案比通用守卫更具体），

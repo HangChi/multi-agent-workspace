@@ -7,12 +7,17 @@ import { extractError } from '../api/client'
 import {
   Agent,
   archiveAgent,
+  cloneAgent,
   createAgent,
+  createAgentFromTemplate,
   deleteAgent,
   fetchAgents,
+  saveAgentAsTemplate,
   updateAgent,
 } from '../api/endpoints'
+import type { AgentSaveResponse, AgentTemplate } from '../api/endpoints'
 import { AgentForm, AgentFormValues } from '../components/agent/AgentForm'
+import { TemplatePicker } from '../components/agent/TemplatePicker'
 import { AgentListItem } from '../components/agent/AgentListItem'
 import { Button } from '../components/ui/Button'
 import { IconTile } from '../components/ui/Card'
@@ -22,6 +27,8 @@ import { ErrorBanner } from '../components/ui/ErrorBanner'
 import { Icon } from '../components/ui/Icons'
 import { Page } from '../components/ui/Page'
 import { PageHeader } from '../components/ui/PageHeader'
+import { Modal } from '../components/ui/Modal'
+import { Input } from '../components/ui/Field'
 import { Pagination } from '../components/ui/Pagination'
 import { SegmentedControl } from '../components/ui/Segmented'
 import { CardSkeleton } from '../components/ui/Skeleton'
@@ -44,6 +51,11 @@ export function AgentPage() {
   const toast = useToast()
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Agent | null>(null)
+  /** 从模板创建：picker 选中的模板；非空时打开预填表单（T032）。 */
+  const [fromTemplate, setFromTemplate] = useState<AgentTemplate | null>(null)
+  const [savingAs, setSavingAs] = useState<Agent | null>(null)
+  const [saveAsName, setSaveAsName] = useState('')
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
   const [page, setPage] = useState(1)
@@ -83,6 +95,50 @@ export function AgentPage() {
     onError: (err) => setError(extractError(err)),
   })
 
+  const cloneMut = useMutation({
+    mutationFn: cloneAgent,
+    onSuccess: (agent: AgentSaveResponse) => {
+      void qc.invalidateQueries({ queryKey: ['agents'] })
+      toast.success(`已克隆为「${agent.name}」`, '克隆只复制配置，不带历史运行与授权')
+    },
+    onError: (err) => setError(extractError(err)),
+  })
+
+  const fromTemplateMut = useMutation({
+    mutationFn: ({ template, values }: { template: AgentTemplate; values: AgentFormValues }) =>
+      createAgentFromTemplate(template.id, {
+        name: values.name,
+        description: values.description,
+        system_prompt: values.system_prompt,
+        model: values.model,
+        temperature: values.temperature,
+        max_steps: values.max_steps,
+        max_run_seconds: values.max_run_seconds,
+        tools: values.tools,
+        cost_limit_cents: values.cost_limit_cents,
+        egress_mode: values.egress_mode,
+      }),
+    onSuccess: (agent: AgentSaveResponse) => {
+      void qc.invalidateQueries({ queryKey: ['agents'] })
+      setFromTemplate(null)
+      setError(null)
+      // warning 不阻塞创建，但必须让用户看见（FR-008：不过静默丢弃）
+      toast.success(agent.warning ? `已创建，但${agent.warning}` : `已按模板创建「${agent.name}」`)
+    },
+    onError: (err) => setError(extractError(err)),
+  })
+
+  const saveAsMut = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => saveAgentAsTemplate(id, { name }),
+    onSuccess: (tpl: AgentTemplate) => {
+      void qc.invalidateQueries({ queryKey: ['agent-templates'] })
+      setSavingAs(null)
+      setSaveAsName('')
+      toast.success(`已保存为模板「${tpl.name}」`, '之后改这个 Agent 不会影响模板')
+    },
+    onError: (err) => setError(extractError(err)),
+  })
+
   const archiveMut = useMutation({
     mutationFn: archiveAgent,
     onSuccess: () => {
@@ -108,7 +164,7 @@ export function AgentPage() {
   // 「活跃 N 个」的统计口径：过滤到单页后本地算不出全量，
   // 因此在「全部」视图下用 total 兜底，在具体状态视图下就是 total
   const activeCount = filter === 'active' ? total : undefined
-  const formOpen = showForm || !!editing
+  const formOpen = showForm || !!editing || !!fromTemplate
 
   /** 切换状态筛选要回到第 1 页，否则可能停在新列表不存在的页码上。 */
   const changeFilter = (next: Filter) => {
@@ -144,9 +200,24 @@ export function AgentPage() {
     if (ok) deleteMut.mutate(agent.id)
   }
 
+  const onClone = (agent: Agent) => {
+    cloneMut.mutate(agent.id)
+  }
+
+  const onSaveAsTemplate = (agent: Agent) => {
+    setSavingAs(agent)
+    setSaveAsName(agent.name)
+  }
+
   const closeForm = () => {
     setShowForm(false)
     setEditing(null)
+    setFromTemplate(null)
+  }
+
+  /** 从模板创建的提交：走 from-template 端点，而不是普通 create。 */
+  const onSubmitFromTemplate = (values: AgentFormValues) => {
+    if (fromTemplate) fromTemplateMut.mutate({ template: fromTemplate, values })
   }
 
   return (
@@ -160,21 +231,34 @@ export function AgentPage() {
           </IconTile>
         }
         actions={
-          <Button
-            variant={formOpen ? 'secondary' : 'primary'}
-            leftIcon={formOpen ? 'chevron-up' : 'plus'}
-            onClick={() => {
-              if (formOpen) {
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              leftIcon="layers"
+              onClick={() => {
                 closeForm()
-              } else {
-                setEditing(null)
-                setShowForm(true)
-              }
-              setError(null)
-            }}
-          >
-            {formOpen ? '收起' : '新建 Agent'}
-          </Button>
+                setPickerOpen(true)
+                setError(null)
+              }}
+            >
+              从模板创建
+            </Button>
+            <Button
+              variant={formOpen ? 'secondary' : 'primary'}
+              leftIcon={formOpen ? 'chevron-up' : 'plus'}
+              onClick={() => {
+                if (formOpen) {
+                  closeForm()
+                } else {
+                  setEditing(null)
+                  setShowForm(true)
+                }
+                setError(null)
+              }}
+            >
+              {formOpen ? '收起' : '新建 Agent'}
+            </Button>
+          </div>
         }
       />
 
@@ -187,15 +271,40 @@ export function AgentPage() {
               <Icon name={editing ? 'edit' : 'plus'} className="h-4 w-4" />
             </span>
             <h2 className="text-sm font-semibold text-ink">
-              {editing ? `编辑 Agent「${editing.name}」` : '新建 Agent'}
+              {editing
+                ? `编辑 Agent「${editing.name}」`
+                : fromTemplate
+                  ? `按模板创建：${fromTemplate.name}`
+                  : '新建 Agent'}
             </h2>
           </div>
           <div className="p-5">
             <AgentForm
-              initial={editing ?? undefined}
-              onSubmit={onSubmit}
+              initial={
+                editing ??
+                (fromTemplate
+                  ? {
+                      id: '',
+                      owner_id: '',
+                      name: fromTemplate.name,
+                      description: fromTemplate.description,
+                      system_prompt: fromTemplate.system_prompt,
+                      model: fromTemplate.model,
+                      temperature: fromTemplate.temperature,
+                      max_steps: fromTemplate.max_steps,
+                      max_run_seconds: fromTemplate.max_run_seconds,
+                      tools: fromTemplate.tools,
+                      cost_limit_cents: fromTemplate.cost_limit_cents,
+                      egress_mode: fromTemplate.egress_mode,
+                      status: 'active',
+                      created_at: '',
+                      updated_at: '',
+                    }
+                  : undefined)
+              }
+              onSubmit={fromTemplate ? onSubmitFromTemplate : onSubmit}
               onCancel={closeForm}
-              submitting={createMut.isPending || updateMut.isPending}
+              submitting={createMut.isPending || updateMut.isPending || fromTemplateMut.isPending}
             />
           </div>
         </div>
@@ -266,6 +375,8 @@ export function AgentPage() {
               }}
               onArchive={() => void onArchive(agent)}
               onDelete={() => void onDelete(agent)}
+              onClone={() => onClone(agent)}
+              onSaveAsTemplate={() => onSaveAsTemplate(agent)}
             />
           ))}
           <Pagination
@@ -277,6 +388,62 @@ export function AgentPage() {
           />
         </div>
       )}
+
+      <TemplatePicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onPick={(tpl) => {
+          setPickerOpen(false)
+          setEditing(null)
+          setShowForm(false)
+          setFromTemplate(tpl)
+          setError(null)
+        }}
+      />
+
+      <Modal
+        open={!!savingAs}
+        onClose={() => {
+          setSavingAs(null)
+          setSaveAsName('')
+        }}
+        title="另存为模板"
+        description="把当前配置快照成模板。之后修改这个 Agent 不会影响模板，反之亦然。"
+      >
+        <div className="space-y-4">
+          <Input
+            label="模板名称"
+            required
+            value={saveAsName}
+            onChange={(e) => setSaveAsName(e.target.value)}
+            maxLength={60}
+            hint="同名模板会被拒绝，不会自动加后缀"
+          />
+          <div className="flex items-center justify-end gap-2 border-t border-line-subtle pt-4">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setSavingAs(null)
+                setSaveAsName('')
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              loading={saveAsMut.isPending}
+              disabled={!saveAsName.trim()}
+              onClick={() => {
+                if (savingAs) {
+                  saveAsMut.mutate({ id: savingAs.id, name: saveAsName.trim() })
+                }
+              }}
+            >
+              保存模板
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </Page>
   )
 }

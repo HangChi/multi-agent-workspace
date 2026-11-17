@@ -16,6 +16,9 @@ export interface Agent {
   cost_limit_cents: number
   egress_mode: 'default' | 'restricted'
   status: 'active' | 'archived'
+  /** 005：来源追溯。删模板/删源 Agent 后被后端置 null，不能据此判断来源是否还在。 */
+  source_template_id?: string | null
+  source_agent_id?: string | null
   created_at: string
   updated_at: string
 }

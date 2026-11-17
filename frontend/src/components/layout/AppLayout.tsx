@@ -28,6 +28,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/dashboard', label: '仪表盘', icon: 'activity' },
   { to: '/schedules', label: '调度', icon: 'clock', memberOnly: true },
   { to: '/agents', label: 'Agent', icon: 'bot' },
+  { to: '/agent-templates', label: '模板', icon: 'layers', memberOnly: true },
   { to: '/groups', label: 'Agent 组', icon: 'users' },
   { to: '/marketplace', label: '工具市场', icon: 'zap' },
   { to: '/admin', label: '管理', icon: 'shield', adminOnly: true },

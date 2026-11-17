@@ -13,6 +13,10 @@ interface Props {
   onEdit: () => void
   onArchive: () => void
   onDelete: () => void
+  /** 一键克隆：拷配置，不带历史运行与授权（005 US2）。 */
+  onClone: () => void
+  /** 另存为模板：把当前配置快照成模板（005 US3）。 */
+  onSaveAsTemplate: () => void
 }
 
 function Meta({ icon, children }: { icon: IconName; children: React.ReactNode }) {
@@ -24,7 +28,14 @@ function Meta({ icon, children }: { icon: IconName; children: React.ReactNode })
   )
 }
 
-export function AgentListItem({ agent, onEdit, onArchive, onDelete }: Props) {
+export function AgentListItem({
+  agent,
+  onEdit,
+  onArchive,
+  onDelete,
+  onClone,
+  onSaveAsTemplate,
+}: Props) {
   const active = agent.status === 'active'
 
   return (
@@ -55,6 +66,18 @@ export function AgentListItem({ agent, onEdit, onArchive, onDelete }: Props) {
               <Badge tone={active ? 'emerald' : 'slate'} dot pulse={active}>
                 {active ? '活跃' : '已归档'}
               </Badge>
+              {agent.source_agent_id && (
+                <span className="inline-flex items-center gap-1 text-2xs text-ink-faint">
+                  <Icon name="copy" className="h-3 w-3" />
+                  克隆而来
+                </span>
+              )}
+              {agent.source_template_id && (
+                <span className="inline-flex items-center gap-1 text-2xs text-ink-faint">
+                  <Icon name="layers" className="h-3 w-3" />
+                  模板创建
+                </span>
+              )}
             </div>
             <p
               className={cn(
@@ -70,6 +93,24 @@ export function AgentListItem({ agent, onEdit, onArchive, onDelete }: Props) {
         <div className="flex shrink-0 items-center gap-1">
           <Button size="sm" variant="secondary" leftIcon="edit" onClick={onEdit}>
             编辑
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            leftIcon="copy"
+            onClick={onClone}
+            title="复制配置成一个新 Agent，不带历史运行与授权"
+          >
+            克隆
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            leftIcon="layers"
+            onClick={onSaveAsTemplate}
+            title="把当前配置保存为模板，之后可一键复用"
+          >
+            存为模板
           </Button>
           {active && (
             <Button size="sm" variant="ghost" leftIcon="archive" onClick={onArchive}>

@@ -154,16 +154,37 @@ description: "Implementation tasks for agent templates and one-click clone: snap
 
 **Purpose**: 模板可见、可选、可管；Agent 页出现「从模板创建 / 克隆 / 另存为模板」。
 
-- [ ] T028 [P] Write `frontend/src/api/agentTemplates.ts`: `AgentTemplate` type + `fetchAgentTemplates({scope,q,page,page_size})` / `fetchAgentTemplate(id)` / `updateAgentTemplate(id, payload)` / `deleteAgentTemplate(id)` / `createAgentFromTemplate(id, payload)` / `cloneAgent(id)` / `saveAgentAsTemplate(id, payload)`; export through `frontend/src/api/endpoints.ts` barrel. Add `AgentSaveResponse` (with `warning`) and `source_template_id`/`source_agent_id` to the `Agent` interface in `frontend/src/api/agents.ts`.
-- [ ] T029 [P] Write `frontend/src/components/agent/TemplatePicker.tsx`: modal listing builtin + own templates (name/description/model/tools), search, selection callback; builtin rows show a 「内置」 badge and no edit affordance.
-- [ ] T030 Write `frontend/src/components/agent/TemplateForm.tsx`: template create/edit form **reusing** the existing `Field` primitives (Input/Select/Slider/NumberInput/Textarea) and the tools catalog fetch — a thin wrapper over the same field set as `AgentForm`, not a second implementation (Note #8).
-- [ ] T031 Write `frontend/src/pages/AgentTemplatesPage.tsx`: two sections (内置模板 read-only / 我的模板), edit + delete + 「用这个模板创建」 + 「另存为模板」 entry; empty states; confirm dialogs via `useConfirm`; toasts via `useToast`.
-- [ ] T032 Modify `frontend/src/pages/AgentPage.tsx`: add a primary 「从模板创建」 button opening `TemplatePicker`; on selection, open `AgentForm` with `initial` prefilled from the template and route submission to `createAgentFromTemplate`; surface `warning` from the response.
-- [ ] T033 Modify `frontend/src/components/agent/AgentListItem.tsx`: add 「克隆」 and 「另存为模板」 actions (clone → toast + list refresh; save-as-template → small name/description dialog → `saveAgentAsTemplate`).
-- [ ] T034 Modify `frontend/src/router.tsx` (lazy chunk, following the `SchedulesPage` precedent) and `frontend/src/components/layout/AppLayout.tsx` (nav entry 「模板」).
-- [ ] T035 [P] Frontend tests: `frontend/src/pages/__tests__/AgentTemplatesPage.test.tsx` (builtin read-only, own template edit/delete, empty state) and `frontend/src/components/agent/__tests__/TemplatePicker.test.tsx` (search filters, selection callback fires with the template, builtin badge present).
+- [X] T028 [P] Write `frontend/src/api/agentTemplates.ts`: `AgentTemplate` type + `fetchAgentTemplates({scope,q,page,page_size})` / `fetchAgentTemplate(id)` / `updateAgentTemplate(id, payload)` / `deleteAgentTemplate(id)` / `createAgentFromTemplate(id, payload)` / `cloneAgent(id)` / `saveAgentAsTemplate(id, payload)`; export through `frontend/src/api/endpoints.ts` barrel. Add `AgentSaveResponse` (with `warning`) and `source_template_id`/`source_agent_id` to the `Agent` interface in `frontend/src/api/agents.ts`.
+- [X] T029 [P] Write `frontend/src/components/agent/TemplatePicker.tsx`: modal listing builtin + own templates (name/description/model/tools), search, selection callback; builtin rows show a 「内置」 badge and no edit affordance.
+- [X] T030 Write `frontend/src/components/agent/TemplateForm.tsx`: template create/edit form **reusing** the existing `Field` primitives (Input/Select/Slider/NumberInput/Textarea) and the tools catalog fetch — a thin wrapper over the same field set as `AgentForm`, not a second implementation (Note #8).
+- [X] T031 Write `frontend/src/pages/AgentTemplatesPage.tsx`: two sections (内置模板 read-only / 我的模板), edit + delete + 「用这个模板创建」 + 「另存为模板」 entry; empty states; confirm dialogs via `useConfirm`; toasts via `useToast`.
+- [X] T032 Modify `frontend/src/pages/AgentPage.tsx`: add a primary 「从模板创建」 button opening `TemplatePicker`; on selection, open `AgentForm` with `initial` prefilled from the template and route submission to `createAgentFromTemplate`; surface `warning` from the response.
+- [X] T033 Modify `frontend/src/components/agent/AgentListItem.tsx`: add 「克隆」 and 「另存为模板」 actions (clone → toast + list refresh; save-as-template → small name/description dialog → `saveAgentAsTemplate`).
+- [X] T034 Modify `frontend/src/router.tsx` (lazy chunk, following the `SchedulesPage` precedent) and `frontend/src/components/layout/AppLayout.tsx` (nav entry 「模板」).
+- [X] T035 [P] Frontend tests: `frontend/src/pages/__tests__/AgentTemplatesPage.test.tsx` (builtin read-only, own template edit/delete, empty state) and `frontend/src/components/agent/__tests__/TemplatePicker.test.tsx` (search filters, selection callback fires with the template, builtin badge present).
 
 **Checkpoint**: US1/US2/US4 前端完成；Phase 5 提交。
+
+**Phase 5 实测记录（2026-11-18）**
+
+| 项 | 结果 |
+|---|---|
+| `npm test`（vitest） | **107 passed / 20 files**（新增 AgentTemplatesPage 5 例 + TemplatePicker 4 例） |
+| `npm run lint` | 0 error（曾因 `items` 未包 useMemo 报 2 个 hook 警告，已修） |
+| `npm run format:check` | 全绿 |
+| `npx tsc --noEmit` | 0 error |
+| `npm run build` | 成功；`AgentTemplatesPage` 独立分包 11.19 kB（gzip 5.12 kB） |
+
+**实现中踩到并修掉的问题（均已留在代码注释里）**：
+
+1. `AgentPage` 的「从模板创建」必须走 `from-template` 端点而不是普通 `create`——
+   否则模板里已下线的工具会让用户原样提交时撞 422（与后端专用请求模型同一原因）。
+2. `AgentListItem` 的来源角标最初想用 `Badge` 的 `title`，但 `BadgeProps` 没有该属性，
+   改用 `span + Icon`；这同时避免了给纯展示元素加交互语义。
+3. `TemplatePicker` 的搜索框最初只有 placeholder，测试拿不到无障碍名称——
+   补 `label="搜索模板"`，a11y 与可测性一起解决。
+4. 页面测试必须包 `ToastProvider` / `ConfirmProvider` 并 mock `useAuth`，
+   少包一个只会得到「必须在 Provider 内使用」的红，而不是行为断言。
 
 ## Phase 6: 真实栈验收、门禁与文档
 
