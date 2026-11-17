@@ -21,8 +21,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
@@ -45,7 +45,7 @@ jobs:
         run: python deploy/verify/native_acceptance.py --output "$RUNNER_TEMP/002-results"
       - name: Upload bounded sanitized acceptance evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: 002-native-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/002-results/*.json
@@ -63,8 +63,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
@@ -81,7 +81,7 @@ jobs:
         run: python deploy/verify/external_concurrency_acceptance.py --output "$RUNNER_TEMP/003-results"
       - name: Upload bounded sanitized acceptance evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: 003-external-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/003-results/*.json
@@ -132,9 +132,9 @@ jobs:
       APP_ENV: development
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
@@ -201,7 +201,7 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 只构建、不推送：验证 Dockerfile 与 uv.lock 仍然自洽。
       # 没有这一步时，Dockerfile 可以长期失修而 CI 全绿 ——
@@ -242,9 +242,9 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
