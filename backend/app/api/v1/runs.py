@@ -368,7 +368,7 @@ async def download_artifact(
     artifact = await db.get(Artifact, artifact_id)
     if artifact is None or artifact.run_id != run.id:
         raise AppError("NOT_FOUND", "制品不存在")
-    url = artifact_service.presign_get(artifact.object_key)
+    url = await artifact_service.presign_get_async(artifact.object_key)
     if not redirect:
         return JSONResponse(
             {

@@ -12,6 +12,7 @@
 对齐 contracts/api.md 附件部分与 data-model.md 的 R-05 决策。
 """
 
+import asyncio
 import hashlib
 import io
 import uuid
@@ -43,11 +44,26 @@ def _minio_client() -> Minio:
     )
 
 
+# bucket 存在性只探测一次：原先每次预签名都 HEAD 一次，而预签名本身是纯本地
+# 计算 —— 一个「对象存储还在不在」的探针被放进了每个下载请求的关键路径。
+_bucket_ready = False
+
+
 def _ensure_bucket() -> None:
-    """确保 bucket 存在（幂等）。"""
+    """确保 bucket 存在（幂等，进程内只探测一次）。"""
+    global _bucket_ready
+    if _bucket_ready:
+        return
     client = _minio_client()
     if not client.bucket_exists(settings.minio_bucket):
         client.make_bucket(settings.minio_bucket)
+    _bucket_ready = True
+
+
+def reset_bucket_probe() -> None:
+    """重置 bucket 探测标记（测试用：换掉 MinIO 假客户端后需要重新探测）。"""
+    global _bucket_ready
+    _bucket_ready = False
 
 
 def validate_attachment(*, filename: str, size: int, mime_type: str) -> None:
@@ -171,10 +187,14 @@ def _object_exists(key: str) -> bool:
         return False
 
 
-def download_url(request: Request, key: str) -> str:
-    """校验归属与元数据存在后返回预签名 GET URL。"""
+def download_url(attachments: list[dict], key: str) -> str:
+    """校验元数据存在后返回预签名 GET URL。
+
+    入参是 `requests.attachments` 的纯数据副本（而不是 ORM 对象）：本函数会被
+    `asyncio.to_thread` 丢到工作线程执行，碰 ORM 才有线程安全隐患。
+    """
     att = None
-    for item in request.attachments or []:
+    for item in attachments:
         if item.get("key") == key:
             att = item
             break
@@ -183,6 +203,28 @@ def download_url(request: Request, key: str) -> str:
     if not _object_exists(key):
         raise AppError("NOT_FOUND", "附件对象不存在")
     return presign_get(key)
+
+
+# ---------------------------------------------------------------------------
+# 异步包装：MinIO SDK 是同步的，直接在 async 端点里调用会阻塞事件循环
+# （API 只有 2 个 worker，并发下载时全站一起变慢）。统一丢线程池。
+# ---------------------------------------------------------------------------
+
+
+async def presign_upload_async(
+    request_id: str, *, filename: str, size: int, mime_type: str
+) -> AttachmentUploadOut:
+    return await asyncio.to_thread(
+        presign_upload, request_id, filename=filename, size=size, mime_type=mime_type
+    )
+
+
+async def presign_get_async(key: str) -> str:
+    return await asyncio.to_thread(presign_get, key)
+
+
+async def download_url_async(attachments: list[dict], key: str) -> str:
+    return await asyncio.to_thread(download_url, attachments, key)
 
 
 # ---------------------------------------------------------------------------

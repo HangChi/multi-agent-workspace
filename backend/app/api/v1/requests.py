@@ -128,7 +128,7 @@ async def upload_attachment(
     """附件上传：校验 + POST Policy 上传凭据 + 元数据回填（归属校验）。"""
     request = await request_service.get_request(db, request_id, user.id)
 
-    put = artifact_service.presign_upload(
+    put = await artifact_service.presign_upload_async(
         request_id, filename=filename, size=size, mime_type=mime_type
     )
 
@@ -170,7 +170,9 @@ async def download_attachment(
     """
     request = await request_service.get_request(db, request_id, user.id)
     normalized = artifact_service.normalize_key(key)
-    url = artifact_service.download_url(request, normalized)
+    url = await artifact_service.download_url_async(
+        list(request.attachments or []), normalized
+    )
     if not redirect:
         return JSONResponse({"url": url, "filename": normalized.rsplit("/", 1)[-1]})
     return RedirectResponse(url, status_code=302)
