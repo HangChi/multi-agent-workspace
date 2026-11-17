@@ -16,6 +16,18 @@ from app.executors.catalog import CATALOG
 ALLOWED_TOOLS = frozenset(CATALOG)
 
 
+def validate_tool_names(v: list[str]) -> list[str]:
+    """工具集白名单校验（模块级，供 Agent 与 Agent 模板 schema 共用）。
+
+    抽成模块级函数而不是各写一个 field_validator：005 的模板 schema 与 Agent schema
+    有 10 个同义字段，两处校验器一旦漂移就会出现「模板能存、Agent 不能建」。
+    """
+    bad = [t for t in v if t not in ALLOWED_TOOLS]
+    if bad:
+        raise ValueError(f"工具不在白名单: {bad}（允许: {sorted(ALLOWED_TOOLS)}）")
+    return v
+
+
 class AgentCreate(BaseModel):
     """创建 Agent 请求。"""
 
@@ -35,10 +47,7 @@ class AgentCreate(BaseModel):
     @field_validator("tools")
     @classmethod
     def _check_tools(cls, v: list[str]) -> list[str]:
-        bad = [t for t in v if t not in ALLOWED_TOOLS]
-        if bad:
-            raise ValueError(f"工具不在白名单: {bad}（允许: {sorted(ALLOWED_TOOLS)}）")
-        return v
+        return validate_tool_names(v)
 
 
 class AgentUpdate(BaseModel):
@@ -60,10 +69,7 @@ class AgentUpdate(BaseModel):
     def _check_tools(cls, v: list[str] | None) -> list[str] | None:
         if v is None:
             return v
-        bad = [t for t in v if t not in ALLOWED_TOOLS]
-        if bad:
-            raise ValueError(f"工具不在白名单: {bad}（允许: {sorted(ALLOWED_TOOLS)}）")
-        return v
+        return validate_tool_names(v)
 
 
 class AgentOut(BaseModel):

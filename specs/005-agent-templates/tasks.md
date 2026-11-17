@@ -22,8 +22,10 @@ description: "Implementation tasks for agent templates and one-click clone: snap
 3. **`UNIQUE(owner_id, name)` 对 `owner_id IS NULL` 不设防**（PostgreSQL NULL 语义）。
    内置模板唯一性必须靠部分唯一索引 `uq_agent_templates_builtin_name`，
    模型层与迁移层都要显式声明，且必须有测试直接覆盖。
-4. **工具校验两条路径语义不同**：`AgentCreate` 白名单外 → **422**（既有语义，不改）；
-   模板实例化时已下线工具 → **过滤 + warning**（FR-008）。不得把 `validate_grants` 改成从宽。
+4. **工具校验两条路径语义不同**：`AgentCreate` / `AgentTemplateCreate` **保存即拒**
+   （不在目录 → 422 Pydantic；在目录但未启用 → 400 `validate_grants`）；
+   模板实例化时未启用的工具 → **过滤 + warning**（FR-008）。
+   不得把 `validate_grants` 改成从宽。
 5. **克隆不复制实例级数据**：运行/步骤/制品、组成员关系、外部工具授权、出站规则一律不复制
    （FR-011），集成测试必须逐项计数断言为 0。
 6. **404 同措辞**：访问他人模板/Agent 一律 `404 NOT_FOUND` + 与「不存在」相同的 message，
@@ -50,17 +52,34 @@ description: "Implementation tasks for agent templates and one-click clone: snap
 
 **Purpose**: 数据地基。全部先行写测试（红），再实现（绿）。此阶段不碰任何业务端点。
 
-- [ ] T006 [P] Unit: `backend/tests/unit/test_agent_template_schema.py` — assert `AgentTemplateCreate`/`AgentUpdate` constraints are **field-for-field identical** to `AgentCreate`/`AgentUpdate` (same min/max/default/ge/le per field), and that the tools validator rejects non-catalog names. This is the anti-drift pin for Note #8/#4.
-- [ ] T007 Write `backend/app/schemas/agent_template.py`: `AgentTemplateCreate`, `AgentTemplateUpdate`, `AgentTemplateOut` (with derived `is_builtin`), `AgentTemplateList`. Reuse `ALLOWED_TOOLS` and the tools validator from `app/schemas/agent.py` — no second copy of constraints.
-- [ ] T008 Write `backend/app/models/agent_template.py`: table `agent_templates` per data-model.md (nullable `owner_id` FK CASCADE, 10 config fields, `created_at`/`updated_at`, 6 CHECK constraints, `UNIQUE(owner_id, name)`, partial unique index `uq_agent_templates_builtin_name WHERE owner_id IS NULL`, `idx_agent_templates_owner`). `egress_mode` reuses the 002 enum with `create_type=False`.
-- [ ] T009 Modify `backend/app/models/agent.py`: add `source_template_id` and `source_agent_id` (both nullable UUID FKs `ON DELETE SET NULL`, indexed). Do not touch any existing column.
-- [ ] T010 Write `backend/alembic/versions/0009_agent_templates.py` (down_revision `0007_schedules`): create table + 2 indexes + 2 agent columns + 2 FKs + 2 indexes; downgrade in reverse; drop no enum. **Must not import `app.*`** (Note #2).
-- [ ] T011 Integration: `backend/tests/integration/test_migration_0009.py` — `upgrade head → downgrade base → upgrade head` on a disposable DB; assert the partial unique index exists in `pg_indexes`; assert **two builtin-named rows with NULL owner can NOT both be inserted** (this is the R-05 regression pin, Note #3).
-- [ ] T012 Integration: `backend/tests/integration/test_agent_template_model.py` — CHECK constraints fire (blank name, blank prompt, temperature 2.1, max_steps 0, cost_limit 0); owner-scoped duplicate name rejected; `ON DELETE SET NULL` verified for both new agent columns (delete template/source agent → derived agent survives with NULL source).
-- [ ] T013 Write `backend/scripts/seed_agent_templates.py`: idempotent injection of 4 builtin templates (通用问答 / 代码审查 / 数据摘要 / 资料检索); `model` from `settings.llm_model`; `tools` filtered to currently-enabled catalog entries; `--dry-run` prints the plan. No audit writes (contracts §4.4).
-- [ ] T014 Unit: `backend/tests/unit/test_seed_agent_templates.py` — running twice inserts 0 additional rows; second run leaves `updated_at` untouched (no silent overwrite); a template whose tools went offline is re-seeded without duplicates; `--dry-run` performs no writes.
+- [X] T006 [P] Unit: `backend/tests/unit/test_agent_template_schema.py` — assert `AgentTemplateCreate`/`AgentUpdate` constraints are **field-for-field identical** to `AgentCreate`/`AgentUpdate` (same min/max/default/ge/le per field), and that the tools validator rejects non-catalog names. This is the anti-drift pin for Note #8/#4.
+- [X] T007 Write `backend/app/schemas/agent_template.py`: `AgentTemplateCreate`, `AgentTemplateUpdate`, `AgentTemplateOut` (with derived `is_builtin`), `AgentTemplateList`. Reuse `ALLOWED_TOOLS` and the tools validator from `app/schemas/agent.py` — no second copy of constraints.
+- [X] T008 Write `backend/app/models/agent_template.py`: table `agent_templates` per data-model.md (nullable `owner_id` FK CASCADE, 10 config fields, `created_at`/`updated_at`, 6 CHECK constraints, `UNIQUE(owner_id, name)`, partial unique index `uq_agent_templates_builtin_name WHERE owner_id IS NULL`, `idx_agent_templates_owner`). `egress_mode` reuses the 002 enum with `create_type=False`.
+- [X] T009 Modify `backend/app/models/agent.py`: add `source_template_id` and `source_agent_id` (both nullable UUID FKs `ON DELETE SET NULL`, indexed). Do not touch any existing column.
+- [X] T010 Write `backend/alembic/versions/0009_agent_templates.py` (down_revision `0008_run_cost_micros`): create table + 2 indexes + 2 agent columns + 2 FKs + 2 indexes; downgrade in reverse; drop no enum. **Must not import `app.*`** (Note #2).
+- [X] T011 Integration: `backend/tests/integration/test_migration_0009.py` — `upgrade head → downgrade base → upgrade head` on a disposable DB; assert the partial unique index exists in `pg_indexes`; assert **two builtin-named rows with NULL owner can NOT both be inserted** (this is the R-05 regression pin, Note #3).
+- [X] T012 Integration: `backend/tests/integration/test_agent_template_model.py` — CHECK constraints fire (blank name, blank prompt, temperature 2.1, max_steps 0, cost_limit 0); owner-scoped duplicate name rejected; `ON DELETE SET NULL` verified for both new agent columns (delete template/source agent → derived agent survives with NULL source).
+- [X] T013 Write `backend/scripts/seed_agent_templates.py`: idempotent injection of 4 builtin templates (通用问答 / 代码审查 / 数据摘要 / 资料检索); `model` from `settings.llm_model`; `tools` filtered to currently-enabled catalog entries; `--dry-run` prints the plan. No audit writes (contracts §4.4).
+- [X] T014 Unit: `backend/tests/unit/test_seed_agent_templates.py` — running twice inserts 0 additional rows; second run leaves `updated_at` untouched (no silent overwrite); a template whose tools went offline is re-seeded without duplicates; `--dry-run` performs no writes.
 
 **Checkpoint**: migration round-trips, model invariants hold, seeding is idempotent.
+
+**Phase 2 实测记录（2026-11-18）**
+
+| 项 | 结果 |
+|---|---|
+| `tests/unit/test_agent_template_schema.py` | 22 passed（约束逐字段一致 + 工具白名单 + 默认值一致） |
+| `tests/unit/test_seed_agent_templates.py` | 6 passed（4 个内置模板、模型来自参数、工具交集、下线不废模板） |
+| `tests/integration/test_migration_0009.py` | 3 passed（列/索引/FK 齐全；NULL owner 同名被部分索引拒；downgrade 干净且保留 002 枚举） |
+| `tests/integration/test_agent_template_model.py` | 13 passed（9 个 CHECK 参数化 + 唯一性 + 双向 SET NULL + 索引落在库里） |
+| 迁移往返 | 开发库 `alembic upgrade head` 成功（0008 → 0009）；隔离 schema up→down 干净 |
+| 种子脚本 | 开发库实跑插入 4 个内置模板；二次运行新增 0（幂等） |
+| `ruff check` / `ruff format --check` / `mypy app` | 全绿（120 source files） |
+| 全量 `pytest` | 1155 passed, 1 error —— 该 error 为沙箱 `pytest-of-*` 目录既有的环境问题，在 `master` 上同样复现，与 005 无关 |
+
+**踩到并修掉的坑（已写进代码注释，不重复于此）**：asyncpg 的 prepared statement 查 catalog
+视图必须限定列名（`pg_constraint.conrelid`）；SQLAlchemy `text()` 的 `:name` 会吞掉 `::`；
+同一事务里一次语句报错后整库作废，因此拒绝用例要换独立连接。
 
 ## Phase 3: User Story 3 + 4 — 模板管理服务与端点
 

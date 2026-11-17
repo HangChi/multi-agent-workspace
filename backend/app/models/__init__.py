@@ -1,6 +1,7 @@
 """模型聚合导入，供 Alembic autogenerate 与迁移使用。"""
 
 from app.models.agent import Agent
+from app.models.agent_template import AgentTemplate
 from app.models.artifact import Artifact
 from app.models.audit_log import AuditLog
 from app.models.egress import EgressAccess, EgressRule
@@ -29,6 +30,7 @@ from app.models.user import User
 __all__ = [
     "Agent",
     "AgentGroup",
+    "AgentTemplate",
     "Artifact",
     "AuditLog",
     "EgressAccess",

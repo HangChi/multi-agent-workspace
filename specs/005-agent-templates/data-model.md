@@ -117,7 +117,7 @@ Agent:          (不存在) --POST /agents/from-template/{id}--> active
 
 ## 迁移计划
 
-**`0009_agent_templates.py`**（down_revision = `0007_schedules`）：
+**`0009_agent_templates.py`**（down_revision = `0008_run_cost_micros`；当前 head 是 0008）：
 
 1. `op.create_table("agent_templates", ...)`：含上述全部列、6 个 CHECK、
    `UNIQUE(owner_id, name)`；`egress_mode` 用 `create_type=False` 引用既有 enum。

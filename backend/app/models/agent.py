@@ -71,3 +71,17 @@ class Agent(Base):
     memberships = relationship(
         "GroupMember", back_populates="agent", cascade="all, delete-orphan"
     )
+
+    # ===== 来源（005：模板与克隆的追溯）=====
+    # 两者均可空、均 ON DELETE SET NULL：删模板 / 删源 Agent 都不带走产物
+    # （FR-021）。手工创建的 Agent 两个都为 NULL。
+    # 自引用外键（source_agent_id → agents.id）的 SET NULL 不会递归删除，
+    # 因为 SET NULL 不触发对被引用行的删除动作。
+    source_template_id: Mapped[str | None] = mapped_column(
+        ForeignKey("agent_templates.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    source_agent_id: Mapped[str | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True
+    )

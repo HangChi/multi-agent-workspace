@@ -103,7 +103,13 @@
 
 - `201` → `AgentSaveOut`（既有响应体，含 `warning`）
 - `404 NOT_FOUND / "模板不存在"`：模板不存在、不属于自己且非内置（同一措辞）
-- `422 VALIDATION_ERROR`：请求体字段不合法（与 `POST /agents` 完全一致）
+**校验口径（与 `POST /agents` 逐字一致，两条失败路径都要有）**：
+
+- 工具名**不在工具目录**（`CATALOG`）→ **422 VALIDATION_ERROR**（Pydantic 字段校验器，
+  与 `AgentCreate` 同一机制）。
+- 工具在目录中但**未启用/已下线** → **400 INVALID_INPUT**
+  （`validate_grants`，message 形如 `工具未启用或已下线: xxx；可选工具: …`）。
+  模板实例化路径**不走**这条：失效工具被过滤并进 `warning`（FR-008）。
 
 **工具过滤（FR-008）**：模板的 `tools` 中已下线/未启用的项被静默过滤，
 被过滤的工具名进入 `warning`：
@@ -203,8 +209,10 @@
 
 **关键差异（只有两处）**：
 
-1. `tools` 白名单外的值：`AgentCreate` → **422**；`AgentTemplateCreate` → **422**（保存即拒），
-   但**用模板创建 Agent 时** → 过滤 + warning（FR-008）。校验在保存时从严、在实例化时从宽。
+1. `tools` 的处理时机：`AgentCreate` / `AgentTemplateCreate` **保存即拒**（不在目录 → 422；
+   在目录但未启用 → 400 `validate_grants`），而**用模板创建 Agent 时**，模板里未启用的工具
+   被过滤 + warning（FR-008）。即：模板**保存时**从严，模板**实例化时**从宽。
+   注意「从严」不是白名单外一种错误，而是两种（422 / 400），与既有 Agent 创建完全一致。
 2. `name` 唯一性：Agent **无**唯一约束（既有设计，允许同名）；模板 **有**
    （§1.3/1.5 的 409）。
 
