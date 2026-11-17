@@ -317,11 +317,16 @@ services:
       <<: *app_env
       DB_POOL: 'null'
     logging: *default-logging
+    # 限额按实测值定（004 验收，2026-11-17）。原来的 0.5 CPU / 256m 太紧：
+    # 在 256m 下 beat 的 RSS 就达 228 MiB，cgroup 峰值顶格 256 MiB 并触发
+    # `max` 事件 92 次（内核靠回收勉强撑住，oom_kill 仍为 0，但没有余量）；
+    # CPU 侧 81 个周期里 56 个被 throttle。beat 是单进程调度器，内存底座高
+    # 是因为载入了完整的 app（含 litellm/sqlalchemy），给一倍余量。
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 256m
+          cpus: '1.0'
+          memory: 512m
     depends_on:
       migrate:
         condition: service_completed_successfully

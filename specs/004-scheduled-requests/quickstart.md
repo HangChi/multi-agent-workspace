@@ -185,6 +185,8 @@ docker exec aw-postgres psql -U aw -c 'DROP DATABASE aw_migration_probe'
 | S9 Beat 停机恢复 | 不补跑 | ✅ | 见 S4：停机 5 分 8 秒后重启，只留 1 条合并 `missed`，需求数不变 |
 | S10 20 并发 | 全部确定结果 + 无接口失败 | ✅ | 20 条同时到期：`processed=20`、`triggers=20`、无遗漏。耗时首轮 3003ms（冷启动：连接池 + LiteLLM 元数据拉取超时重试），后续 5 轮稳定 **p50=288ms / max=298ms**，即单条约 14ms |
 | 审计「每次触发一条」（契约 §4） | 每条 `schedule_triggers` 都有对应审计 | ✅ | **真实栈查审计表才发现的缺口**：`SCHEDULE_TRIGGER` 常量定义了、也进了 `SCHEDULE_ACTIONS`，但代码里没有任何 `write_audit` 调用。修复后按 `(schedule_id, planned_at, result)` 三元组逐条对齐：接线修复后的 **21 条触发 → 21 条审计 → 21 条精确匹配**；修复前的 22 条触发 **0 条审计**。这个前后边界就是缺口本身 |
+| S11 容器资源限额 | 限额下 beat 稳定调度 | ✅ | **已补测（原 ⏳）**：原 `0.5 CPU / 256m` 下 cgroup 峰值顶格 256 MiB、`max` 事件 **92 次**、CPU 节流 **71%**——虽 `oom_kill=0` 但毫无余量。已调整为 `1.0 CPU / 512m`，复测 `max=0`、峰值 268 MiB、节流降至 12%，调度正常发出。详见下方 S11 节 |
+| S12 开发库迁移到 0007 | 表建出 + 既有数据零丢失 | ✅ | **通过部署路径实测**（`docker compose up migrate`，非手敲命令）：`0006 → 0007_schedules`，`schedules`/`schedule_triggers` 建出、两个约束就位；既有数据 **users=81 / agents=179 / requests=384 / runs=394 全部不变**。升级前已 `pg_dump -Fc` 备份（210 个可恢复对象，校验通过） |
 
 ### 三项未能完全按原文执行，如实说明
 
@@ -203,7 +205,40 @@ docker exec aw-postgres psql -U aw -c 'DROP DATABASE aw_migration_probe'
    本轮**没有**跑 API 端点的 P95 归因比（那是 002 的 SC-004 口径），
    因为本特性的 SC-006 只要求"全部确定结果、无遗漏、无接口失败"，已满足。
 
-3. **S9 用的是本地进程而非 compose。** `aw-beat`/`aw-worker` 容器未启动（本机已有
+3. **S9 验收时用的是本地进程而非 compose。** `aw-beat`/`aw-worker` 容器当时未启动（本机已有
    `aw-postgres`/`aw-redis`/`aw-minio`，compose 全栈会争用同名容器与端口）。
-   接线性质（beat 调度 → broker → worker 消费 → 服务层落库）与容器内一致，
-   但**容器资源限额（beat 0.5 CPU / 256MB）未实测**，此项留 ⏳。
+   接线性质（beat 调度 → broker → worker 消费 → 服务层落库）与容器内一致。
+   **容器资源限额已于 2026-11-17 补测，见下一节**（结论：原 0.5 CPU / 256m 过紧，已调整）。
+
+### S11 容器资源限额实测（原 ⏳ 项，已补测）
+
+容器内起 beat（`docker compose -p aw`，复用既有基础设施容器，未重建数据卷），
+在 **`cpus: 0.5` / `memory: 256m`** 原限额下读 cgroup：
+
+| 指标 | 原限额 0.5 CPU / 256m | 调整后 1.0 CPU / 512m |
+|---|---|---|
+| `memory.peak` | **256 MiB（正好顶格）** | 268 MiB |
+| `memory.events: max`（撞硬上限） | **92 次** | **0 次** |
+| `memory.events: oom_kill` | 0 | 0 |
+| `memory.stat: anon`（真实 RSS） | **228 MiB** | 244 MiB |
+| `cpu.stat` 节流 | **56 / 81 周期（71%）** | 5 / 42（12%） |
+| `Sending due task scan-due-schedules` | ✅ 正常发出 | ✅ 正常发出 |
+
+**结论：原限额不可用于生产，已修正为 `cpus: '1.0'` / `memory: 512m`**
+（`deploy/docker-compose.yml` beat 段，附实测注释）。
+
+判定依据，以及为什么"没 OOM"不等于"配置没问题"：
+
+1. `memory.peak` 顶格 256 MiB 且 `max` 事件 92 次，说明 beat **长期贴着硬上限跑**，
+   内核一直在做内存回收才没触发 `oom_kill`。`oom_kill=0` 只代表"侥幸没死"，
+   任何一次峰值（日志缓冲、GC 停顿、多一个并发任务）就会把它打死。
+2. `anon` 228 MiB 排除"page cache 虚高"的可能 —— `memory.stat` 里 `file` 仅 172 KB，
+   占用的确是真实匿名内存（beat 载入完整 app，含 litellm / sqlalchemy）。
+3. CPU 侧 71% 的周期被 throttle，累计 2.9 秒。beat 的调度线程若在节流窗口里
+   醒来不及时，会推迟 `scan-due-schedules` 的发出，直接影响"每分钟扫描"的时效。
+4. beat 是单进程调度器，无横向扩展；给它一倍内存余量比事后排查漏跑便宜得多。
+
+复现方式：`docker compose -p aw -f deploy/docker-compose.yml up -d beat`，
+然后读 `/sys/fs/cgroup/memory.{peak,current,stat,events}` 与 `/sys/fs/cgroup/cpu.stat`。
+**注意**：`docker stats` 的 `MEM USAGE` 包含可回收 cache，判断真实占用要看
+`memory.stat` 的 `anon`，不要只看前者。
