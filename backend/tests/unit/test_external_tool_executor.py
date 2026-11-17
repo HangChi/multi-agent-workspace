@@ -161,3 +161,78 @@ async def test_external_executor_maps_transport_tool_and_timeout_categories():
             await make_executor(client).execute({"query": "hello"})
         assert exc.value.category == category
         assert len(client.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_task_stays_cancelled_and_its_call_is_stopped():
+    """任务被真正取消时，CancelledError 必须继续抛出，且不带走在跑的 call。
+
+    把 CancelledError 改写成业务错误，会让调用方在正在关闭的 loop 上继续写库；
+    而把 create_task 丢在异常路径上，远端 tools/call 会在客户端关闭后继续跑。
+    """
+    import asyncio
+
+    started = asyncio.Event()
+    observed: dict[str, bool] = {}
+
+    class HangingClient(FakeClient):
+        async def call_tool(self, name, arguments, *, timeout=None):
+            self.calls.append((name, arguments, timeout))
+            started.set()
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                observed["cancelled"] = True
+                raise
+            return {"content": []}
+
+    records: list[tuple[str, str | None]] = []
+
+    async def recorder(**kwargs):
+        records.append((kwargs["status"], kwargs.get("error_category")))
+
+    executor = make_executor(HangingClient(), invocation_recorder=recorder)
+    task = asyncio.create_task(executor.execute({"query": "hello"}))
+    await asyncio.wait_for(started.wait(), timeout=5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # 远端调用被取消（不是留在后台继续等），并且留下了一条 cancelled 记录
+    assert observed.get("cancelled") is True
+    assert ("cancelled", "cancelled") in records
+
+
+@pytest.mark.asyncio
+async def test_abort_check_failure_does_not_leave_the_call_running():
+    """abort_check 自己抛错（例如 DB 抖动）时，也不能把 call 任务留在后台。"""
+    import asyncio
+
+    started = asyncio.Event()
+    observed: dict[str, bool] = {}
+
+    class HangingClient(FakeClient):
+        async def call_tool(self, name, arguments, *, timeout=None):
+            self.calls.append((name, arguments, timeout))
+            started.set()
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                observed["cancelled"] = True
+                raise
+            return {"content": []}
+
+    checks = 0
+
+    async def abort_check():
+        nonlocal checks
+        checks += 1
+        if checks >= 2:
+            raise RuntimeError("database is gone")
+        return False
+
+    with pytest.raises(RuntimeError):
+        await make_executor(HangingClient(), abort_check=abort_check).execute({"query": "hello"})
+
+    assert started.is_set()
+    assert observed.get("cancelled") is True

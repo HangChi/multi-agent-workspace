@@ -162,34 +162,42 @@ class ExternalToolExecutor:
                 call = asyncio.create_task(
                     client.call_tool(self.external_name, arguments, timeout=remaining)
                 )
-                if self.abort_check is None:
-                    result = await asyncio.wait_for(call, timeout=remaining)
-                else:
-                    while not call.done():
-                        remaining = deadline - asyncio.get_running_loop().time()
-                        if remaining <= 0:
-                            call.cancel()
-                            with suppress(asyncio.CancelledError):
-                                await call
-                            raise ExternalToolExecutionError("timeout", "外部工具调用超时")
-                        done, _ = await asyncio.wait({call}, timeout=min(0.1, remaining))
-                        if done:
-                            break
+                # 无论从哪条路径离开，都不能留下一个还在跑的 tools/call：它会在
+                # 客户端关闭、租约释放之后继续等远端（并对远端产生副作用），还会
+                # 以 "Task exception was never retrieved" 的形式把异常吞掉。
+                try:
+                    if self.abort_check is None:
+                        result = await asyncio.wait_for(call, timeout=remaining)
+                    else:
+                        while not call.done():
+                            remaining = deadline - asyncio.get_running_loop().time()
+                            if remaining <= 0:
+                                raise ExternalToolExecutionError("timeout", "外部工具调用超时")
+                            done, _ = await asyncio.wait({call}, timeout=min(0.1, remaining))
+                            if done:
+                                break
+                            if await self.abort_check():
+                                await client.cancel(call_id)
+                                raise ExternalToolExecutionError("cancelled", "外部工具调用已取消")
+                        result = await call
                         if await self.abort_check():
-                            await client.cancel(call_id)
-                            call.cancel()
-                            with suppress(asyncio.CancelledError):
-                                await call
                             raise ExternalToolExecutionError("cancelled", "外部工具调用已取消")
-                    result = await call
-                    if await self.abort_check():
-                        raise ExternalToolExecutionError("cancelled", "外部工具调用已取消")
+                finally:
+                    if not call.done():
+                        call.cancel()
+                        # 等待取消真正落地，避免任务比 httpx 客户端活得久
+                        with suppress(BaseException):
+                            await call
         except ExternalToolExecutionError as exc:
             await record(exc.category, exc.category)
             raise
-        except asyncio.CancelledError as exc:
-            await record("cancelled", "cancelled")
-            raise ExternalToolExecutionError("cancelled", "外部工具调用已取消") from exc
+        except asyncio.CancelledError:
+            # 真正的任务取消（Worker 停机、上层 wait_for 取消）：尽力留一条记录，
+            # 然后继续抛出。把它改写成业务错误会让调用方以为还能在正在关闭的 loop
+            # 上写库/发事件，也把「任务被取消」这一事实藏了起来。
+            with suppress(BaseException):
+                await record("cancelled", "cancelled")
+            raise
         except (TimeoutError, httpx.TimeoutException) as exc:
             await record("timeout", "timeout")
             raise ExternalToolExecutionError("timeout", "外部工具调用超时") from exc
