@@ -42,6 +42,13 @@ class Request(Base):
         default="created",
     )
     attachments: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # 来源调度（004）：可空。手工创建的需求为 NULL。
+    # 用 ON DELETE SET NULL 而不是 CASCADE —— 删除调度规则绝不能连带删除它
+    # 已经产生的需求（进而连带 Run、Step、制品）。规则是"以后怎么触发"，
+    # 需求是"已经发生过的事情"，后者不因前者被撤销而消失。
+    source_schedule_id: Mapped[str | None] = mapped_column(
+        ForeignKey("schedules.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -54,3 +61,4 @@ class Request(Base):
 
     owner = relationship("User", back_populates="requests")
     runs = relationship("Run", back_populates="request")
+    source_schedule = relationship("Schedule", foreign_keys=[source_schedule_id])

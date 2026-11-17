@@ -21,6 +21,7 @@ from app.models.invite_code import InviteCode
 from app.models.request import Request
 from app.models.run import Run
 from app.models.sandbox_execution import SandboxExecution
+from app.models.schedule import Schedule, ScheduleTrigger
 from app.models.step import Step
 from app.models.tool import Tool
 from app.models.user import User
@@ -44,6 +45,8 @@ __all__ = [
     "Run",
     "RunExternalToolSnapshot",
     "SandboxExecution",
+    "Schedule",
+    "ScheduleTrigger",
     "ServerValidation",
     "Step",
     "Tool",
