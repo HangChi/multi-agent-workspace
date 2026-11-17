@@ -236,6 +236,16 @@ jobs:
           echo "容器内 uid=$uid"
           test "$uid" != "0"
 
+      # 测试作业跑的是 setup-python 3.12，镜像跑的却是 Dockerfile 里的 3.15：
+      # 真正会跑的版本此前从未被验证过（dependabot 一次 base 镜像 bump 就能把
+      # 「CI 绿」和「线上 import 就崩」分开）。这里在镜像内做一次全模块导入，
+      # 覆盖最常见的版本差异（标准库移除、C 扩展 ABI、typing 行为变化）。
+      # 全量测试仍只在 3.12 上跑：双版本跑全量会把 CI 时间翻倍，而 import 期
+      # 差异才是这类版本漂移的主要风险面。
+      - name: 镜像内导入全部模块（运行期 Python 版本冒烟）
+        run: |
+          docker run --rm --entrypoint /opt/aw/.venv/bin/python aw-backend:ci -c "import sys, app.main, app.tasks.execute_run, app.tasks.celery_app, app.executors.sandbox, app.executors.mcp_client, app.api.v1.ws, app.core.redis; print('runtime python', sys.version.split()[0], 'imports ok')"
+
   frontend:
     name: 前端（lint + 类型 + 单测 + 构建）
     runs-on: ubuntu-latest
