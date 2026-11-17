@@ -83,7 +83,7 @@ def _refresh_token_from(request: Request, payload: RefreshRequest | None) -> str
 
 @router.post("/register", response_model=RegisterResponse, status_code=201)
 async def register(payload: RegisterRequest, response: Response, db: DB):
-    user, tokens = await auth_service.register(
+    user = await auth_service.register(
         db,
         email=str(payload.email),
         password=payload.password,
@@ -95,8 +95,12 @@ async def register(payload: RegisterRequest, response: Response, db: DB):
         action="user_register",
         target_type="user",
         target_id=user.id,
+        strict=True,
     )
-    await db.commit()  # 审计落库（register 业务已在 service 内提交）
+    # 用户行与审计同一事务，一次提交；提交成功后才签发 token（避免发出去的
+    # token 指向一个被回滚掉的用户）
+    await db.commit()
+    tokens = await auth_service.issue_tokens(user)
     _set_refresh_cookie(response, tokens["refresh"])
     return {"user": UserOut.model_validate(user), "tokens": TokenPair(**tokens)}
 

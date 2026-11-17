@@ -105,7 +105,7 @@ async def install_listing(
         target_id=installation.id,
         detail={"listing_id": listing_id, "version_policy": version_policy},
     )
-    await db.commit()
+    await db.flush()
     await db.refresh(installation)
     return installation
 
@@ -211,7 +211,7 @@ async def create_grant(
             "permissions": sorted(requested),
         },
     )
-    await db.commit()
+    await db.flush()
     return await get_grant(db, grant_id=grant.id)
 
 
@@ -288,7 +288,7 @@ async def revoke_grant(
         target_id=grant.id,
         detail={"agent_id": agent_id},
     )
-    await db.commit()
+    await db.flush()
 
 
 async def upgrade_installation(
@@ -373,6 +373,6 @@ async def upgrade_installation(
             "reason": reason.strip(),
         },
     )
-    await db.commit()
+    await db.flush()
     await db.refresh(installation)
     return installation

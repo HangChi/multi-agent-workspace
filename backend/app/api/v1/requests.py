@@ -76,7 +76,6 @@ async def create_request(
 ):
     """创建需求（member/admin；viewer 403）。"""
     request = await request_service.create_request(db, user_id=user.id, payload=payload)
-    await db.commit()
     await db.refresh(request)
     await write_audit(
         db,
@@ -85,6 +84,7 @@ async def create_request(
         target_type="request",
         target_id=request.id,
         detail={"title": request.title, "priority": request.priority},
+        strict=True,
     )
     await db.commit()
     return RequestOut.model_validate(request)
@@ -135,7 +135,8 @@ async def upload_attachment(
     current = list(request.attachments or [])
     current.append(meta.model_dump())
     request.attachments = current
-    await db.commit()
+    # flush 必须显式：session 是 autoflush=False，且 refresh 会丢弃未 flush 的改动
+    await db.flush()
     await db.refresh(request)
 
     await write_audit(
@@ -145,6 +146,7 @@ async def upload_attachment(
         target_type="request",
         target_id=request_id,
         detail={"filename": put.name, "size": put.size, "key": put.key},
+        strict=True,
     )
     await db.commit()
 
@@ -191,7 +193,7 @@ async def assign_request(
     - 202 {"run_id","status":"queued"}；409 已在执行；400 归档目标/未实现策略；
       404 目标不存在/无权限
     """
-    parent_run_id, run_ids = await assignment_service.assign(
+    parent_run_id, runs, strategy = await assignment_service.assign(
         db,
         request_id=request_id,
         user_id=user.id,
@@ -199,6 +201,7 @@ async def assign_request(
         assignee_id=payload.assignee_id,
         strategy=payload.strategy,
     )
+    run_ids = [run.id for run in runs]
 
     # T059 审计：assign（detail 含 assignee_type/assignee_id/strategy）
     await write_audit(
@@ -213,7 +216,10 @@ async def assign_request(
             "strategy": payload.strategy or "auto",
             "run_ids": run_ids,
         },
+        strict=True,
     )
+    # 需求、Run 与审计同一事务；入队必须在提交之后，否则 Worker 可能读不到 Run
     await db.commit()
+    await assignment_service.dispatch_assigned(runs, strategy=strategy)
 
     return AssignOut(run_id=parent_run_id, status="queued")

@@ -142,7 +142,9 @@ async def test_agent_rule_delete_rolls_back_when_audit_fails(
 
     monkeypatch.setattr(agent_egress, "write_audit", fail_audit)
     response = await client.delete(f"{endpoint}/{rule_id}", headers=headers)
-    assert response.status_code == 400
+    # 审计写失败是服务端故障：walk 到真实 write_audit 的 FK 错误时按 500 上报，
+    # 不再被 IntegrityError 处理器误报成客户端的 400（docs/code-audit #9）。
+    assert response.status_code == (400 if audit_failure == "raise" else 500)
     assert await db_session.get(EgressRule, rule_id) is not None
     audits = await db_session.execute(
         select(AuditLog).where(

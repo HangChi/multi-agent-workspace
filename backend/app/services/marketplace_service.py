@@ -213,7 +213,7 @@ async def _review_listing(
         target_id=listing.id,
         detail={"tool_version_id": version.id, "reason": reason.strip()},
     )
-    await db.commit()
+    await db.flush()
     return listing_projection(await _listing(db, listing.id))
 
 
@@ -298,5 +298,5 @@ async def transition_listing(
         target_id=listing.id,
         detail={"reason": reason.strip(), "status": listing.status},
     )
-    await db.commit()
+    await db.flush()
     return listing_projection(await _listing(db, listing.id))

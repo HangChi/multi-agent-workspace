@@ -61,14 +61,23 @@ async def _issue_tokens(user: User) -> dict[str, str]:
     return tokens
 
 
+async def issue_tokens(user: User) -> dict[str, str]:
+    """签发 token 对（供端点在建用户事务提交后调用）。"""
+    return await _issue_tokens(user)
+
+
 async def register(
     db: AsyncSession,
     *,
     email: str,
     password: str,
     invite_code: str,
-) -> tuple[User, dict[str, str]]:
-    """注册：校验邀请码（未过期、未用尽）→ 事务内消耗 → 建用户 → 签发 token。"""
+) -> User:
+    """注册：校验邀请码（未过期、未用尽）→ 事务内消耗 → 建用户。
+
+    只 flush，不提交：审计与用户行必须落在同一个事务里（docs/code-audit #9），
+    提交由端点统一执行，token 在提交成功后才签发。
+    """
     invite = (
         await db.execute(select(InviteCode).where(InviteCode.code == invite_code))
     ).scalar_one_or_none()
@@ -109,11 +118,9 @@ async def register(
         invite_code_id=invite.id,
     )
     db.add(user)
-    await db.commit()
+    await db.flush()
     await db.refresh(user)
-
-    tokens = await _issue_tokens(user)
-    return user, tokens
+    return user
 
 
 async def login(

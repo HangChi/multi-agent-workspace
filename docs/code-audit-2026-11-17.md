@@ -16,7 +16,7 @@
 | 6 | MinIO 同步调用阻塞事件循环 | ✅ | `02cfa06` |
 | 7 | LLM 调用无超时 / Celery 无任务时限 | ✅ | `d4bd0fd` |
 | 8 | `App.tsx` render body 里调 init | ✅ | `04af068` |
-| 9 | 每个写操作两次 commit | ⏸ **唯一未修**（见下） | — |
+| 9 | 每个写操作两次 commit | ✅ 单事务（见下） | 本次 |
 | 10 | 成本按「分」取整 | ✅ | `e0c26d6` |
 | 11 | 上下文无裁剪 | ✅ | `02c2f7f` |
 | 12 | 运行时版本与 CI 不一致 | ✅ 部分（镜像内导入冒烟） | `3ff7ca1` |
@@ -31,17 +31,47 @@
 **升级建议已落地**：refresh token 改 `HttpOnly` cookie（`e700472`）——CSP 降低 XSS
 成功概率，HttpOnly 降低成功后的损失，两者是同一件事的两侧。
 
-### 为什么 #9（两次 commit）没做
+### #9（两次 commit）怎么修的
 
-写接口目前的形态是：service 内 `flush`（部分 `commit`）→ 端点 `commit` 业务 →
-`write_audit` → 再 `commit` 审计。要合成一次事务，必须让**所有**被复用的 service
-不再自行 commit，并逐个确认调用方（如 `schedule_service` 建单、`assignment_service`
-分配）不会因为事务边界变化而出现「部分提交」或「审计被一起回滚」。
+**目标不变**：一个写请求只 `commit` 一次，审计与业务同生共死。
 
-还有一个反向陷阱：`write_audit` 现在失败时会 `rollback()` 并吞掉异常。若直接把它
-和业务合进一个事务，**审计写失败会把业务一起回滚**，但端点仍会返回 200（业务对象
-已在内存里）——这是比「审计丢失」更糟的静默错误。正确做法是先给这些端点加
-`strict=True`，再合并事务。
+改动分四层，都按「先改上游、再改下游」的次序落地：
+
+1. **审计语义先立**（`core/audit.py`）：`write_audit` 默认严格——写失败就回滚
+   整个事务并抛 `AppError("INTERNAL_ERROR")`，端点返回 5xx。这一步必须**先做**，
+   否则合并事务后会变成「业务回滚了、端点却返回 200」的静默错误。
+   `strict=False` 只留给「审计写在自己的独立事务里」的场景，当前无调用点。
+2. **依赖收尾**（`core/db.py`）：`get_db` 在请求抛异常时回滚，避免半截事务挂在连接上。
+3. **端点合并**：`groups`(5)、`agents`(4)、`requests`(2) 的 11 个双提交端点删掉
+   业务后那次中间提交，审计后一次 `commit`；`auth/register` 改为「用户行 + 审计
+   一次提交，提交成功后才签发 token」。
+4. **service 去 commit**：`external_grant_service`(4)、`marketplace_service`(2)、
+   `external_tool_service`(2)、`auth_service.register`、`assignment_service.assign`
+   一律只 `flush`，由端点提交；`assign` 另拆出 `dispatch_assigned()`，
+   **提交之后**才发布事件并入队（先入队再提交会让 Worker 偶发读不到 Run）。
+
+`run_due_schedules` 那条链路的提交策略没动：它每处理一条规则提交一次，
+是「单条规则失败不影响其余规则」的隔离手段（`fire_schedule` 内 6 处提交
+分别对应 missed / skipped_busy / 配额失败 / 建单 / 失败记录），
+与「同一请求内重复提交」是两件事。
+
+**实测（2026-11-17，本机 compose 栈 + 测试库）**
+
+| 项 | 结果 |
+|---|---|
+| 新增 `tests/integration/test_transaction_boundary.py` | **7 passed**（commit 计数 / 审计失败回滚 / 入队时序） |
+| 反向对照：把 `create_agent` 的中间 `commit` 加回去 | 该用例**立刻失败**（计数 2≠1），随后还原 |
+| 后端全量 `pytest tests` | **1102 passed, 1 error**（原 1094 passed；error 仍是沙箱 `pytest-of-unknown` 目录冲突，与代码无关） |
+| `ruff check` / `ruff format --check .` / `mypy app` | 全绿（244 files formatted，118 source files） |
+
+**行为变化（需知悉）**：审计写失败现在返回 **500** 而不是 ErrorHandler 映射出的 400
+（`test_egress_api.py` 的 FK 用例已按新语义断言）。审计失败是服务端故障，
+报成客户端参数错误会误导排查。
+
+**代价与遗留**：把 `write_audit` 的失败改成抛异常后，`sandbox_service` /
+`execute_run` 里那几处审计（Worker 侧）也从「吞掉」变成「让那一步失败」。
+这符合「审计是强制要求」，但如果将来出现审计表不可用又不许阻塞执行的场景，
+需要显式传 `strict=False` 并在调用方单独提交。
 
 结论：这是一次需要独立排期 + 事务边界测试的重构，不适合混在本次修复里草率收尾。
 
@@ -155,13 +185,17 @@
   两个新 token 对里最后落盘的可能是被另一次作废的那个 → 下次刷新被登出。
 - 建议：移到 `useEffect(() => { void init() }, [])`，并在 `init()` 开头加 `if (get().initialized) return`。
 
-### 9. 每个写操作两次 commit（业务一次 + 审计一次）
+### 9. 每个写操作两次 commit（业务一次 + 审计一次）— 已修
 
 - 位置示例：`app/api/v1/requests.py:81` 与 `:91`；`agents.py` 8 处、`groups.py` 11 处同构。
 - 影响：多一次网络往返（写接口 RT 直接 +30~50%），且出现「业务已提交、审计失败」的窗口——
   `write_audit` 失败只是 rollback 当前事务并记日志（`app/core/audit.py:59-71`），审计会静默丢。
 - 建议：service 层不 `commit`，端点内 `write_audit` 之后统一一次 `await db.commit()`；
   关键操作传 `strict=True`。
+- **已落地**（2026-11-17）：见上文「#9 怎么修的」。审计写失败改为默认抛错，
+  `write_audit` 的 `strict` 默认值由 `False` 翻成 `True`；端点统一单次提交；
+  `assign` 拆出 `dispatch_assigned()` 保证「提交后才入队」；
+  新增 `test_transaction_boundary.py` 锁住「一个写请求只提交一次」。
 
 ### 10. 成本按「分」取整，小额调用被记成 0
 

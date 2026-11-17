@@ -156,7 +156,7 @@ async def create_server(
         target_id=server.id,
         detail={"name": server.name, "auth_mode": server.auth_mode},
     )
-    await db.commit()
+    await db.flush()
     return await get_server(db, server_id=server.id, owner_id=owner_id, is_admin=True)
 
 
@@ -299,7 +299,7 @@ async def update_server(
         if field in changes:
             setattr(server, field, changes[field])
     server.updated_at = datetime.now(UTC)
-    await db.commit()
+    await db.flush()
     return await get_server(
         db, server_id=server.id, owner_id=server.owner_id, is_admin=True
     )

@@ -32,6 +32,7 @@ async def create_external_grant(
         credential_id=payload.credential_id,
         permissions=payload.permissions,
     )
+    await db.commit()
     return external_grant_service._grant_projection(grant)
 
 
@@ -52,3 +53,4 @@ async def delete_external_grant(
     await external_grant_service.revoke_grant(
         db, agent_id=agent_id, grant_id=grant_id, user_id=user.id
     )
+    await db.commit()

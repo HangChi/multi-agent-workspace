@@ -7,6 +7,7 @@ import structlog
 from sqlalchemy import exc
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.errors import AppError
 from app.models.audit_log import AuditLog
 
 logger = structlog.get_logger(__name__)
@@ -42,11 +43,16 @@ async def write_audit(
     target_type: str | None = None,
     target_id: str | None = None,
     detail: dict | None = None,
-    strict: bool = False,
+    strict: bool = True,
 ) -> None:
-    """写一条审计日志。
+    """写一条审计日志（只 flush，提交由调用方统一完成）。
 
-    默认失败回滚且不抛出；strict=True 时回滚后重新抛出，供强制原子审计的操作使用。
+    审计与业务共用同一个事务，所以审计写失败**必须**让整个请求失败：
+    回滚事务后抛 `AppError`，端点返回 5xx，业务不会在「业务已提交、审计丢失」
+    的中间态下静默落库（见 docs/code-audit-2026-11-17.md #9）。
+
+    `strict=False` 仅留给「审计写在自己的独立事务里、丢了也不影响业务」的场景；
+    当前无此类调用点，且与业务同事务时使用它会连业务一起丢，不要用。
     """
     entry = AuditLog(
         user_id=user_id,
@@ -58,7 +64,7 @@ async def write_audit(
     db.add(entry)
     try:
         await db.flush()
-    except exc.SQLAlchemyError:
+    except exc.SQLAlchemyError as err:
         logger.exception(
             "audit_write_failed",
             user_id=user_id,
@@ -66,6 +72,7 @@ async def write_audit(
             target_type=target_type,
             target_id=target_id,
         )
+        # flush 失败后 session 已不可用，必须先回滚（连带业务），再决定是否上报
         await db.rollback()
         if strict:
-            raise
+            raise AppError("INTERNAL_ERROR", "审计日志写入失败") from err

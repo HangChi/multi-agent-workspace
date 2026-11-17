@@ -149,11 +149,11 @@ async def assign(
     assignee_type: str,
     assignee_id: str,
     strategy: str | None,
-) -> tuple[str, list[str]]:
-    """执行一次分配，返回 (parent_run_id, [run_ids])。
+) -> tuple[str, list[Run], str]:
+    """执行一次分配，返回 (parent_run_id, runs, strategy)。
 
-    流程：需求校验 → 幂等校验 → 目标校验 → 策略展开 → 建 Run →
-    事务提交 → 事件发布 + Celery 入队。
+    只 flush、不提交：调用方在写完审计后自行 commit 一次，再调用
+    `dispatch_assigned()` 发布事件并投递 Celery（docs/code-audit #9）。
     """
     # 1. 需求归属 + 存在性（行级锁：状态检查与迁移必须原子，防并发重复分配）
     request = await get_request(db, request_id, user_id, for_update=True)
@@ -258,16 +258,21 @@ async def assign(
     # 6. 需求入队 → running（FR-013）
     request.status = "running"
 
-    # 7. 事务提交
-    await db.commit()
+    # 7. 只 flush：提交由调用方（assign 端点 / 调度器）统一执行一次，
+    #    审计与业务因此落在同一事务里（docs/code-audit #9）
+    await db.flush()
     for run in runs:
         await db.refresh(run)
 
-    run_ids = [run.id for run in runs]
+    return parent_run_id or runs[0].id, runs, strategy
 
-    # 8. 事件发布 + Celery 入队（失败不阻塞业务）
+
+async def dispatch_assigned(runs: list[Run], *, strategy: str) -> None:
+    """提交之后发布 assigned 事件并入 Celery 队列（失败不阻塞业务）。
+
+    必须在 commit 之后调用：Worker 拿到 run_id 就要能读到这一行，
+    先入队再提交会让 Worker 偶发拿到「不存在的 Run」。
+    """
+    run_ids = [run.id for run in runs]
     await _publish_assigned(run_ids)
     _enqueue(_enqueue_ids(strategy, runs))
-
-    # 返回父 Run id（direct 即唯一 Run；fan_out 为父 Run）
-    return parent_run_id or runs[0].id, run_ids

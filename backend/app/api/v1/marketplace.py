@@ -58,6 +58,7 @@ async def upgrade_marketplace_installation(
         user_id=user.id,
         reason=payload.reason,
     )
+    await db.commit()
     return external_grant_service.installation_projection(installation)
 
 
@@ -84,6 +85,7 @@ async def install_tool(
         installed_by=user.id,
         version_policy=payload.version_policy,
     )
+    await db.commit()
     return external_grant_service.installation_projection(installation)
 
 
@@ -103,13 +105,15 @@ async def resume_marketplace_listing(
     db: DB,
     user: CurrentUser,
 ):
-    return await marketplace_service.transition_listing(
+    listing = await marketplace_service.transition_listing(
         db,
         listing_id=listing_id,
         reviewer_id=user.id,
         action="resume",
         reason=payload.reason,
     )
+    await db.commit()
+    return listing
 
 
 @router.post(
@@ -123,13 +127,15 @@ async def pause_marketplace_listing(
     db: DB,
     user: CurrentUser,
 ):
-    return await marketplace_service.transition_listing(
+    listing = await marketplace_service.transition_listing(
         db,
         listing_id=listing_id,
         reviewer_id=user.id,
         action="pause",
         reason=payload.reason,
     )
+    await db.commit()
+    return listing
 
 
 @router.post(
@@ -143,10 +149,12 @@ async def revoke_marketplace_listing(
     db: DB,
     user: CurrentUser,
 ):
-    return await marketplace_service.transition_listing(
+    listing = await marketplace_service.transition_listing(
         db,
         listing_id=listing_id,
         reviewer_id=user.id,
         action="revoke",
         reason=payload.reason,
     )
+    await db.commit()
+    return listing

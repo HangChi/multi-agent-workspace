@@ -73,7 +73,6 @@ async def list_groups(
 async def create_group(payload: GroupCreate, _m: MemberUser, user: CurrentUser, db: DB):
     """创建组（routing_strategy 默认 fan_out）。"""
     group = await group_service.create_group(db, user_id=user.id, payload=payload)
-    await db.commit()
     await db.refresh(group)
     await write_audit(
         db,
@@ -82,6 +81,7 @@ async def create_group(payload: GroupCreate, _m: MemberUser, user: CurrentUser, 
         target_type="group",
         target_id=group.id,
         detail={"name": group.name, "routing_strategy": group.routing_strategy},
+        strict=True,
     )
     await db.commit()
     return _to_with_members(group, [])
@@ -141,7 +141,6 @@ async def add_member(
         .scalars()
         .first()
     )
-    await db.commit()
     await db.refresh(member)
     await write_audit(
         db,
@@ -150,6 +149,7 @@ async def add_member(
         target_type="group",
         target_id=group_id,
         detail={"op": "add", "agent_id": member.agent_id, "position": member.position},
+        strict=True,
     )
     await db.commit()
     return GroupMemberOut(
@@ -172,7 +172,6 @@ async def reorder_members(
     await group_service.reorder_members(
         db, group_id=group_id, user_id=user.id, positions=positions
     )
-    await db.commit()
     group = await group_service.get_group(db, group_id=group_id, user_id=user.id)
     await write_audit(
         db,
@@ -181,6 +180,7 @@ async def reorder_members(
         target_type="group",
         target_id=group_id,
         detail={"op": "reorder", "positions": positions},
+        strict=True,
     )
     await db.commit()
     return _to_with_members(group, list(group.members))
@@ -198,7 +198,6 @@ async def remove_member(
     await group_service.remove_member(
         db, group_id=group_id, user_id=user.id, agent_id=agent_id
     )
-    await db.commit()
     await write_audit(
         db,
         user_id=user.id,
@@ -206,6 +205,7 @@ async def remove_member(
         target_type="group",
         target_id=group_id,
         detail={"op": "remove", "agent_id": agent_id},
+        strict=True,
     )
     await db.commit()
 
@@ -219,12 +219,12 @@ async def delete_group(
 ):
     """删除组（级联清空成员）。"""
     await group_service.delete_group(db, group_id=group_id, user_id=user.id)
-    await db.commit()
     await write_audit(
         db,
         user_id=user.id,
         action="group_delete",
         target_type="group",
         target_id=group_id,
+        strict=True,
     )
     await db.commit()

@@ -2,6 +2,7 @@
 
 import os
 from collections.abc import AsyncGenerator
+from contextlib import suppress
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
@@ -36,6 +37,15 @@ SessionLocal = async_sessionmaker(
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI 依赖：请求级 session。"""
+    """FastAPI 依赖：请求级 session。
+
+    提交由端点显式执行一次（业务 + 审计同一事务，见 docs/code-audit-2026-11-17.md #9）。
+    这里只负责失败善后：请求抛出任何异常时回滚，避免半截事务挂在连接上。
+    """
     async with SessionLocal() as session:
-        yield session
+        try:
+            yield session
+        except BaseException:
+            with suppress(Exception):
+                await session.rollback()
+            raise

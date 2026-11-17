@@ -34,6 +34,8 @@ async def create_external_server(
     server = await external_tool_service.create_server(
         db, owner_id=user.id, created_by=user.id, payload=payload
     )
+    await db.commit()
+    # 提交后才投递校验任务，否则 Worker 可能读不到这条 server
     validate_external_server.delay(server.id, user.id)
     return external_tool_service.server_projection(server)
 
@@ -84,6 +86,7 @@ async def update_external_server(
     server = await external_tool_service.update_server(
         db, server=server, payload=payload
     )
+    await db.commit()
     return external_tool_service.server_projection(server)
 
 
@@ -186,13 +189,15 @@ async def approve_external_tool(
     db: DB,
     user: CurrentUser,
 ):
-    return await marketplace_service.approve_listing(
+    listing = await marketplace_service.approve_listing(
         db,
         server_id=server_id,
         tool_version_id=tool_version_id,
         reviewer_id=user.id,
         reason=payload.reason,
     )
+    await db.commit()
+    return listing
 
 
 @router.post("/{server_id}/tools/{tool_version_id}/reject", response_model=ListingOut)
@@ -204,10 +209,12 @@ async def reject_external_tool(
     db: DB,
     user: CurrentUser,
 ):
-    return await marketplace_service.reject_listing(
+    listing = await marketplace_service.reject_listing(
         db,
         server_id=server_id,
         tool_version_id=tool_version_id,
         reviewer_id=user.id,
         reason=payload.reason,
     )
+    await db.commit()
+    return listing

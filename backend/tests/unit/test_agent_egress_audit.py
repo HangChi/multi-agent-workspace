@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.api.errors import AppError
 from app.api.v1 import agent_egress
 from app.core.audit import write_audit
 
@@ -64,18 +65,25 @@ async def test_delete_rule_does_not_commit_after_audit_failure(monkeypatch):
     db.commit.assert_not_awaited()
 
 
-@pytest.mark.parametrize("strict", [False, True])
-async def test_audit_failure_rolls_back_and_raises_only_when_strict(strict):
+@pytest.mark.parametrize("strict", [None, True, False])
+async def test_audit_failure_rolls_back_and_raises_unless_opted_out(strict):
+    """审计与业务同事务：默认（strict 未显式关闭）必须回滚并上报。
+
+    docs/code-audit-2026-11-17.md #9 的合并事务前提是「审计失败 ⇒ 业务失败」，
+    否则端点会在业务已回滚的情况下仍返回 200。strict=False 是唯一的逃生口，
+    只留给「审计写在独立事务里」的场景。
+    """
     error = SQLAlchemyError("audit insert failed")
     db = SimpleNamespace(
         add=Mock(), flush=AsyncMock(side_effect=error), rollback=AsyncMock()
     )
-    if strict:
-        with pytest.raises(SQLAlchemyError) as caught:
-            await write_audit(
-                db, user_id="user-1", action="egress_rule_delete", strict=True
-            )
-        assert caught.value is error
+    kwargs = {} if strict is None else {"strict": strict}
+    if strict is False:
+        await write_audit(db, user_id="user-1", action="existing_caller", **kwargs)
     else:
-        await write_audit(db, user_id="user-1", action="existing_caller")
+        with pytest.raises(AppError) as caught:
+            await write_audit(
+                db, user_id="user-1", action="egress_rule_delete", **kwargs
+            )
+        assert caught.value.code == "INTERNAL_ERROR"
     db.rollback.assert_awaited_once()

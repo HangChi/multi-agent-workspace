@@ -697,9 +697,9 @@ async def _fire_and_assign(
 ) -> ScheduleTrigger:
     """建单并交给既有分配逻辑。
 
-    `assign()` 内部会 `db.commit()`（R-05 已实测），因此需求与 Run 的
-    创建天然是一个原子事务；但它也会提交我们刚写的占位行——这正是我们
-    想要的：占位与建单一起落地，崩溃后不会重复。
+    `assign()` 只 flush、不提交（docs/code-audit #9），因此这里的一次
+    `db.commit()` 同时落地占位行、需求、Run 与触发记录——崩溃后不会重复，
+    提交成功后才发布事件并入队。
 
     `db.flush()` 必须早于 `assign()`：后者用 `get_request(..., for_update=True)`
     读需求，行必须已经存在于数据库（flush 而非 commit，仍在同一事务内）。
@@ -718,7 +718,7 @@ async def _fire_and_assign(
     await db.flush()
 
     try:
-        parent_run_id, run_ids = await assignment_service.assign(
+        parent_run_id, runs, strategy = await assignment_service.assign(
             db,
             request_id=request.id,
             user_id=schedule.owner_id,
@@ -760,12 +760,13 @@ async def _fire_and_assign(
     schedule.consecutive_failures = 0
     schedule.auto_disabled_reason = None
     await db.commit()
+    await assignment_service.dispatch_assigned(runs, strategy=strategy)
     logger.info(
         "schedule_fired",
         schedule_id=schedule.id,
         request_id=request.id,
         run_id=parent_run_id,
-        runs=len(run_ids),
+        runs=len(runs),
     )
     return trigger
 

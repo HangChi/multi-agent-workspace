@@ -70,7 +70,6 @@ async def list_agents(
 async def create_agent(payload: AgentCreate, _m: MemberUser, user: CurrentUser, db: DB):
     """创建 Agent（member/admin；viewer 403）。"""
     agent = await agent_service.create_agent(db, user_id=user.id, payload=payload)
-    await db.commit()
     await db.refresh(agent)
     await write_audit(
         db,
@@ -79,6 +78,7 @@ async def create_agent(payload: AgentCreate, _m: MemberUser, user: CurrentUser, 
         target_type="agent",
         target_id=agent.id,
         detail={"name": agent.name, "model": agent.model},
+        strict=True,
     )
     await db.commit()
     return await _agent_save_response(db, agent)
@@ -95,7 +95,6 @@ async def update_agent(
     agent = await agent_service.update_agent(
         db, agent_id=agent_id, user_id=user.id, payload=payload
     )
-    await db.commit()
     await db.refresh(agent)
     await write_audit(
         db,
@@ -104,6 +103,7 @@ async def update_agent(
         target_type="agent",
         target_id=agent.id,
         detail={"name": agent.name},
+        strict=True,
     )
     await db.commit()
     return await _agent_save_response(db, agent)
@@ -117,7 +117,6 @@ async def archive_agent(
 ):
     """归档 Agent（归属校验；被组引用也允许归档）。"""
     agent = await agent_service.archive_agent(db, agent_id=agent_id, user_id=user.id)
-    await db.commit()
     await db.refresh(agent)
     await write_audit(
         db,
@@ -125,6 +124,7 @@ async def archive_agent(
         action="agent_archive",
         target_type="agent",
         target_id=agent.id,
+        strict=True,
     )
     await db.commit()
     return AgentOut.model_validate(agent)
@@ -138,12 +138,12 @@ async def delete_agent(
 ):
     """删除 Agent（无组引用时；有组引用 409，仅可归档）。"""
     await agent_service.delete_agent(db, agent_id=agent_id, user_id=user.id)
-    await db.commit()
     await write_audit(
         db,
         user_id=user.id,
         action="agent_delete",
         target_type="agent",
         target_id=agent_id,
+        strict=True,
     )
     await db.commit()
