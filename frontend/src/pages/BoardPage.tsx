@@ -2,12 +2,14 @@
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link, useSearchParams } from 'react-router-dom'
 
 import { extractError } from '../api/client'
 import {
   createRequest,
   fetchAgents,
   fetchGroups,
+  fetchRequest,
   fetchRequests,
   openDownloadUrl,
   resolveAttachmentDownloadUrl,
@@ -57,6 +59,24 @@ export function BoardPage() {
   const [showForm, setShowForm] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [detail, setDetail] = useState<WorkRequest | null>(null)
+
+  /**
+   * 深链打开详情：`/?request=<id>`。
+   *
+   * 触发历史里的「查看需求」跳的就是这个地址。列表只取第一页，
+   * 所以目标需求不一定在当前列表里——那种情况下用 id 单独取一次，
+   * 否则链接点进来会静默什么都不发生（比报错更难排查）。
+   */
+  const [searchParams, setSearchParams] = useSearchParams()
+  const deepLinkId = searchParams.get('request')
+  const closeDetail = () => {
+    setDetail(null)
+    if (deepLinkId) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('request')
+      setSearchParams(next, { replace: true })
+    }
+  }
 
   /** 附件下载：先带鉴权换预签名 URL，再跳转（直链会 401）。 */
   const downloadAttachment = async (requestId: string, key: string) => {
@@ -112,8 +132,27 @@ export function BoardPage() {
   const activeAgents = agents?.items ?? []
   const allGroups = groups?.items ?? []
 
+  /**
+   * 深链目标：先在当前列表里找，找不到再单独取一次。
+   *
+   * 必须能取到，否则「查看需求」链接点进来是一片安静的空看板——
+   * 用户会以为需求被删了。两个来源都要兜住：列表里已有的直接命中，
+   * 不在列表（看板只取第一页）的才发这个请求。只写后一半会漏掉前者，
+   * 表现为「深链有时候管用有时候不管用」。
+   */
+  const inList = deepLinkId ? requests.find((r) => r.id === deepLinkId) : undefined
+  const { data: deepLinkRequest } = useQuery({
+    queryKey: ['requests', 'detail', deepLinkId],
+    queryFn: () => fetchRequest(deepLinkId!),
+    enabled: !!deepLinkId && !inList,
+    retry: false,
+  })
+
   // 列表刷新后同步弹层里的数据（附件上传后会 invalidate）
-  const currentDetail = detail ? (requests.find((r) => r.id === detail.id) ?? detail) : null
+  const detailSource = detail ?? inList ?? deepLinkRequest
+  const currentDetail = detailSource
+    ? (requests.find((r) => r.id === detailSource.id) ?? detailSource)
+    : null
 
   const counts = {
     pending: requests.filter((r) => r.status === 'created').length,
@@ -219,7 +258,7 @@ export function BoardPage() {
       {currentDetail && (
         <Modal
           open
-          onClose={() => setDetail(null)}
+          onClose={closeDetail}
           size="lg"
           title={currentDetail.title}
           description={
@@ -269,6 +308,28 @@ export function BoardPage() {
                     {' '}
                     / 共 {currentDetail.runs_summary.total} 个
                   </span>
+                </p>
+              </div>
+            )}
+
+            {currentDetail.source_schedule_id && (
+              <div>
+                <p className="mb-1 text-[13px] font-medium text-ink-soft">来源</p>
+                <p className="flex flex-wrap items-center gap-1.5 rounded-lg bg-surface-muted px-3 py-2.5 text-sm text-ink-soft">
+                  <Icon name="clock" className="h-3.5 w-3.5 text-ink-faint" />
+                  由定时规则
+                  {currentDetail.source_schedule_name ? (
+                    <span className="font-medium text-ink">
+                      「{currentDetail.source_schedule_name}」
+                    </span>
+                  ) : null}
+                  自动创建
+                  <Link
+                    to="/schedules"
+                    className="ml-auto text-xs font-medium text-accent hover:underline"
+                  >
+                    查看规则
+                  </Link>
                 </p>
               </div>
             )}

@@ -157,18 +157,24 @@ description: "Implementation tasks for scheduled requests: cron rules, automatic
 
 ### Tests first
 
-- [ ] T049 [P] Write failing Vitest tests in `frontend/tests/schedules.test.tsx` for: form validation surfacing the cron error; the cron semantics hint being visible (intersection wording); viewer not seeing the create entry; history drawer rendering all four results with distinct labels and a working jump to the request.
-- [ ] T050 [P] Add API wrappers and DTOs for schedules/triggers in `frontend/src/api/endpoints.ts` following the existing pattern (typed, no `any`).
+- [X] T049 [P] Write failing Vitest tests in `frontend/src/tests/schedules.test.tsx` for: form validation surfacing the cron error; the cron semantics hint being visible (intersection wording); viewer not seeing the create entry; history drawer rendering all four results with distinct labels and a working jump to the request.
+  - 路径偏差（本阶段修正）：原文写 `frontend/tests/`，仓库实际是 `frontend/src/tests/`（与 `external-lifecycle.test.tsx` 同目录，`vite.config.ts` 的 `test` 段只覆盖 `src/`）。
+  - 实际 8 条测试，比原文多一条 `BoardPage · 深链打开需求`：drawer 的「查看需求」跳 `/?request=<id>`，若看板不消费该参数，那个跳转就是死链——闭环的最后一环必须有测试守着。
+- [X] T050 [P] Add API wrappers and DTOs for schedules/triggers in `frontend/src/api/endpoints.ts` following the existing pattern (typed, no `any`).
 
 ### Implementation
 
-- [ ] T051 [US1] Implement `ScheduleForm.tsx` (template fields, target picker reusing Agent/Group lists, cron input with the semantics hint, timezone defaulting to `Asia/Shanghai`) and `ScheduleList.tsx` (status, next/last run, last result, enable toggle, delete confirm).
-- [ ] T052 [US3/US4] Implement `TriggerHistory.tsx` drawer: four result labels, `missed_count`/window display, reason text, and jump to request detail.
-- [ ] T053 [US1] Add `frontend/src/pages/SchedulesPage.tsx`, route `/schedules` with `lazy()`, and a nav entry in `AppLayout.tsx`. Show the entry to member/admin only.
-- [ ] T054 [US2] Show the schedule origin on the request side: a badge/link in the request detail (or card) when `source_schedule_id` is present. Do not alter the board columns.
-- [ ] T055 Run frontend gate: `eslint`, `tsc`, `vitest`, `npm run build`; record bundle impact against the current baseline (first-screen gzip 102KB).
+- [X] T051 [US1] Implement `ScheduleForm.tsx` (template fields, target picker reusing Agent/Group lists, cron input with the semantics hint, timezone defaulting to `Asia/Shanghai`) and `ScheduleList.tsx` (status, next/last run, last result, enable toggle, delete confirm).
+- [X] T052 [US3/US4] Implement `TriggerHistory.tsx` drawer: four result labels, `missed_count`/window display, reason text, and jump to request detail.
+- [X] T053 [US1] Add `frontend/src/pages/SchedulesPage.tsx`, route `/schedules` with `lazy()`, and a nav entry in `AppLayout.tsx`. Show the entry to member/admin only.
+- [X] T054 [US2] Show the schedule origin on the request side: a badge/link in the request detail (or card) when `source_schedule_id` is present. Do not alter the board columns.
+- [X] T055 Run frontend gate: `eslint`, `tsc`, `vitest`, `npm run build`; record bundle impact against the current baseline (first-screen gzip 102KB).
 
 **Checkpoint**: 前端测试绿；页面可完成建规则→看历史→跳需求的闭环。提交 Phase 8。
+
+> Phase 8 实测（2026-11-17）：`vitest` 88 项全绿；`eslint` 0 error（2 个既有 fast-refresh warning，来自 `Toast.tsx`/`ConfirmDialog.tsx`，非本阶段引入）；`tsc --noEmit` 通过；`npm run build` 成功。
+> Bundle：首屏 `dist/assets/index-*.js` **102.04 KB gzip**，与基线 102KB 持平——`/schedules` 拆成独立 chunk（`SchedulesPage-*.js` 7.94 KB gzip），未落到首屏。
+> 反向验证 5 次（均已还原、未提交）：① cron 错误不按 `detail.field` 归属 → 污染无关输入框的用例转红；② 删掉交集措辞 → 语义提示用例转红；③ 把 `missed`/`skipped_busy` 文案合并成「未执行」→ 四态可辨用例转红；④ 去掉 viewer 的 403 分支 → 写入口隐藏用例转红；⑤ 看板不消费 `?request=` → 深链用例转红。
 
 ## Phase 9: Polish & Honest Verification
 

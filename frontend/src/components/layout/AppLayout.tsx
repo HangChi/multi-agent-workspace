@@ -19,11 +19,14 @@ interface NavItem {
   icon: IconName
   end?: boolean
   adminOnly?: boolean
+  /** 仅 member/admin 可见（viewer 对所有调度端点都是 403）。 */
+  memberOnly?: boolean
 }
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/', label: '看板', icon: 'grid', end: true },
   { to: '/dashboard', label: '仪表盘', icon: 'activity' },
+  { to: '/schedules', label: '调度', icon: 'clock', memberOnly: true },
   { to: '/agents', label: 'Agent', icon: 'bot' },
   { to: '/groups', label: 'Agent 组', icon: 'users' },
   { to: '/marketplace', label: '工具市场', icon: 'zap' },
@@ -57,7 +60,11 @@ export function AppLayout() {
   // 用 location.key 作错误边界的复位信号：切页面时自动清掉上一页的渲染错误，
   // 否则用户修好数据回到该页仍是错误状态（错误边界只在 key 变化时复位）。
   const location = useLocation()
-  const items = NAV_ITEMS.filter((item) => !item.adminOnly || user?.role === 'admin')
+  const items = NAV_ITEMS.filter(
+    (item) =>
+      (!item.adminOnly || user?.role === 'admin') &&
+      (!item.memberOnly || user?.role === 'admin' || user?.role === 'member')
+  )
   const initial = (user?.email ?? '?').slice(0, 1).toUpperCase()
 
   return (

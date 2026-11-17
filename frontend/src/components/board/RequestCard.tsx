@@ -78,9 +78,26 @@ export function RequestCard({ request, draggable = true, onOpen }: Props) {
       />
 
       <div className="mb-1.5 flex items-center justify-between gap-2">
-        <Badge tone={PRIORITY_TONE[request.priority] ?? 'slate'} className="px-1.5 py-0">
-          {PRIORITY_LABEL[request.priority] ?? request.priority}
-        </Badge>
+        <div className="flex min-w-0 items-center gap-1">
+          <Badge tone={PRIORITY_TONE[request.priority] ?? 'slate'} className="px-1.5 py-0">
+            {PRIORITY_LABEL[request.priority] ?? request.priority}
+          </Badge>
+          {/* 来源徽标放在卡片上而不是只在详情里：看板上要能一眼分辨
+              「人建的」和「规则建的」，否则一堆自动需求看起来像是谁手动拖进来的 */}
+          {request.source_schedule_id && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded px-1 py-0 text-2xs font-medium text-accent"
+              title={
+                request.source_schedule_name
+                  ? `来自调度「${request.source_schedule_name}」`
+                  : '由调度自动创建'
+              }
+            >
+              <Icon name="clock" className="h-2.5 w-2.5" />
+              定时
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1">
           <span className="text-2xs tabular-nums text-ink-faint">
             {new Date(request.created_at).toLocaleDateString('zh-CN', {

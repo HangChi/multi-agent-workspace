@@ -31,6 +31,15 @@ const DashboardPage = lazy(() =>
 )
 const AgentPage = lazy(() => import('./pages/AgentPage').then((m) => ({ default: m.AgentPage })))
 const GroupPage = lazy(() => import('./pages/GroupPage').then((m) => ({ default: m.GroupPage })))
+/**
+ * 调度页（004）。
+ *
+ * 单独分包而不是并进 Board：它带一个 cron 预览、一个历史抽屉和一套表单，
+ * 只在真正打开时才值得下载。viewer 永远进不来，也就不该为它付这份体积。
+ */
+const SchedulesPage = lazy(() =>
+  import('./pages/SchedulesPage').then((m) => ({ default: m.SchedulesPage }))
+)
 const MarketplacePage = lazy(() =>
   import('./pages/MarketplacePage').then((m) => ({ default: m.MarketplacePage }))
 )
@@ -136,6 +145,9 @@ export function AppRouter() {
           <Route path="agents" element={<Suspended element={<AgentPage />} />} />
           <Route path="groups" element={<Suspended element={<GroupPage />} />} />
           <Route path="marketplace" element={<Suspended element={<MarketplacePage />} />} />
+          {/* 调度页自己处理 viewer 的 403（页面内文案比通用守卫更具体），
+              因此这里不再叠一层 RequireMember 守卫。 */}
+          <Route path="schedules" element={<Suspended element={<SchedulesPage />} />} />
           <Route path="runs/:runId" element={<Suspended element={<RunDetailPage />} />} />
           <Route
             path="admin"
