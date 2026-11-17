@@ -1,6 +1,7 @@
 /** 应用入口：QueryClient + 全局 Provider（Toast/确认框）+ Router + 启动时恢复会话。 */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { useEffect } from 'react'
 import { BrowserRouter } from 'react-router-dom'
 
 import { ConfirmProvider } from './components/ui/ConfirmDialog'
@@ -17,8 +18,11 @@ const queryClient = new QueryClient({
 })
 
 export default function App() {
-  // 启动时恢复会话
-  void useAuthStore.getState().init()
+  // 启动时恢复会话。必须放在 effect 里：写在 render body 里会每次渲染都执行，
+  // 而 init 内部要打 /auth/me（401 后还要消耗 refresh token）。
+  useEffect(() => {
+    void useAuthStore.getState().init()
+  }, [])
   // 主题：应用当前模式并跟随系统变化
   useThemeSync()
 
