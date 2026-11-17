@@ -122,8 +122,9 @@ class FixtureEvidenceTests(unittest.TestCase):
             }]
             stdout = json.dumps({"connected": connected})
             if index in (6, 7):
-                access = [{**access[0], "source_port": source} for source in (41001, 41002, 41003)]
-                stdout = json.dumps([connected] * 3)
+                ports = [53616, 53617, 53618]
+                access = [{**access[0], "source_port": source} for source in ports]
+                stdout = json.dumps({"ports": ports, "results": [connected] * 3})
             return {"exit_code": 0, "stdout": stdout, "egress": access, "residual": {}}
 
         original_report = suite.report
@@ -186,6 +187,92 @@ class FixtureEvidenceTests(unittest.TestCase):
 
     def test_fixture_stages_are_all_preserved_by_ci_sanitizer_allowlist(self):
         self.assertTrue(suite._FIXTURE_STAGES <= sandbox_runtime.ERROR_STAGES)
+
+    def test_three_connection_case_does_not_pin_source_ports(self):
+        """A pinned source port turns a passing run into `exit_code: 1`.
+
+        Observed on CI: the allow case connects successfully from 41001-41003,
+        those ports stay in TIME_WAIT, and the immediately following deny case
+        then dies with `OSError: [Errno 48] Address already in use` before it
+        ever reaches the target - reported only as `exit_code: 1`, `622 ms`
+        against the `863 ms` a full three-timeout run takes. The contract is
+        "three separate source ports", not those three numbers, so the probe
+        must let the kernel choose and must not depend on a fixed port being
+        free on the host.
+        """
+        client, _networks, _servers = self.fake_client()
+        codes: list[str] = []
+        call = 0
+
+        def probe(_client, code, **kwargs):
+            nonlocal call
+            index = call
+            call += 1
+            codes.append(code)
+            if index in (6, 7):
+                ports = [53616, 53617, 53618]
+                connected = index == 6
+                return {
+                    "exit_code": 0,
+                    "stdout": json.dumps({"ports": ports, "results": [connected] * 3}),
+                    "egress": [{"target_ip": "198.18.254.2", "port": 8000, "source_ip": "fd00::2",
+                                "source_port": port, "action": "allow" if connected else "deny"}
+                               for port in ports],
+                    "residual": {},
+                }
+            # Every other case in this suite uses the single-connection shape the
+            # existing matrix test already pins; only ports 6 and 7 probe three.
+            address = "2001:db8:1234::2" if index >= 8 else "198.18.254.2"
+            port = 8000
+            if index == 1:
+                address = "10.253.254.2"
+            if index == 2:
+                address, port = "169.254.169.254", 80
+            connected = index in (0, 3, 8)
+            return {
+                "exit_code": 0,
+                "stdout": json.dumps({"connected": connected}),
+                "egress": [{"target_ip": address, "port": port, "source_ip": "fd00::2",
+                            "action": "allow" if connected else "deny"}],
+                "residual": {},
+            }
+
+        status, _document, _raw = self.run_main(client, probe=probe)
+        self.assertEqual(status, 0)
+        multi = [code for code in codes if "connect_ex" in code and "range(3)" in code]
+        self.assertEqual(len(multi), 2, "both three-connection cases must run the probe")
+        for code in multi:
+            self.assertIn("SO_REUSEADDR", code)
+            self.assertIn("bind(('',0))", code)
+            for pinned in ("41001", "41002", "41003"):
+                self.assertNotIn(pinned, code, "a pinned source port can collide with TIME_WAIT")
+
+    def test_three_connection_case_rejects_reused_or_unreported_ports(self):
+        """Three connections from one port is not what the scenario claims."""
+        cases = {
+            "duplicate ports": {"ports": [53616, 53616, 53617], "results": [False] * 3},
+            "audit names other ports": {"ports": [1, 2, 3], "results": [False] * 3},
+            "missing ports": None,
+        }
+        for label, payload in cases.items():
+            with self.subTest(label):
+                client, _networks, _servers = self.fake_client()
+
+                def probe(_client, _code, _payload=payload, **kwargs):
+                    if _payload is None:
+                        stdout = json.dumps({"results": [False] * 3})
+                        return {"exit_code": 0, "stdout": stdout, "egress": [], "residual": {}}
+                    return {
+                        "exit_code": 0,
+                        "stdout": json.dumps(_payload),
+                        "egress": [{"target_ip": "198.18.254.2", "port": 8000,
+                                    "source_ip": "fd00::2", "source_port": port, "action": "deny"}
+                                   for port in (51000, 51001, 51002)],
+                        "residual": {},
+                    }
+
+                status, _document, _raw = self.run_main(client, probe=probe)
+                self.assertEqual(status, 1)
 
 
 class FixtureReadinessTests(unittest.TestCase):

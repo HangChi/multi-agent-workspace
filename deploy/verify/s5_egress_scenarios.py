@@ -157,12 +157,27 @@ def main() -> int:
             ("same target three allowed TCP connections", None, True),
             ("same target three denied TCP connections", {"mode": "restricted"}, False),
         ]:
+            # Three distinct concurrent source ports, requested from the kernel
+            # rather than pinned to fixed numbers. The previous version bound
+            # 41001/41002/41003 and asserted that exact set, which fails with
+            # EADDRINUSE (and an unhelpful `exit_code: 1`) whenever any of those
+            # ports is still in TIME_WAIT from an earlier execution on the same
+            # host. The contract under test is "three separate connections from
+            # three separate source ports", not those particular numbers, so the
+            # kernel picks fresh ephemeral ports and both the socket options and
+            # the ports actually used are reported back for the assertion.
             code = (
-                "import json,socket\nresults=[]\n"
-                "for port in [41001,41002,41003]:\n"
-                " s=socket.socket(); s.settimeout(0.25); s.bind(('',port))\n"
-                f" results.append(s.connect_ex(({public_ip!r},8000))==0); s.close()\n"
-                "print(json.dumps(results))\n"
+                "import json,socket\n"
+                "opened=[]\n"
+                "try:\n"
+                " for _ in range(3):\n"
+                "  s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)\n"
+                "  s.settimeout(0.25); s.bind(('',0)); opened.append(s)\n"
+                " ports=[s.getsockname()[1] for s in opened]\n"
+                f" results=[s.connect_ex(({public_ip!r},8000))==0 for s in opened]\n"
+                "finally:\n"
+                " for s in opened: s.close()\n"
+                "print(json.dumps({'ports':ports,'results':results}))\n"
             )
             outcome = probe(client, code, snapshot=snapshot)
             access = [r for r in outcome.get("egress", []) if r["target_ip"] == public_ip and r["port"] == 8000]
@@ -170,10 +185,16 @@ def main() -> int:
                 observed = json.loads(outcome.get("stdout", ""))
             except ValueError:
                 observed = None
+            used_ports = (observed or {}).get("ports") if isinstance(observed, dict) else None
+            used_results = (observed or {}).get("results") if isinstance(observed, dict) else None
             passed = (
-                outcome.get("exit_code") == 0 and observed == [connected] * 3
+                outcome.get("exit_code") == 0
+                and used_results == [connected] * 3
+                # Three *distinct* source ports, and the audit must name exactly
+                # those, so a single reused port cannot be mistaken for three.
+                and isinstance(used_ports, list) and len(set(used_ports)) == 3
                 and len(access) == 3
-                and {r.get("source_port") for r in access} == {41001, 41002, 41003}
+                and {r.get("source_port") for r in access} == set(used_ports or [])
                 and all(r["action"] == ("allow" if connected else "deny") for r in access)
                 and not any(outcome["residual"].values())
             )
