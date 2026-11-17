@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     # 10 分钟，而 runner 的超时检查只发生在「每轮循环之前」——一次挂死的调用
     # 会占满 Worker 槽位（默认并发 2），两个请求就能让 Worker 停摆。
     llm_timeout_seconds: float = 90.0
+    # 上下文预算（字符，≈4 字符/token）。超过后 runner 会从最早的轮次开始省略
+    # 工具输出，只保留 system + 原始需求 + 最近若干轮，避免多步执行时 prompt
+    # 无限膨胀（每一步都要为前面所有工具输出重复付费）。0 = 不裁剪。
+    llm_max_context_chars: int = 48_000
 
     # CORS
     cors_origins: str = Field(default="http://localhost:5173")

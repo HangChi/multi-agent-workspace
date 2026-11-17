@@ -109,6 +109,67 @@ def _jsonable(value: Any) -> Any:
     return str(value)
 
 
+CONTEXT_OMITTED_NOTE = (
+    "[已省略较早的 {count} 条工具调用输出以控制上下文长度；"
+    "如需其中内容，请重新调用对应工具]"
+)
+
+
+def _message_chars(message: dict[str, Any]) -> int:
+    """粗估一条消息占的上下文字符数（~4 字符/token）。"""
+    total = 0
+    content = message.get("content")
+    if isinstance(content, str):
+        total += len(content)
+    elif content is not None:
+        total += len(json.dumps(content, ensure_ascii=False))
+    tool_calls = message.get("tool_calls")
+    if tool_calls:
+        total += len(json.dumps(tool_calls, ensure_ascii=False))
+    return total
+
+
+def trim_messages(
+    messages: list[dict[str, Any]], max_chars: int
+) -> tuple[list[dict[str, Any]], int]:
+    """按字符预算裁剪历史，返回 (新消息列表, 被省略的条数)。
+
+    为什么必须保留开头两条：system prompt 决定行为，原始需求是任务本身——
+    它们被裁掉等于换了任务。
+
+    为什么只在 `assistant` 消息处切：tool 结果必须紧跟带 tool_calls 的 assistant，
+    从中间切开会产生非法消息序列（OpenAI 会直接 400）。从 assistant 开始保留，
+    这一轮的 tool 结果自然都在尾部。
+
+    找不到安全切点时宁可超预算也不裁：报错可读，比让模型收到破碎对话好。
+    """
+    if max_chars <= 0 or len(messages) <= 3:
+        return messages, 0
+
+    if sum(_message_chars(message) for message in messages) <= max_chars:
+        return messages, 0
+
+    running = 0
+    cut: int | None = None
+    for index in range(len(messages) - 1, 1, -1):
+        running += _message_chars(messages[index])
+        if running > max_chars:
+            break
+        if messages[index].get("role") == "assistant":
+            cut = index
+
+    if cut is None or cut <= 2:
+        return messages, 0
+
+    omitted = cut - 2
+    trimmed = [
+        *messages[:2],
+        {"role": "user", "content": CONTEXT_OMITTED_NOTE.format(count=omitted)},
+        *messages[cut:],
+    ]
+    return trimmed, omitted
+
+
 StepSink = Callable[[dict[str, Any]], Awaitable[Any]]
 EventSink = Callable[[dict[str, Any]], Awaitable[Any]]
 
@@ -124,6 +185,7 @@ class ReActRunner:
         max_steps: int = 10,
         timeout_seconds: int = 1800,
         cost_limit_cents: int = 10000,
+        max_context_chars: int | None = None,
         system_prompt: str | None = None,
         audit_denied: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
         on_sandbox_started: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
@@ -136,6 +198,11 @@ class ReActRunner:
         self.max_steps = max_steps
         self.timeout_seconds = timeout_seconds
         self.cost_limit_cents = cost_limit_cents
+        self.max_context_chars = (
+            max_context_chars
+            if max_context_chars is not None
+            else settings.llm_max_context_chars
+        )
         self.audit_denied = audit_denied
         self.on_sandbox_started = on_sandbox_started
         self.on_sandbox_result = on_sandbox_result
@@ -222,6 +289,18 @@ class ReActRunner:
             # 3. LLM 调用
             step_count += 1
             seq += 1
+            # 上下文预算：工具输出会逐轮堆进 messages，不裁剪的话每一步都在为
+            # 前面所有工具输出重复付费（单条 MCP 结果上限就有 64 KiB）。
+            trimmed, omitted = trim_messages(messages, self.max_context_chars)
+            if omitted:
+                messages = trimmed
+                await publish_event(
+                    {
+                        "type": "log_line",
+                        "level": "info",
+                        "line": f"上下文超出预算，已省略 {omitted} 条较早的工具输出",
+                    }
+                )
             started = time.monotonic()
             try:
                 resp = await self.llm.chat(messages, tools=tools or None)
