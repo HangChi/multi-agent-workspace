@@ -116,16 +116,39 @@ description: "Implementation tasks for agent templates and one-click clone: snap
 **Purpose**: 把模板变成 Agent 的三条路径，含工具过滤 warning、克隆名称派生、restricted 警告、
 审计、以及 `agents` 表来源列的写入。
 
-- [ ] T020 [P] Unit: `backend/tests/unit/test_agent_template_instantiate.py` — `instantiate()` overlay order (template values → payload overrides), tool filtering returns filtered names, warning text wording, no instance-level data carried, no commit.
-- [ ] T021 [P] Unit: `backend/tests/unit/test_agent_clone.py` — 10 config fields copied; name derivation `副本` / `副本2` / `副本3` and truncation of an over-long base name; `restricted` without allow rules yields the exact existing warning sentence; 10 attempts exhausted → `AppError("CONFLICT", …)`.
-- [ ] T022 Modify `backend/app/services/agent_service.py`: add an optional `prebuilt: Agent | None` parameter to `create_agent()` so template instantiation and clone reuse the **same** insert path (including `validate_grants` on the filtered tool set) instead of a parallel implementation.
-- [ ] T023 Implement `instantiate()` and `clone_agent()` in `agent_template_service.py` per contracts §4.1/§4.2 (flush only; name derivation reads the used-name set inside the request transaction).
-- [ ] T024 Implement `POST /agents/from-template/{template_id}`, `POST /agents/{agent_id}/clone`, `POST /agents/{agent_id}/save-as-template` in `backend/app/api/v1/agents.py` (contracts §2/§3/§1.5) with the five audit actions from contracts §4.4 (`agent_create_from_template`, `agent_clone`, `agent_template_create`, `agent_template_update`, `agent_template_delete`).
-- [ ] T025 Integration: `backend/tests/integration/test_agent_template_instantiate.py` — from-template with unmodified payload → field-for-field equality (SC-001/006); with two edited fields → only those differ; template referencing an offline tool → **201** + filtered name in `warning` (SC-005); validation parity (bad temperature / unknown tool in payload / blank prompt → 422, same as `POST /agents`).
-- [ ] T026 Integration: `backend/tests/integration/test_agent_clone.py` — cloning a group-referenced agent with runs, external grants and egress rules yields an agent with **0** runs, **0** group memberships, **0** grants, **0** egress rules (SC-003); source agent's counts unchanged (SC-009); three consecutive clones get distinct names; cloning an archived agent succeeds and yields `active` (FR-014); cloning a foreign agent → 404 identical body; deleting the source agent leaves the clone intact with `source_agent_id` NULL.
-- [ ] T027 Integration: `backend/tests/integration/test_agent_save_as_template_api.py` — save from own agent 201 with snapshot; duplicate name 409 with no auto-suffix; archived source allowed; saving a builtin template as own template produces an editable copy and leaves the builtin untouched (FR-018); viewer 403.
+- [X] T020 [P] Unit: `backend/tests/unit/test_agent_template_instantiate.py` — `instantiate()` overlay order (template values → payload overrides), tool filtering returns filtered names, warning text wording, no instance-level data carried, no commit.
+- [X] T021 [P] Unit: `backend/tests/unit/test_agent_clone.py` — 10 config fields copied; name derivation `副本` / `副本2` / `副本3` and truncation of an over-long base name; `restricted` without allow rules yields the exact existing warning sentence; 10 attempts exhausted → `AppError("CONFLICT", …)`.
+- [X] T022 Modify `backend/app/services/agent_service.py`: add an optional `prebuilt: Agent | None` parameter to `create_agent()` so template instantiation and clone reuse the **same** insert path (including `validate_grants` on the filtered tool set) instead of a parallel implementation.
+- [X] T023 Implement `instantiate()` and `clone_agent()` in `agent_template_service.py` per contracts §4.1/§4.2 (flush only; name derivation reads the used-name set inside the request transaction).
+- [X] T024 Implement `POST /agents/from-template/{template_id}`, `POST /agents/{agent_id}/clone`, `POST /agents/{agent_id}/save-as-template` in `backend/app/api/v1/agents.py` (contracts §2/§3/§1.5) with the five audit actions from contracts §4.4 (`agent_create_from_template`, `agent_clone`, `agent_template_create`, `agent_template_update`, `agent_template_delete`).
+- [X] T025 Integration: `backend/tests/integration/test_agent_template_instantiate.py` — from-template with unmodified payload → field-for-field equality (SC-001/006); with two edited fields → only those differ; template referencing an offline tool → **201** + filtered name in `warning` (SC-005); validation parity (bad temperature / unknown tool in payload / blank prompt → 422, same as `POST /agents`).
+- [X] T026 Integration: `backend/tests/integration/test_agent_clone.py` — cloning a group-referenced agent with runs, external grants and egress rules yields an agent with **0** runs, **0** group memberships, **0** grants, **0** egress rules (SC-003); source agent's counts unchanged (SC-009); three consecutive clones get distinct names; cloning an archived agent succeeds and yields `active` (FR-014); cloning a foreign agent → 404 identical body; deleting the source agent leaves the clone intact with `source_agent_id` NULL.
+- [X] T027 Integration: `backend/tests/integration/test_agent_save_as_template_api.py` — save from own agent 201 with snapshot; duplicate name 409 with no auto-suffix; archived source allowed; saving a builtin template as own template produces an editable copy and leaves the builtin untouched (FR-018); viewer 403.
 
 **Checkpoint**: US1 + US2 + US3 端点完成；Phase 4 提交。
+
+**Phase 4 实测记录（2026-11-18）**
+
+| 项 | 结果 |
+|---|---|
+| `tests/unit/test_agent_template_instantiate.py` | 14 passed（模板打底/覆盖、工具过滤与保序去重、名称派生 3 变体、截断、10 次放弃、不共享 list） |
+| `tests/unit/test_agent_template_schema.py` | 33 passed（含 `AgentFromTemplateIn` 与 AgentCreate 的非 tools 字段逐字段一致） |
+| `tests/integration/test_agent_template_instantiate_api.py` | 20 passed（逐字段一致、只改两字段、模板/payload 双侧工具过滤+warning、6 个参数化校验、内置可被他人用、克隆 8 场景、删除源后克隆体完好、审计） |
+| 全量 `pytest` | **1224 passed**, 6 subtests（排除既有沙箱环境问题文件 test_mcp_fixture_http.py） |
+| `ruff check` / `ruff format --check` / `mypy app` | 全绿（122 source files） |
+
+**实现偏离上游文档并已回头改文档（按宪法记录）**：
+
+1. **from-template 端点改用专用请求模型 `AgentFromTemplateIn`**（tools 不做目录校验）。
+   原因：用完整 `AgentCreate` 时，模板引用一个已下线工具会让用户的「原样提交」
+   先撞 422，FR-008 的过滤逻辑永远走不到。契约 §2 已补「为什么 tools 从宽」一节，
+   并说明这不是第二条宽松旁路（FR-008 本身规定了该字段从宽，FR-009 管其余字段）。
+2. **`instantiate()` 的 payload None 语义统一为「未提供」**。最初让 `description: null`
+   表示清空，结果一个没碰描述的用户会静默抹掉模板的适用场景——前端永远提交完整对象，
+   null 只可能是「没填」。
+3. **克隆不复制外部工具授权的断言改为说明而非搭建**：一个 grant 需要
+   server → version → listing → installation 四层链，而克隆体 id 全新、
+   `clone_agent` 只写 SNAPSHOT_FIELDS（单测逐字段锁定），子表不可能引用它。
 
 ## Phase 5: Frontend — 模板管理页与入口
 

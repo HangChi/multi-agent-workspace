@@ -194,3 +194,79 @@ async def save_as_template(
     db.add(template)
     await db.flush()
     return template
+
+
+# ===== 实例化：从模板创建 / 克隆（US1 / US2）=====
+
+
+def instantiate(
+    template, *, payload: dict | None, enabled_tools: list[str]
+) -> tuple[Agent, list[str]]:
+    """由模板求出一个待落库的 Agent 草稿（contracts §4.1）。
+
+    语义：**模板值打底 → payload 中出现（且非 None）的字段覆盖**。
+    `payload` 为 None 表示「一键确认，一个字都不改」。
+
+    > payload 的 None 语义：**一律视为「未提供」**。前端表单永远提交完整对象，
+    > 用户没碰的字段就是 null；若把 null 当「清空」，一个没碰描述的用户就会
+    > 静默抹掉模板里写好的适用场景。要改描述就显式填值。
+
+    工具过滤（FR-008）：**最终**工具集里不在 `enabled_tools` 中的项被剔除，
+    剔除项原样返回给调用方拼 warning。**不静默丢弃**，也**不因此失败**——
+    一次工具下线不该废掉一个模板，也不该让原样提交表单的用户撞 422。
+
+    「最终工具集」= payload 的 tools（用户显式选过）否则模板的 tools。
+    两边都可能带失效项：模板的可能过期，用户的可能来自一个旧的工具目录缓存。
+    """
+    values = {field: getattr(template, field) for field in SNAPSHOT_FIELDS}
+
+    # null 一律当「没填」：见上方 docstring 的 None 语义说明。
+    overrides = {k: v for k, v in (payload or {}).items() if v is not None}
+    overrides.pop("tools", None)
+    values.update(overrides)
+
+    effective_tools = (payload or {}).get("tools")
+    if effective_tools is None:
+        effective_tools = values.get("tools") or []
+    enabled = set(enabled_tools)
+    kept = list(dict.fromkeys(t for t in effective_tools if t in enabled))
+    filtered = [t for t in effective_tools if t not in enabled]
+    values["tools"] = kept
+
+    draft = Agent(**values)
+    return draft, filtered
+
+
+def clone_agent(source, *, owner_id: str, used_names: set[str]) -> Agent:
+    """拷贝源 Agent 的配置，派生一个不冲突的名称（contracts §4.2）。
+
+    名称规则：`{源名称} 副本`；已占用则 `副本2`、`副本3`…（上限 10 次）。
+    基名超长时先截断，保证总长不破 `agents.name` 的 100 字符。
+
+    只拷配置，**不拷实例级数据**（FR-011）：调用方拿到的是一个全新 Agent 行，
+    没有 runs/steps/artifacts、没有组成员关系、没有外部工具授权与出站规则。
+
+    不提交。
+    """
+    values = {field: getattr(source, field) for field in SNAPSHOT_FIELDS}
+    tools = values.get("tools")
+    if tools is not None:
+        values["tools"] = list(tools)
+    values["owner_id"] = owner_id
+    values["status"] = "active"  # 归档源的克隆体仍是活跃态（FR-014）
+    values["name"] = _derive_clone_name(source.name, used_names)
+    return Agent(**values)
+
+
+def _derive_clone_name(base_name: str, used_names: set[str]) -> str:
+    """`{base} 副本` → `{base} 副本2` → …；10 次仍冲突则抛错。"""
+    limit = 100
+    for attempt in range(1, 11):
+        suffix = " 副本" if attempt == 1 else f" 副本{attempt}"
+        room = limit - len(suffix)
+        candidate = base_name[:room] + suffix if room > 0 else suffix.strip()
+        if candidate not in used_names:
+            return candidate
+    raise AppError(
+        "CONFLICT", "克隆名称冲突次数过多（10 个副本名均已存在），请先修改源 Agent 名称"
+    )

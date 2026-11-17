@@ -9,9 +9,15 @@
 """
 
 from fastapi import APIRouter, Query
+from sqlalchemy import select
 
 from app.api.deps import DB, CurrentUser, MemberUser, ResourceId
-from app.core.audit import AGENT_TEMPLATE_CREATE, write_audit
+from app.core.audit import (
+    AGENT_CLONE,
+    AGENT_CREATE_FROM_TEMPLATE,
+    AGENT_TEMPLATE_CREATE,
+    write_audit,
+)
 from app.models.agent import Agent
 from app.schemas.agent import (
     AgentCreate,
@@ -20,8 +26,13 @@ from app.schemas.agent import (
     AgentSaveOut,
     AgentUpdate,
 )
-from app.schemas.agent_template import AgentTemplateFromAgentIn, AgentTemplateOut
+from app.schemas.agent_template import (
+    AgentFromTemplateIn,
+    AgentTemplateFromAgentIn,
+    AgentTemplateOut,
+)
 from app.services import agent_service, agent_template_service, egress_service
+from app.services.tool_service import enabled_tool_specs
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -129,6 +140,136 @@ async def archive_agent(
     )
     await db.commit()
     return AgentOut.model_validate(agent)
+
+
+def _filtered_tools_warning(filtered: list[str]) -> str:
+    """被过滤工具的固定措辞（contracts §2）。前端只展示，不解析。"""
+    return f"模板中的工具已下线，未启用：{'、'.join(filtered)}"
+
+
+@router.post(
+    "/from-template/{template_id}", response_model=AgentSaveOut, status_code=201
+)
+async def create_agent_from_template(
+    template_id: ResourceId,
+    payload: AgentFromTemplateIn,
+    _m: MemberUser,
+    user: CurrentUser,
+    db: DB,
+):
+    """从模板创建 Agent（US1 / contracts §2）。
+
+    请求体是**完整的 AgentCreate**：模板值打底，请求体里出现的字段覆盖。
+    直接带模板值提交就是「一键确认」；改两个字段就是「基于模板微调」——
+    两条路走同一条校验（FR-009）。
+
+    模板里已下线/未启用的工具被过滤，工具名进 `warning`（FR-008）——
+    这也是本端点用 `AgentFromTemplateIn` 而非 `AgentCreate` 的原因：
+    后者的 tools 挂著目录白名单校验器，会把「模板引用了一个已下线工具」
+    变成用户没打过的 422，过滤逻辑永远走不到。
+    """
+    template = await agent_template_service.get_template(
+        db, template_id, user_id=user.id
+    )
+    specs = await enabled_tool_specs(db)
+    enabled = [spec.name for spec in specs]
+    draft, filtered = agent_template_service.instantiate(
+        template, payload=payload.model_dump(), enabled_tools=enabled
+    )
+    # owner_id 不在模板快照里（模板可被任何成员使用），由端点按当前用户补；
+    # 来源列同理——它是「这个 Agent 用哪个模板建的」的追溯，不是模板的字段。
+    draft.owner_id = user.id
+    draft.source_template_id = template.id
+    agent = await agent_service.create_agent(
+        db,
+        user_id=user.id,
+        payload=AgentCreate(
+            name=draft.name,
+            description=draft.description,
+            system_prompt=draft.system_prompt,
+            model=draft.model,
+            temperature=draft.temperature,
+            max_steps=draft.max_steps,
+            max_run_seconds=draft.max_run_seconds,
+            tools=draft.tools,
+            cost_limit_cents=draft.cost_limit_cents,
+            egress_mode=draft.egress_mode,
+        ),
+        prebuilt=draft,
+    )
+    await db.refresh(agent)
+    await write_audit(
+        db,
+        user_id=user.id,
+        action=AGENT_CREATE_FROM_TEMPLATE,
+        target_type="agent",
+        target_id=agent.id,
+        detail={
+            "name": agent.name,
+            "template_id": template.id,
+            "filtered_tools": filtered,
+        },
+        strict=True,
+    )
+    await db.commit()
+    response = await _agent_save_response(db, agent)
+    if filtered:
+        response.warning = _filtered_tools_warning(filtered)
+    return response
+
+
+@router.post("/{agent_id}/clone", response_model=AgentSaveOut, status_code=201)
+async def clone_agent(
+    agent_id: ResourceId,
+    _m: MemberUser,
+    user: CurrentUser,
+    db: DB,
+):
+    """一键克隆 Agent（US2 / contracts §3）。
+
+    只拷 10 个配置字段；运行历史、组引用、外部工具授权、出站规则一律不复制
+    （FR-011）。源 Agent 被组引用也允许克隆（FR-013）。
+    """
+    source = await agent_service.get_agent(db, agent_id, user_id=user.id)
+
+    used_names = set(
+        (
+            await db.execute(select(Agent.name).where(Agent.owner_id == user.id))
+        ).scalars()
+    )
+    specs = await enabled_tool_specs(db)
+    enabled = {spec.name for spec in specs}
+    clone = agent_template_service.clone_agent(
+        source, owner_id=user.id, used_names=used_names
+    )
+    # 源 Agent 的工具集可能包含创建后被下线的工具：剥掉它们并在 warning 里说明，
+    # 而不是让克隆失败（与 FR-008 同一种哲学）。
+    stale = [t for t in (clone.tools or []) if t not in enabled]
+    if stale:
+        clone.tools = [t for t in clone.tools if t in enabled]
+    clone.source_agent_id = source.id
+
+    agent = await agent_service.create_agent(
+        db,
+        user_id=user.id,
+        payload=AgentCreate(name=clone.name, system_prompt=clone.system_prompt),
+        prebuilt=clone,
+    )
+    await db.refresh(agent)
+    await write_audit(
+        db,
+        user_id=user.id,
+        action=AGENT_CLONE,
+        target_type="agent",
+        target_id=agent.id,
+        detail={"name": agent.name, "source_agent_id": source.id},
+        strict=True,
+    )
+    await db.commit()
+    response = await _agent_save_response(db, agent)
+    if stale:
+        response.warning = _filtered_tools_warning(stale)
+    return response
 
 
 @router.post(

@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.schemas.agent import validate_tool_names
 
 __all__ = [
+    "AgentFromTemplateIn",
     "AgentTemplateCreate",
     "AgentTemplateFromAgentIn",
     "AgentTemplateList",
@@ -29,6 +30,32 @@ class AgentTemplateFromAgentIn(BaseModel):
 
     name: str = Field(min_length=1, max_length=100)
     description: str | None = None
+
+
+class AgentFromTemplateIn(BaseModel):
+    """「从模板创建」请求体：与 `AgentCreate` 逐字段同构，**只有 tools 不同**。
+
+    为什么单开一个模型：`AgentCreate.tools` 挂著目录白名单校验器，不在目录里的
+    名字直接 422。而模板完全可能引用一个**创建后被下线**的工具（002 FR-005 就有
+    下线机制），用户只是原样提交表单，却会撞上一个他没打过的 422——
+    FR-008 要求这种场景「创建成功 + 过滤 + 提示」，schema 层的硬拒让它永远走不到。
+
+    因此本模型的 tools 不做目录校验，改由服务层过滤并进 warning。
+    **其余字段的约束与 AgentCreate 完全一致**（`tests/unit/
+    test_agent_template_schema.py` 的 `test_from_template_constraints_match_agent_create`
+    逐字段钉住），不构成第二条宽松旁路（FR-009）。
+    """
+
+    name: str = Field(min_length=1, max_length=100)
+    description: str | None = None
+    system_prompt: str = Field(min_length=1)
+    model: str = Field(default="gpt-4o-mini", max_length=100)
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    max_steps: int = Field(default=10, ge=1, le=100)
+    max_run_seconds: int = Field(default=1800, ge=1, le=86400)
+    tools: list[str] = Field(default_factory=list)
+    cost_limit_cents: int = Field(default=10000, ge=1)
+    egress_mode: Literal["default", "restricted"] = "default"
 
 
 class AgentTemplateCreate(BaseModel):

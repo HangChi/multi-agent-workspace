@@ -13,7 +13,11 @@ from pydantic import ValidationError
 
 from app.executors.catalog import CATALOG
 from app.schemas.agent import AgentCreate, AgentUpdate
-from app.schemas.agent_template import AgentTemplateCreate, AgentTemplateUpdate
+from app.schemas.agent_template import (
+    AgentFromTemplateIn,
+    AgentTemplateCreate,
+    AgentTemplateUpdate,
+)
 
 # 两套 schema 共有的配置字段（模板没有 status，Agent 没有 name 唯一性）。
 SHARED_FIELDS = (
@@ -83,4 +87,37 @@ def test_template_defaults_match_agent_defaults():
     a = AgentCreate(name="a", system_prompt="p")
     t = AgentTemplateCreate(name="t", system_prompt="p")
     for field in SHARED_FIELDS:
+        assert getattr(t, field) == getattr(a, field), f"默认值不一致: {field}"
+
+
+# ===== AgentFromTemplateIn：与 AgentCreate 同构，只有 tools 刻意从宽 =====
+
+# 除 tools 外的全部字段——tools 是 FR-008 刻意开的口子（过滤+提示而非拒绝），
+# 其余字段必须与 AgentCreate 一字不差，否则就是第二条宽松旁路（FR-009）。
+_SHARED_MINUS_TOOLS = tuple(f for f in SHARED_FIELDS if f != "tools")
+
+
+@pytest.mark.parametrize("field", _SHARED_MINUS_TOOLS)
+def test_from_template_constraints_match_agent_create(field: str):
+    assert _constraints(AgentFromTemplateIn, field) == _constraints(AgentCreate, field)
+
+
+def test_from_template_accepts_uncatalogued_tools():
+    """tools 刻意不做目录校验：模板可能引用已下线工具，用户只是原样提交表单。"""
+    bogus = "definitely-not-a-tool"
+    assert bogus not in CATALOG
+    model = AgentFromTemplateIn(name="t", system_prompt="p", tools=[bogus])
+    assert model.tools == [bogus]
+
+
+def test_from_template_still_rejects_unknown_tools_at_service_layer():
+    """schema 放行不等于落库放行：服务层 instantiate() 负责过滤（见其单测）。"""
+    model = AgentFromTemplateIn(name="t", system_prompt="p", tools=["ghost"])
+    assert model.tools == ["ghost"]  # schema 层原样保留，交由服务层处理
+
+
+def test_from_template_defaults_match_agent_create():
+    a = AgentCreate(name="a", system_prompt="p")
+    t = AgentFromTemplateIn(name="t", system_prompt="p")
+    for field in _SHARED_MINUS_TOOLS:
         assert getattr(t, field) == getattr(a, field), f"默认值不一致: {field}"

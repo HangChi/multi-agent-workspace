@@ -25,9 +25,30 @@ def _check_owner(agent: Agent, user_id: str) -> None:
 
 
 async def create_agent(
-    db: AsyncSession, *, user_id: str, payload: AgentCreate
+    db: AsyncSession,
+    *,
+    user_id: str,
+    payload: AgentCreate,
+    prebuilt: Agent | None = None,
 ) -> Agent:
-    """创建 Agent（member/admin 已由路由层校验）。"""
+    """创建 Agent（member/admin 已由路由层校验）。
+
+    `prebuilt` 供 005 的「从模板创建 / 克隆」复用同一条落库路径：
+    调用方已经构造好 Agent 对象（含归属与全部字段），这里只补归属校验与
+    flush，**不再走一遍 Pydantic 校验**——那会让模板路径与手工路径
+    出现两套校验语义（FR-009 要求同一套）。
+
+    工具授权仍要校验：`prebuilt.tools` 可能在构造后被改过，也可能来自一个
+    工具已下线的模板快照。
+    """
+    if prebuilt is not None:
+        if prebuilt.owner_id != user_id:
+            raise AppError("FORBIDDEN", "无权操作他人 Agent")
+        await validate_grants(db, prebuilt.tools)
+        db.add(prebuilt)
+        await db.flush()
+        return prebuilt
+
     await validate_grants(db, payload.tools)
     agent = Agent(
         owner_id=user_id,

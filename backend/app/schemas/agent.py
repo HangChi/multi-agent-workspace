@@ -88,6 +88,10 @@ class AgentOut(BaseModel):
     cost_limit_cents: int
     egress_mode: str
     status: str
+    # 005：来源追溯。手工创建两者都为 NULL；删模板/删源 Agent 后被置 NULL
+    # （外键 ON DELETE SET NULL），因此**不能**据此判断模板是否还存在。
+    source_template_id: str | None = None
+    source_agent_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
