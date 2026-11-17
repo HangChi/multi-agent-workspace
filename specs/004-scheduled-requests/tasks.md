@@ -198,20 +198,28 @@ description: "Implementation tasks for scheduled requests: cron rules, automatic
 > | 检查 | 结果 |
 > |---|---|
 > | `ruff check app tests` | All checks passed |
-> | `ruff format --check app tests` | 222 files already formatted |
+> | `ruff format --check .`（**口径对齐 CI，覆盖 alembic/**） | **232 files already formatted** |
 > | `mypy app` | no issues in 117 source files |
-> | `pytest tests`（排除 `test_mcp_fixture_http.py`） | **1033 passed, 6 subtests passed, 0 failed** |
+> | `pytest tests`（排除 `test_mcp_fixture_http.py`） | **1033 passed, 1 error, 6 subtests passed, 0 failed** |
 > | 调度模块专项（6 个文件） | 108 passed |
 > | 前端 `tsc --noEmit` | 通过 |
+> | 前端 `eslint src` | 0 error / 2 warning（均为既有 `ui/` 组件的 `react-refresh` 提示） |
 > | 前端 `vitest run` | 16 files / 88 tests passed |
-> | 前端 `npm run build` | 成功，首屏 `index-*.js` **102.04 KB gzip** |
+> | 前端 `npm run build` | 成功，首屏 `index-*.js` **102.04 KB gzip**；`SchedulesPage` 独立分包 7.94 KB gzip |
 > | 迁移往返（空库） | up 8 → down 0006 → 2 枚举确认删除 → up 成功 |
 > | `git diff --check` | 无空白错误 |
 >
+> **⚠️ 门禁口径曾不完整，已修正**：最初记的是 `ruff format --check app tests`（**222** files），
+> 而 CI 实际口径是 `ruff format --check .`（`ci.yml:186`，覆盖整个 `backend/` 含 `alembic/`）。
+> 按 CI 口径复跑时暴露出 `0007_schedules.py` 从 T008 起就带着不合格式的排版，
+> **这条本来会让 CI 红**。已格式化（纯排版、无语义变化，并在空库上实测 `upgrade head`
+> 全 8 个 revision 通过），数字随之变为 **232**。教训：门禁口径必须照抄 CI，
+> 「少查一个目录」等于没查。
+>
 > **排除项说明**：`test_mcp_fixture_http.py` 因沙箱临时目录 `pytest-of-unknown` 已存在而
 > 报 `FileExistsError`（非代码问题）；该文件与调度无关，单独跑亦不涉本特性。
-> 真实栈验收使用的 `aw_004_verify` / `aw_004_roundtrip` 两个数据库为本次新建，
-> **未触碰开发库 `agent_workbench`**（它仍停在 0006）。
+> 真实栈验收用的 `aw_004_verify` / `aw_004_roundtrip` 为本次新建，**未触碰开发库
+> `agent_workbench`**；验收结束后这些临时库已全部删除，环境已复原。
 
 ## Dependencies & Execution Order
 
