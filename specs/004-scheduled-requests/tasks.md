@@ -60,7 +60,7 @@ description: "Implementation tasks for scheduled requests: cron rules, automatic
 - [X] T010 Add `source_schedule_id` (`ForeignKey("schedules.id", ondelete="SET NULL")`, nullable, indexed) plus the relationship to `backend/app/models/request.py`. Do not touch any existing column.
 - [X] T011 Write `backend/alembic/versions/0007_schedules.py`: create both enum types, both tables with constraints/indexes, and the `requests` column + FK + index. `downgrade` reverses in order and explicitly `DROP TYPE` both enums (follow the 002/003 convention).
 - [X] T012 Run the migration round-trip on an **empty** database (`upgrade head → downgrade base → upgrade head`) and record the result. Do not use a database left by the test suite (it has objects but an empty `alembic_version`, which misreports as base).
-- [ ] T013 [P] Add schemas in `backend/app/schemas/schedule.py`: `ScheduleTargetType`, `ScheduleTriggerResult` enums; `ScheduleTemplate`, `ScheduleTarget`; `ScheduleCreate`, `ScheduleUpdate` (partial), `ScheduleOut` (with display-only `target.name` / `target.status`, `owner_email` for admin only), `TriggerOut`, `TriggerListOut` (with `counts`). Keep `target.status` supporting `missing` to distinguish deleted from archived.
+- [X] T013 [P] Add schemas in `backend/app/schemas/schedule.py`: `ScheduleTargetType`, `ScheduleTriggerResult` enums; `ScheduleTemplate`, `ScheduleTarget`; `ScheduleCreate`, `ScheduleUpdate` (partial), `ScheduleOut` (with display-only `target.name` / `target.status`, `owner_email` for admin only), `TriggerOut`, `TriggerListOut` (with `counts`). Keep `target.status` supporting `missing` to distinguish deleted from archived.
 
 **Checkpoint**: 迁移往返通过；约束测试全绿（含两条 `ON DELETE` 语义）。提交 Phase 3。
 
@@ -71,16 +71,16 @@ description: "Implementation tasks for scheduled requests: cron rules, automatic
 
 ### Tests first
 
-- [ ] T014 [P] [US1] Write failing API contract tests in `backend/tests/integration/test_schedules_api.py` for the full permission matrix from `contracts/api.md`: viewer 403 on all; member 200/201/204 only on own; admin 200 on all reads but **403 on PATCH/DELETE of others**; and **cross-user GET returns 404, not 403**.
-- [ ] T015 [P] [US1] Extend the same file with the 6-step validation order: shape (422) → cron parse (422, `field=cron_expr`) → timezone unknown (422, `field=timezone`) → target unavailable (404) → strategy/target-type incompatibility (400). Assert that a wrong-order implementation would fail (e.g. an invalid cron with a bad target must report the **cron** error, since cron is validated first).
-- [ ] T016 [P] [US1] Extend the same file with `next_run_at` recomputation rules: changing `cron_expr`/`timezone`/`enabled` recomputes; changing `template`/`target` does **not**; disable sets null; re-enable recomputes **from now** (not from the old value), so a 3-day-disabled rule does not fire a compensating trigger.
+- [X] T014 [P] [US1] Write failing API contract tests in `backend/tests/integration/test_schedules_api.py` for the full permission matrix from `contracts/api.md`: viewer 403 on all; member 200/201/204 only on own; admin 200 on all reads but **403 on PATCH/DELETE of others**; and **cross-user GET returns 404, not 403**.
+- [X] T015 [P] [US1] Extend the same file with the 6-step validation order: shape (422) → cron parse (422, `field=cron_expr`) → timezone unknown (422, `field=timezone`) → target unavailable (404) → strategy/target-type incompatibility (400). Assert that a wrong-order implementation would fail (e.g. an invalid cron with a bad target must report the **cron** error, since cron is validated first).
+- [X] T016 [P] [US1] Extend the same file with `next_run_at` recomputation rules: changing `cron_expr`/`timezone`/`enabled` recomputes; changing `template`/`target` does **not**; disable sets null; re-enable recomputes **from now** (not from the old value), so a 3-day-disabled rule does not fire a compensating trigger.
 
 ### Implementation
 
-- [ ] T017 [US1] Implement rule CRUD + validation in `backend/app/services/schedule_service.py`: `create_schedule`, `update_schedule`, `set_enabled`, `delete_schedule`, `list_schedules`, `get_schedule`. Enforce the 6-step order, the uniform 404 for cross-user access, and recompute `next_run_at` per T016.
-- [ ] T018 [US1] Implement endpoints in `backend/app/api/v1/schedules.py` and register in `backend/app/main.py`. Use the existing `require_role` / `ResourceId` deps; admin read-only enforcement lives in the service, not only the router.
-- [ ] T019 [US1] Write audit records for create/update/delete/enable/disable with the caller as actor and **no** internal identifiers in `detail` beyond ids.
-- [ ] T020 [US1] Run Phase gate: `ruff check` / `ruff format --check` / `mypy` / `pytest backend/tests/integration/test_schedules_api.py` / `test_schedule_cron.py`.
+- [X] T017 [US1] Implement rule CRUD + validation in `backend/app/services/schedule_service.py`: `create_schedule`, `update_schedule`, `set_enabled`, `delete_schedule`, `list_schedules`, `get_schedule`. Enforce the 6-step order, the uniform 404 for cross-user access, and recompute `next_run_at` per T016.
+- [X] T018 [US1] Implement endpoints in `backend/app/api/v1/schedules.py` and register in `backend/app/main.py`. Use the existing `require_role` / `ResourceId` deps; admin read-only enforcement lives in the service, not only the router.
+- [X] T019 [US1] Write audit records for create/update/delete/enable/disable with the caller as actor and **no** internal identifiers in `detail` beyond ids.
+- [X] T020 [US1] Run Phase gate: `ruff check` / `ruff format --check` / `mypy` / `pytest backend/tests/integration/test_schedules_api.py` / `test_schedule_cron.py`.
 
 **Checkpoint**: US1 的 Independent Test 通过。提交 Phase 4。至此「能定义规则并看到下次时间」可用。
 

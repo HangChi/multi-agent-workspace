@@ -129,9 +129,7 @@ async def update_schedule(
     schedule_id: str,
     payload: ScheduleUpdate,
 ):
-    before = await schedule_service.get_schedule(
-        db, user=user, schedule_id=schedule_id
-    )
+    before = await schedule_service.get_schedule(db, user=user, schedule_id=schedule_id)
     out = await schedule_service.update_schedule(
         db, user=user, schedule_id=schedule_id, payload=payload
     )

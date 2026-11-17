@@ -107,14 +107,18 @@ async def resolve_target(
     Returns:
         (展示名, 状态值)。目标可用时一并把名字取出，避免上层再查一次。
     """
-    model = Agent if target_type == ScheduleTargetType.agent.value else AgentGroup
-    target = await db.get(model, target_id)
+    # 两个模型分开查而不是拼一个 Union：`Agent` 与 `AgentGroup` 各自都有
+    # owner_id/name/status，但类型检查器无法从联合类型上推断出这些属性。
+    target: Agent | AgentGroup | None
+    if target_type == ScheduleTargetType.agent.value:
+        target = await db.get(Agent, target_id)
+    else:
+        target = await db.get(AgentGroup, target_id)
+
     if target is None or target.owner_id != user_id:
         raise AppError("NOT_FOUND", "Agent 或组不存在", detail={"field": "target.id"})
     if require_active and target.status != "active":
-        raise AppError(
-            "NOT_FOUND", "Agent 或组不存在", detail={"field": "target.id"}
-        )
+        raise AppError("NOT_FOUND", "Agent 或组不存在", detail={"field": "target.id"})
     return target.name, target.status
 
 
@@ -153,9 +157,7 @@ async def _require_owner_write(
         raise AppError("NOT_FOUND", "调度不存在")
     if schedule.owner_id != user.id:
         if user.role == "admin":
-            raise AppError(
-                "FORBIDDEN", "管理员只能查看他人的调度，不能修改或删除"
-            )
+            raise AppError("FORBIDDEN", "管理员只能查看他人的调度，不能修改或删除")
         raise AppError("NOT_FOUND", "调度不存在")
     return schedule
 
@@ -168,12 +170,11 @@ async def _load_target_display(
     `missing` 与 `archived` 必须分开：归档可恢复，物理删除不可恢复，
     界面需要据此提示"目标已不存在，请重建规则"。
     """
-    model = (
-        Agent
-        if schedule.target_type == ScheduleTargetType.agent.value
-        else AgentGroup
-    )
-    target = await db.get(model, schedule.target_id)
+    target: Agent | AgentGroup | None
+    if schedule.target_type == ScheduleTargetType.agent.value:
+        target = await db.get(Agent, schedule.target_id)
+    else:
+        target = await db.get(AgentGroup, schedule.target_id)
     if target is None:
         return None, TargetStatus.missing
     return target.name, (
@@ -360,9 +361,7 @@ async def set_enabled(
     )
 
 
-async def delete_schedule(
-    db: AsyncSession, *, user: User, schedule_id: str
-) -> None:
+async def delete_schedule(db: AsyncSession, *, user: User, schedule_id: str) -> None:
     """删除规则。
 
     级联删除触发历史；已产生的需求与 Run 保留

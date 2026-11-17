@@ -14,7 +14,7 @@ import uuid
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.request import Request
@@ -71,9 +71,7 @@ class TestScheduleConstraints:
     async def test_disabled_rule_may_have_no_next_run(self, db_session):
         """停用态允许 next_run_at 为空 —— 这正是停用时的正常状态。"""
         user = await _user(db_session)
-        schedule = await _schedule(
-            db_session, user, enabled=False, next_run_at=None
-        )
+        schedule = await _schedule(db_session, user, enabled=False, next_run_at=None)
         assert schedule.next_run_at is None
 
     async def test_blank_name_is_rejected(self, db_session):
@@ -109,16 +107,12 @@ class TestTriggerIdempotency:
         planned = datetime(2026, 11, 17, 1, 0, tzinfo=UTC)
 
         db_session.add(
-            ScheduleTrigger(
-                schedule_id=schedule.id, planned_at=planned, result="fired"
-            )
+            ScheduleTrigger(schedule_id=schedule.id, planned_at=planned, result="fired")
         )
         await db_session.flush()
 
         db_session.add(
-            ScheduleTrigger(
-                schedule_id=schedule.id, planned_at=planned, result="fired"
-            )
+            ScheduleTrigger(schedule_id=schedule.id, planned_at=planned, result="fired")
         )
         with pytest.raises(IntegrityError):
             await db_session.flush()
@@ -152,9 +146,7 @@ class TestTriggerIdempotency:
         assert second.rowcount == 0
 
         count = await db_session.scalar(
-            text(
-                "SELECT count(*) FROM schedule_triggers WHERE schedule_id = :sid"
-            ),
+            text("SELECT count(*) FROM schedule_triggers WHERE schedule_id = :sid"),
             {"sid": schedule.id},
         )
         assert count == 1
@@ -178,9 +170,7 @@ class TestTriggerIdempotency:
         await db_session.flush()
         assert (
             await db_session.scalar(
-                text(
-                    "SELECT count(*) FROM schedule_triggers WHERE schedule_id = :sid"
-                ),
+                text("SELECT count(*) FROM schedule_triggers WHERE schedule_id = :sid"),
                 {"sid": schedule.id},
             )
             == 3
@@ -224,7 +214,9 @@ class TestDeleteSemantics:
         user = await _user(db_session)
         schedule = await _schedule(db_session, user)
         db_session.add(
-            ScheduleTrigger(schedule_id=schedule.id, planned_at=schedule.next_run_at, result="fired")
+            ScheduleTrigger(
+                schedule_id=schedule.id, planned_at=schedule.next_run_at, result="fired"
+            )
         )
         await db_session.flush()
 
@@ -234,8 +226,7 @@ class TestDeleteSemantics:
         await db_session.flush()
 
         assert (
-            await db_session.scalar(text("SELECT count(*) FROM schedule_triggers"))
-            == 0
+            await db_session.scalar(text("SELECT count(*) FROM schedule_triggers")) == 0
         )
 
     async def test_manual_requests_have_null_source(self, db_session):
@@ -258,8 +249,7 @@ class TestIndexShape:
         """扫描只用部分索引扫启用中的规则；索引退化会让扫描变全表扫。"""
         definition = await db_session.scalar(
             text(
-                "SELECT indexdef FROM pg_indexes "
-                "WHERE indexname = 'idx_schedules_due'"
+                "SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_schedules_due'"
             )
         )
         assert definition is not None
@@ -277,13 +267,17 @@ class TestIndexShape:
     async def test_enum_values_are_exactly_the_four_results(self, db_session):
         """四种结果与 FR-016 一一对应；多一个或少一个都会让契约对不上。"""
         values = (
-            await db_session.execute(
-                text(
-                    "SELECT enumlabel FROM pg_enum e "
-                    "JOIN pg_type t ON t.oid = e.enumtypid "
-                    "WHERE t.typname = 'schedule_trigger_result' "
-                    "ORDER BY e.enumsortorder"
+            (
+                await db_session.execute(
+                    text(
+                        "SELECT enumlabel FROM pg_enum e "
+                        "JOIN pg_type t ON t.oid = e.enumtypid "
+                        "WHERE t.typname = 'schedule_trigger_result' "
+                        "ORDER BY e.enumsortorder"
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert list(values) == ["fired", "missed", "skipped_busy", "failed"]

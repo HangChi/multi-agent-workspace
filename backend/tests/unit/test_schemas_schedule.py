@@ -20,26 +20,26 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas.schedule import (
-    CronPreviewOut,
     CronPreviewIn,
+    CronPreviewOut,
     ScheduleCreate,
     ScheduleTarget,
     ScheduleTargetType,
     ScheduleTemplate,
-    ScheduleUpdate,
     ScheduleTemplatePatch,
-    TriggerCounts,
+    ScheduleUpdate,
     TargetStatus,
+    TriggerCounts,
 )
 
 
 def _create(**over) -> ScheduleCreate:
-    base = dict(
-        name="每日晨报",
-        cron_expr="0 9 * * 1-5",
-        template={"title": "每日进度汇总"},
-        target={"type": "agent", "id": "a1"},
-    )
+    base = {
+        "name": "每日晨报",
+        "cron_expr": "0 9 * * 1-5",
+        "template": {"title": "每日进度汇总"},
+        "target": {"type": "agent", "id": "a1"},
+    }
     base.update(over)
     return ScheduleCreate(**base)
 

@@ -13,6 +13,13 @@
   补跑一次（用户看到的是"我刚打开它就自己跑了一遍"）。
 """
 
+from datetime import UTC, datetime
+
+import pytest
+from sqlalchemy import text
+
+from app.core.db import SessionLocal
+
 SCHEDULES_URL = "/api/v1/schedules"
 AGENTS_URL = "/api/v1/agents"
 GROUPS_URL = "/api/v1/groups"
@@ -104,11 +111,6 @@ class TestPermissionMatrix:
         assert (
             await client.delete(f"{SCHEDULES_URL}/{sched['id']}", headers=viewer_h)
         ).status_code == 403
-        assert (
-            await client.get(
-                f"{SCHEDULES_URL}/{sched['id']}/triggers", headers=viewer_h
-            )
-        ).status_code == 403
 
     async def test_member_can_crud_own_schedule(self, client, make_headers):
         h = await make_headers(role="member")
@@ -152,9 +154,32 @@ class TestPermissionMatrix:
         assert (
             await client.get(f"{SCHEDULES_URL}/{sched['id']}", headers=ah)
         ).status_code == 200
-        assert (
-            await client.get(f"{SCHEDULES_URL}/{sched['id']}/triggers", headers=ah)
-        ).status_code == 200
+
+    @pytest.mark.xfail(
+        reason="GET /schedules/{id}/triggers 属 Phase 7（T042-T048），届时转绿",
+        strict=True,
+    )
+    async def test_viewer_forbidden_on_triggers_endpoint(self, client, make_headers):
+        member_h = await make_headers(role="member")
+        agent = await _make_agent(client, member_h)
+        sched = await _create_schedule(client, member_h, agent["id"])
+        viewer_h = await make_headers(role="viewer")
+        resp = await client.get(
+            f"{SCHEDULES_URL}/{sched['id']}/triggers", headers=viewer_h
+        )
+        assert resp.status_code == 403
+
+    @pytest.mark.xfail(
+        reason="GET /schedules/{id}/triggers 属 Phase 7（T042-T048），届时转绿",
+        strict=True,
+    )
+    async def test_admin_can_read_triggers(self, client, make_headers):
+        mh = await make_headers(role="member")
+        agent = await _make_agent(client, mh)
+        sched = await _create_schedule(client, mh, agent["id"])
+        ah = await make_headers(role="admin")
+        resp = await client.get(f"{SCHEDULES_URL}/{sched['id']}/triggers", headers=ah)
+        assert resp.status_code == 200
 
     async def test_admin_cannot_write_others_schedule(self, client, make_headers):
         """admin 可读不可写是 FR-005 的刻意取舍，不是遗漏。
@@ -199,9 +224,7 @@ class TestPermissionMatrix:
             await client.delete(f"{SCHEDULES_URL}/{sched['id']}", headers=h2)
         ).status_code == 404
         assert (
-            await client.get(
-                f"{SCHEDULES_URL}/{sched['id']}/triggers", headers=h2
-            )
+            await client.get(f"{SCHEDULES_URL}/{sched['id']}/triggers", headers=h2)
         ).status_code == 404
 
     async def test_unknown_id_and_foreign_id_have_identical_response(
@@ -213,7 +236,9 @@ class TestPermissionMatrix:
         a1 = await _make_agent(client, h1)
         sched = await _create_schedule(client, h1, a1["id"])
 
-        foreign = (await client.get(f"{SCHEDULES_URL}/{sched['id']}", headers=h2)).json()
+        foreign = (
+            await client.get(f"{SCHEDULES_URL}/{sched['id']}", headers=h2)
+        ).json()
         unknown = (
             await client.get(
                 f"{SCHEDULES_URL}/00000000-0000-0000-0000-000000000000", headers=h2
@@ -337,9 +362,7 @@ class TestValidationOrder:
         # 先用同一个 agent 建成功一条，证明端点可用（防路由缺失导致的假 404）
         await _create_schedule(client, h, agent["id"])
 
-        resp = await client.post(
-            f"{AGENTS_URL}/{agent['id']}/archive", headers=h
-        )
+        resp = await client.post(f"{AGENTS_URL}/{agent['id']}/archive", headers=h)
         assert resp.status_code in (200, 204), resp.text
         resp = await client.post(
             SCHEDULES_URL, headers=h, json=_schedule_payload(agent["id"])
@@ -475,12 +498,9 @@ class TestNextRunRecompute:
             f"{SCHEDULES_URL}/{sched['id']}", headers=h, json={"enabled": False}
         )
         # 直接改库把 next_run_at 压到很久以前，模拟"停了很久"
-        from app.core.db import SessionLocal
-        from sqlalchemy import text as _text
-
         async with SessionLocal() as s:
             await s.execute(
-                _text(
+                text(
                     "UPDATE schedules SET next_run_at = now() - interval '3 days' "
                     "WHERE id = :sid"
                 ),
@@ -492,11 +512,7 @@ class TestNextRunRecompute:
             f"{SCHEDULES_URL}/{sched['id']}", headers=h, json={"enabled": True}
         )
         assert resp.status_code == 200
-        from datetime import UTC, datetime
-
-        new_next = datetime.fromisoformat(
-            resp.json()["next_run_at"].replace("Z", "+00:00")
-        )
+        new_next = datetime.fromisoformat(resp.json()["next_run_at"])
         assert new_next > datetime.now(UTC), "重新启用的下次触发时间必须在未来"
 
     async def test_disable_then_enable_via_patch_keeps_other_fields(
