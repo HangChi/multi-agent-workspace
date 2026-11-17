@@ -4,6 +4,7 @@
 按模型单价表（可配置，默认 gpt-4o-mini 等）换算。
 """
 
+import asyncio
 import json
 from dataclasses import dataclass, field
 from typing import Any
@@ -84,10 +85,12 @@ class LiteLLMClient:
         api_key: str | None = None,
         base_url: str | None = None,
         model: str | None = None,
+        timeout_seconds: float | None = None,
     ) -> None:
         self.api_key = api_key or settings.llm_api_key
         self.base_url = base_url or settings.llm_base_url
         self.model = model or settings.llm_model
+        self.timeout_seconds = timeout_seconds or settings.llm_timeout_seconds
         # 测试环境不配 key 时用假 key，避免 LiteLLM 启动报错
         if not self.api_key:
             self.api_key = "sk-test-placeholder"
@@ -103,7 +106,7 @@ class LiteLLMClient:
         """调用 LLM，解析 tool_call + 累计成本。
 
         Raises:
-            LLMClientError: 连接/鉴权/限流等失败（转为可读错误）
+            LLMClientError: 连接/鉴权/限流/超时等失败（转为可读错误）
         """
         kwargs: dict[str, Any] = {
             "model": self.model,
@@ -111,6 +114,11 @@ class LiteLLMClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
             "api_key": self.api_key,
+            # 超时必须显式传：SDK 默认等待时间远超一个 Run 的合理耗时，
+            # 而本循环的超时检查只在轮次之间生效，拦不住卡在 HTTP 里的调用。
+            "timeout": self.timeout_seconds,
+            # 重试一次足够：再多的重试只是在放大 Worker 被占用的时间
+            "num_retries": 1,
         }
         if self.base_url:
             kwargs["api_base"] = self.base_url
@@ -118,7 +126,15 @@ class LiteLLMClient:
             kwargs["tools"] = tools
 
         try:
-            response = await litellm.acompletion(**kwargs)
+            # 硬上限：SDK 的分阶段超时偶尔会有偏差，这里再兜一层
+            response = await asyncio.wait_for(
+                litellm.acompletion(**kwargs),
+                timeout=self.timeout_seconds + 15,
+            )
+        except TimeoutError as exc:
+            raise LLMClientError(
+                f"LLM 调用超时（{self.timeout_seconds:.0f}s）"
+            ) from exc
         except Exception as exc:  # 网络/鉴权/限流统一转可读错误
             raise LLMClientError(f"LLM 调用失败: {exc}") from exc
 

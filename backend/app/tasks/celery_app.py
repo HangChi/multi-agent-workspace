@@ -25,6 +25,15 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,
     broker_connection_retry_on_startup=True,
+    # 任务硬上限：Agent 的 max_run_seconds 默认 1800，这里留一倍余量。
+    # 没有它时，任何卡死的任务（如 LLM 挂起）会永久占住一个 Worker 槽位。
+    # 软上限先抛 SoftTimeLimitExceeded 给任务一次收尾机会，硬上限强杀；
+    # task_reject_on_worker_lost + 执行锁保证杀掉的 Run 不会被重复消费。
+    task_soft_time_limit=3300,
+    task_time_limit=3600,
+    # Redis 作为 broker 时，消息可见性超时必须 ≥ 最长任务时长，
+    # 否则长任务会被判定「未被确认」并重新投递（默认 1h，与硬上限对齐）。
+    broker_transport_options={"visibility_timeout": 3600},
     timezone="Asia/Shanghai",
 )
 

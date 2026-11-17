@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = "gpt-4o-mini"
     llm_base_url: str = ""
+    # 单次 chat 调用的超时（秒）。必须显式设置：LiteLLM/OpenAI 默认等待可达
+    # 10 分钟，而 runner 的超时检查只发生在「每轮循环之前」——一次挂死的调用
+    # 会占满 Worker 槽位（默认并发 2），两个请求就能让 Worker 停摆。
+    llm_timeout_seconds: float = 90.0
 
     # CORS
     cors_origins: str = Field(default="http://localhost:5173")
