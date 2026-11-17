@@ -9,7 +9,7 @@
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -60,18 +60,41 @@ async def get_group(db: AsyncSession, group_id: str, user_id: str) -> AgentGroup
 
 
 async def list_groups(
-    db: AsyncSession, *, user_id: str, include_archived: bool = False
-) -> list[AgentGroup]:
-    """列表：仅自己的（默认 active），预加载成员。"""
+    db: AsyncSession,
+    *,
+    user_id: str,
+    include_archived: bool = False,
+    page: int = 1,
+    page_size: int = 20,
+    fetch_all: bool = False,
+) -> tuple[list[AgentGroup], int]:
+    """列表：仅自己的（默认 active），预加载成员，支持分页。
+
+    返回 `(当前页, 总数)`；total 是过滤后全量条数（不是当页长度）。
+
+    `fetch_all=True` 供看板当拖拽目标用：必须拿全集，否则超过一页的组
+    会从拖拽区静默消失。
+    """
+    conditions = [AgentGroup.owner_id == user_id]
+    if not include_archived:
+        conditions.append(AgentGroup.status == "active")
+
+    total = (
+        await db.execute(
+            select(func.count()).select_from(AgentGroup).where(*conditions)
+        )
+    ).scalar_one()
+
     stmt = (
         select(AgentGroup)
         .options(_with_members())
-        .where(AgentGroup.owner_id == user_id)
+        .where(*conditions)
+        .order_by(AgentGroup.created_at.desc())
     )
-    if not include_archived:
-        stmt = stmt.where(AgentGroup.status == "active")
-    stmt = stmt.order_by(AgentGroup.created_at.desc())
-    return list((await db.execute(stmt)).scalars().all())
+    if not fetch_all:
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+    rows = list((await db.execute(stmt)).scalars().all())
+    return rows, total
 
 
 async def update_group(

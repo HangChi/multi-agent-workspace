@@ -22,6 +22,7 @@ import { ErrorBanner } from '../components/ui/ErrorBanner'
 import { Icon } from '../components/ui/Icons'
 import { Page } from '../components/ui/Page'
 import { PageHeader } from '../components/ui/PageHeader'
+import { Pagination } from '../components/ui/Pagination'
 import { SegmentedControl } from '../components/ui/Segmented'
 import { CardSkeleton } from '../components/ui/Skeleton'
 import { useToast } from '../components/ui/Toast'
@@ -34,6 +35,9 @@ const FILTER_OPTIONS: { value: Filter; label: string }[] = [
   { value: 'archived', label: '已归档' },
 ]
 
+/** 每页条数。与后端 page_size 上限（100）留出余量，便于列表滚动浏览。 */
+const PAGE_SIZE = 12
+
 export function AgentPage() {
   const qc = useQueryClient()
   const confirm = useConfirm()
@@ -42,10 +46,18 @@ export function AgentPage() {
   const [editing, setEditing] = useState<Agent | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
+  const [page, setPage] = useState(1)
 
+  // 分页交给后端：status 过滤 + 分页在 SQL 层完成，
+  // 前端不再「取全量再本地 slice」—— 那样数据一多首屏就会拖慢。
   const { data, isLoading } = useQuery({
-    queryKey: ['agents'],
-    queryFn: () => fetchAgents(),
+    queryKey: ['agents', 'list', filter, page],
+    queryFn: () =>
+      fetchAgents({
+        status: filter === 'all' ? undefined : filter,
+        page,
+        page_size: PAGE_SIZE,
+      }),
   })
 
   const createMut = useMutation({
@@ -89,14 +101,20 @@ export function AgentPage() {
     onError: (err) => setError(extractError(err)),
   })
 
+  // status 过滤已由后端完成，这里不再本地 filter（否则分页数与总数会对不上）
   const items = useMemo(() => data?.items ?? [], [data])
-  const filtered = useMemo(
-    () => (filter === 'all' ? items : items.filter((a) => a.status === filter)),
-    [items, filter],
-  )
+  const total = data?.total ?? 0
 
-  const activeCount = items.filter((a) => a.status === 'active').length
+  // 「活跃 N 个」的统计口径：过滤到单页后本地算不出全量，
+  // 因此在「全部」视图下用 total 兜底，在具体状态视图下就是 total
+  const activeCount = filter === 'active' ? total : undefined
   const formOpen = showForm || !!editing
+
+  /** 切换状态筛选要回到第 1 页，否则可能停在新列表不存在的页码上。 */
+  const changeFilter = (next: Filter) => {
+    setFilter(next)
+    setPage(1)
+  }
 
   const onSubmit = (values: AgentFormValues) => {
     if (editing) {
@@ -187,12 +205,17 @@ export function AgentPage() {
         <SegmentedControl
           options={FILTER_OPTIONS}
           value={filter}
-          onChange={setFilter}
+          onChange={changeFilter}
           ariaLabel="按状态筛选 Agent"
         />
         <p className="text-xs text-ink-faint">
-          共 <span className="font-medium text-ink-soft">{items.length}</span> 个 · 活跃{' '}
-          <span className="font-medium text-emerald-600">{activeCount}</span> 个
+          共 <span className="font-medium text-ink-soft">{total}</span> 个
+          {activeCount !== undefined && (
+            <>
+              {' '}
+              · 活跃 <span className="font-medium text-emerald-600">{activeCount}</span> 个
+            </>
+          )}
         </p>
       </div>
 
@@ -202,28 +225,30 @@ export function AgentPage() {
           <CardSkeleton />
           <CardSkeleton />
         </div>
-      ) : filtered.length === 0 ? (
+      ) : items.length === 0 ? (
         <EmptyState
           icon={filter === 'archived' ? 'archive' : 'bot'}
           title={
-            items.length === 0
+            total === 0 && filter === 'all'
               ? '还没有 Agent'
               : filter === 'archived'
                 ? '没有已归档的 Agent'
-                : '没有活跃的 Agent'
+                : filter === 'active'
+                  ? '没有活跃的 Agent'
+                  : '没有 Agent'
           }
           description={
-            items.length === 0
+            total === 0 && filter === 'all'
               ? 'Agent 是可执行的最小单元：给它一段提示词、一个模型和一组工具，就能开始接需求。'
               : '切换筛选条件查看其他状态的 Agent。'
           }
           action={
-            items.length === 0 ? (
+            total === 0 && filter === 'all' ? (
               <Button variant="primary" leftIcon="plus" onClick={() => setShowForm(true)}>
                 新建第一个 Agent
               </Button>
             ) : (
-              <Button variant="secondary" leftIcon="refresh" onClick={() => setFilter('all')}>
+              <Button variant="secondary" leftIcon="refresh" onClick={() => changeFilter('all')}>
                 查看全部
               </Button>
             )
@@ -231,7 +256,7 @@ export function AgentPage() {
         />
       ) : (
         <div className="space-y-3">
-          {filtered.map((agent) => (
+          {items.map((agent) => (
             <AgentListItem
               key={agent.id}
               agent={agent}
@@ -243,6 +268,13 @@ export function AgentPage() {
               onDelete={() => void onDelete(agent)}
             />
           ))}
+          <Pagination
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={total}
+            onChange={setPage}
+            loading={isLoading}
+          />
         </div>
       )}
     </Page>

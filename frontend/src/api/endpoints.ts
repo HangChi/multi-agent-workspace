@@ -331,10 +331,18 @@ export interface AgentList {
   total: number
 }
 
-/** Agent 列表（?status=&q=）。 */
+/** Agent 列表（?status=&q= + 分页）。 */
 export async function fetchAgents(params?: {
   status?: 'active' | 'archived'
   q?: string
+  page?: number
+  page_size?: number
+  /**
+   * 返回全部命中项（忽略分页）。
+   * 看板/组页把结果当「拖拽目标 / 可选成员」，必须拿全集，
+   * 否则超过一页的目标会静默消失。
+   */
+  all?: boolean
 }): Promise<AgentList> {
   const { data } = await apiClient.get<AgentList>('/agents', { params })
   return data
@@ -405,8 +413,13 @@ export interface AddMemberRequest {
 }
 
 /** 组列表。 */
-export async function fetchGroups(): Promise<GroupList> {
-  const { data } = await apiClient.get<GroupList>('/groups')
+export async function fetchGroups(params?: {
+  page?: number
+  page_size?: number
+  /** 返回全部命中项（忽略分页）；看板当拖拽目标用，必须拿全集。 */
+  all?: boolean
+}): Promise<GroupList> {
+  const { data } = await apiClient.get<GroupList>('/groups', { params })
   return data
 }
 
@@ -729,8 +742,18 @@ export interface EgressRuleInput {
   note?: string | null
 }
 
-export async function fetchAgentEgressRules(agentId: string): Promise<EgressRuleList> {
-  const { data } = await apiClient.get<EgressRuleList>(`/agents/${agentId}/egress-rules`)
+export async function fetchAgentEgressRules(
+  agentId: string,
+  params?: {
+    page?: number
+    page_size?: number
+    /** 返回全部规则（忽略分页）。编辑表单要能列出并逐条删除全部规则。 */
+    all?: boolean
+  },
+): Promise<EgressRuleList> {
+  const { data } = await apiClient.get<EgressRuleList>(`/agents/${agentId}/egress-rules`, {
+    params,
+  })
   return data
 }
 

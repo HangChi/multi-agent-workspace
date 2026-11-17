@@ -12,7 +12,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import DB, CurrentUser, ResourceId, require_role
 from app.core.audit import write_audit
@@ -51,11 +51,26 @@ def _to_with_members(group: AgentGroup, members: list[GroupMember]) -> GroupWith
 
 
 @router.get("", response_model=GroupList)
-async def list_groups(user: CurrentUser, _m: MemberUser, db: DB):
-    """组列表（含成员展开）。"""
-    groups = await group_service.list_groups(db, user_id=user.id)
+async def list_groups(
+    user: CurrentUser,
+    _m: MemberUser,
+    db: DB,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    all: bool = Query(
+        default=False,
+        description="返回全部命中项（忽略分页）。看板等需要完整目标集合的场景用。",
+    ),
+):
+    """组列表（含成员展开）。
+
+    `total` 为过滤后的全量条数，前端据此算总页数。
+    """
+    groups, total = await group_service.list_groups(
+        db, user_id=user.id, page=page, page_size=page_size, fetch_all=all
+    )
     items = [_to_with_members(g, list(g.members)) for g in groups]
-    return {"items": items, "total": len(items)}
+    return {"items": items, "total": total}
 
 
 @router.post("", response_model=GroupWithMembers, status_code=201)

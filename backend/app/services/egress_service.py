@@ -48,13 +48,32 @@ async def _ensure_agent_owner(db: AsyncSession, agent_id: str, user_id: str, rol
         raise AppError("FORBIDDEN", "无权操作他人 Agent")
 
 
-async def list_agent_rules(db: AsyncSession, agent_id: str) -> list[EgressRule]:
-    result = await db.execute(
-        select(EgressRule)
-        .where(EgressRule.scope == "agent", EgressRule.agent_id == agent_id)
-        .order_by(EgressRule.created_at.asc())
-    )
-    return list(result.scalars().all())
+async def list_agent_rules(
+    db: AsyncSession,
+    agent_id: str,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    fetch_all: bool = False,
+) -> tuple[list[EgressRule], int]:
+    """Agent 级规则列表，返回 `(当前页, 总数)`。
+
+    `fetch_all=True` 供内部判定用（如「限制模式下是否有启用规则」），
+    那种场景必须看全集，不能被分页截断。
+    """
+    conditions = [EgressRule.scope == "agent", EgressRule.agent_id == agent_id]
+
+    total = (
+        await db.execute(
+            select(func.count()).select_from(EgressRule).where(*conditions)
+        )
+    ).scalar_one()
+
+    stmt = select(EgressRule).where(*conditions).order_by(EgressRule.created_at.asc())
+    if not fetch_all:
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+    rows = list((await db.execute(stmt)).scalars().all())
+    return rows, total
 
 
 async def create_agent_rule(

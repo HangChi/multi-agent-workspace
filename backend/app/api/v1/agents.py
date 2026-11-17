@@ -32,7 +32,9 @@ MemberUser = Annotated[object, Depends(require_role("admin", "member"))]
 async def _agent_save_response(db: DB, agent: Agent) -> AgentSaveOut:
     response = AgentSaveOut.model_validate(agent)
     if agent.egress_mode == "restricted":
-        rules = await egress_service.list_agent_rules(db, agent.id)
+        # fetch_all：判断「有没有启用的 allow 规则」必须看全集，
+        # 被分页截断会把「后几条里有 allow」误判成「一条都没有」。
+        rules, _ = await egress_service.list_agent_rules(db, agent.id, fetch_all=True)
         if not any(rule.enabled and rule.action == "allow" for rule in rules):
             response.warning = "限制模式下尚无启用的允许规则，运行时全部出站被拒。"
     return response
@@ -45,10 +47,21 @@ async def list_agents(
     db: DB,
     status: str | None = Query(default=None, pattern="^(active|archived)$"),
     q: str | None = Query(default=None, max_length=100),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    all: bool = Query(
+        default=False,
+        description="返回全部命中项（忽略分页）。看板等需要完整目标集合的场景用。",
+    ),
 ):
-    """Agent 列表（member/admin 可见自己的；viewer 403）。"""
-    rows = await agent_service.list_agents(db, user_id=user.id, status=status, q=q)
-    return {"items": [AgentOut.model_validate(r) for r in rows], "total": len(rows)}
+    """Agent 列表（member/admin 可见自己的；viewer 403）。
+
+    `total` 为过滤后的全量条数，前端据此算总页数。
+    """
+    rows, total = await agent_service.list_agents(
+        db, user_id=user.id, status=status, q=q, page=page, page_size=page_size, fetch_all=all
+    )
+    return {"items": [AgentOut.model_validate(r) for r in rows], "total": total}
 
 
 @router.post("", response_model=AgentSaveOut, status_code=201)

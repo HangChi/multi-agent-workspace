@@ -1,6 +1,6 @@
 """Agent 级出站规则端点。"""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.api.deps import DB, CurrentUser
 from app.core.audit import write_audit
@@ -12,10 +12,24 @@ router = APIRouter(prefix="/agents/{agent_id}/egress-rules", tags=["egress"])
 
 
 @router.get("", response_model=EgressRuleList)
-async def list_rules(agent_id: str, user: CurrentUser, db: DB):
+async def list_rules(
+    agent_id: str,
+    user: CurrentUser,
+    db: DB,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    all: bool = Query(
+        default=False,
+        description="返回全部规则（忽略分页）。编辑表单里需要完整清单时用。",
+    ),
+):
     await egress_service._ensure_agent_owner(db, agent_id, user.id, user.role)
     agent = await db.get(Agent, agent_id)
-    rows = await egress_service.list_agent_rules(db, agent_id)
+    # fetch_all：编辑表单要展示并逐条删除全部规则，分页截断会让用户
+    # 看不到也删不掉靠后的规则。
+    rows, _total = await egress_service.list_agent_rules(
+        db, agent_id, page=page, page_size=page_size, fetch_all=all
+    )
     return {"items": rows, "egress_mode": agent.egress_mode if agent else "default"}
 
 

@@ -77,14 +77,16 @@ export function BoardPage() {
     queryFn: () => fetchRequests(),
   })
 
-  // 分配目标：活跃 Agent + 全部组
+  // 分配目标：活跃 Agent + 全部组。
+  // ⚠️ 必须 all: true —— 这两个列表是**拖拽目标集合**，分页截断会让
+  // 第 N 页之后的目标从右侧面板静默消失（用户以为 Agent 被删了）。
   const { data: agents } = useQuery({
-    queryKey: ['agents', 'active'],
-    queryFn: () => fetchAgents({ status: 'active' }),
+    queryKey: ['agents', 'active', 'all'],
+    queryFn: () => fetchAgents({ status: 'active', all: true }),
   })
   const { data: groups } = useQuery({
-    queryKey: ['groups'],
-    queryFn: () => fetchGroups(),
+    queryKey: ['groups', 'all'],
+    queryFn: () => fetchGroups({ all: true }),
   })
 
   const createMut = useMutation({

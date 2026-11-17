@@ -54,17 +54,39 @@ async def get_agent(db: AsyncSession, agent_id: str, user_id: str) -> Agent:
 
 
 async def list_agents(
-    db: AsyncSession, *, user_id: str, status: str | None = None, q: str | None = None
-) -> list[Agent]:
-    """列表：仅自己的，支持 ?status= &q= 过滤。"""
-    stmt = select(Agent).where(Agent.owner_id == user_id)
+    db: AsyncSession,
+    *,
+    user_id: str,
+    status: str | None = None,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    fetch_all: bool = False,
+) -> tuple[list[Agent], int]:
+    """列表：仅自己的，支持 ?status= &q= 过滤 + 分页。
+
+    返回 `(当前页, 总数)`。**总数是过滤后的全量条数**，不是当前页长度 ——
+    前端要靠它算总页数，若返回当页长度，分页器永远只有 1 页。
+
+    `fetch_all=True` 供看板/组页这类「要全部活跃 Agent 当拖拽目标」的场景：
+    它们必须拿到全集，否则超过一页的目标会静默消失。此时 page/page_size 忽略。
+    """
+    conditions = [Agent.owner_id == user_id]
     if status:
-        stmt = stmt.where(Agent.status == status)
+        conditions.append(Agent.status == status)
     if q:
         like = f"%{q}%"
-        stmt = stmt.where(or_(Agent.name.ilike(like), Agent.description.ilike(like)))
-    stmt = stmt.order_by(Agent.created_at.desc())
-    return list((await db.execute(stmt)).scalars().all())
+        conditions.append(or_(Agent.name.ilike(like), Agent.description.ilike(like)))
+
+    total = (
+        await db.execute(select(func.count()).select_from(Agent).where(*conditions))
+    ).scalar_one()
+
+    stmt = select(Agent).where(*conditions).order_by(Agent.created_at.desc())
+    if not fetch_all:
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+    rows = list((await db.execute(stmt)).scalars().all())
+    return rows, total
 
 
 async def update_agent(

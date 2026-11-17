@@ -18,7 +18,9 @@ export function EgressRules({ agentId, mode }: { agentId: string; mode: 'default
 
   const load = useCallback(async () => {
     try {
-      const data = await fetchAgentEgressRules(agentId)
+      // all: true —— 这是编辑表单，要列出并支持删除**全部**规则；
+      // 分页会让靠后的规则既看不到也删不掉。
+      const data = await fetchAgentEgressRules(agentId, { all: true })
       setRules(data.items)
     } catch {
       setError('出站规则加载失败。')

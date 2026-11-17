@@ -27,6 +27,7 @@ import { Icon } from '../components/ui/Icons'
 import type { IconName } from '../components/ui/Icons'
 import { Page } from '../components/ui/Page'
 import { PageHeader } from '../components/ui/PageHeader'
+import { Pagination } from '../components/ui/Pagination'
 import { OptionCards } from '../components/ui/Segmented'
 import { CardSkeleton } from '../components/ui/Skeleton'
 import { useToast } from '../components/ui/Toast'
@@ -75,6 +76,9 @@ interface GroupPayload {
   routing_strategy: RoutingStrategy
 }
 
+/** 每页组数。组卡片高度大（展开后有成员列表），比 Agent 页少放几个。 */
+const PAGE_SIZE = 8
+
 export function GroupPage() {
   const qc = useQueryClient()
   const confirm = useConfirm()
@@ -83,18 +87,22 @@ export function GroupPage() {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Group | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
 
   const { data: groups, isLoading } = useQuery({
-    queryKey: ['groups'],
-    queryFn: () => fetchGroups(),
+    queryKey: ['groups', 'list', page],
+    queryFn: () => fetchGroups({ page, page_size: PAGE_SIZE }),
   })
 
+  // ⚠️ all: true —— 这是「加入组」的成员候选列表，必须拿全部活跃 Agent。
+  // 分页截断会让第 N 页之后的 Agent 无法被加入任何组，用户完全找不到原因。
   const { data: agents } = useQuery({
-    queryKey: ['agents'],
-    queryFn: () => fetchAgents({ status: 'active' }),
+    queryKey: ['agents', 'active', 'all'],
+    queryFn: () => fetchAgents({ status: 'active', all: true }),
   })
 
   const activeAgents = agents?.items ?? []
+  const groupsTotal = groups?.total ?? 0
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['groups'] })
@@ -248,7 +256,7 @@ export function GroupPage() {
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-ink-faint">
-          共 <span className="font-medium text-ink-soft">{groups?.items.length ?? 0}</span> 个组
+          共 <span className="font-medium text-ink-soft">{groupsTotal}</span> 个组
         </p>
         <p className="text-xs text-ink-faint">展开「管理成员」可调整顺序与路由策略</p>
       </div>
@@ -258,7 +266,7 @@ export function GroupPage() {
           <CardSkeleton />
           <CardSkeleton />
         </div>
-      ) : groups?.items.length === 0 ? (
+      ) : groupsTotal === 0 ? (
         <EmptyState
           icon="users"
           title="还没有 Agent 组"
@@ -440,6 +448,13 @@ export function GroupPage() {
               </Card>
             )
           })}
+          <Pagination
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={groupsTotal}
+            onChange={setPage}
+            loading={isLoading}
+          />
         </div>
       )}
     </Page>
