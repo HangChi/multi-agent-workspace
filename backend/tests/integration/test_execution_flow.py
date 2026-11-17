@@ -327,6 +327,8 @@ async def test_full_flow_needs_input_then_reply(
 
     assert run.status == RunStatus.NEEDS_INPUT.value
     assert any(e["type"] == "needs_input" for e in events)
+    first_segment = (await client.get(f"{RUNS_URL}/{run_id}", headers=headers)).json()["steps"]
+    assert first_segment, "needs_input 之前必须已经落库至少一个步骤"
 
     # reply 恢复
     resp = await client.post(
@@ -347,3 +349,11 @@ async def test_full_flow_needs_input_then_reply(
     assert run.status == RunStatus.COMPLETED.value
     injected = [m["content"] for m in resuming_llm.calls[0][0] if m["role"] == "user"]
     assert injected[-1] == "客户名单：ABC 公司"
+
+    # 历史步骤必须保留：它们是审计记录，也是外部调用/沙箱执行记录的父行。
+    steps = (await client.get(f"{RUNS_URL}/{run_id}", headers=headers)).json()["steps"]
+    kept_ids = [step["id"] for step in steps]
+    assert [step["id"] for step in first_segment] == kept_ids[: len(first_segment)]
+    seqs = [step["seq"] for step in steps]
+    assert seqs == sorted(seqs) and len(seqs) == len(set(seqs)), seqs
+    assert max(seqs) > max(step["seq"] for step in first_segment), "新步骤应从历史最大 seq 之后续写"

@@ -18,7 +18,7 @@ from typing import Any
 
 import redis
 import structlog
-from sqlalchemy import and_, delete, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import selectinload
 
 from app.core.audit import write_audit
@@ -445,16 +445,16 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
     runner.audit_denied = audit_denied
     steps: list[dict] = []
 
-    # FR-021 恢复执行（needs_input → running）：旧步骤已写库，重跑会撞 (run_id, seq) 唯一约束。
-    # 先清理旧步骤（缺陷 C 修复），再注入用户回复（缺陷 A 修复）。
-    old_steps = (
-        (await db.execute(select(Step.id).where(Step.run_id == run.id))).scalars().all()
+    # FR-021 恢复执行（needs_input → running）：历史步骤已经写库，重跑的新步骤从
+    # 最大 seq 之后续写，而不是把它们删掉。删除会让审计丢失整段执行过程，也会让
+    # external_tool_invocations.step_id / sandbox_executions.step_id 指向不存在的行，
+    # 运行详情里就会出现悬挂的调用记录。
+    last_seq = int(
+        (await db.execute(select(func.max(Step.seq)).where(Step.run_id == run.id))).scalar()
+        or 0
     )
-    if old_steps:
-        # 显式批量删除旧步骤（不触发 lazy 关系加载，兼容测试环境无 selectinload）
-        await db.execute(delete(Step).where(Step.run_id == run.id))
-        await db.commit()
-        logger.info("run_reply_cleanup_steps", run_id=_run_id_for_log(run), removed=len(old_steps))
+    if last_seq:
+        logger.info("run_resume_continue_seq", run_id=_run_id_for_log(run), from_seq=last_seq)
     user_reply = run.user_reply
     extra_messages = [user_reply] if user_reply else None
     if user_reply:
@@ -639,6 +639,7 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
             set_cost=set_cost,
             extra_user_messages=extra_messages,
             should_abort=check_cancelled,
+            initial_seq=last_seq,
         )
         await _persist_steps(db, run, steps)
         await db.commit()

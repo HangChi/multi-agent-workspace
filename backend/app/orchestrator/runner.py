@@ -144,12 +144,15 @@ class ReActRunner:
         set_cost: Callable[[int], Awaitable[Any]],
         extra_user_messages: list[str] | None = None,
         should_abort: Callable[[], Awaitable[bool]] | None = None,
+        initial_seq: int = 0,
     ) -> str:
         """执行一次 ReAct 循环，返回最终状态字符串。
 
         Args:
             extra_user_messages: needs_input 恢复执行时注入的用户回复（FR-021）。
             should_abort: 外部取消检查回调（FR-018）：每轮循环前 await，True 则终止执行。
+            initial_seq: 续写的步骤序号起点。恢复执行时传已落库的最大 seq，历史步骤
+                因此得以保留（step 是审计与外部调用/沙箱记录的父行，删了会留下悬挂外键）。
 
         Raises:
             MaxStepsExceeded / ExecutionTimeout / CostLimitExceeded / NeedsInput:
@@ -170,7 +173,8 @@ class ReActRunner:
             messages.append({"role": "user", "content": reply})
 
         step_count = 0
-        seq = 0  # 全局单调步骤序号（LLM/tool/final 共用，避免跨轮重复）
+        # 全局单调步骤序号（LLM/tool/final 共用，避免跨轮重复）；恢复执行时从历史最大值续写
+        seq = max(0, int(initial_seq))
         denied_count = 0
         # FR-019/SC-006：成本上限是「本次 Run 的累计」，不是「本次 run() 调用的累计」。
         # 从已落库值续算，否则 needs_input 恢复执行会把历史成本清零（熔断可被反复
