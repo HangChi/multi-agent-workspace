@@ -8,29 +8,42 @@
 
 | # | 问题 | 状态 | 提交 |
 |---|---|---|---|
-| 1 | MinIO 镜像已不可拉取（部署阻断） | ✅ 已修 | `10072a0` |
-| 2 | WS 凭证走 query（进 error_log） | ✅ 已修 | `3a6572f` |
-| 3 | 无 CSP（+ 内联脚本阻止上 CSP） | ✅ 已修 | `34a7937` |
-| 4 | Redis 每次操作新建连接 | ✅ 已修 | `e7ef9df` |
-| 5 | Worker 每个事件新建事件循环 | ✅ 已修 | `50bb0d8` |
-| 6 | MinIO 同步调用阻塞事件循环 | ✅ 已修 | `02cfa06` |
-| 7 | LLM 调用无超时 / Celery 无任务时限 | ✅ 已修 | `d4bd0fd` |
-| 8 | `App.tsx` render body 里调 init | ✅ 已修 | `04af068` |
-| 9 | 每个写操作两次 commit | ⏸ 未修（需服务层去 commit，跨 10+ 文件） | — |
-| 10 | 成本按「分」取整 | ⏸ 未修（需加字段 + 迁移，属数据模型变更） | — |
-| 11 | 上下文无裁剪 | ✅ 已修 | `02c2f7f` |
-| 12 | 运行时版本与 CI 不一致 | ✅ 部分修（镜像内导入冒烟） | `3ff7ca1` |
-| 13a | 角色守卫重复定义 ×10 | ✅ 已修 | `77d3946` |
-| 13b | 空壳 `marketplace_query_service` | ✅ 已修 | `cd74e90` |
-| 13c | `reply` 未用 Pydantic | ✅ 已修 | `cd74e90` |
-| 13d | `endpoints.ts` 1192 行单文件 | ⏸ 未修（纯拆分，收益低于改动风险） | — |
-| 13e | `_cancel_descendants` 逐层查询 | ⏸ 未修（树深 <5，BFS 成本可忽略） | — |
-| 13f | `revoke_all_refresh_tokens` SCAN+GET | ⏸ 未修（改 key 布局有漏撤销风险） | — |
-| 13g | react-refresh 2 个 warning | ⏸ 未修（需拆 hook 文件，纯风格） | — |
+| 1 | MinIO 镜像已不可拉取（部署阻断） | ✅ | `10072a0` |
+| 2 | WS 凭证走 query（进 error_log） | ✅ | `3a6572f` |
+| 3 | 无 CSP（+ 内联脚本阻止上 CSP） | ✅ | `34a7937` |
+| 4 | Redis 每次操作新建连接 | ✅ | `e7ef9df` |
+| 5 | Worker 每个事件新建事件循环 | ✅ | `50bb0d8` |
+| 6 | MinIO 同步调用阻塞事件循环 | ✅ | `02cfa06` |
+| 7 | LLM 调用无超时 / Celery 无任务时限 | ✅ | `d4bd0fd` |
+| 8 | `App.tsx` render body 里调 init | ✅ | `04af068` |
+| 9 | 每个写操作两次 commit | ⏸ **唯一未修**（见下） | — |
+| 10 | 成本按「分」取整 | ✅ | `e0c26d6` |
+| 11 | 上下文无裁剪 | ✅ | `02c2f7f` |
+| 12 | 运行时版本与 CI 不一致 | ✅ 部分（镜像内导入冒烟） | `3ff7ca1` |
+| 13a | 角色守卫重复定义 ×10 | ✅ | `77d3946` |
+| 13b | 空壳 `marketplace_query_service` | ✅ | `cd74e90` |
+| 13c | `reply` 未用 Pydantic | ✅ | `cd74e90` |
+| 13d | `endpoints.ts` 1192 行单文件 | ✅ 拆成 10 个域模块 + barrel | `62868c2` |
+| 13e | `_cancel_descendants` 逐层查询 | ✅ 递归 CTE | `26f1167` |
+| 13f | `revoke_all_refresh_tokens` SCAN+GET | ✅ 按用户索引集合 | `d3189d2` |
+| 13g | react-refresh 2 个 warning | ✅ 拆出 useToast/useConfirm | `99842c3` |
 
-**升级建议（未做）**：refresh token 改 `HttpOnly` cookie。它和 CSP 是同一件事的
-两侧——CSP 降低 XSS 成功概率，httpOnly 降低 XSS 成功后的损失。本次只做了前者，
-因为后者要动登录/刷新/前端存储三处，属于独立特性而非「修 bug」。
+**升级建议已落地**：refresh token 改 `HttpOnly` cookie（`e700472`）——CSP 降低 XSS
+成功概率，HttpOnly 降低成功后的损失，两者是同一件事的两侧。
+
+### 为什么 #9（两次 commit）没做
+
+写接口目前的形态是：service 内 `flush`（部分 `commit`）→ 端点 `commit` 业务 →
+`write_audit` → 再 `commit` 审计。要合成一次事务，必须让**所有**被复用的 service
+不再自行 commit，并逐个确认调用方（如 `schedule_service` 建单、`assignment_service`
+分配）不会因为事务边界变化而出现「部分提交」或「审计被一起回滚」。
+
+还有一个反向陷阱：`write_audit` 现在失败时会 `rollback()` 并吞掉异常。若直接把它
+和业务合进一个事务，**审计写失败会把业务一起回滚**，但端点仍会返回 200（业务对象
+已在内存里）——这是比「审计丢失」更糟的静默错误。正确做法是先给这些端点加
+`strict=True`，再合并事务。
+
+结论：这是一次需要独立排期 + 事务边界测试的重构，不适合混在本次修复里草率收尾。
 
 ---
 

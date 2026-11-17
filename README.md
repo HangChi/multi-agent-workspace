@@ -348,8 +348,16 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 - 出网规则管理、Agent 限制模式和访问查询端点已接入；TLS 解密、URL 路径/请求体级记录仍不在范围内。
 - 定时调度已实现：`/schedules` 页面可建规则的周期（cron）、目标（Agent 或组）与建单模板，Celery Beat 每分钟扫描到期的规则自动建单并分配执行。错过的计划时刻**不补跑**，合并记一条 `missed` 并注明次数。周期表达式的「日期」与「星期」同时限定时按**交集**求值（`0 9 1 * 1` 只在既是 1 号又是周一那天触发），页面上已明示。beat 的资源限额按实测定（1.0 CPU / 512MB，峰值 268 MiB、无 `max` 事件、CPU 节流 12%）。
 - 外部 MCP 工具已实现（`003`，65/65 任务）：仅支持 Streamable HTTP 传输，stdio 传输与工具市场之外的自定义 UI 不在范围内。
-- **尚未实现**：Prometheus/Grafana 指标与告警（代码里没有 `/metrics`）、Sentry 异常上报、定时备份与恢复演练（`deploy/README.md` 只有手工 `pg_dump` 一行）、CI 自动部署（CI 覆盖 lint/测试/镜像构建，上线仍是手工 `docker compose up -d --build`）。
-- 压力验证目前到 20 并发（`003` 真实栈：20 成功 / 10 工具错 / 10 超时全部收敛到终态），上百并发的压测未做。
+- **指标与告警**：`/metrics`（Prometheus 文本格式，零依赖实现）已接入，覆盖 HTTP/WS/LLM/沙箱/队列深度/成本；
+  Celery 进程通过 Redis 快照合并进同一端点。`deploy/observability/` 有抓取配置与 8 条告警规则，
+  但**阈值尚未在真实流量下验证**（这也是 003 发布状态里未闭环的那一项）。没有 Grafana 面板。
+- **备份**：`deploy/backup/backup.sh`（pg_dump + 对象目录 + manifest）与 `restore-drill.sh`
+  （还原到临时库并断言迁移版本/表数）已就绪，cron 写法见该目录 README；**恢复演练只在开发机跑过**。
+- **部署**：`deploy/deploy.sh`（迁移 → 换容器 → 健康门禁 → 失败回滚）+ CI 手动触发的 `deploy` job；
+  真正的生产环境部署 smoke 仍需有主机与域名时执行。
+- **尚未实现**：Sentry 异常上报、Grafana 面板、PITR（时间点恢复）。
+- **压力验证**：`deploy/verify/load_test.py` 实测 100 并发 818 req/s、200 并发 0 错误，
+  但 P95 在 100 并发下突破 500ms（2 vCPU 开发机），详见 `docs/load-test-2026-11-17.md`。
 - 前端单测覆盖页面、store 与组件（17 文件 / 93 例）；真实浏览器的端到端验证依靠人工或按需脚本，仓库内没有 Playwright e2e。
 - 未指定开源许可证；仓库为私有自用。
 

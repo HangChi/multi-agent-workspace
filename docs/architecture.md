@@ -373,9 +373,14 @@ Prometheus/Grafana 监控告警 · 审计日志完善 · 备份演练 · CI/CD�
 
 **验收**：系统稳定运行、故障可发现可回溯、扩容操作文档化。
 
-**当前状态（2026-11-17）**：Phase 1 / Phase 2 已完成并有 CI 门禁（含原生 Linux 与真实栈验收）；
-Phase 3 只完成了 CI 的「lint + 测试 + 镜像构建」——Prometheus 告警、备份演练、上百并发压测、
-自动部署、安全加固复核（`worker` 挂载 `docker.sock` 的等价 root 风险）均未开工。
+**当前状态（2026-11-17）**：Phase 1 / Phase 2 已完成并有 CI 门禁（含原生 Linux 与真实栈验收）。
+Phase 3 进展：
+- ✅ CI（lint + 测试 + 镜像构建）+ 手动触发的部署 job + `deploy/deploy.sh`（健康门禁/回滚）
+- ✅ Prometheus 指标（`/metrics`，含 Worker 侧跨进程合并）与 8 条告警规则（阈值待在真实流量下校准）
+- ✅ 备份脚本 + 恢复演练脚本（演练只在开发机验证）
+- ✅ 上百并发压测（100/200 并发，0 错误；延迟受 2 vCPU 开发机限制）
+- ⏳ 仍缺：Grafana 面板、Sentry 上报、PITR、生产环境部署 smoke、
+  以及 `worker` 挂载 `docker.sock`（≈宿主 root）的安全加固复核
 
 ---
 
