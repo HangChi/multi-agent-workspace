@@ -11,14 +11,37 @@ from app.core.config import settings
 from app.core.security import (
     create_token_pair,
     decode_token,
-    hash_password,
-    verify_password,
+    hash_password_async,
+    verify_password_async,
 )
 from app.core.token_store import consume_refresh_token, register_refresh_token
 from app.models.invite_code import InviteCode
 from app.models.user import User
 
 _REFRESH_TTL_SECONDS = settings.jwt_refresh_ttl_days * 24 * 3600
+
+# 用户不存在时用来消耗等量 CPU 的假哈希。
+# 目的：让「邮箱未注册」与「密码错误」的响应耗时接近，避免靠计时枚举已注册邮箱。
+#
+# ⚠️ 必须是**合法**的 bcrypt 串：手写一个长得像的字符串会让 checkpw 立刻抛
+# "Invalid salt"，而 verify_password 会把 ValueError 吞成 False —— 结果就是
+# 不存在的邮箱秒回、存在的邮箱等 174ms，时序防护形同虚设且极难察觉。
+# 因此这里用 gensalt 真造一个，且生成也放进线程池（懒计算）：
+# 只有真有人拿不存在的邮箱登录时才付这一次 ~170ms。
+_DUMMY_PASSWORD_HASH: str | None = None
+
+
+async def _dummy_password_hash() -> str:
+    """懒生成并缓存假哈希（在线程池里算，不阻塞事件循环）。
+
+    并发首次调用可能各自生成一次，无害（结果等价，仅多算一次）。
+    """
+    global _DUMMY_PASSWORD_HASH
+    if _DUMMY_PASSWORD_HASH is None:
+        _DUMMY_PASSWORD_HASH = await hash_password_async(
+            "dummy-password-for-timing-equalization"
+        )
+    return _DUMMY_PASSWORD_HASH
 
 
 def _refresh_jti(token: str) -> str | None:
@@ -77,7 +100,7 @@ async def register(
 
     user = User(
         email=email,
-        password_hash=hash_password(password),
+        password_hash=await hash_password_async(password),
         role=role,
         invite_code_id=invite.id,
     )
@@ -90,9 +113,19 @@ async def register(
 
 
 async def login(db: AsyncSession, *, email: str, password: str) -> tuple[User, dict[str, str]]:
-    """登录：校验邮箱 + 密码 + 账号状态。"""
+    """登录：校验邮箱 + 密码 + 账号状态。
+
+    bcrypt 走线程池（`verify_password_async`），否则单次 ~174ms 的 CPU 活会把
+    整个事件循环钉住，并发登录直接拖垮全站。
+
+    用户不存在时也跑一次 bcrypt（对固定假哈希），让「邮箱没注册」与「密码错」
+    耗时一致——否则响应时间可用来枚举已注册邮箱。
+    """
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
-    if user is None or not verify_password(password, user.password_hash):
+    if user is None:
+        await verify_password_async(password, await _dummy_password_hash())
+        raise AppError("FORBIDDEN", "邮箱或密码错误")
+    if not await verify_password_async(password, user.password_hash):
         raise AppError("FORBIDDEN", "邮箱或密码错误")
     if user.status != "active":
         raise AppError("FORBIDDEN", "账号已被禁用")
