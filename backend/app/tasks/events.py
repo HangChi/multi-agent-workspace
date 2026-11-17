@@ -3,11 +3,52 @@
 对齐 contracts/api.md WS 事件类型：
 status_change / step_new / step_update / log_line / cost_update /
 run_completed / run_failed / run_cancelled / needs_input / run_timeout。
+
+⚠️ 这里刻意用**同步** Redis 客户端，而不是 `app.core.events.publish_run_event`：
+Worker 是 Celery prefork 的同步进程，原先每个事件都 `asyncio.run(...)`，
+等于**每发一条事件就新建一个事件循环 + 一条 TCP 连接**。沙箱 stdout 按 4 KiB
+分块上报，1 MB 输出就是 256 次建连，全在关键路径上同步等待。
+
+同步客户端用一个进程级单例（连接池），线程安全的：沙箱读取线程直接调用即可，
+不必再绕 `loop.call_soon_threadsafe`。
 """
 
+import json
 from typing import Any
 
-from app.core.events import publish_run_event
+import redis
+import structlog
+
+from app.core.config import settings
+
+logger = structlog.get_logger(__name__)
+
+_run_event_prefix = "run:"
+
+_client: redis.Redis | None = None
+
+
+def channel_for_run(run_id: str) -> str:
+    """频道名：必须与 API 侧订阅方（app.core.events）保持一致。"""
+    return f"{_run_event_prefix}{run_id}"
+
+
+def _redis_client() -> redis.Redis:
+    """进程级单例（懒创建）。
+
+    Celery prefork 下模块在父进程导入、客户端在子进程首次用到时才创建，
+    因此每条连接天然属于 worker 自己，不存在跨进程复用 fd 的问题。
+    超时必须有：Redis 抖动时要「快速失败」，不能把 Worker 挂在 publish 上。
+    """
+    global _client
+    if _client is None:
+        _client = redis.from_url(
+            settings.redis_url,
+            decode_responses=True,
+            socket_timeout=2.0,
+            socket_connect_timeout=2.0,
+        )
+    return _client
 
 
 def status_change(run_id: str, status: str) -> None:
@@ -129,18 +170,15 @@ def egress_denied(
 def _publish(run_id: str, payload: dict[str, Any]) -> None:
     """发布事件；Redis 抖动不抛出（Worker 不因事件失败中断执行）。"""
     try:
-        # 异步发布：Worker 上下文无事件循环时退化为同步 publish
-        import asyncio
-
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            asyncio.run(publish_run_event(run_id, payload))
-        else:
-            asyncio.ensure_future(publish_run_event(run_id, payload))
-    except (ConnectionError, OSError, ValueError) as exc:
-        import structlog
-
-        structlog.get_logger(__name__).warning(
-            "event_publish_failed", run_id=run_id, error=str(exc)
+        _redis_client().publish(
+            channel_for_run(run_id), json.dumps(payload, ensure_ascii=False)
+        )
+    except (redis.RedisError, OSError, ValueError) as exc:
+        # 注意：redis.exceptions.ConnectionError **不继承** 内建 ConnectionError，
+        # 必须显式捕获 redis.RedisError，否则 Redis 抖动会把 Worker 的整次执行打断。
+        logger.warning(
+            "event_publish_failed",
+            run_id=run_id,
+            event_type=payload.get("type"),
+            error=type(exc).__name__,
         )

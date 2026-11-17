@@ -582,13 +582,12 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
         executor = runner.executors.get(str(detail["tool_name"]))
         set_output_callback = getattr(executor, "set_output_callback", None)
         if callable(set_output_callback):
-            loop = asyncio.get_running_loop()
             run_id, execution_id = str(run.id), str(detail["execution_id"])
 
             def publish_output(stream: str, text: str) -> None:
-                loop.call_soon_threadsafe(
-                    run_events.sandbox_output, run_id, execution_id, stream, text
-                )
+                # 事件发布已是同步单例客户端（线程安全），沙箱读取线程可直接调用：
+                # 不再经 loop.call_soon_threadsafe 绕一圈，也就不会阻塞事件循环。
+                run_events.sandbox_output(run_id, execution_id, stream, text)
 
             set_output_callback(publish_output)
         set_egress_snapshot = getattr(executor, "set_egress_snapshot", None)
