@@ -42,20 +42,54 @@ class LLMResponse:
 
 
 # 模型单价表：每 1K token 成本（美元）。元组 (input, output)。
-# 以 gpt-4o-mini 为基准，可扩展更多模型。
+#
+# 全部取**厂商官方刊例价**，来源、档位与核对日期见 docs/llm-pricing.md。
+# 人民币价按 1 USD ≈ 7.0 CNY 折算（聚合网关的实际售价通常另算，这里只求量级对）。
+# key 一律小写；端点上的变体名（`Deepseek-V4.1-Flash-1017`）按最长前缀匹配。
 _MODEL_PRICES_USD_PER_1K: dict[str, tuple[float, float]] = {
+    # OpenAI（直连官方时用）
     "gpt-4o-mini": (0.00015, 0.0006),
     "gpt-4o": (0.0025, 0.01),
     "gpt-4.1-mini": (0.0004, 0.0016),
     "gpt-4.1": (0.002, 0.008),
+    # DeepSeek（已停用的旧模型名保留，避免历史数据回退到 gpt-4o-mini 单价）
     "deepseek-chat": (0.00027, 0.0011),
     "deepseek-reasoner": (0.00055, 0.00219),
+    # 2026-11 接入的端点：官方 1 / 2 元 per 1M
+    "deepseek-v4.1-flash": (0.000143, 0.000286),
+    # 官方 3 / 6 元 per 1M（2.5 折优惠期，原价 12 / 24）
+    "deepseek-v4-pro": (0.000429, 0.000857),
+    # 智谱：官方 8 / 28 元 per 1M
+    "glm-5.3": (0.001143, 0.004),
+    # 智谱：官方 0.8 / 2.8 元 per 1M
+    "glm-5.3-flash": (0.000114, 0.0004),
+    # 月之暗面：官方 20 / 100 元 per 1M（缓存命中 2 元）
+    "kimi-k3": (0.002857, 0.014286),
+    # 阿里：官方 0.15 / 1.5 元 per 1M（输入 ≤128K 档）
+    "qwen-flash": (0.0000214, 0.000214),
+    # 阿里：官方美元价（华北2）$1.65 / $4.951 per 1M
+    "qwen3.8-max": (0.00165, 0.004951),
+    # 字节：官方 1.6 / 8.0 元 per 1M（输入 ≤32K 档）
+    "doubao-seed-2.0-pro": (0.000229, 0.001143),
 }
+
+_FALLBACK_PRICE = _MODEL_PRICES_USD_PER_1K["gpt-4o-mini"]
 
 
 def _price_for_model(model: str) -> tuple[float, float]:
-    """取模型单价；未知模型按 gpt-4o-mini 保守估（防熔断失效）。"""
-    return _MODEL_PRICES_USD_PER_1K.get(model, _MODEL_PRICES_USD_PER_1K["gpt-4o-mini"])
+    """取模型单价。
+
+    精确匹配 → 最长前缀匹配（端点会带 `-1017` 这类版本后缀）→ 回退 gpt-4o-mini。
+    回退是保守估计：未知模型按偏贵的单价算，熔断只会更早触发。
+    """
+    key = model.split("/", 1)[-1].strip().lower()
+    exact = _MODEL_PRICES_USD_PER_1K.get(key)
+    if exact is not None:
+        return exact
+    for name in sorted(_MODEL_PRICES_USD_PER_1K, key=len, reverse=True):
+        if key.startswith(name):
+            return _MODEL_PRICES_USD_PER_1K[name]
+    return _FALLBACK_PRICE
 
 
 def litellm_model_name(model: str, base_url: str) -> str:
