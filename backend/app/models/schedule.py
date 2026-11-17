@@ -68,9 +68,11 @@ class Schedule(Base):
     template_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     template_expected_output: Mapped[str | None] = mapped_column(Text, nullable=True)
     template_priority: Mapped[str] = mapped_column(
-        # 复用 0001 已创建的 request_priority 类型（create_type=False），
-        # 否则 SQLAlchemy 会在建表时尝试再 CREATE TYPE 一次并失败。
-        Enum("high", "normal", "low", name="request_priority", create_type=False),
+        # 复用 0001 已创建的 request_priority 类型。
+        # 模型层保留默认 create_type（与 request.py 的同名声明一致，
+        # create_all 靠 checkfirst 去重）；迁移层才写 create_type=False，
+        # 因为那里的类型由 0001 建好了。
+        Enum("high", "normal", "low", name="request_priority"),
         nullable=False,
         server_default="normal",
     )
@@ -103,7 +105,6 @@ class Schedule(Base):
             "skipped_busy",
             "failed",
             name="schedule_trigger_result",
-            create_type=False,
         ),
         nullable=True,
     )
@@ -188,7 +189,6 @@ class ScheduleTrigger(Base):
             "skipped_busy",
             "failed",
             name="schedule_trigger_result",
-            create_type=False,
         ),
         nullable=False,
     )

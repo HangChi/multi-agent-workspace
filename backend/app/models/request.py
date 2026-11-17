@@ -47,7 +47,7 @@ class Request(Base):
     # 已经产生的需求（进而连带 Run、Step、制品）。规则是"以后怎么触发"，
     # 需求是"已经发生过的事情"，后者不因前者被撤销而消失。
     source_schedule_id: Mapped[str | None] = mapped_column(
-        ForeignKey("schedules.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("schedules.id", ondelete="SET NULL"), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
