@@ -32,5 +32,11 @@ Thumbs.db
 # Python 构建产物
 *.egg-info/
 
+# 测试覆盖率产物（pytest-cov 生成，可复现，不入库）
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
 # 验证脚本产出的截图（可复现，不入库）
 deploy/verify/artifacts/

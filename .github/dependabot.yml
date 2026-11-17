@@ -1,0 +1,111 @@
+# 依赖自动更新。
+#
+# 为什么需要：这个项目的依赖横跨三个生态（pip / npm / GitHub Actions），
+# 手动跟进不现实。缺了自动更新，安全通告只能靠人偶然看见 —— 而
+# `pip-audit` 这类扫描只有在有人升级时才有意义。
+#
+# 策略取舍：
+# - 分生态建组，各自独立 PR：pip 的 patch 与 npm 的 patch 失败原因往往不同，
+#   混在一个 PR 里只要有一项红就全红，排查成本高。
+# - 不自动合并。这个项目有 sandbox / 网络隔离 / 对象存储这类对版本敏感的
+#   部分（docker SDK、minio、playwright 都出现过破坏性变更），
+#   "自动 merge patch" 在这里是负债而非资产。
+# - 动作类（github-actions）合并成一条 PR：它们改动小、生命周期短，
+#   分开建只会刷屏。
+version: 2
+
+updates:
+  # ---------- 后端（pip / pyproject.toml）----------
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: '02:00'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    groups:
+      # 补丁级合并：风险低，一起看一起合
+      backend-patch:
+        applies-to: version-updates
+        update-types: [patch]
+      backend-minor:
+        applies-to: version-updates
+        update-types: [minor]
+    labels:
+      - dependencies
+      - backend
+    commit-message:
+      prefix: 'chore(deps)'
+
+  # ---------- 前端（npm / package-lock.json）----------
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: '02:00'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    groups:
+      # React 全家桶有版本耦合（react / react-dom / @types/*），
+      # 拆开升会互相冲突，必须作为一个整体
+      react-stack:
+        patterns:
+          - react
+          - react-dom
+          - '@types/react'
+          - '@types/react-dom'
+      frontend-patch:
+        applies-to: version-updates
+        update-types: [patch]
+      frontend-minor:
+        applies-to: version-updates
+        update-types: [minor]
+    labels:
+      - dependencies
+      - frontend
+    commit-message:
+      prefix: 'chore(deps)'
+    ignore:
+      # 大版本升级需人工评估 API 变更，不让机器人开 PR 制造噪音
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+
+  # ---------- CI 工作流自身用到的 Actions ----------
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns: ['*']
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: 'chore(ci)'
+
+  # ---------- 容器基础镜像 ----------
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - docker
+    commit-message:
+      prefix: 'chore(docker)'
+
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - docker
+    commit-message:
+      prefix: 'chore(docker)'

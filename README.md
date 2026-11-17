@@ -264,12 +264,23 @@ Agent 可挂载的工具由执行器注册表提供，当前实现 3 个：
 
 ## 测试与质量门禁
 
-CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在每次 push / PR 跑两条流水线：
+CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在每次 push / PR 跑以下流水线：
 
-- **后端**：`ruff check` → `mypy app` → `alembic upgrade head`（空库可达性）→ `pytest`
+- **后端**：`ruff check` → `ruff format --check` → `mypy app` → `alembic upgrade head`
+  （空库可达性）→ `pytest --cov`（带覆盖率门禁）
   （Postgres 16 + Redis 7 service，MinIO 用 `docker run` 起，因为 service 不允许自定义启动命令）
-- **前端**：`eslint` → `tsc --noEmit` → `vitest run` → `vite build`
+- **前端**：`eslint` → `prettier --check` → `tsc --noEmit` → `vitest run` → `vite build`
   （并断言 CSS 产物 > 5KB，专防 PostCSS/Tailwind 配置丢失导致整站零样式回归）
+- **镜像**：`docker build backend` → 起容器 → 容器内自请求 `/openapi.json` 探活 → 断言非 root
+
+三道门禁解决的是同一类问题：**代码没问题、但交付物坏了**。
+
+- `ruff format --check` / `prettier --check`：没有它，格式会随各自编辑器的保存钩子漂移，
+  最终每次 diff 都夹带无关改动。`ruff check` 只看语义，不管排版，两者必须都有。
+- 覆盖率门禁（阈值见 `backend/pytest.ini` 的 `fail_under`）：没有它，删测试不会有任何反馈，
+  覆盖率只会单向下降。
+- 镜像构建 + 启动探活：没有它，`Dockerfile` 可以长期失修而 CI 全绿 ——
+  依赖清单改了忘同步 lock、基础镜像 tag 消失，都要拖到部署当天才发现。
 
 本地等价命令：
 
@@ -277,13 +288,18 @@ CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在每次 push / PR 
 # 后端（测试库需先建：createdb agent_workbench_test）
 cd backend
 DATABASE_URL="postgresql+asyncpg://aw:<密码>@127.0.0.1:5432/agent_workbench_test" python -m pytest -q
-python -m ruff check app tests && python -m mypy app
+python -m ruff check app tests && python -m ruff format --check . && python -m mypy app
 
 # 前端
-cd frontend && npm run lint && npm run typecheck && npm test && npm run build
+cd frontend && npm run lint && npm run format:check && npm run typecheck && npm test && npm run build
+
+# 镜像（可选，验证 Dockerfile 仍可用）
+docker build -t aw-backend:local backend
 ```
 
 > pytest 必须显式传 `DATABASE_URL` 指向 `_test` 库，否则 conftest 会回落到代码内默认口令。
+>
+> 格式化修复用 `ruff format .` 与 `npm run format`；只用 `--check` 看是否干净。
 
 ### 真实栈端到端验证
 

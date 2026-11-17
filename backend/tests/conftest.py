@@ -52,7 +52,9 @@ TEST_DATABASE_URL = settings.database_url
 
 # NullPool：每个连接独立创建/关闭，避免跨 event loop 复用连接
 engine = create_async_engine(TEST_DATABASE_URL, echo=False, poolclass=NullPool)
-TestSession = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False, autoflush=False)
+TestSession = async_sessionmaker(
+    engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
+)
 
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
@@ -66,10 +68,49 @@ async def _setup_test_db() -> AsyncGenerator[None, None]:
         # now correctly fail closed instead of silently granting code defaults.
         await conn.execute(
             Tool.__table__.insert(),
-            [{**asdict(spec), 'enabled': True} for spec in CATALOG.values()],
+            [{**asdict(spec), "enabled": True} for spec in CATALOG.values()],
         )
     yield
     await engine.dispose()
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def _reset_login_throttle() -> AsyncGenerator[None, None]:
+    """会话级：清掉 Redis 里残留的登录限流计数。
+
+    为什么需要：登录防爆破把失败次数记在 Redis（不在测试库里），而
+    `_setup_test_db` 只重建 PostgreSQL，Redis 从来没人清理。于是
+    `login_fail:ip:<固定测试IP>`、`login_fail:acct:<固定邮箱>|<IP>`
+    会**跨 pytest 进程累积**：第一次跑全绿，隔一会儿重跑就撞上 429。
+
+    这个缺陷很隐蔽 —— 单用例看都是对的（随机邮箱做隔离），只有整库重跑
+    才暴露，而且表现成「跟本次改动毫不相关的 4 个失败」。
+
+    这里在会话开始时清一次；用例内仍用随机邮箱自保（见
+    test_login_rate_limit.py 的 _unique_email），两者互补：
+    会话级清理保证可重复，用例级隔离保证互不干扰。
+    """
+    import redis.asyncio as aioredis
+
+    from app.core.config import settings
+
+    client = aioredis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        # scan_iter 而非 keys：避免在大 keyspace 上阻塞 Redis
+        stale = [key async for key in client.scan_iter("login_fail:*")]
+        if stale:
+            await client.delete(*stale)
+    except Exception as exc:  # noqa: BLE001
+        # 没有 Redis 时（纯单测）不该让整个测试会话失败；
+        # 需要限流的集成测试会自己暴露连接问题。
+        print(f"[conftest] 跳过登录限流计数清理：{type(exc).__name__}")
+    finally:
+        try:
+            await client.aclose()
+        except Exception as exc:  # noqa: BLE001
+            # 关闭失败不影响测试结论（连接可能本就没建立成功）
+            print(f"[conftest] 关闭 Redis 连接失败：{type(exc).__name__}")
+    yield
 
 
 @pytest_asyncio.fixture

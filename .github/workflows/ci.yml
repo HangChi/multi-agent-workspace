@@ -179,13 +179,62 @@ jobs:
         working-directory: backend
         run: ruff check app tests
 
+      # 格式检查放在 lint 之后：ruff check 只看语义，ruff format 看排版，
+      # 两者互补。没有这一步，格式化风格会随作者编辑器配置漂移。
+      - name: ruff format（格式一致性）
+        working-directory: backend
+        run: ruff format --check .
+
       - name: mypy
         working-directory: backend
         run: mypy app
 
-      - name: pytest
+      # 带覆盖率跑：门槛写在 pytest.ini 的 [coverage:report] fail_under，
+      # 低于阈值非零退出。--cov 是显式加的，本地快速循环可以不带。
+      - name: pytest（含覆盖率门禁）
         working-directory: backend
-        run: pytest -q
+        run: pytest -q --cov --cov-report=term
+
+  image:
+    name: 后端镜像（可构建 + 可启动）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 只构建、不推送：验证 Dockerfile 与 uv.lock 仍然自洽。
+      # 没有这一步时，Dockerfile 可以长期失修而 CI 全绿 ——
+      # 依赖清单改了却忘了同步 lock、基础镜像 tag 消失，都要到部署时才发现。
+      - name: 构建镜像
+        run: docker build -t aw-backend:ci backend
+
+      # 起得来才算可构建：缺 .venv 入口、CMD 写错、依赖漏装
+      # 都只会在运行期暴露，构建成功掩盖不了。
+      - name: 启动并探活
+        run: |
+          docker run -d --name aw-ci \
+            -e DATABASE_URL="postgresql+asyncpg://aw:x@127.0.0.1:5432/aw" \
+            -e REDIS_URL="redis://127.0.0.1:6379/0" \
+            -e JWT_SECRET="ci-only-secret-0123456789abcdef" \
+            aw-backend:ci
+          for i in $(seq 1 30); do
+            # 只请求不依赖数据库的 openapi.json，确认 ASGI 应用已就绪
+            if docker exec aw-ci /opt/aw/.venv/bin/python -c \
+              "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/openapi.json', timeout=3)" 2>/dev/null; then
+              echo "镜像启动正常"; exit 0
+            fi
+            sleep 1
+          done
+          echo "镜像启动失败"
+          docker logs aw-ci | tail -30
+          exit 1
+
+      - name: 确认以非 root 运行
+        run: |
+          uid=$(docker run --rm --entrypoint /usr/bin/id aw-backend:ci -u)
+          echo "容器内 uid=$uid"
+          test "$uid" != "0"
 
   frontend:
     name: 前端（lint + 类型 + 单测 + 构建）
@@ -208,6 +257,10 @@ jobs:
       - name: eslint
         working-directory: frontend
         run: npm run lint
+
+      - name: prettier（格式一致性）
+        working-directory: frontend
+        run: npm run format:check
 
       - name: 类型检查
         working-directory: frontend
