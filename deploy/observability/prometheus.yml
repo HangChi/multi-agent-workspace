@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    service: agent-workbench
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  # API 进程直接暴露 /metrics（不经 nginx：nginx 只反代 /api 与 /ws）
+  - job_name: aw-api
+    static_configs:
+      - targets: ['api:8000']
+    metrics_path: /metrics
+    # 若在 .env 里设置了 METRICS_TOKEN，取消下面三行注释并把 token 挂进容器：
+    #   docker compose ... -v ./observability/metrics_token:/etc/prometheus/metrics_token:ro
+    # authorization:
+    #   type: Bearer
+    #   credentials_file: /etc/prometheus/metrics_token
+
+  # Prometheus 自身（用于观察抓取是否健康：up / scrape_duration_seconds）
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']

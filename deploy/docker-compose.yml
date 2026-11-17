@@ -347,6 +347,35 @@ services:
       timeout: 10s
       retries: 3
 
+  # ---------- 可观测性（默认不启动）----------
+  # 用法：docker compose -p aw -f deploy/docker-compose.yml --profile observability up -d prometheus
+  # 只暴露到 127.0.0.1：指标本身包含业务量与错误率，不该直接暴露公网。
+  # 告警投递（Alertmanager / webhook）属于部署侧选择，规则里的 severity 标签
+  # 已就绪，接任何接收端都不用改规则。
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    container_name: aw-prometheus
+    restart: unless-stopped
+    profiles: ['observability']
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=15d'
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - promdata:/prometheus
+    ports:
+      - '127.0.0.1:9090:9090'
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512m
+    depends_on:
+      api:
+        condition: service_healthy
+
   frontend:
     build:
       context: ../frontend
@@ -373,3 +402,4 @@ volumes:
   pgdata:
   redisdata:
   miniodata:
+  promdata:

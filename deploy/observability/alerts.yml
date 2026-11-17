@@ -1,0 +1,102 @@
+# 告警阈值（Phase 3）。
+#
+# 原则：每条规则都必须能对应到一个「用户会痛」的现象，而不是「某个数字难看」。
+# 阈值取的是本项目的实测基线（见 specs/002、003 的验收记录），不是拍脑袋：
+# - API 延迟基线 P95 3.3~12.2 ms（空载），压测峰值 51 ms → 2s 已经是很宽的兜底
+# - 003 真实栈 20 并发下 10 成功/10 工具错/10 超时是**故意注入**的场景，
+#   所以失败率阈值只用于发现「非注入性」的持续劣化，取 15 分钟窗口
+# - LLM 成本按分累计：5000 分 = 50 元/天，超过就值得看一眼
+#
+# 指标名必须与 backend/app/core/metrics.py 一致；
+# `deploy/verify/test_alert_rules.py` 会做契约校验，改名忘了同步这里会直接失败。
+groups:
+  - name: aw-availability
+    rules:
+      - alert: AwApiDown
+        expr: up{job="aw-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Agent 工作台 API 不可达'
+          description: 'Prometheus 连续 2 分钟抓不到 api:8000/metrics。先看容器状态与 /api/v1/health/ready。'
+
+      - alert: AwApiHighErrorRate
+        expr: |
+          sum(rate(aw_http_requests_total{status=~"5.."}[5m]))
+            /
+          clamp_min(sum(rate(aw_http_requests_total[5m])), 0.001) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'API 5xx 比例超过 5%'
+          description: '5 分钟窗口内 5xx 占比 {{ $value | humanizePercentage }}。先按 X-Request-ID 回查结构化日志。'
+
+      - alert: AwApiSlowP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(aw_http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'API P95 延迟超过 2s'
+          description: '当前 P95 = {{ $value }}s。常见原因：数据库连接池耗尽、MinIO/Redis 卡住、事件循环被同步调用阻塞。'
+
+  - name: aw-execution
+    rules:
+      - alert: AwQueueBacklog
+        expr: aw_celery_queue_depth > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Celery 队列积压 {{ $value }} 个任务'
+          description: '持续 10 分钟积压说明 Worker 消费不过来或已挂：先看 aw-worker 的 inspect ping 与并发配置。'
+
+      - alert: AwRunFailureRate
+        expr: |
+          sum(rate(aw_run_terminal_total{status=~"failed|timeout"}[15m]))
+            /
+          clamp_min(sum(rate(aw_run_terminal_total[15m])), 0.001) > 0.3
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Run 失败率超过 30%'
+          description: '15 分钟窗口内失败+超时占比 {{ $value | humanizePercentage }}。先看是否集中在某个 Agent/模型。'
+
+      - alert: AwLlmErrorRate
+        expr: |
+          sum(rate(aw_llm_calls_total{outcome=~"error|timeout"}[10m]))
+            /
+          clamp_min(sum(rate(aw_llm_calls_total[10m])), 0.001) > 0.2
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'LLM 调用失败率超过 20%'
+          description: '失败或超时占比 {{ $value | humanizePercentage }}。检查上游额度、网络与 LLM_TIMEOUT_SECONDS 是否过小。'
+
+      - alert: AwSandboxFailureRate
+        expr: sum(rate(aw_sandbox_executions_total{status!="ok"}[15m])) > 0.2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: '沙箱非成功执行速率 {{ $value }}/s'
+          description: '持续失败通常是镜像缺失、磁盘/内存配额被打满，或出网策略挡了必需域名。'
+
+  - name: aw-cost
+    rules:
+      - alert: AwDailyLlmCost
+        expr: sum(increase(aw_llm_cost_cents_total[24h])) > 5000
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: '近 24 小时 LLM 成本超过 50 元'
+          description: '当前 {{ $value }} 分。检查是否有 Agent 的 max_steps/成本上限设置过宽，或上下文裁剪失效。'
