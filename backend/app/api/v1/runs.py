@@ -15,7 +15,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
@@ -220,31 +220,47 @@ async def get_execution_egress(
 _CANCELLABLE = frozenset({"queued", "running", "needs_input"})
 
 
+# 递归 CTE 一次取完整棵子树。用 UNION（不是 UNION ALL）去重：
+# 数据若有环（人工改库/历史脏数据），UNION ALL 会无限递归，UNION 会停下来。
+_DESCENDANT_IDS_SQL = text(
+    """
+    WITH RECURSIVE tree AS (
+        SELECT id FROM runs WHERE parent_run_id = :root
+        UNION
+        SELECT r.id FROM runs r JOIN tree t ON r.parent_run_id = t.id
+    )
+    SELECT id FROM tree
+    """
+)
+
+
 async def _cancel_descendants(db: AsyncSession, root_id: str) -> list[str]:
-    """取消该 Run 的所有非终态后代（BFS，容忍任意深度）。
+    """取消该 Run 的所有非终态后代（递归 CTE，两条查询完成）。
 
     fan_out / pipeline 的父 Run 只是编排占位，真正花钱的是子 Run；只把父 Run 置为
     cancelled 时子 Run 会继续调 LLM、跑沙箱并累计成本（FR-018 的「用户取消后必须
     真的停下」就不成立）。
+
+    此前是逐层 BFS：树有多深就查多少次，且每次把整行 ORM 对象都加载出来。
+    现在一条 CTE 拿 id、一条查询拿需要迁移的 Run，与深度无关。
     """
-    cancelled: list[str] = []
-    frontier = [root_id]
-    seen: set[str] = set()
-    while frontier:
-        parent_id = frontier.pop()
-        if parent_id in seen:
-            continue
-        seen.add(parent_id)
-        children = (
-            (await db.execute(select(Run).where(Run.parent_run_id == parent_id)))
-            .scalars()
-            .all()
+    rows = (await db.execute(_DESCENDANT_IDS_SQL, {"root": root_id})).all()
+    if not rows:
+        return []
+    ids = [row[0] for row in rows]
+    runs = (
+        (
+            await db.execute(
+                select(Run).where(Run.id.in_(ids), Run.status.in_(sorted(_CANCELLABLE)))
+            )
         )
-        for child in children:
-            frontier.append(child.id)
-            if child.status in _CANCELLABLE:
-                transition(child, RunStatus.CANCELLED)
-                cancelled.append(child.id)
+        .scalars()
+        .all()
+    )
+    cancelled: list[str] = []
+    for run in runs:
+        transition(run, RunStatus.CANCELLED)
+        cancelled.append(run.id)
     return cancelled
 
 

@@ -438,3 +438,25 @@ async def test_artifact_download_redirects(client, make_headers, db_session):
     assert resp.status_code == 302
     location = resp.headers.get("location", "")
     assert location.startswith(("http", "/"))
+
+
+async def test_cancel_cascades_through_grandchildren(client, make_headers, db_session):
+    """级联必须穿透任意深度（递归 CTE），而不是只看直接子级。"""
+    headers = await make_headers()
+    root = await _setup_run(client, headers, db_session, status="running")
+    root.assignee_type = "group"
+    root.strategy = "pipeline"
+    child = await _child_run(db_session, root, status="running", sequence=0)
+    grandchild = await _child_run(db_session, child, status="queued", sequence=0)
+    great_grandchild = await _child_run(
+        db_session, grandchild, status="queued", sequence=0
+    )
+    await db_session.commit()
+
+    resp = await client.post(f"{RUNS_URL}/{root.id}/cancel", headers=headers)
+
+    assert resp.status_code == 200
+    assert resp.json()["cancelled_runs"] == 4  # root + 三层后代
+    for run in (root, child, grandchild, great_grandchild):
+        await db_session.refresh(run)
+        assert run.status == "cancelled"
