@@ -42,12 +42,15 @@ export async function login(payload: LoginRequest): Promise<AuthResponse> {
   return data
 }
 
-/** 刷新 token。 */
-export async function refreshToken(refresh: string): Promise<TokenPair> {
-  const { data } = await apiClient.post<{ tokens: TokenPair }>('/auth/refresh', {
-    refresh_token: refresh,
-  })
+/** 刷新 token：refresh 在 HttpOnly cookie 里，请求体为空。 */
+export async function refreshToken(): Promise<TokenPair> {
+  const { data } = await apiClient.post<{ tokens: TokenPair }>('/auth/refresh', {})
   return data.tokens
+}
+
+/** 登出：服务端撤销 refresh 并清 cookie。 */
+export async function logout(): Promise<void> {
+  await apiClient.post('/auth/logout', {})
 }
 
 /** 当前用户。 */

@@ -321,9 +321,10 @@ class ReActRunner:
             # 4. 累计成本 + 熔断检查（FR-019/SC-006：cost > limit 终止）
             # 兼容只提供整分的 LLM 实现（第三方/测试替身）：没有微分时按时
             # 的 1e6 倍估算，保证累计语义不退化成「整段丢失」。
-            step_micros = int(getattr(resp, "cost_micros", 0) or 0)
-            if not step_micros and getattr(resp, "cost_cents", 0):
-                step_micros = int(resp.cost_cents) * 1_000_000
+            step_micros = int(getattr(resp, "cost_micros", None) or 0)
+            if not step_micros:
+                step_cents = int(getattr(resp, "cost_cents", None) or 0)
+                step_micros = step_cents * 1_000_000
             run_cost_micros += step_micros
             run.cost_micros = run_cost_micros
             run.cost_cents = round(run_cost_micros / 1_000_000)

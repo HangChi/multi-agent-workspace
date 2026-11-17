@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     # refresh 宽限期（秒）：多标签页并发刷新时不互相踢；0 = 严格一次性
     refresh_grace_seconds: int = 30
+    # refresh token 的 HttpOnly cookie 名。前端不再持久化 refresh token，
+    # 只有这个 cookie 持有它 —— XSS 读不到，能显著降低「长期账号接管」的风险。
+    refresh_cookie_name: str = "aw_refresh"
+    # cookie 作用域：只在认证端点发送，其他接口不带（减少暴露面）
+    refresh_cookie_path: str = "/api/v1/auth"
 
     # 邀请码
     invite_code: str = "CHANGE-ME-ADMIN-CODE"

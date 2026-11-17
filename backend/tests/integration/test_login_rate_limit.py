@@ -107,7 +107,9 @@ async def test_limiter_check_swallows_redis_error(monkeypatch):
         async def get(self, *_a, **_kw):
             raise RedisConnectionError("redis down")
 
-        async def pipeline(self, *_a, **_kw):
+        def pipeline(self, *_a, **_kw):
+            # 必须是同步返回（真实客户端返回 Pipeline，支持 async with），
+            # 写成 async def 会变成「协程未 await」的假通过
             raise RedisConnectionError("redis down")
 
         async def delete(self, *_a, **_kw):

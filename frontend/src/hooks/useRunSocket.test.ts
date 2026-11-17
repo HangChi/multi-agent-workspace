@@ -60,7 +60,7 @@ class MockWebSocket {
 beforeEach(() => {
   MockWebSocket.instances = []
   vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
-  useAuthStore.setState({ accessToken: 'test-token', refreshToken: 'r', user: null })
+  useAuthStore.setState({ accessToken: 'test-token', user: null })
 })
 
 afterEach(() => {
@@ -187,7 +187,7 @@ describe('useRunSocket 重连', () => {
   })
 
   it('未登录（无 token）不建立连接', () => {
-    useAuthStore.setState({ accessToken: null, refreshToken: null })
+    useAuthStore.setState({ accessToken: null })
     setup()
     expect(MockWebSocket.instances).toHaveLength(0)
   })

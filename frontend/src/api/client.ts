@@ -7,6 +7,9 @@ import { useAuthStore } from '../stores/authStore'
 export const apiClient = axios.create({
   baseURL: '/api/v1',
   headers: { 'Content-Type': 'application/json' },
+  // refresh token 在 HttpOnly cookie 里：同源请求本来就会带 cookie，
+  // 显式开启是为了将来把 API 放到子域时不用再改这里
+  withCredentials: true,
 })
 
 /** 请求拦截：注入 Bearer token */
@@ -29,16 +32,14 @@ const REFRESH_URL = '/auth/refresh'
 let refreshing: Promise<string | null> | null = null
 
 async function requestNewAccessToken(): Promise<string | null> {
-  const { refreshToken, setTokens, logout } = useAuthStore.getState()
-  if (!refreshToken) {
-    logout()
-    return null
-  }
+  const { setTokens, logout } = useAuthStore.getState()
   try {
-    // 走裸 axios（不经 apiClient）：否则刷新失败又触发拦截器 → 递归
+    // 走裸 axios（不经 apiClient）：否则刷新失败又触发拦截器 → 递归。
+    // refresh token 在 HttpOnly cookie 里，请求体留空即可（withCredentials 让 cookie 随行）。
     const { data } = await axios.post<{ tokens: { access: string; refresh: string } }>(
       `/api/v1${REFRESH_URL}`,
-      { refresh_token: refreshToken }
+      {},
+      { withCredentials: true }
     )
     setTokens(data.tokens)
     return data.tokens.access

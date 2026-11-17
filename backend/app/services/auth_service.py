@@ -141,6 +141,23 @@ async def login(
     return user, tokens
 
 
+async def revoke(refresh_token: str) -> None:
+    """撤销一个 refresh token（登出用）。
+
+    消费即删除：即使 token 仍在有效期内，服务端也不再认它。
+    token 本身无效/已撤销时静默成功 —— 登出必须幂等，不能让客户端卡在报错里。
+    """
+    try:
+        payload = decode_token(refresh_token)
+    except JWTError:
+        return
+    if payload.get("type") != "refresh":
+        return
+    jti = payload.get("jti")
+    if jti:
+        await consume_refresh_token(jti)
+
+
 async def refresh(db: AsyncSession, *, refresh_token: str) -> dict[str, str]:
     """刷新：消费旧 refresh（一次性）→ 签发新对（轮换）。
 
