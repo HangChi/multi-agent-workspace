@@ -37,13 +37,22 @@ class AttachmentMeta(BaseModel):
 
 
 class AttachmentUploadOut(BaseModel):
-    """附件上传响应：元数据 + 预签名 PUT URL。"""
+    """附件上传凭据。
+
+    用 **POST Policy**（表单上传）而不是预签名 PUT：只有 policy 的
+    `content-length-range` 能让对象存储在**服务端强制**大小上限。
+    预签名 PUT 无法附带任何长度条件 —— 客户端声明 size=1 再 PUT 一个 1GB
+    文件是拦不住的（这正是修复前的漏洞）。
+    """
 
     key: str
     name: str
     size: int
     mime: str
-    presigned_put_url: str
+    #: 表单 POST 的目标地址：`{minio}/{bucket}`
+    upload_url: str
+    #: POST 时需要原样带回的表单字段（含 policy 签名）
+    upload_fields: dict[str, str]
 
 
 class AttachmentListOut(BaseModel):

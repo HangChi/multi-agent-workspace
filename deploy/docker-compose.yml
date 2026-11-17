@@ -178,6 +178,10 @@ services:
       REFRESH_GRACE_SECONDS: ${REFRESH_GRACE_SECONDS:-30}
       INVITE_CODE: ${INVITE_CODE}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      # 浏览器可访问的对象存储地址（生成上传/下载直连 URL 用）。
+      # MINIO_ENDPOINT 是容器内服务名 minio:9000，浏览器解析不了；
+      # 两者必须分开。部署时改成宿主机/域名可达的地址。
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET}

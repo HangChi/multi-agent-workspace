@@ -108,10 +108,10 @@ async def upload_attachment(
     size: int = Query(ge=1),
     mime_type: str = Query(min_length=1, max_length=100),
 ):
-    """附件上传：校验 + 预签名 PUT URL + 元数据回填（归属校验）。"""
+    """附件上传：校验 + POST Policy 上传凭据 + 元数据回填（归属校验）。"""
     request = await request_service.get_request(db, request_id, user.id)
 
-    put = artifact_service.presign_put(
+    put = artifact_service.presign_upload(
         request_id, filename=filename, size=size, mime_type=mime_type
     )
 

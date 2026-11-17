@@ -1,9 +1,13 @@
 """制品/附件服务：MinIO 客户端 + 预签名 URL + 服务端直传。
 
 两条上传路径，用途不同：
-- **预签名 PUT**（`presign_put`）：附件，客户端直传对象存储，不经应用服务器
+- **POST Policy**（`presign_upload`）：附件，客户端直传对象存储，不经应用服务器。
+  用 policy 而非预签名 PUT，是因为只有 policy 能把大小上限交给存储端强制。
 - **服务端直传**（`put_bytes`）：沙箱产出，Worker 侧读取容器归档后写入，
   同时算 sha256——客户端不可信，指纹必须由服务端计算
+
+下载侧仍是预签名 GET（`presign_get`）。它把 Host 签进签名里，因此无法像
+上传那样事后替换成对外地址——见该函数注释里的已知限制。
 
 对齐 contracts/api.md 附件部分与 data-model.md 的 R-05 决策。
 """
@@ -11,11 +15,12 @@
 import hashlib
 import io
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import BinaryIO, cast
 from urllib.parse import unquote
 
 from minio import Minio
+from minio.datatypes import PostPolicy
 from minio.error import S3Error
 
 from app.api.errors import AppError
@@ -64,21 +69,80 @@ def build_object_key(request_id: str, filename: str) -> str:
     return f"attachments/{request_id}/{uuid.uuid4().hex}-{filename}"
 
 
-def presign_put(request_id: str, *, filename: str, size: int, mime_type: str) -> AttachmentUploadOut:
-    """校验 + 生成预签名 PUT URL（不落库，落库由端点回填元数据）。"""
+def presign_upload(
+    request_id: str, *, filename: str, size: int, mime_type: str
+) -> AttachmentUploadOut:
+    """校验 + 生成 POST Policy 上传凭据（不落库，落库由端点回填元数据）。
+
+    ⚠️ 用 POST Policy 而非预签名 PUT，是为了让**对象存储本身**强制大小上限。
+
+    预签名 PUT（`presigned_put_object`）无法携带任何长度条件：S3 协议里长度
+    约束只存在于 policy 的 `content-length-range`。此前只校验客户端**声明**的
+    `size`，攻击者可以声明 1 字节、实际 PUT 任意大小 —— `MAX_ATTACHMENT_SIZE_MB`
+    形同虚设。改成 POST Policy 后，超限请求由 MinIO 直接返回
+    `400 EntityTooLarge`，不依赖客户端自觉。
+
+    `content-length-range` 的下限取 1：空文件没有意义，且能在存储层一并拒绝。
+    """
     validate_attachment(filename=filename, size=size, mime_type=mime_type)
     _ensure_bucket()
+
+    max_bytes = settings.max_attachment_size_mb * 1024 * 1024
     key = build_object_key(request_id, filename)
-    url = _minio_client().presigned_put_object(
-        settings.minio_bucket, key, expires=_PUT_EXPIRY
-    )
+
+    policy = PostPolicy(settings.minio_bucket, datetime.now(UTC) + _PUT_EXPIRY)
+    policy.add_content_length_range_condition(1, max_bytes)
+    # 键名钉死，防止客户端改路径把附件写到别处（覆盖他人对象/逃出 attachments 前缀）。
+    #
+    # 不钉 `$Content-Type`：multipart 表单的每一部分自带 content-type，与 policy 里的
+    # 等值条件极易冲突（实测直接 403 Policy Condition failed），而且客户端本来就能
+    # 自由声明 content-type —— 钉它既拦不住伪造、又制造故障。
+    # 实际类型由 validate_attachment 的白名单决定（那才是权威判断点）。
+    policy.add_equals_condition("$key", key)
+
+    fields = _minio_client().presigned_post_policy(policy)
+    # `key` 不在返回的签名字段里，但 policy 已为它设定等值条件，
+    # 客户端必须把它随表单一起提交，否则存储端报 "Policy Condition failed"。
+    fields["key"] = key
+
     return AttachmentUploadOut(
-        key=key, name=filename, size=size, mime=mime_type, presigned_put_url=url
+        key=key,
+        name=filename,
+        size=size,
+        mime=mime_type,
+        upload_url=f"{_upload_base_url()}/{settings.minio_bucket}",
+        upload_fields=fields,
     )
+
+
+def _upload_base_url() -> str:
+    """对象存储的**浏览器可访问**基址（客户端直连上传用）。
+
+    ⚠️ 必须用 `minio_public_endpoint` 而不是 `minio_endpoint`。
+    后者是 compose 内的服务名（minio:9000），只有 API/Worker 能解析；
+    把它塞进返回给浏览器的 URL，前端上传会直接 DNS 失败（此前附件上传
+    在浏览器里根本走不通，但容器内跑的验收脚本看不出来）。
+
+    policy 签名只覆盖 policy 文档本身（bucket/key/条件），不含 host，
+    所以这里换对外地址不影响签名有效性。
+    """
+    endpoint = settings.minio_public_endpoint or settings.minio_endpoint
+    scheme = "https" if settings.minio_secure else "http"
+    return f"{scheme}://{endpoint}"
 
 
 def presign_get(key: str) -> str:
-    """生成预签名 GET URL（下载）。"""
+    """生成预签名 GET URL（下载）。
+
+    ⚠️ 已知限制：签名里包含 Host。若 `MINIO_PUBLIC_ENDPOINT` 与
+    `MINIO_ENDPOINT` 不一致，这里产出的仍是容器内地址（`minio:9000`），
+    浏览器打不开。与上传路径不同，签名无法在事后改写 host。
+
+    要彻底解决，需让 API 用一个「外部可达且与签名一致」的 endpoint 建客户端
+    （对 MinIO 来说即把对外域名反代到 9000），或改成后端代理下载流。
+    在此之前，部署时应保证 MINIO_PUBLIC_ENDPOINT 与浏览器可达地址一致，
+    并让 MinIO 通过反代对外暴露。
+    """
     _ensure_bucket()
     return _minio_client().presigned_get_object(
         settings.minio_bucket, key, expires=_GET_EXPIRY

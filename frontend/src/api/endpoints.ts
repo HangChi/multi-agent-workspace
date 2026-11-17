@@ -487,7 +487,10 @@ export interface AttachmentMeta {
 }
 
 export interface AttachmentUploadResult extends AttachmentMeta {
-  presigned_put_url: string
+  /** 表单 POST 的目标地址（对象存储 bucket 根） */
+  upload_url: string
+  /** 需原样随表单提交的字段（含 policy 签名与 key） */
+  upload_fields: Record<string, string>
 }
 
 /** 需求名下 Run 的结果构成（部分成功时用来解释「失败」到底失败了几项）。 */

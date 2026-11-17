@@ -16,6 +16,7 @@
 
 import argparse
 import asyncio
+import json
 import subprocess
 import sys
 import time
@@ -31,6 +32,11 @@ PASSWORD = "Verify123!"
 INVITE_MEMBER_A = "VERIFY-MEMBER-A"
 INVITE_MEMBER_B = "VERIFY-MEMBER-B"
 INVITE_VIEWER = "TEST-VIEWER-CODE-456"
+
+# MinIO 在 compose 网络内的地址。API 返回给浏览器的上传地址用的是
+# MINIO_PUBLIC_ENDPOINT（如 localhost:9000），而本脚本把上传动作放进 aw-api
+# 容器执行，容器里的 localhost 指向容器自身 —— 需要换回服务名。
+MINIO_INTERNAL = "minio:9000"
 
 
 @dataclass
@@ -66,6 +72,65 @@ def _minio_request(method: str, url: str, content: bytes = b"") -> tuple[int, by
     )
     out = subprocess.run(
         ["docker", "exec", "-i", "aw-api", "python", "-c", code, url, method],
+        input=content,
+        capture_output=True,
+        check=True,
+    )
+    head, _, rest = out.stdout.partition(b"\n")
+    try:
+        return int(head), rest
+    except ValueError:
+        return 0, head
+
+
+def _to_internal_minio_url(public_url: str) -> str:
+    """把面向浏览器的 MinIO 地址换成容器网络内可达的 minio:9000。
+
+    验收脚本本身跑在宿主机，但它把上传动作放进 aw-api 容器执行
+    （预签名/直连的签名与网络形态都更贴近生产）。而 API 返回的地址是
+    MINIO_PUBLIC_ENDPOINT（浏览器视角），容器内解析不了。
+    policy 签名与 host 无关，所以替换 host 是安全的。
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit(public_url)
+    netloc = MINIO_INTERNAL if parts.netloc != MINIO_INTERNAL else parts.netloc
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
+
+def _minio_post_object(url: str, fields: dict[str, str], content: bytes) -> tuple[int, bytes]:
+    """在 api 容器内按 POST Policy 表单上传到 MinIO，返回 (status, body)。
+
+    附件改用 POST Policy（而非预签名 PUT），因为只有 policy 的
+    `content-length-range` 能让存储端强制大小上限。multipart 表单用
+    urllib 手工拼装 —— 容器内不便引入 requests。
+
+    ⚠️ 传入的 url 是**面向浏览器**的对外地址（如 http://localhost:9000）。
+    policy 签名不含 host，所以可以在容器内换成服务名 minio:9000 提交；
+    不换的话容器内的 localhost 指向容器自身，必然连接失败。
+    """
+    inner_url = _to_internal_minio_url(url)
+    code = (
+        "import sys,json,urllib.request,uuid\n"
+        "url=sys.argv[1]\n"
+        "fields=json.loads(sys.argv[2])\n"
+        "data=sys.stdin.buffer.read()\n"
+        "b='----aw'+uuid.uuid4().hex\n"
+        "body=b''\n"
+        "for k,v in fields.items():\n"
+        "    body+=('--'+b+'\\r\\nContent-Disposition: form-data; name=\"'+k+'\"\\r\\n\\r\\n'+str(v)+'\\r\\n').encode()\n"
+        "body+=('--'+b+'\\r\\nContent-Disposition: form-data; name=\"file\"; filename=\"blob\"\\r\\n\\r\\n').encode()\n"
+        "body+=data+('\\r\\n--'+b+'--\\r\\n').encode()\n"
+        "req=urllib.request.Request(url,data=body,method='POST')\n"
+        "req.add_header('Content-Type','multipart/form-data; boundary='+b)\n"
+        "try:\n"
+        "    r=urllib.request.urlopen(req)\n"
+        "    sys.stdout.buffer.write(str(r.status).encode()+b'\\n'+r.read())\n"
+        "except Exception as e:\n"
+        "    sys.stdout.buffer.write(('ERR '+str(e)).encode())\n"
+    )
+    out = subprocess.run(
+        ["docker", "exec", "-i", "aw-api", "python", "-c", code, inner_url, json.dumps(fields)],
         input=content,
         capture_output=True,
         check=True,
@@ -325,19 +390,21 @@ class Verifier:
             Result("S3-1 创建需求 201 status=created", req["status"] == "created", f"priority={req['priority']}")
         )
 
-        # 附件：预签名 PUT → 真实上传 → 下载 302
+        # 附件：POST Policy 表单上传 → 真实上传 → 下载 302
         content = b"verify attachment payload\n"
         up = await self.http.post(
             f"{self.base}/api/v1/requests/{req['id']}/attachments",
             headers=await self._auth("a"),
             params={"filename": "note.txt", "size": len(content), "mime_type": "text/plain"},
         )
-        ok_meta = up.status_code == 201 and bool(up.json()["attachments"][0].get("presigned_put_url"))
-        put_url = ""
-        if ok_meta:
-            put_url = up.json()["attachments"][0]["presigned_put_url"]
-        put_status = _minio_request("PUT", put_url, content)[0] if put_url else 0
-        key = up.json()["attachments"][0]["key"] if ok_meta else ""
+        att = up.json()["attachments"][0] if up.status_code == 201 else {}
+        ok_meta = bool(att.get("upload_url") and att.get("upload_fields"))
+        put_status = (
+            _minio_post_object(att["upload_url"], att["upload_fields"], content)[0]
+            if ok_meta
+            else 0
+        )
+        key = att.get("key", "") if ok_meta else ""
         dl = await self.http.get(
             f"{self.base}/api/v1/requests/{req['id']}/attachments/{quote(key, safe='/')}",
             headers=await self._auth("a"),
@@ -347,9 +414,9 @@ class Verifier:
             fetched = _minio_request("GET", dl.headers["location"])[1]
         self.results.append(
             Result(
-                "S3-2 附件 预签名PUT→下载内容一致",
-                ok_meta and put_status == 200 and dl.status_code == 302 and fetched == content,
-                f"meta={up.status_code} put={put_status} get={dl.status_code} bytes={len(fetched)}",
+                "S3-2 附件 Policy上传→下载内容一致",
+                ok_meta and put_status in (200, 204) and dl.status_code == 302 and fetched == content,
+                f"meta={up.status_code} post={put_status} get={dl.status_code} bytes={len(fetched)}",
             )
         )
 

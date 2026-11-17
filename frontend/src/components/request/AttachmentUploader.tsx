@@ -23,23 +23,33 @@ export function AttachmentUploader({ requestId, onUploaded }: Props) {
 
   const uploadMut = useMutation({
     mutationFn: async (file: File) => {
-      // 1. 本地预校验
+      // 1. 本地预校验（服务端仍会在对象存储层强制同一上限，这里只是少跑一趟）
       if (file.size > MAX_SIZE) {
         throw new Error(`文件超过 20MB 限制（${(file.size / 1024 / 1024).toFixed(1)}MB）`)
       }
-      // 2. 申请预签名 PUT URL
+      // 2. 申请 POST Policy 上传凭据
       const put = await requestAttachmentUpload(requestId, {
         filename: file.name,
         size: file.size,
         mime_type: file.type || 'application/octet-stream',
       })
-      // 3. 直传 MinIO
-      const resp = await fetch(put.presigned_put_url, {
-        method: 'PUT',
-        body: file,
-      })
+      // 3. 表单直传对象存储。
+      //    用 POST + FormData 而不是 PUT：只有 policy 的 content-length-range
+      //    能让存储端自己拒绝超限上传，服务端不必信任客户端声明的大小。
+      const form = new FormData()
+      for (const [k, v] of Object.entries(put.upload_fields)) {
+        form.append(k, v)
+      }
+      // 文件字段名必须是 file，且放在最后（S3/MinIO 表单约定）
+      form.append('file', file)
+
+      const resp = await fetch(put.upload_url, { method: 'POST', body: form })
       if (!resp.ok) {
-        throw new Error('上传对象存储失败')
+        throw new Error(
+          resp.status === 400
+            ? '文件超过大小限制或类型不符，上传被对象存储拒绝'
+            : '上传对象存储失败',
+        )
       }
       return put
     },

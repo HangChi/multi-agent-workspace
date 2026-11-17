@@ -51,6 +51,12 @@ class Settings(BaseSettings):
 
     # MinIO
     minio_endpoint: str = "localhost:9000"
+    # 浏览器可访问的地址，用于生成上传/下载的直连 URL。
+    # ⚠️ 不能复用 minio_endpoint：那是**容器内**服务名（如 minio:9000），
+    # 浏览器解析不了、多数组网也访问不到；只有 API/Worker 在 compose 网络内能用。
+    # 留空时退化用 minio_endpoint（仅适用于 endpoint 本身就可被浏览器访问的
+    # 单机部署，例如 localhost）。
+    minio_public_endpoint: str = ""
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"
     minio_bucket: str = "agent-workbench"

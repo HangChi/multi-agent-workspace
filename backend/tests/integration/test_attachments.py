@@ -1,8 +1,9 @@
-"""附件集成测试（T042）：预签名上传/下载/大小与类型校验/元数据回填。
+"""附件集成测试（T042）：表单上传/下载/大小与类型校验/元数据回填。
 
 覆盖 FR-008 附件能力：
-- 上传 201：返回预签名 PUT URL，可 PUT 文件体
+- 上传 201：返回 POST Policy 凭据，可表单 POST 文件体
 - 超 20MB 拒绝 400 / 不支持类型拒绝 400
+- **对象存储层强制大小上限**：即便绕过应用层校验，超限上传也由 MinIO 拒绝
 - 下载 302 → 预签名 GET URL
 - 附件元数据回填 requests.attachments
 """
@@ -47,11 +48,21 @@ async def _upload_attachment(client, headers: dict, request_id: str, **overrides
     return resp.json()
 
 
-# ---------- 上传与预签名 PUT ----------
+async def _post_object(att: dict, content: bytes) -> httpx.Response:
+    """按 POST Policy 凭据真实上传一个对象。"""
+    async with httpx.AsyncClient() as http:
+        return await http.post(
+            att["upload_url"],
+            data=att["upload_fields"],
+            files={"file": ("blob", content)},
+        )
 
 
-async def test_upload_returns_presigned_put_url(client, make_headers):
-    """上传 → 201，返回可 PUT 的预签名 URL，元数据回填。"""
+# ---------- 上传与 POST Policy ----------
+
+
+async def test_upload_returns_policy_and_can_post(client, make_headers):
+    """上传 → 201，返回可表单 POST 的 policy 凭据，元数据回填。"""
     headers = await make_headers(role="member")
     req = await _create_request(client, headers)
 
@@ -61,12 +72,14 @@ async def test_upload_returns_presigned_put_url(client, make_headers):
     assert att["size"] == 64
     assert att["mime"] == "text/plain"
     assert att["key"].startswith(f"attachments/{req['id']}/")
-    assert "X-Amz-Signature" in att["presigned_put_url"]
+    # policy 凭据：目标地址 + 签名字段（且 key 必须回传，否则存储端拒绝）
+    assert att["upload_url"].endswith("/agent-workbench")
+    assert "policy" in att["upload_fields"]
+    assert att["upload_fields"]["key"] == att["key"]
 
-    # 预签名 URL 可真实 PUT
-    async with httpx.AsyncClient() as http:
-        put_resp = await http.put(att["presigned_put_url"], content=b"hello world")
-        assert put_resp.status_code == 200
+    # 凭据可真实上传
+    put_resp = await _post_object(att, b"hello world")
+    assert put_resp.status_code in (200, 204), put_resp.text[:200]
 
     # 元数据已回填 requests.attachments
     resp = await client.get(f"{REQUESTS_URL}/{req['id']}", headers=headers)
@@ -75,6 +88,30 @@ async def test_upload_returns_presigned_put_url(client, make_headers):
     assert len(stored) == 1
     assert stored[0]["key"] == att["key"]
     assert stored[0]["name"] == "notes.txt"
+
+
+async def test_object_store_enforces_size_limit(client, make_headers):
+    """核心回归：绕过应用层校验后，超限上传必须由**对象存储**拒绝。
+
+    修复前的漏洞：服务端只校验客户端声明的 `size`，预签名 PUT 无任何长度条件，
+    声明 1 字节再上传任意大小都能成功。现在 policy 带 content-length-range，
+    超限时 MinIO 直接返回 400 EntityTooLarge。
+    """
+    headers = await make_headers(role="member")
+    req = await _create_request(client, headers)
+
+    # 声明一个很小的 size（应用层校验通过），实际传超限内容
+    att = (
+        await _upload_attachment(
+            client, headers, req["id"], filename="sneaky.bin", size=10,
+            mime_type="application/zip",
+        )
+    )["attachments"][0]
+
+    too_big = 21 * 1024 * 1024  # 超过 20MB 上限
+    resp = await _post_object(att, b"x" * too_big)
+    assert resp.status_code == 400, f"超限上传本应被存储端拒绝，实际 {resp.status_code}"
+    assert "EntityTooLarge" in resp.text or "too large" in resp.text.lower()
 
 
 async def test_upload_to_other_users_request_forbidden(client, auth_headers):
@@ -131,35 +168,35 @@ async def test_download_returns_presigned_get_url(client, make_headers):
     body = await _upload_attachment(client, headers, req["id"], filename="dl.txt", size=32)
     att = body["attachments"][0]
 
-    # 先 PUT 内容
+    # 先上传内容
+    put_resp = await _post_object(att, b"download me")
+    assert put_resp.status_code in (200, 204), put_resp.text[:200]
+
+    # 下载端点 → 302 预签名 GET
+    key_q = quote(att["key"], safe="")
+    resp = await client.get(
+        f"{REQUESTS_URL}/{req['id']}/attachments/{key_q}",
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    get_url = resp.headers["location"]
+    assert "X-Amz-Signature" in get_url
+
+    # 浏览器链接带不了 Bearer 头：同一端点 + redirect=false 取回 URL
+    resolved = await client.get(
+        f"{REQUESTS_URL}/{req['id']}/attachments/{key_q}",
+        headers=headers,
+        params={"redirect": "false"},
+    )
+    assert resolved.status_code == 200
+    assert "X-Amz-Signature" in resolved.json()["url"]
+
+    # 预签名 GET URL 可真实取回内容
     async with httpx.AsyncClient() as http:
-        put_resp = await http.put(att["presigned_put_url"], content=b"download me")
-        assert put_resp.status_code == 200
-
-        # 下载端点 → 302 预签名 GET
-        key_q = quote(att["key"], safe="")
-        resp = await client.get(
-            f"{REQUESTS_URL}/{req['id']}/attachments/{key_q}",
-            headers=headers,
-            follow_redirects=False,
-        )
-        assert resp.status_code == 302
-        get_url = resp.headers["location"]
-        assert "X-Amz-Signature" in get_url
-
-        # 浏览器链接带不了 Bearer 头：同一端点 + redirect=false 取回 URL
-        resolved = await client.get(
-            f"{REQUESTS_URL}/{req['id']}/attachments/{key_q}",
-            headers=headers,
-            params={"redirect": "false"},
-        )
-        assert resolved.status_code == 200
-        assert "X-Amz-Signature" in resolved.json()["url"]
-
-        # 预签名 GET URL 可真实取回内容
         get_resp = await http.get(get_url)
-        assert get_resp.status_code == 200
-        assert get_resp.content == b"download me"
+    assert get_resp.status_code == 200
+    assert get_resp.content == b"download me"
 
 
 async def test_download_attachment_not_found(client, make_headers):
