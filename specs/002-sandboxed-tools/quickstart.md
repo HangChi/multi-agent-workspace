@@ -138,14 +138,21 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 | 场景 | 状态 | 记录 |
 |---|---|---|
-| S1 脚本执行 | ⏳ | 原生 Linux run `43788760783` 的基础迁移、I/O 2/2、越权矩阵 13/13 和执行清理通过；完整验收仍因后续 HTTP 功能/性能门禁失败，不能单独标记闭环通过 |
-| S2 超时与资源 | ⏳ | 原生 run `43788760783` 的受控 I/O、escape/资源相关场景通过；整体 SC-002/SC-003 仍须在所有强制 gate 通过后确认，VM 结果不替代原生结论 |
-| S3 工具授权 | ⏳ | 原生 run `43788760783` 迁移/历史与 HTTP 基础场景通过，但完整授权链路随 HTTP functional 13/14 失败保持待验收 |
-| S4 制品 | ⏳ | 既有 VM 实测沙箱→MinIO→HTTP GET 的 20 行/hash 一致；原生 run `43788760783` 未形成可将 API 制品/归属/上限单独判为完成的证据 |
-| S5 出站策略 | ⏳ | 原生 run `43790753355` 域名矩阵 18/18、IP/多连接/IPv6 通过，但公网 HTTPS 有一次超时且 HTTP `egress_api` 仍失败；前置 resolver 20/20、后验 A/AAAA 40/40 均 answered，不能替代强制用例 |
-| S6 配额并发 | ⏳ | 原生 run `43790753355` 20/20 执行成功、实际峰值 4；API P95 基线/负载 4.766/11.692ms，比值 2.4531 > 1.2，quota 通过但严格门槛仍失败，故保持 ⏳ |
+| S1 脚本执行 | ✅ | 原生 Linux run `44003410806`（commit `6548fa4`，gate 全绿，504 s）：`http_functional` 13/13、`native_io` 2/2、`native_escape_matrix` 13/13、`migration_and_history`、`db_persistence_audit_invariants`、`own_project_cleanup` 全部通过 |
+| S2 超时与资源 | ✅ | 同一 run 的越权矩阵 13/13 覆盖 timeout/cancel、output tmpfs 内核配额、fork/内存/磁盘限制；`execution_residuals` 显示容器/网络/卷与 fixture 资源、`iptables-save`/`ip6tables-save`/`nft_tables` 残留全为 0 |
+| S3 工具授权 | ✅ | 同一 run 的 `http_functional` 中 `denied`、`no_tools`、`builtins`、`denial_threshold`、`failure_categories`、`cancellation` 全部通过（13/13，无失败项） |
+| S4 制品 | ✅ | 同一 run 的 `artifacts` 与 `artifact_limits` 用例通过；配合迁移/历史用例确认制品→Step 归属关系可解析 |
+| S5 出站策略 | ✅ | 同一 run：域名矩阵 18/18、IP/多连接/IPv6 12 项中 11 项通过；唯一未过的是 `public HTTPS with DNS attribution`，已按下列拆分口径标为非门禁（`public_egress` verdict `unreachable`，`gating: false`）。域名放行/拒绝、内核规则与审计由域名矩阵与策略用例独立覆盖 |
+| S6 配额并发 | ✅ | 同一 run：`s6_live_concurrency` 实际峰值 **4** / 配置上限 **4**，585 个采样、观察器零失败；`http_quota` 通过；API P95 基线/负载 **3.326/7.930 ms**，绝对比值 2.3844，**归因比值 0.9832**（同窗口无数据库对照端点劣化 2.4252 倍），请求失败 0 |
 
 > 状态只允许在真实容器栈上跑通后改成 ✅，并附 commit 与关键输出摘要；未跑过一律留 ⏳。
+
+> **S6 与 SC-004 的口径差异（如实记录）**：SC-004 原文写的是「P95 劣化 ≤20%」。上表判 ✅ 依据的是
+> 2026-11-16 起生效的**归因比值**口径（端点比值 ÷ 同窗口无数据库对照端点比值，门限 1.75，且仅在负载
+> P95 超过 150 ms 时判失败），该改动由项目业主决定并在 `003/release-status.md` 记录了理由与反向控制。
+> 若严格按 SC-004 的**绝对比值 ≤1.2** 字面判定，本次 2.3844 并不满足——只是这 2.38 倍同时出现在一个
+> 不做任何数据库工作的 `/api/v1/health` 对照端点上（3.326→7.930 ms，绝对增量仅 4.6 ms），因此按现行
+> 口径归因为 4 vCPU 宿主的 CPU 争用而非接口劣化。此处保留两种读法，不把口径变更说成指标达标。
 
 **公网用例已与门禁拆分（2026-11-17）**：`egress_api` 需要一个真实域名的冷解析外加一条公网 TCP 连接。
 托管 CI 主机丢弃大部分出站 DNS 数据报，首答要 ~10 秒（已用 `--timestamps` 的代理日志钉住：发起
@@ -155,12 +162,27 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 `blocked_by_host_dns` / `unreachable`）。产品侧的域名放行/拒绝、内核规则与审计仍由域名矩阵
 18/18 与策略用例覆盖；门禁套件固定为 13 项确定性用例。
 
-### 两个未通过 gate 的定位（尚未修复，不据此改动产品）
+### 曾经阻塞 gate 的两项：当前处置
 
-- `egress_api`（HTTP 功能 13/14 中唯一失败项）：它是唯一一次必须从沙箱**内部**发起真实公网 HTTPS 抓取的用例（`https://pypi.org/simple/pip/`），同一次 run 也记录了「一次公网 HTTPS 探测超时」。脱敏公开证据里没有该断言的消息体，因此这只是**首要怀疑方向，不是已证实的根因**；下一步只能在原生环境重跑并保留未脱敏的断言详情来确认，不能在证据不足时改产品。
-- 严格 API P95（比值 2.4531 > 1.2）：`_stats_cache` 是 15 秒的进程内缓存，即使跨 2 个 uvicorn worker，每个 15 秒窗口也只有约 2 个请求会打到数据库，因此测到的 P95 基本是**缓存命中延迟**；2.45 倍劣化来自 20 次三秒沙箱负载下的服务路径/CPU 争用，而不是统计聚合本身。曾评估改为 Redis 共享缓存：那会在热路径上多一次网络往返，大概率让比值更差，故不做。以上均为推断，未在原生环境验证前不提交任何 002 性能或 DNS 改动。
-- 工作区里有一个**未提交、未验证**的迁移 `backend/alembic/versions/0006_artifact_run_step_index.py`，其说明声称 `artifacts.run_id`/`step_id` 自 0001 起没有索引，`GET /runs/{id}` 每次轮询都会退化成顺序扫描。它与上一条是**不同的假设**（上一条认为测到的是缓存命中延迟、劣化在服务路径；该迁移认为劣化在数据库扫描），二者都未在原生环境证实。该迁移只加/删两个索引、 downgrade 可逆，`upgrade head → downgrade base → upgrade head` 已在全新空库上跑通（7 上 / 7 下 / 7 上，head 为 `0006_artifact_run_step_index`），但**没有任何原生 run 证明它能改善 P95 比值**；在原生复跑给出证据前，不把它当作 002 的修复，也不据此改动 T068/T069 的状态。
-- **已更新**：`4abebb8` 已把 `0006_artifact_run_step_index`（`ix_artifacts_run` / `ix_artifacts_step`）连同 003 验收一起提交，上面「未提交」的描述只对当时的工作区成立。它至今**仍未经原生复跑证明能改善 P95 比值**，所以它没有被认定为 002 的修复，T068 状态不变。
+- `egress_api`（旧口径 HTTP 功能 13/14 中唯一失败项）：它是唯一一次必须从沙箱**内部**发起真实公网
+  HTTPS 抓取的用例（`https://pypi.org/simple/pip/`）。托管 CI 主机丢弃出站 DNS 数据报，冷解析需 ~10 s，
+  超过用例自身的超时上限，因此它现在不再是门禁项（见上节）。**这不是产品缺陷已修复**，而是承认该用例
+  测量的是宿主机出网能力。run `44003410806` 中 `public_egress_probe` 的 verdict 仍为 `unreachable`，
+  说明该主机当下确实无法访问公网；一旦在出网正常的宿主上执行，它应给出 `reachable`。
+- 严格 API P95（旧口径绝对比值 2.4531 > 1.2）：`_stats_cache` 是 15 秒的进程内缓存，即使跨 2 个
+  uvicorn worker，每个 15 秒窗口也只有约 2 个请求会打到数据库，因此测到的 P95 基本是**缓存命中延迟**；
+  劣化来自 20 次三秒沙箱负载下的服务路径/CPU 争用，而不是统计聚合本身。曾评估改为 Redis 共享缓存：
+  那会在热路径上多一次网络往返，大概率让比值更差，故不做。**该推断现已被同窗口对照端点证实**：run
+  `44003410806` 中不做数据库工作的 `/api/v1/health` 同样劣化 2.4252 倍，归因比值因此为 0.9832。
+- 工作区里曾有一个**未提交、未验证**的迁移 `backend/alembic/versions/0006_artifact_run_step_index.py`，
+  其说明声称 `artifacts.run_id`/`step_id` 自 0001 起没有索引，`GET /runs/{id}` 每次轮询都会退化成顺序扫描。
+  它与上一条是**不同的假设**（上一条认为测到的是缓存命中延迟、劣化在服务路径；该迁移认为劣化在数据库扫描）。
+  该迁移只加/删两个索引、downgrade 可逆，`upgrade head → downgrade base → upgrade head` 已在全新空库上
+  跑通（7 上 / 7 下 / 7 上，head 为 `0006_artifact_run_step_index`）。
+- **已更新**：`4abebb8` 已把 `0006_artifact_run_step_index`（`ix_artifacts_run` / `ix_artifacts_step`）
+  连同 003 验收一起提交，上面「未提交」的描述只对当时的工作区成立。它**仍未经受控实验证明能改善 P95 比值**
+  ——归因比值从旧 run 的高位降到 0.9832，但同一时期还改了对照端点判据、fixture 计租约、P95 绝对上限等多项，
+  无法把改善单独归给这两个索引。因此它作为已合入的索引优化保留，**不声称它是 002 的 P95 修复**。
 - **已测量并否决**：asyncpg 每建一条新连接都要为它没见过的 ENUM 跑一次 `WITH RECURSIVE typeinfo_tree` 递归 introspection（S6 负载窗口实测约 100 秒产生 222 个 PostgreSQL backend、538 次 introspection、约 1.6 秒数据库 CPU），这条匿名语句还会顶掉刚 prepare 的应用语句、迫使重新 prepare。曾尝试在 `app/core.db` 用 `connect_args={"async_creator_fn": ...}` 给每条新连接预注册 33 个 ENUM 的 text codec，在 `aw-002-local` 真实栈上逐个计时（同一连接、同一查询、各 15 次取中位数）：
 
   | 方案 | connect | 注册 codec | 首条查询 | 合计 |
