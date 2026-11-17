@@ -259,7 +259,11 @@ class ReActRunner:
         # FR-019/SC-006：成本上限是「本次 Run 的累计」，不是「本次 run() 调用的累计」。
         # 从已落库值续算，否则 needs_input 恢复执行会把历史成本清零（熔断可被反复
         # 绕过），router 在进入 runner 前写入的决策成本也会被下一轮覆盖丢失。
-        run_cost = int(run.cost_cents or 0)
+        # 成本用微分累计：单次调用约 0.015 分，按分累计会整段丢精度。
+        # 老数据（本字段上线前）没有微分量，用整分回填保持续算语义。
+        run_cost_micros = int(getattr(run, "cost_micros", 0) or 0)
+        if not run_cost_micros and run.cost_cents:
+            run_cost_micros = int(run.cost_cents) * 1_000_000
         start = time.monotonic()
         tools = [executor.schema() for executor in self.executors.values()]
 
@@ -315,13 +319,23 @@ class ReActRunner:
             duration_ms = int((time.monotonic() - started) * 1000)
 
             # 4. 累计成本 + 熔断检查（FR-019/SC-006：cost > limit 终止）
-            run_cost += resp.cost_cents
-            run.cost_cents = run_cost
-            await set_cost(run_cost)
-            await publish_event({"type": "cost_update", "cost_cents": run_cost})
-            if run_cost > self.cost_limit_cents:
+            # 兼容只提供整分的 LLM 实现（第三方/测试替身）：没有微分时按时
+            # 的 1e6 倍估算，保证累计语义不退化成「整段丢失」。
+            step_micros = int(getattr(resp, "cost_micros", 0) or 0)
+            if not step_micros and getattr(resp, "cost_cents", 0):
+                step_micros = int(resp.cost_cents) * 1_000_000
+            run_cost_micros += step_micros
+            run.cost_micros = run_cost_micros
+            run.cost_cents = round(run_cost_micros / 1_000_000)
+            await set_cost(run.cost_cents)
+            await publish_event({"type": "cost_update", "cost_cents": run.cost_cents})
+            # 熔断按微分判定：按分比较会放过「差一点到 1 分」的超支
+            if run_cost_micros > self.cost_limit_cents * 1_000_000:
                 transition(run, RunStatus.FAILED)
-                run.error = f"成本超限（{run_cost} 分 > 上限 {self.cost_limit_cents} 分），已熔断终止"
+                run.error = (
+                    f"成本超限（{run.cost_cents} 分 > 上限 {self.cost_limit_cents} 分），"
+                    "已熔断终止"
+                )
                 await set_status(run.status)
                 await publish_event({"type": "run_failed", "error": run.error})
                 raise CostLimitExceeded(run.error)

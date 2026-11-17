@@ -884,6 +884,8 @@ export interface RunDetail {
   result: Record<string, unknown> | null
   error: string | null
   cost_cents: number
+  /** 精确成本（1 分 = 1e6 微分）；老数据可能没有 */
+  cost_micros?: number
   started_at: string | null
   finished_at: string | null
   created_at: string

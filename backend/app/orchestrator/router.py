@@ -34,11 +34,12 @@ _MAX_PARSE_CHARS = 32
 
 @dataclass
 class RoutingDecision:
-    """路由结果：选中的 Agent + 依据 + 决策本身消耗的成本（分）。"""
+    """路由结果：选中的 Agent + 依据 + 决策本身消耗的成本。"""
 
     agent: Agent
     reason: str
     cost_cents: int = 0
+    cost_micros: int = 0
 
 
 def _parse_index(text: str, upper_bound: int) -> int | None:
@@ -130,6 +131,7 @@ async def route(
             agent=members[0],
             reason=f"路由输出无法解析（{response.content!r}），降级为第一个成员",
             cost_cents=response.cost_cents,
+            cost_micros=response.cost_micros,
         )
 
     chosen = members[index - 1]
@@ -137,4 +139,5 @@ async def route(
         agent=chosen,
         reason=f"路由模型选择第 {index} 个成员：{chosen.name}",
         cost_cents=response.cost_cents,
+        cost_micros=response.cost_micros,
     )

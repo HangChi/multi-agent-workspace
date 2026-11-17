@@ -80,6 +80,8 @@ class RunOut(BaseModel):
     result: dict[str, Any] | None = None
     error: str | None = None
     cost_cents: int = 0
+    # 精确成本（1 分 = 1e6 微分）：前端可据此显示「0.02 元」这类细分金额
+    cost_micros: int = 0
     started_at: datetime | None = None
     finished_at: datetime | None = None
     created_at: datetime

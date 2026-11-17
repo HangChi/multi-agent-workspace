@@ -30,11 +30,13 @@ class ToolCall:
 
 @dataclass
 class LLMResponse:
-    """归一化响应：content + tool_calls + 成本（分）。"""
+    """归一化响应：content + tool_calls + 成本（分 / 微分）。"""
 
     content: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
     cost_cents: int = 0
+    # 精确成本（1 分 = 1e6 微分）：cost_cents 是它的四舍五入结果
+    cost_micros: int = 0
     needs_input: bool = False
     needs_input_message: str = ""
 
@@ -197,6 +199,7 @@ class LiteLLMClient:
             content=content,
             tool_calls=tool_calls,
             cost_cents=usage_to_cost_cents(self.model, usage),
+            cost_micros=usage_to_cost_micros(self.model, usage),
             needs_input=needs_input,
             needs_input_message=needs_input_message,
         )

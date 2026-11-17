@@ -331,8 +331,9 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
                 run_events.run_failed(run.id, run.error)
                 return
             # 路由决策也是一次 LLM 调用，成本计入本 Run（不能消失在账外）
-            if decision.cost_cents:
-                run.cost_cents += decision.cost_cents
+            if decision.cost_cents or decision.cost_micros:
+                run.cost_micros = (run.cost_micros or 0) + decision.cost_micros
+                run.cost_cents = round(run.cost_micros / 1_000_000)
                 await db.commit()
                 run_events.cost_update(run.id, run.cost_cents)
             agent = decision.agent

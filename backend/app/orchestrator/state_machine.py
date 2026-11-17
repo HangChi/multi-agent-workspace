@@ -64,6 +64,7 @@ class RunLike(Protocol):
     status: str
     current_step: int
     cost_cents: int
+    cost_micros: int
     error: str | None
     result: dict[str, Any] | None
     started_at: datetime | None
@@ -83,6 +84,7 @@ class RunState:
     status: str = "queued"
     current_step: int = 0
     cost_cents: int = 0
+    cost_micros: int = 0
     error: str | None = None
     result: dict[str, Any] | None = None
     started_at: datetime | None = None
@@ -98,6 +100,7 @@ class RunState:
     def clear_execution(self) -> None:
         self.current_step = 0
         self.cost_cents = 0
+        self.cost_micros = 0
         self.error = None
         self.result = None
         self.started_at = None

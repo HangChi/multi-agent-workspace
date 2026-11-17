@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     DateTime,
     Enum,
     ForeignKey,
@@ -76,7 +77,13 @@ class Run(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     # needs_input 挂起时的用户回复（FR-021）：reply 端点写入，恢复执行时注入对话上下文
     user_reply: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 展示/配额用的整分；由 cost_micros 换算而来，不要直接累加
     cost_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # 精确累计（1 分 = 1e6 微分）：单次 gpt-4o-mini 调用约 0.015 分，
+    # 按分取整会记成 0，多步任务的总成本被系统性低估。
+    cost_micros: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -118,6 +125,7 @@ class Run(Base):
         """failed/timeout → queued 重试时重置执行现场（FR-017）。"""
         self.current_step = 0
         self.cost_cents = 0
+        self.cost_micros = 0
         self.error = None
         self.result = None
         self.started_at = None

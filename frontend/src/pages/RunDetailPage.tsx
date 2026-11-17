@@ -18,6 +18,7 @@ import { Input } from '../components/ui/Field'
 import { Page } from '../components/ui/Page'
 import { Skeleton } from '../components/ui/Skeleton'
 import { useToast } from '../components/ui/Toast'
+import { formatCostYuan } from '../utils/formatCost'
 import { useRunSocket, type RunSocketEvent } from '../hooks/useRunSocket'
 import { cn } from '../components/ui/cn'
 import { formatBytes } from '../utils/formatBytes'
@@ -456,7 +457,7 @@ export function RunDetailPage() {
             {run.current_step > 0 ? `第 ${run.current_step} 步` : '未开始'}
           </MetaTile>
           <MetaTile label="累计成本">
-            <span className="tabular-nums">¥{(run.cost_cents / 100).toFixed(2)}</span>
+            <span className="tabular-nums">¥{formatCostYuan(run.cost_cents, run.cost_micros)}</span>
           </MetaTile>
           <MetaTile label="实时连接">
             {connected ? (
