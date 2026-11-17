@@ -153,6 +153,23 @@ class Settings(BaseSettings):
     # running 超过该分钟数仍无进展 → 判定 Worker 执行中被杀（默认 max_run_seconds 1800，留余量）
     stale_running_minutes: int = 90
 
+    # ===== 定时调度（004）=====
+    # 扫描总开关：关闭后 Beat 仍会调用任务，但任务立即返回（便于排障时静默调度）
+    schedule_scan_enabled: bool = True
+    # 错过宽限期：计划时刻过去超过该秒数才计为"错过"。
+    # 取 90s = 扫描周期 60s + 一次处理余量；取 0 会把每次正常延迟都记成错过。
+    schedule_missed_grace_seconds: int = 90
+    # 周期表达式的求值时区（该时区无夏令时，全年行为一致）
+    schedule_default_timezone: str = "Asia/Shanghai"
+    # 连续触发失败达到该次数即自动停用规则（沿用工具越权阈值的量级）
+    schedule_max_failures: int = 5
+    # 触发历史保留：每规则最多保留的条数（按 planned_at 倒序）
+    schedule_history_max_rows: int = 500
+    # 触发历史保留：最大保留天数
+    schedule_history_retention_days: int = 90
+    # 单次扫描最多处理的规则数（超出留到下一分钟，不丢弃）
+    schedule_batch_size: int = 200
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
@@ -214,6 +231,11 @@ class Settings(BaseSettings):
             "MCP_MAX_RESULT_CHARS": self.mcp_max_result_chars,
             "MCP_MAX_TOOLS_PER_SERVER": self.mcp_max_tools_per_server,
             "MCP_MAX_CONCURRENCY_PER_SERVER": self.mcp_max_concurrency_per_server,
+            "SCHEDULE_MISSED_GRACE_SECONDS": self.schedule_missed_grace_seconds,
+            "SCHEDULE_MAX_FAILURES": self.schedule_max_failures,
+            "SCHEDULE_HISTORY_MAX_ROWS": self.schedule_history_max_rows,
+            "SCHEDULE_HISTORY_RETENTION_DAYS": self.schedule_history_retention_days,
+            "SCHEDULE_BATCH_SIZE": self.schedule_batch_size,
         }
         for name, value in positive.items():
             if value <= 0:
