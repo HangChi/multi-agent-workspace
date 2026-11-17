@@ -99,6 +99,15 @@ docker compose -p aw -f deploy/docker-compose.yml build
 docker compose -p aw -f deploy/docker-compose.yml up -d
 ```
 
+`deploy/deploy.sh` 会在换完应用服务后补一句 `up -d dns-proxy`：**DNS 代理不能漏启动**。
+它不是被替换的应用服务，而是沙箱执行的前置依赖；漏了不会让部署失败，只会让
+`run_python` / `run_shell` 全部返回 `infra`（`DNS proxy has no address on sandbox network`），
+而 Run 依旧以 `completed` 收尾——模型会诚实地说"没能真正执行"，但看板上看着像成功。
+
+沙箱**执行**镜像（`aw-sandbox-python:3.12`）不在 compose 里，也不由 deploy.sh 构建，
+必须手工建一次（上面第一条命令）；缺了同样只会让工具报 `infra`：
+`沙箱镜像 aw-sandbox-python:3.12 不存在，请先构建镜像`。
+
 Beat 每天 03:00（`Asia/Shanghai`）清空创建时间超过 90 天的沙箱代码、stdout 和 stderr；代码以空字符串保留以满足非空约束。`code_sha256`、状态、资源限额和其他执行元数据不删除。
 
 沙箱的网络隔离和包头观测**要求 Linux Docker 主机**：iptables/ip6tables、nftables、bridge netfilter、AF_PACKET 与 cgroup 必须实际可用。Docker Desktop Linux VM 的专项结果与原生 Linux 验收分开记录。GitHub Actions 使用完整 `ubuntu-24.04` VM 执行 `deploy/verify/native_acceptance.py`，实测这些前置条件并创建独立临时栈；不使用 slim/container job 代替宿主验证。生产上线前仍应在目标 Linux 主机复验，CI 不构成对所有发行版或已攻陷宿主的隔离保证。

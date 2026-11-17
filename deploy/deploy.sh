@@ -137,6 +137,17 @@ log "启动服务：$SERVICES"
 services_started=1
 compose up -d --no-deps $SERVICES
 
+# 沙箱执行依赖长期运行的 DNS 代理。它不在 $SERVICES 里（那是要替换的应用服务），
+# 但漏启动会让 run_python / run_shell 全部报
+# "DNS proxy has no address on sandbox network" —— 而 Run 仍以 completed 收尾
+# （模型降级成"没能真正执行"），从看板几乎看不出是环境坏了。这里显式兜住。
+if ! docker image inspect aw-dns-proxy:1 >/dev/null 2>&1; then
+  log "缺少 aw-dns-proxy:1 镜像，尝试构建"
+  docker build -t aw-dns-proxy:1 deploy/dns-proxy >/dev/null \
+    || die "dns-proxy 镜像构建失败（需联网装 dnsmasq；离线环境请预置镜像）"
+fi
+compose up -d --no-deps dns-proxy
+
 # ---------- 6. 健康门禁 ----------
 log "健康检查：${HEALTH_URL}（最长 ${HEALTH_TIMEOUT}s）"
 deadline=$((SECONDS + HEALTH_TIMEOUT))
