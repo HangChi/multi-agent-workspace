@@ -25,6 +25,7 @@ from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from app.core import metrics
 from app.core.config import settings
 from app.core.events import subscribe_run_events
 from app.core.security import decode_token
@@ -114,6 +115,7 @@ async def ws_run_events(websocket: WebSocket, run_id: str) -> None:
 
     # 只回显自己认识的那个子协议名，绝不把 token 回显给客户端
     await websocket.accept(subprotocol=subprotocol)
+    metrics.WS_CONNECTIONS.inc()
 
     # 发送串行化：转发事件与 ready/pong 可能并发（同一 WebSocket 不能并发 send）
     send_lock = asyncio.Lock()
@@ -149,6 +151,7 @@ async def ws_run_events(websocket: WebSocket, run_id: str) -> None:
     except WebSocketDisconnect:
         pass
     finally:
+        metrics.WS_CONNECTIONS.dec()
         sub_task.cancel()
         try:
             await sub_task

@@ -155,6 +155,15 @@ class Settings(BaseSettings):
     # 同一 Run 内连续越权调用达到该次数即中止该步（data-model D-6）
     tool_deny_threshold: int = 5
 
+    # ===== 指标（Prometheus）=====
+    # `/metrics` 直接由 API 进程暴露，不经过 nginx（nginx 只反代 /api 与 /ws）。
+    # 关掉后端点返回 404，适用于完全不想暴露指标的部署。
+    metrics_enabled: bool = True
+    # 可选：设置后抓取必须带 `X-Metrics-Token`，避免同网络内的任意容器读到指标。
+    metrics_token: str = ""
+    # Celery 默认队列名（读积压深度用）；改过 task_default_queue 时这里要同步
+    celery_queue_name: str = "celery"
+
     # 僵尸 Run 回收阈值（Beat 周期任务）
     # queued 超过该分钟数仍未被执行 → 判定 Worker 未消费（消息丢失/Worker 未起）
     stale_queued_minutes: int = 30

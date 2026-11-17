@@ -15,6 +15,8 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Protocol
 
+from app.core import metrics
+
 
 class RunStatus(str, Enum):
     """Run 状态机全部状态（对齐 run.status 枚举）。"""
@@ -132,6 +134,8 @@ def transition(run: RunLike, to: RunStatus, *, force: bool = False) -> RunStatus
         run.mark_started()
     if is_terminal(to):
         run.mark_finished()
+        # 计数的唯一汇聚点：所有终态迁移都经过 transition（含 Worker 恢复路径）
+        metrics.RUN_TERMINAL.inc(status=to.value)
     if to == RunStatus.QUEUED and current in _RETRYABLE_TERMINAL:
         run.clear_execution()
 

@@ -6,11 +6,13 @@
 
 import asyncio
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 import litellm
 
+from app.core import metrics
 from app.core.config import settings
 
 
@@ -54,10 +56,12 @@ def _price_for_model(model: str) -> tuple[float, float]:
     return _MODEL_PRICES_USD_PER_1K.get(model, _MODEL_PRICES_USD_PER_1K["gpt-4o-mini"])
 
 
-def usage_to_cost_cents(model: str, usage: dict[str, Any] | None) -> int:
-    """把 LiteLLM usage（prompt/completion tokens）换算为成本（分）。
+def usage_to_cost_micros(model: str, usage: dict[str, Any] | None) -> int:
+    """把 usage 换算成**微分**（1 分 = 1e6 微分）。
 
-    cost_cents = (input_tokens × in_price + output_tokens × out_price) / 1000 × 100
+    为什么不直接算「分」：gpt-4o-mini 一次 1k prompt ≈ 0.015 分，`round()` 到分
+    会记成 0 —— 多步小调用累计下来成本被系统性低估，配额与熔断都会偏松。
+    微分是整数，既能精确累计，又不需要浮点比较。
     """
     if not usage:
         return 0
@@ -65,7 +69,15 @@ def usage_to_cost_cents(model: str, usage: dict[str, Any] | None) -> int:
     output_tokens = int(usage.get("completion_tokens") or 0)
     in_price, out_price = _price_for_model(model)
     cost_usd = (input_tokens * in_price + output_tokens * out_price) / 1000
-    return max(0, round(cost_usd * 100))
+    return max(0, round(cost_usd * 100 * 1_000_000))
+
+
+def usage_to_cost_cents(model: str, usage: dict[str, Any] | None) -> int:
+    """把 usage 换算为成本（分，四舍五入到整数分）。
+
+    只为兼容既有调用方保留；需要累计时请用 `usage_to_cost_micros`。
+    """
+    return round(usage_to_cost_micros(model, usage) / 1_000_000)
 
 
 def _extract_needs_input(message: dict[str, Any]) -> tuple[bool, str]:
@@ -125,6 +137,7 @@ class LiteLLMClient:
         if tools:
             kwargs["tools"] = tools
 
+        started = time.perf_counter()
         try:
             # 硬上限：SDK 的分阶段超时偶尔会有偏差，这里再兜一层
             response = await asyncio.wait_for(
@@ -132,11 +145,21 @@ class LiteLLMClient:
                 timeout=self.timeout_seconds + 15,
             )
         except TimeoutError as exc:
+            metrics.LLM_CALLS.inc(model=self.model, outcome="timeout")
             raise LLMClientError(
                 f"LLM 调用超时（{self.timeout_seconds:.0f}s）"
             ) from exc
         except Exception as exc:  # 网络/鉴权/限流统一转可读错误
+            metrics.LLM_CALLS.inc(model=self.model, outcome="error")
             raise LLMClientError(f"LLM 调用失败: {exc}") from exc
+
+        metrics.LLM_CALLS.inc(model=self.model, outcome="ok")
+        metrics.LLM_DURATION.observe(time.perf_counter() - started, model=self.model)
+        metrics.LLM_COST.inc(
+            usage_to_cost_micros(self.model, getattr(response, "usage", None))
+            / 1_000_000,
+            model=self.model,
+        )
 
         message = response.choices[0].message
         usage = response.usage

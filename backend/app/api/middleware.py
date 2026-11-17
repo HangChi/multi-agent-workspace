@@ -21,12 +21,27 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.core import metrics
+
 logger = structlog.get_logger("access")
 
 # 降噪路径（健康探针每 10s 一次，静态资源每个请求一条）
 _QUIET_PREFIXES = ("/api/v1/health", "/assets/", "/favicon.ico")
+# 指标端点自身不计入（否则 Prometheus 每次抓取都会污染请求量/延迟）
+_METRICS_PATH = "/metrics"
 _REQUEST_ID_HEADER = "X-Request-ID"
 _MAX_CLIENT_ID_LEN = 64
+
+
+def route_template(request: Request) -> str:
+    """路由模板（`/api/v1/runs/{run_id}`），而不是真实路径。
+
+    真实路径做标签会让每个 run_id 生成一条时间序列，Prometheus 的内存与查询
+    会被直接打爆——这是指标设计里最常见的自伤方式。
+    """
+    route = request.scope.get("route")
+    path = getattr(route, "path", None)
+    return str(path) if path else "unmatched"
 
 
 def client_ip(request: Request) -> str:
@@ -94,5 +109,13 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
                     status=status_code,
                     duration_ms=duration_ms,
                     client_ip=_client_ip(request),
+                )
+            if request.url.path != _METRICS_PATH:
+                route = route_template(request)
+                metrics.HTTP_REQUESTS.inc(
+                    method=request.method, route=route, status=str(status_code)
+                )
+                metrics.HTTP_DURATION.observe(
+                    time.perf_counter() - started, method=request.method, route=route
                 )
             structlog.contextvars.clear_contextvars()

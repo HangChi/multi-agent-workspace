@@ -6,9 +6,10 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI
+import structlog
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
 
 from app.api import errors
@@ -29,13 +30,16 @@ from app.api.v1.schedules import router as schedules_router
 from app.api.v1.stats import router as stats_router
 from app.api.v1.tools import router as tools_router
 from app.api.v1.ws import router as ws_router
+from app.core import metrics
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.events import redis_ping
 from app.core.log_setup import configure_logging
-from app.core.redis import close_redis
+from app.core.redis import close_redis, get_broker_redis
 
 configure_logging()
+
+logger = structlog.get_logger(__name__)
 
 
 @asynccontextmanager
@@ -123,6 +127,32 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=200 if ok else 503,
             content={"status": "ok" if ok else "unavailable", "checks": checks},
+        )
+
+    @app.get("/metrics", include_in_schema=False)
+    async def prometheus_metrics(request: Request) -> Response:
+        """Prometheus 抓取端点（文本格式）。
+
+        刻意不挂在 /api/v1 下：nginx 只反代 /api 与 /ws，因此这个端点默认不对外，
+        由 compose 网络内的 Prometheus 直连 api:8000 抓取。需要更严的隔离时设
+        `METRICS_TOKEN`，抓取侧带 `X-Metrics-Token`。
+        """
+        if not settings.metrics_enabled:
+            raise HTTPException(status_code=404, detail="指标未启用")
+        if settings.metrics_token and (
+            request.headers.get("x-metrics-token") != settings.metrics_token
+        ):
+            raise HTTPException(status_code=401, detail="指标凭据无效")
+
+        # 队列深度是"抓取时才知道"的量（不是应用计数），失败不能影响抓取
+        try:
+            depth = await get_broker_redis().llen(settings.celery_queue_name)
+            metrics.CELERY_QUEUE_DEPTH.set(float(depth))
+        except Exception as exc:  # noqa: BLE001 - 指标端点的可用性优先于准确性
+            logger.warning("queue_depth_unavailable", error=type(exc).__name__)
+
+        return Response(
+            content=metrics.render(), media_type="text/plain; version=0.0.4"
         )
 
     return app

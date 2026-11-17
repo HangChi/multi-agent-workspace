@@ -12,6 +12,7 @@ import redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.core import metrics
 from app.core.audit import write_audit
 from app.core.config import settings
 from app.executors.sandbox_client import OutputFile, SandboxOutputLimit, SandboxRun
@@ -157,6 +158,11 @@ async def finish_execution(
     execution.error_category = payload.get("error_category")
     execution.error_message = payload.get("message")
     execution.finished_at = datetime.now(UTC)
+    # 指标的唯一汇聚点：所有沙箱结果（成功/失败/超时/取消）都写回这里
+    metrics.SANDBOX_EXECUTIONS.inc(status=execution.status)
+    metrics.SANDBOX_DURATION.observe(
+        execution.duration_ms / 1000, language=execution.language or "unknown"
+    )
     await db.flush()
     if user_id:
         await write_audit(

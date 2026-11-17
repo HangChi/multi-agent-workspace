@@ -31,6 +31,9 @@ logger = structlog.get_logger(__name__)
 _client: aioredis.Redis | None = None
 _client_loop: asyncio.AbstractEventLoop | None = None
 
+_broker_client: aioredis.Redis | None = None
+_broker_loop: asyncio.AbstractEventLoop | None = None
+
 
 def get_redis() -> aioredis.Redis:
     """取当前事件循环的 Redis 单例（懒创建）。"""
@@ -48,14 +51,35 @@ def get_redis() -> aioredis.Redis:
     return _client
 
 
+def get_broker_redis() -> aioredis.Redis:
+    """Celery broker 的单例（另一个 DB），只用于读队列深度等运维指标。
+
+    与 `get_redis()` 分开：业务数据在 `REDIS_URL` 的 db 0，broker 在
+    `CELERY_BROKER_URL` 的 db 1，混用会让 `llen` 永远读到 0。
+    """
+    global _broker_client, _broker_loop
+
+    loop = asyncio.get_running_loop()
+    if _broker_client is None or _broker_loop is not loop or loop.is_closed():
+        _broker_client = aioredis.from_url(
+            settings.celery_broker_url,
+            decode_responses=True,
+            socket_connect_timeout=2.0,
+        )
+        _broker_loop = loop
+    return _broker_client
+
+
 async def close_redis() -> None:
     """关闭并重置单例（应用关停 / 测试清理）。"""
-    global _client, _client_loop
+    global _client, _client_loop, _broker_client, _broker_loop
 
     client, _client, _client_loop = _client, None, None
-    if client is None:
-        return
-    try:
-        await client.aclose()
-    except Exception as exc:  # noqa: BLE001 - 关停路径不应因清理失败而报错
-        logger.warning("redis_close_failed", error=type(exc).__name__)
+    broker, _broker_client, _broker_loop = _broker_client, None, None
+    for item in (client, broker):
+        if item is None:
+            continue
+        try:
+            await item.aclose()
+        except Exception as exc:  # noqa: BLE001 - 关停路径不应因清理失败而报错
+            logger.warning("redis_close_failed", error=type(exc).__name__)
