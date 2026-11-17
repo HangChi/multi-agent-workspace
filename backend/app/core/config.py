@@ -41,6 +41,14 @@ class Settings(BaseSettings):
     # 邀请码
     invite_code: str = "CHANGE-ME-ADMIN-CODE"
 
+    # 登录防爆破（见 core/login_limiter.py）。
+    # 只对失败计数，登录成功清零；Redis 不可用时放行。
+    # 账号维度阈值故意设小（定向爆破单账号），IP 维度设大（撞库要换很多账号才触发）。
+    login_max_fails_per_account: int = 5
+    login_max_fails_per_ip: int = 30
+    # 计数窗口 = 锁定时长（分钟），两个维度共用
+    login_lockout_minutes: int = 15
+
     # MinIO
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "minioadmin"

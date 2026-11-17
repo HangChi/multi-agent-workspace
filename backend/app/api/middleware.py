@@ -29,8 +29,12 @@ _REQUEST_ID_HEADER = "X-Request-ID"
 _MAX_CLIENT_ID_LEN = 64
 
 
-def _client_ip(request: Request) -> str:
-    """客户端 IP：优先反代传来的 X-Real-IP / X-Forwarded-For 首跳。"""
+def client_ip(request: Request) -> str:
+    """客户端 IP：优先反代传来的 X-Real-IP / X-Forwarded-For 首跳。
+
+    公开供登录限流复用：限流键与访问日志必须用同一个口径取 IP，
+    否则会出现「日志里是一个 IP、限流按另一个 IP 计数」的错位。
+    """
     forwarded = request.headers.get("x-real-ip")
     if forwarded:
         return forwarded.strip()[:_MAX_CLIENT_ID_LEN]
@@ -38,6 +42,10 @@ def _client_ip(request: Request) -> str:
     if chain:
         return chain.split(",", 1)[0].strip()[:_MAX_CLIENT_ID_LEN]
     return request.client.host if request.client else "-"
+
+
+# 兼容中间件内部既有引用
+_client_ip = client_ip
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):

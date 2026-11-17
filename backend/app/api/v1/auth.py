@@ -6,9 +6,12 @@
 - GET /auth/me → 200
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.api.deps import DB, CurrentUser
+from app.api.errors import AppError
+from app.api.middleware import client_ip
+from app.core import login_limiter
 from app.core.audit import write_audit
 from app.schemas.auth import (
     LoginRequest,
@@ -41,10 +44,26 @@ async def register(payload: RegisterRequest, db: DB):
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(payload: LoginRequest, db: DB):
-    user, tokens = await auth_service.login(
-        db, email=str(payload.email), password=payload.password
-    )
+async def login(payload: LoginRequest, request: Request, db: DB):
+    """登录：先过防爆破限流，再校验密码。
+
+    失败会计数（按邮箱+IP 与按 IP 两层），成功则清掉该账号的失败计数。
+    限流只挡失败，正常登录不受影响；Redis 不可用时放行（见 login_limiter）。
+    """
+    email = str(payload.email)
+    ip = client_ip(request)
+
+    await login_limiter.check_login_allowed(email=email, ip=ip)
+    try:
+        user, tokens = await auth_service.login(db, email=email, password=payload.password)
+    except AppError as exc:
+        # 仅「凭证错误/账号禁用」计入爆破计数；参数校验类错误不算（打错格式不等于猜密码）
+        if exc.code == "FORBIDDEN":
+            await login_limiter.record_login_failure(email=email, ip=ip)
+        raise
+
+    await login_limiter.reset_login_failures(email=email, ip=ip)
+
     await write_audit(
         db, user_id=user.id, action="user_login", target_type="user", target_id=user.id
     )
