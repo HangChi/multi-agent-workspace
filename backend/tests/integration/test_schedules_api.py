@@ -15,7 +15,6 @@
 
 from datetime import UTC, datetime
 
-import pytest
 from sqlalchemy import text
 
 from app.core.db import SessionLocal
@@ -155,10 +154,6 @@ class TestPermissionMatrix:
             await client.get(f"{SCHEDULES_URL}/{sched['id']}", headers=ah)
         ).status_code == 200
 
-    @pytest.mark.xfail(
-        reason="GET /schedules/{id}/triggers 属 Phase 7（T042-T048），届时转绿",
-        strict=True,
-    )
     async def test_viewer_forbidden_on_triggers_endpoint(self, client, make_headers):
         member_h = await make_headers(role="member")
         agent = await _make_agent(client, member_h)
@@ -169,10 +164,6 @@ class TestPermissionMatrix:
         )
         assert resp.status_code == 403
 
-    @pytest.mark.xfail(
-        reason="GET /schedules/{id}/triggers 属 Phase 7（T042-T048），届时转绿",
-        strict=True,
-    )
     async def test_admin_can_read_triggers(self, client, make_headers):
         mh = await make_headers(role="member")
         agent = await _make_agent(client, mh)

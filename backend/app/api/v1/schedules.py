@@ -31,6 +31,9 @@ from app.schemas.schedule import (
     ScheduleList,
     ScheduleOut,
     ScheduleUpdate,
+    TriggerCounts,
+    TriggerListOut,
+    TriggerOut,
 )
 from app.services import schedule_service
 from app.services.schedule_cron import (
@@ -147,6 +150,34 @@ async def update_schedule(
     )
     await db.commit()
     return out
+
+
+@router.get("/{schedule_id}/triggers", response_model=TriggerListOut)
+async def list_triggers(
+    user: CurrentUser,
+    _m: MemberUser,
+    db: DB,
+    schedule_id: str,
+    result: str | None = Query(
+        default=None, pattern="^(fired|missed|skipped_busy|failed)$"
+    ),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+):
+    """触发历史（分页 + 过滤 + 全量 counts）。"""
+    items, total, counts = await schedule_service.list_triggers(
+        db,
+        user=user,
+        schedule_id=schedule_id,
+        page=page,
+        page_size=page_size,
+        result=result,
+    )
+    return TriggerListOut(
+        items=[TriggerOut.model_validate(t) for t in items],
+        total=total,
+        counts=TriggerCounts(**counts),
+    )
 
 
 @router.delete("/{schedule_id}", status_code=204)

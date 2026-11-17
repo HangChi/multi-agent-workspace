@@ -44,6 +44,11 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.schedule.scan_due_schedules",
         "schedule": crontab(minute="*"),
     },
+    # 调度触发历史清理（004）：与沙箱清理同批，每天 03:00 后各跑各的。
+    "prune-schedule-history": {
+        "task": "app.tasks.maintenance.prune_schedule_history",
+        "schedule": crontab(hour=3, minute=30),
+    },
 }
 
 # 自动发现 app/tasks 下的任务模块。

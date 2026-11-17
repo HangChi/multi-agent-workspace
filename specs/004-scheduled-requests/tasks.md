@@ -138,16 +138,16 @@ description: "Implementation tasks for scheduled requests: cron rules, automatic
 
 ### Tests first
 
-- [ ] T042 [P] [US4] Write failing tests in `backend/tests/integration/test_schedule_history.py` for: pagination, `result` filter, `counts` computed over the **whole** schedule (not the current page/filter), ordering `planned_at DESC, id DESC` (includes a case with two rows sharing `planned_at` to prove the second key matters), and that admin can read others' history while member cannot.
-- [ ] T043 [P] [US5] Write failing tests for immutability: after `PATCH` of target+template, the earlier request's title/`source_schedule_id` and its Run's `assignee_id` are unchanged (SC-009); after `DELETE`, requests/runs survive with `source_schedule_id` nulled while trigger rows are gone.
-- [ ] T044 [P] [US5] Add a concurrency test: `PATCH` racing with a trigger processing must yield either the fully-old or fully-new config, never a mix (assert the request's title and its Run's assignee agree with each other).
+- [X] T042 [P] [US4] Write failing tests in `backend/tests/integration/test_schedule_history.py` for: pagination, `result` filter, `counts` computed over the **whole** schedule (not the current page/filter), ordering `planned_at DESC, id DESC` (includes a case with two rows sharing `planned_at` to prove the second key matters), and that admin can read others' history while member cannot.
+- [X] T043 [P] [US5] Write failing tests for immutability: after `PATCH` of target+template, the earlier request's title/`source_schedule_id` and its Run's `assignee_id` are unchanged (SC-009); after `DELETE`, requests/runs survive with `source_schedule_id` nulled while trigger rows are gone.
+- [X] T044 [P] [US5] Add a concurrency test: `PATCH` racing with a trigger processing must yield either the fully-old or fully-new config, never a mix (assert the request's title and its Run's assignee agree with each other).
 
 ### Implementation
 
-- [ ] T045 [US4] Implement `GET /schedules/{id}/triggers` with pagination, filter, and the `counts` `GROUP BY` query in `backend/app/api/v1/schedules.py`.
-- [ ] T046 [US5] Ensure `PATCH` recomputes only what T016 specifies and never writes back to existing requests; ensure `DELETE` relies on the FK behaviours from `data-model.md` (no manual cascading of requests).
-- [ ] T047 [US5] Implement history retention in `backend/app/tasks/maintenance.py` (keep last `schedule_history_max_rows` per schedule and `schedule_history_retention_days`), register it in the daily beat schedule beside the sandbox purge, and keep the summary counters on `schedules` so retention does not lose "last fired / totals".
-- [ ] T048 [US4] Run Phase gate.
+- [X] T045 [US4] Implement `GET /schedules/{id}/triggers` with pagination, filter, and the `counts` `GROUP BY` query in `backend/app/api/v1/schedules.py`.
+- [X] T046 [US5] Ensure `PATCH` recomputes only what T016 specifies and never writes back to existing requests; ensure `DELETE` relies on the FK behaviours from `data-model.md` (no manual cascading of requests).
+- [X] T047 [US5] Implement history retention in `backend/app/tasks/maintenance.py` (keep last `schedule_history_max_rows` per schedule and `schedule_history_retention_days`), register it in the daily beat schedule beside the sandbox purge, and keep the summary counters on `schedules` so retention does not lose "last fired / totals".
+- [X] T048 [US4] Run Phase gate.
 
 **Checkpoint**: US4/US5 Independent Tests 通过。提交 Phase 7。
 

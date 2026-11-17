@@ -883,3 +883,73 @@ async def run_due_schedules(db: AsyncSession, *, now: datetime | None = None) ->
             await db.rollback()
             logger.exception("schedule_fire_error", schedule_id=schedule_id)
     return processed
+
+
+# =====================================================================
+# 触发历史查询（US4）
+# =====================================================================
+
+
+async def list_triggers(
+    db: AsyncSession,
+    *,
+    user: User,
+    schedule_id: str,
+    page: int = 1,
+    page_size: int = 20,
+    result: str | None = None,
+) -> tuple[list[ScheduleTrigger], int, dict[str, int]]:
+    """分页查询触发历史，并返回**全量**结果分布。
+
+    `counts` 刻意不受 `result` 过滤影响：它是"这条规则历史上各结果各多少次"，
+    是给人判断规则健康度的。跟着过滤走的话，用户筛"失败"会看到
+    "共 3 次：3 失败"，误以为规则从来没成功过。
+    """
+    # 归属校验复用读路径：他人规则对当前用户就是不存在（admin 除外）
+    schedule = await _require_owner_view(db, schedule_id, user)
+
+    base = select(ScheduleTrigger).where(ScheduleTrigger.schedule_id == schedule.id)
+    count_stmt = (
+        select(func.count())
+        .select_from(ScheduleTrigger)
+        .where(ScheduleTrigger.schedule_id == schedule.id)
+    )
+    if result is not None:
+        base = base.where(ScheduleTrigger.result == result)
+        count_stmt = count_stmt.where(ScheduleTrigger.result == result)
+
+    total = (await db.execute(count_stmt)).scalar_one()
+
+    # 双排序键不可省：合并错过记录的 planned_at 取窗口起点，可能与另一条
+    # fired 相同；只按 planned_at 排会让分页丢行/重行。
+    rows = (
+        (
+            await db.execute(
+                base.order_by(
+                    ScheduleTrigger.planned_at.desc(), ScheduleTrigger.id.desc()
+                )
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    # 全量分布：一次 GROUP BY 算出，与上面的过滤无关
+    distribution = dict(
+        (
+            await db.execute(
+                select(ScheduleTrigger.result, func.count())
+                .where(ScheduleTrigger.schedule_id == schedule.id)
+                .group_by(ScheduleTrigger.result)
+            )
+        ).all()
+    )
+    counts = {
+        "fired": int(distribution.get("fired", 0)),
+        "missed": int(distribution.get("missed", 0)),
+        "skipped_busy": int(distribution.get("skipped_busy", 0)),
+        "failed": int(distribution.get("failed", 0)),
+    }
+    return list(rows), total, counts
