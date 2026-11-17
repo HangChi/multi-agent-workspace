@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.api.deps import DB, CurrentUser, ResourceId, require_role
 from app.core.audit import write_audit
+from app.models.schedule import Schedule
 from app.schemas.request import (
     AssignOut,
     AssignRequest,
@@ -93,11 +94,23 @@ async def create_request(
 
 @router.get("/{request_id}", response_model=RequestOut)
 async def get_request(request_id: ResourceId, user: CurrentUser, db: DB):
-    """需求详情（归属校验）。"""
+    """需求详情（归属校验）。
+
+    含来源调度（004）：`source_schedule_id` + 展示用的 `source_schedule_name`。
+    规则被删除后 id 与 name 都为 null，但需求本身与其 Run 全部保留。
+    """
     request = await request_service.get_request(db, request_id, user.id)
     summaries = await request_service.run_outcome_summaries(db, [request.id])
+    schedule_name = None
+    if request.source_schedule_id:
+        schedule = await db.get(Schedule, request.source_schedule_id)
+        schedule_name = schedule.name if schedule else None
     return RequestOut.model_validate(request).model_copy(
-        update={"runs_summary": summaries.get(request.id)}
+        update={
+            "runs_summary": summaries.get(request.id),
+            "source_schedule_id": request.source_schedule_id,
+            "source_schedule_name": schedule_name,
+        }
     )
 
 

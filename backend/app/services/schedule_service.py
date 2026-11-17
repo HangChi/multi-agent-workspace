@@ -10,16 +10,18 @@
    他人的调度 id（403 = 存在，404 = 不存在）。
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.core.config import settings
 from app.models.agent import Agent
 from app.models.group import AgentGroup
-from app.models.schedule import Schedule
+from app.models.request import Request
+from app.models.schedule import Schedule, ScheduleTrigger
 from app.models.user import User
 from app.schemas.schedule import (
     ScheduleCreate,
@@ -30,8 +32,11 @@ from app.schemas.schedule import (
     ScheduleUpdate,
     TargetStatus,
 )
+from app.services import assignment_service
+from app.services.quota_service import assert_user_quota
 from app.services.schedule_cron import (
     CronExpressionError,
+    count_between,
     next_after,
     parse_cron,
     validate_cron,
@@ -39,7 +44,19 @@ from app.services.schedule_cron import (
 
 logger = structlog.get_logger(__name__)
 
-# 创建者已停用时触发会被记为 failed（契约第 5 步），因此这里也要能读到用户状态。
+#: 判定"前次未结束"时的非终态集合。与 request_service 的口径一致：
+#: 只要还有一个 Run 没结束，需求就仍在执行中。
+_UNFINISHED_REQUEST_STATUSES = frozenset({"created", "assigned", "running"})
+
+
+def _missed_grace() -> timedelta:
+    """宽限期：超过这么久没处理就算"错过"，不再补跑。
+
+    90s = 扫描周期 60s + 一次处理的余量，避免一次短暂抖动就被记成错过。
+    每次现读 settings 而不是模块级常量：测试要能按用例调小它来验证
+    「刚好在宽限期内」与「刚好超过」的边界，模块级常量导入后就改不动了。
+    """
+    return timedelta(seconds=settings.schedule_missed_grace_seconds)
 
 
 def _field_error(field: str, message: str, *, code: str = "INVALID_INPUT") -> AppError:
@@ -406,3 +423,458 @@ async def list_schedules(
     )
     rows = (await db.execute(stmt)).scalars().all()
     return [await _to_out(db, s, user) for s in rows], total
+
+
+# =====================================================================
+# 触发器处理（US2/US3）：判定顺序即契约
+# =====================================================================
+#
+# 契约（contracts/api.md §3）规定的 7 步顺序，顺序本身不可调换：
+#
+#   1. 未启用                → 直接返回（不写记录、不推进）
+#   2. next_run_at 为 None   → 直接返回（CHECK 约束保证不该发生）
+#   3. lag > 宽限期          → missed：合并计数、跳过不补跑
+#   4. 前次需求未结束         → skipped_busy
+#   5. 目标/创建者不可用      → failed（计入连续失败，达阈值停用）
+#   6. 配额不足              → failed（配额原因，不计入自动停用）
+#   7. 其余                 → fired：建单 + 分配
+#
+# **第 3 步必须早于第 4 步**。这是全文件最要紧的一处：停机 2 小时后恢复，
+# 若先判"前次未结束"，这条规则会被记成 skipped_busy，用户看到的是
+# "被跳过了"而不是"错过了 24 次"——真正的运维事实被掩盖了。而实际上
+# 前次没结束往往正是因为停机（进程被杀，Run 停在 running）。
+
+
+async def _insert_placeholder(
+    db: AsyncSession, schedule: Schedule, planned: datetime
+) -> bool:
+    """幂等占位：插入本次处理的触发记录占位行。
+
+    用 `ON CONFLICT DO NOTHING` 而不是"先查再插 + 捕获异常"：
+    - 先查再插在并发下必然漏（查与插之间有窗口）。
+    - 捕获 IntegrityError 需要在长事务里制造保存点，且 SQLAlchemy 的
+      session 在异常后状态需要显式回滚，容易连带回滚掉本次已完成的建单。
+
+    **先占位再干活**是关键取舍：若先建单、再写记录时崩溃，重启后会认为
+    "这次没处理过"而重复建单——需求已存在但记录不存在，唯一约束拦不住。
+    先占位则崩溃只会留下"占位了但没建单"，表现为这次触发丢失。
+    整体取舍是「宁可漏跑也不重复跑」。
+
+    Returns:
+        True 表示占位成功（本次由我处理）；False 表示该计划时刻已处理过。
+    """
+    result = await db.execute(
+        text(
+            """
+            INSERT INTO schedule_triggers
+                (id, schedule_id, planned_at, result, missed_count, created_at)
+            VALUES
+                (gen_random_uuid(), :sid, :planned, 'fired', 0, now())
+            ON CONFLICT (schedule_id, planned_at) DO NOTHING
+            RETURNING id
+            """
+        ),
+        {"sid": schedule.id, "planned": planned},
+    )
+    return result.first() is not None
+
+
+async def _finish_trigger(
+    db: AsyncSession,
+    schedule: Schedule,
+    planned: datetime,
+    *,
+    result: str,
+    reason: str | None = None,
+    fired_at: datetime | None = None,
+    missed_count: int = 0,
+    window_start: datetime | None = None,
+    window_end: datetime | None = None,
+    request_id: str | None = None,
+    run_id: str | None = None,
+    next_run: datetime | None = None,
+) -> ScheduleTrigger:
+    """把占位行改写为最终结果，并推进规则状态（同一事务）。"""
+    trigger = (
+        (
+            await db.execute(
+                select(ScheduleTrigger).where(
+                    ScheduleTrigger.schedule_id == schedule.id,
+                    ScheduleTrigger.planned_at == planned,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert trigger is not None, "占位行应已存在"
+
+    trigger.result = result
+    trigger.reason = reason
+    trigger.fired_at = fired_at
+    trigger.missed_count = missed_count
+    trigger.window_start = window_start
+    trigger.window_end = window_end
+    trigger.request_id = request_id
+    trigger.run_id = run_id
+
+    schedule.last_run_at = fired_at or planned
+    schedule.last_result = result
+    if next_run is not None:
+        schedule.next_run_at = next_run
+    return trigger
+
+
+async def _previous_request_unfinished(db: AsyncSession, schedule: Schedule) -> bool:
+    """第 4 步：本规则最近一次成功建的需求是否仍在执行中。
+
+    只认 `fired` 记录：失败/跳过/错过都不产生需求，不该挡住下一次。
+    """
+    last = (
+        await db.execute(
+            select(ScheduleTrigger.request_id)
+            .where(
+                ScheduleTrigger.schedule_id == schedule.id,
+                ScheduleTrigger.result == "fired",
+                ScheduleTrigger.request_id.is_not(None),
+            )
+            .order_by(ScheduleTrigger.planned_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if last is None:
+        return False
+    request = await db.get(Request, last)
+    if request is None:
+        return False
+    return request.status in _UNFINISHED_REQUEST_STATUSES
+
+
+async def _owner_available(db: AsyncSession, schedule: Schedule) -> str | None:
+    """第 5 步：目标与创建者是否仍然可用。
+
+    Returns:
+        不可用原因（面向用户的中文短句），可用时为 None。
+    """
+    owner = await db.get(User, schedule.owner_id)
+    if owner is None or owner.status != "active":
+        return "创建者已停用"
+
+    target_type = schedule.target_type
+    target: Agent | AgentGroup | None
+    if target_type == ScheduleTargetType.agent.value:
+        target = await db.get(Agent, schedule.target_id)
+    else:
+        target = await db.get(AgentGroup, schedule.target_id)
+
+    if target is None:
+        return "目标已删除"
+    if target.owner_id != schedule.owner_id:
+        # 目标被转交或原先就不是本人的：不允许借调度绕过归属校验
+        return "目标不可用"
+    if target.status != "active":
+        return "目标已归档"
+    return None
+
+
+async def fire_schedule(
+    db: AsyncSession,
+    schedule: Schedule,
+    *,
+    now: datetime | None = None,
+) -> ScheduleTrigger | None:
+    """处理单个规则的一次到期（契约 §3 的 7 步判定）。
+
+    Returns:
+        处理后的触发记录；若本次无事可做（未启用、无下次时间、
+        或该计划时刻已处理过）返回 None。
+    """
+    now = now or datetime.now(UTC)
+
+    # 第 1 步
+    if not schedule.enabled:
+        return None
+    # 第 2 步
+    planned = schedule.next_run_at
+    if planned is None:
+        return None
+
+    # 幂等占位（先占位再干活）
+    if not await _insert_placeholder(db, schedule, planned):
+        logger.info(
+            "schedule_trigger_duplicate",
+            schedule_id=schedule.id,
+            planned_at=planned.isoformat(),
+        )
+        return None
+
+    cron = parse_cron(schedule.cron_expr, schedule.timezone)
+    lag = now - planned
+
+    # 第 3 步：错过（必须先于"前次未结束"，否则停机恢复会被误记为 busy）
+    grace = _missed_grace()
+    if lag > grace:
+        window_end = now
+        missed = count_between(cron, planned, now - grace)
+        missed = max(missed, 1)
+        next_run = next_after(cron, now)
+        trigger = await _finish_trigger(
+            db,
+            schedule,
+            planned,
+            result="missed",
+            reason=f"服务未运行，错过 {missed} 次",
+            missed_count=missed,
+            window_start=planned,
+            window_end=window_end,
+            next_run=next_run,
+        )
+        await db.commit()
+        logger.warning(
+            "schedule_missed",
+            schedule_id=schedule.id,
+            missed=missed,
+            window_start=planned.isoformat(),
+        )
+        return trigger
+
+    # 第 4 步：前次未结束
+    if await _previous_request_unfinished(db, schedule):
+        trigger = await _finish_trigger(
+            db,
+            schedule,
+            planned,
+            result="skipped_busy",
+            reason="上次运行尚未结束",
+            fired_at=now,
+            next_run=next_after(cron, planned),
+        )
+        await db.commit()
+        logger.info("schedule_skipped_busy", schedule_id=schedule.id)
+        return trigger
+
+    # 第 5 步：目标/创建者可用性
+    unavailable = await _owner_available(db, schedule)
+    if unavailable is not None:
+        return await _record_failure(db, schedule, planned, reason=unavailable, now=now)
+
+    # 第 6 步：配额（交给 assign 内部判定，这里提前判是为了记成"配额原因"
+    # 而不是笼统的失败；且配额失败不该计入自动停用阈值）
+    try:
+        await assert_user_quota(db, schedule.owner_id)
+    except AppError:
+        trigger = await _finish_trigger(
+            db,
+            schedule,
+            planned,
+            result="failed",
+            reason="本月配额已用尽",
+            fired_at=now,
+            next_run=next_after(cron, planned),
+        )
+        # 配额不足不累加 consecutive_failures：它不是规则本身的问题，
+        # 累加会让规则在用户充值后仍被自动停用。
+        await db.commit()
+        logger.warning("schedule_quota_exhausted", schedule_id=schedule.id)
+        return trigger
+
+    # 第 7 步：建单 + 分配
+    return await _fire_and_assign(db, schedule, planned, now=now)
+
+
+async def _fire_and_assign(
+    db: AsyncSession,
+    schedule: Schedule,
+    planned: datetime,
+    *,
+    now: datetime,
+) -> ScheduleTrigger:
+    """建单并交给既有分配逻辑。
+
+    `assign()` 内部会 `db.commit()`（R-05 已实测），因此需求与 Run 的
+    创建天然是一个原子事务；但它也会提交我们刚写的占位行——这正是我们
+    想要的：占位与建单一起落地，崩溃后不会重复。
+
+    `db.flush()` 必须早于 `assign()`：后者用 `get_request(..., for_update=True)`
+    读需求，行必须已经存在于数据库（flush 而非 commit，仍在同一事务内）。
+    """
+    request = Request(
+        owner_id=schedule.owner_id,
+        title=schedule.template_title,
+        description=schedule.template_description,
+        expected_output=schedule.template_expected_output,
+        priority=schedule.template_priority,
+        status="created",
+        attachments=[],
+        source_schedule_id=schedule.id,
+    )
+    db.add(request)
+    await db.flush()
+
+    try:
+        parent_run_id, run_ids = await assignment_service.assign(
+            db,
+            request_id=request.id,
+            user_id=schedule.owner_id,
+            assignee_type=schedule.target_type,
+            assignee_id=schedule.target_id,
+            strategy=schedule.target_strategy,
+        )
+    except AppError as exc:
+        # assign 失败 → 整个事务（含占位行）回滚 → 换新事务写失败记录。
+        # 不换新事务的话，那条 failed 记录会跟着回滚一起消失，
+        # 用户只看到"什么都没发生"，连"失败过"都不知道。
+        await db.rollback()
+        logger.warning(
+            "schedule_assign_failed",
+            schedule_id=schedule.id,
+            code=exc.code,
+            message=exc.message,
+        )
+        return await _record_failure(
+            db,
+            schedule,
+            planned,
+            reason=_translate_assign_failure(exc),
+            now=now,
+            fresh=True,
+        )
+
+    trigger = await _finish_trigger(
+        db,
+        schedule,
+        planned,
+        result="fired",
+        fired_at=datetime.now(UTC),
+        request_id=request.id,
+        run_id=parent_run_id,
+        next_run=next_after(parse_cron(schedule.cron_expr, schedule.timezone), planned),
+    )
+    # 成功即清空连续失败计数：规则能跑通说明之前的问题已消失
+    schedule.consecutive_failures = 0
+    schedule.auto_disabled_reason = None
+    await db.commit()
+    logger.info(
+        "schedule_fired",
+        schedule_id=schedule.id,
+        request_id=request.id,
+        run_id=parent_run_id,
+        runs=len(run_ids),
+    )
+    return trigger
+
+
+def _translate_assign_failure(exc: AppError) -> str:
+    """把分配失败翻成契约 §2 的措辞白名单。
+
+    契约限定了 `reason` 的取值集合，不得出现 UUID、表名、异常类名。
+    """
+    message = exc.message
+    if "归档" in message:
+        return "目标已归档"
+    if "不存在" in message:
+        return "目标已删除"
+    if "配额" in message or exc.code == "RATE_LIMITED":
+        return "本月配额已用尽"
+    return "目标不可用"
+
+
+async def _record_failure(
+    db: AsyncSession,
+    schedule: Schedule,
+    planned: datetime,
+    *,
+    reason: str,
+    now: datetime,
+    fresh: bool = False,
+) -> ScheduleTrigger:
+    """记录一次失败并推进时间，必要时自动停用。
+
+    Args:
+        fresh: 调用方已回滚事务，需要重新占位（占位行已随回滚消失）。
+    """
+    if fresh:
+        await _insert_placeholder(db, schedule, planned)
+        # 回滚后 schedule 对象已过期，重新读一次拿到数据库里的真实状态
+        await db.refresh(schedule)
+
+    cron = parse_cron(schedule.cron_expr, schedule.timezone)
+    next_run = next_after(cron, planned)
+
+    trigger = await _finish_trigger(
+        db,
+        schedule,
+        planned,
+        result="failed",
+        reason=reason,
+        fired_at=now,
+        next_run=next_run,
+    )
+    schedule.consecutive_failures += 1
+
+    if schedule.consecutive_failures >= settings.schedule_max_failures:
+        # 自动停用：留着 next_run_at 会让列表显示"下次：明天 9 点"，
+        # 而它已经不会再跑了。停用态下 next_run_at 必须为 NULL
+        # （CHECK 约束也这么要求）。
+        schedule.enabled = False
+        schedule.next_run_at = None
+        schedule.auto_disabled_reason = (
+            f"连续 {schedule.consecutive_failures} 次失败已自动停用：{reason}"
+        )
+        logger.warning(
+            "schedule_auto_disabled",
+            schedule_id=schedule.id,
+            failures=schedule.consecutive_failures,
+        )
+
+    await db.commit()
+    return trigger
+
+
+async def run_due_schedules(db: AsyncSession, *, now: datetime | None = None) -> int:
+    """扫描并处理所有到期规则，返回处理条数（Celery Beat 每分钟调用）。
+
+    每条规则独立加锁、独立事务：一条出错不能带走整批（FR-018）。
+    """
+    if not settings.schedule_scan_enabled:
+        logger.info("schedule_scan_disabled")
+        return 0
+
+    now = now or datetime.now(UTC)
+    due = (
+        (
+            await db.execute(
+                select(Schedule.id)
+                .where(Schedule.enabled.is_(True), Schedule.next_run_at <= now)
+                .order_by(Schedule.next_run_at)
+                .limit(settings.schedule_batch_size)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    processed = 0
+    for schedule_id in due:
+        try:
+            # 行级锁：扫描与用户 PATCH 并发时，读到的是同一完整版本
+            schedule = (
+                (
+                    await db.execute(
+                        select(Schedule)
+                        .where(Schedule.id == schedule_id)
+                        .with_for_update()
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if schedule is None:
+                continue
+            if await fire_schedule(db, schedule, now=now) is not None:
+                processed += 1
+        except Exception:
+            # 单条失败不拖垮整批：回滚该条、记日志、继续下一条
+            await db.rollback()
+            logger.exception("schedule_fire_error", schedule_id=schedule_id)
+    return processed

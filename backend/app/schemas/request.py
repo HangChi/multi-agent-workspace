@@ -115,6 +115,11 @@ class RequestOut(BaseModel):
     attachments: list[dict] = Field(default_factory=list)
     # 尚未分配时没有 Run，保持 None（界面据此隐藏「运行结果」）
     runs_summary: RunOutcomeSummary | None = None
+    # 来源调度（004）：手工创建的需求为 null，调度产生的需求指向其规则。
+    # 两个字段都可空且默认 null —— 001 的既有契约断言不受影响。
+    source_schedule_id: str | None = None
+    #: 展示用：来源规则名。规则已删除时为 null（外键 SET NULL，历史需求保留）
+    source_schedule_name: str | None = None
     created_at: datetime
     updated_at: datetime
 
