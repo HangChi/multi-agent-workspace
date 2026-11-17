@@ -28,7 +28,7 @@ import { Icon } from '../components/ui/Icons'
 import { Modal } from '../components/ui/Modal'
 import { Page } from '../components/ui/Page'
 import { PageHeader } from '../components/ui/PageHeader'
-import { useToast } from '../components/ui/Toast'
+import { useToast } from '../components/ui/useToast'
 import { useAssignRequest } from '../hooks/useRequests'
 import { useBoardStore } from '../stores/boardStore'
 

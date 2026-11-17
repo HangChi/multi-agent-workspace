@@ -4,14 +4,14 @@
  * 用法：const toast = useToast(); toast.success('已创建') / toast.error(msg)
  */
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { Icon } from './Icons'
 import type { IconName } from './Icons'
 import { cn } from './cn'
-
-type ToastTone = 'success' | 'error' | 'info'
+import { ToastContext } from './useToast'
+import type { ToastApi, ToastTone } from './useToast'
 
 interface ToastItem {
   id: number
@@ -19,14 +19,6 @@ interface ToastItem {
   description?: string
   tone: ToastTone
 }
-
-interface ToastApi {
-  success: (title: string, description?: string) => void
-  error: (title: string, description?: string) => void
-  info: (title: string, description?: string) => void
-}
-
-const ToastContext = createContext<ToastApi | null>(null)
 
 const TONE: Record<ToastTone, { icon: IconName; iconClass: string; bar: string }> = {
   success: {
@@ -116,12 +108,4 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       </div>
     </ToastContext.Provider>
   )
-}
-
-export function useToast(): ToastApi {
-  const ctx = useContext(ToastContext)
-  if (!ctx) {
-    throw new Error('useToast 必须在 <ToastProvider> 内使用')
-  }
-  return ctx
 }

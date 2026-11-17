@@ -19,7 +19,7 @@ import {
 import { Badge } from '../components/ui/Badge'
 import { Button, IconButton } from '../components/ui/Button'
 import { Card, IconTile } from '../components/ui/Card'
-import { useConfirm } from '../components/ui/ConfirmDialog'
+import { useConfirm } from '../components/ui/useConfirm'
 import { EmptyState } from '../components/ui/EmptyState'
 import { ErrorBanner } from '../components/ui/ErrorBanner'
 import { Input, Select } from '../components/ui/Field'
@@ -30,7 +30,7 @@ import { PageHeader } from '../components/ui/PageHeader'
 import { Pagination } from '../components/ui/Pagination'
 import { OptionCards } from '../components/ui/Segmented'
 import { CardSkeleton } from '../components/ui/Skeleton'
-import { useToast } from '../components/ui/Toast'
+import { useToast } from '../components/ui/useToast'
 import { cn } from '../components/ui/cn'
 
 const STRATEGY_META: Record<

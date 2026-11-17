@@ -7,25 +7,17 @@
  *   if (await confirm({ title: '删除 Agent', description: '...', tone: 'danger' })) { ... }
  */
 
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { Button } from './Button'
 import { IconTile } from './Card'
 import { Icon } from './Icons'
 import { Modal } from './Modal'
+import { ConfirmContext } from './useConfirm'
+import type { ConfirmFn, ConfirmOptions } from './useConfirm'
 
-export interface ConfirmOptions {
-  title: string
-  description?: ReactNode
-  confirmText?: string
-  cancelText?: string
-  tone?: 'danger' | 'warning' | 'primary'
-}
-
-type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>
-
-const ConfirmContext = createContext<ConfirmFn | null>(null)
+export type { ConfirmOptions } from './useConfirm'
 
 const TONE_META = {
   danger: { variant: 'danger', tile: 'rose', icon: 'alert-triangle' },
@@ -81,12 +73,4 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       />
     </ConfirmContext.Provider>
   )
-}
-
-export function useConfirm(): ConfirmFn {
-  const ctx = useContext(ConfirmContext)
-  if (!ctx) {
-    throw new Error('useConfirm 必须在 <ConfirmProvider> 内使用')
-  }
-  return ctx
 }
