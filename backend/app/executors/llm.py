@@ -58,6 +58,19 @@ def _price_for_model(model: str) -> tuple[float, float]:
     return _MODEL_PRICES_USD_PER_1K.get(model, _MODEL_PRICES_USD_PER_1K["gpt-4o-mini"])
 
 
+def litellm_model_name(model: str, base_url: str) -> str:
+    """给 LiteLLM 补齐 provider 前缀。
+
+    LiteLLM 靠模型名的前缀选 provider，不认 `llm_base_url` 自己推断。接自建或
+    第三方 OpenAI 兼容端点时，模型名（如 `Deepseek-V4.1-Flash`）没有前缀，会直接
+    报 "LLM Provider NOT provided"。只在**这一层**补 `openai/`：数据库里的
+    `Agent.model`、成本表与指标标签仍用不带前缀的干净名字。
+    """
+    if not model or "/" in model or not base_url:
+        return model
+    return f"openai/{model}"
+
+
 def usage_to_cost_micros(model: str, usage: dict[str, Any] | None) -> int:
     """把 usage 换算成**微分**（1 分 = 1e6 微分）。
 
@@ -123,7 +136,7 @@ class LiteLLMClient:
             LLMClientError: 连接/鉴权/限流/超时等失败（转为可读错误）
         """
         kwargs: dict[str, Any] = {
-            "model": self.model,
+            "model": litellm_model_name(self.model, self.base_url),
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,

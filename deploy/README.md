@@ -33,6 +33,43 @@ docker compose -p aw -f deploy/docker-compose.yml --profile mock up -d --build
 # 并把 .env 的 LLM_BASE_URL 指向 http://llm-gateway:4000
 ```
 
+## 接一个 LLM 端点
+
+三个变量，都在 `deploy/.env`：
+
+| 变量 | 说明 |
+|---|---|
+| `LLM_BASE_URL` | OpenAI 兼容端点，**带 `/v1`**（如 `https://your-gateway/v1`） |
+| `LLM_API_KEY` | 端点密钥 |
+| `LLM_MODEL` | 兜底模型名，**不要写 `openai/` 前缀** |
+
+- 真正决定调用哪个模型的是 **`Agent.model`**（每个 Agent 自己选）；`LLM_MODEL` 只在
+  没有 Agent 语境时兜底。
+- LiteLLM 必须靠模型前缀选 provider，本项目在 `app/executors/llm.py::litellm_model_name()`
+  里统一补 `openai/`（仅当 `LLM_BASE_URL` 非空）。所以数据库、成本表、指标标签里的
+  模型名保持干净，**不要自己写前缀**。
+- ⚠️ **换端点必须迁移存量 Agent 的 model**。旧值是上一个端点的模型名（如 `gpt-4o-mini`），
+  新端点没有它，run 会**秒失败**并报 `No available channel for model gpt-4o-mini`：
+
+  ```sql
+  -- 只改新端点确实不存在的那些，不要全表覆盖
+  UPDATE agents SET model='<新端点模型名>'
+   WHERE model IN ('gpt-4o-mini','gpt-4o','claude-3-5-sonnet');
+  ```
+
+- 前端模型下拉是硬编码列表（`frontend/src/components/agent/AgentForm.tsx` 的 `MODELS`），
+  换端点要同步改；不在列表里的存量值会显示成「（不在预设列表）」而不是空白。
+
+换完先验端点，再验链路：
+
+```bash
+# 1) 端点 + key + 模型名三者是否匹配（宿主机直连）
+curl -s "$LLM_BASE_URL/chat/completions" -H "Authorization: Bearer $LLM_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"'"$LLM_MODEL"'","messages":[{"role":"user","content":"hi"}],"max_tokens":16}'
+# 2) 整条链路：建 Agent(用同一 model) → 建需求 → 分配，看 Run 是否 completed 且 result 非空
+```
+
 ## 生产注意
 
 1. **`APP_ENV=production`（默认）会强校验密钥**：`JWT_SECRET` 需 ≥32 字符且非默认值，

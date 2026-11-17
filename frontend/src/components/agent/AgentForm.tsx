@@ -31,13 +31,15 @@ interface Props {
   submitting?: boolean
 }
 
+// 与后端 LLM_BASE_URL 指向的 OpenAI 兼容端点保持一致：这几种都实测过
+// 普通对话 + function calling。改这里要同步改 deploy/.env 的 LLM_MODEL 兜底值。
 const MODELS = [
-  'gpt-4o',
-  'gpt-4o-mini',
-  'claude-3-5-sonnet',
-  'claude-3-5-haiku',
-  'deepseek-v3',
-  'deepseek-r1',
+  'Deepseek-V4.1-Flash',
+  'DeepSeek-V4-Pro-0813',
+  'GLM-5.3',
+  'Kimi-K3',
+  'qwen-flash',
+  'doubao-seed-2.0-pro',
 ]
 
 export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
@@ -123,11 +125,19 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
           onChange={(e) => set('model', e.target.value)}
           hint="模型决定能力上限与成本单价"
         >
-          {MODELS.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
+          {/*
+            存量 Agent 的 model 可能是切换端点前的名字（如 gpt-4o-mini），
+            它不在 MODELS 里时受控 select 会显示成空白。把当前值补到第一项，
+            让用户至少看到「它现在是什么」，再决定要不要改。
+          */}
+          {(MODELS.includes(values.model) ? MODELS : [values.model, ...MODELS]).map(
+            (m) => (
+              <option key={m} value={m}>
+                {m}
+                {MODELS.includes(m) ? '' : '（不在预设列表）'}
+              </option>
+            ),
+          )}
         </Select>
       </div>
 
