@@ -35,19 +35,19 @@ description: "Implementation tasks for scheduled requests: cron rules, automatic
 
 **Purpose**: 配置项与环境示例，不含业务逻辑。
 
-- [ ] T001 [P] Add `schedule_*` settings with safe defaults in `backend/app/core/config.py`: `schedule_scan_enabled` (bool, default true), `schedule_missed_grace_seconds` (int, default 90), `schedule_default_timezone` (str, `Asia/Shanghai`), `schedule_max_failures` (int, default 5), `schedule_history_max_rows` (int, default 500), `schedule_history_retention_days` (int, default 90), `schedule_batch_size` (int, default 200).
-- [ ] T002 [P] Document the same keys in `deploy/.env.example` with comments explaining each bound and why the grace period is 90s (scan period 60s + one processing margin).
-- [ ] T003 [P] Add audit action constants/helpers for `schedule_create`, `schedule_update`, `schedule_delete`, `schedule_enable`, `schedule_disable`, `schedule_trigger` in `backend/app/core/audit.py` (follow existing action naming; keep the reason strings user-facing and free of identifiers).
+- [X] T001 [P] Add `schedule_*` settings with safe defaults in `backend/app/core/config.py`: `schedule_scan_enabled` (bool, default true), `schedule_missed_grace_seconds` (int, default 90), `schedule_default_timezone` (str, `Asia/Shanghai`), `schedule_max_failures` (int, default 5), `schedule_history_max_rows` (int, default 500), `schedule_history_retention_days` (int, default 90), `schedule_batch_size` (int, default 200).
+- [X] T002 [P] Document the same keys in `deploy/.env.example` with comments explaining each bound and why the grace period is 90s (scan period 60s + one processing margin).
+- [X] T003 [P] Add audit action constants/helpers for `schedule_create`, `schedule_update`, `schedule_delete`, `schedule_enable`, `schedule_disable`, `schedule_trigger` in `backend/app/core/audit.py` (follow existing action naming; keep the reason strings user-facing and free of identifiers).
 
 ## Phase 2: Foundational — cron pure functions
 
 **Purpose**: 把最容易出错的「下次触发时间」算法做成**无 IO 的纯函数**，可低成本穷举验证。
 不依赖数据库，可先行完成并独立验证。
 
-- [ ] T004 [P] Write failing unit tests in `backend/tests/unit/test_schedule_cron.py` covering: 5-field validation; unsupported forms (`@daily`, 6 fields) rejected; `60 * * * *` rejected; `0 0 31 2 *` rejected as never-occurring; weekday `0` = Sunday and `1-5` = Mon-Fri mapping; **intersection semantics** (`0 9 1 * 1` must only yield dates that are both the 1st and a Monday); leap-year (`0 0 29 2 *` from 2026-03-01 → 2028-02-29); weekend crossing (`0 9 * * 1-5` from Fri 18:00 → next Mon 09:00); exact-hit advance (`0 9 * * *` at 09:00 → **next day** 09:00, not same day); sub-minute truncation.
-- [ ] T005 [P] Write failing unit tests for `count_between` in the same file: 5-minute rule from 01:00 to 03:00 → **25**; 01:00 to 01:09 → **2**; 01:00 to 01:00:45 → **1**; and a guard that a pathological window cannot loop unbounded (returns a bounded count or raises a clear error).
-- [ ] T006 Implement `backend/app/services/schedule_cron.py`: `parse_cron(expr, tz)` (keyword args only — add a comment explaining the `day_of_week`-before-`day_of_month` trap and the instance-assignment `tz` trap), `next_after(cron, after)`, `count_between(cron, start, end)`, `validate_cron(expr, tz, now)` returning a user-facing Chinese error message on failure. No database, no settings import beyond the default tz.
-- [ ] T007 Verify T004/T005 pass and that `validate_cron` produces the exact `missed_count` numbers used in `contracts/api.md` (25 / 2 / 1). Record the measured numbers in the commit message.
+- [X] T004 [P] Write failing unit tests in `backend/tests/unit/test_schedule_cron.py` covering: 5-field validation; unsupported forms (`@daily`, 6 fields) rejected; `60 * * * *` rejected; `0 0 31 2 *` rejected as never-occurring; weekday `0` = Sunday and `1-5` = Mon-Fri mapping; **intersection semantics** (`0 9 1 * 1` must only yield dates that are both the 1st and a Monday); leap-year (`0 0 29 2 *` from 2026-03-01 → 2028-02-29); weekend crossing (`0 9 * * 1-5` from Fri 18:00 → next Mon 09:00); exact-hit advance (`0 9 * * *` at 09:00 → **next day** 09:00, not same day); sub-minute truncation.
+- [X] T005 [P] Write failing unit tests for `count_between` in the same file: 5-minute rule from 01:00 to 03:00 → **25**; 01:00 to 01:09 → **2**; 01:00 to 01:00:45 → **1**; and a guard that a pathological window cannot loop unbounded (returns a bounded count or raises a clear error).
+- [X] T006 Implement `backend/app/services/schedule_cron.py`: `parse_cron(expr, tz)` (keyword args only — add a comment explaining the `day_of_week`-before-`day_of_month` trap and the instance-assignment `tz` trap), `next_after(cron, after)`, `count_between(cron, start, end)`, `validate_cron(expr, tz, now)` returning a user-facing Chinese error message on failure. No database, no settings import beyond the default tz.
+- [X] T007 Verify T004/T005 pass and that `validate_cron` produces the exact `missed_count` numbers used in `contracts/api.md` (25 / 2 / 1). Record the measured numbers in the commit message.
 
 **Checkpoint**: cron 算法在无数据库条件下全部通过；三个实测数字与契约一致。提交 Phase 2。
 
@@ -55,11 +55,11 @@ description: "Implementation tasks for scheduled requests: cron rules, automatic
 
 **Purpose**: 两张新表 + `requests` 一个可空外键。阻塞所有用户故事。
 
-- [ ] T008 [P] Write failing tests in `backend/tests/integration/test_schedule_schema.py` for: `(schedule_id, planned_at)` uniqueness violation; `CHECK (not enabled or next_run_at is not null)` rejecting an enabled rule with null `next_run_at`; `ON DELETE SET NULL` on `requests.source_schedule_id` when the schedule is deleted; `ON DELETE CASCADE` from `schedules` to `schedule_triggers`; and that deleting a schedule does **not** delete its requests or runs.
-- [ ] T009 Implement `backend/app/models/schedule.py` with `Schedule` and `ScheduleTrigger` per `data-model.md`, including both enums, the unique constraint, the partial index `WHERE enabled`, and the `CHECK` constraints. Export from `backend/app/models/__init__.py`.
-- [ ] T010 Add `source_schedule_id` (`ForeignKey("schedules.id", ondelete="SET NULL")`, nullable, indexed) plus the relationship to `backend/app/models/request.py`. Do not touch any existing column.
-- [ ] T011 Write `backend/alembic/versions/0007_schedules.py`: create both enum types, both tables with constraints/indexes, and the `requests` column + FK + index. `downgrade` reverses in order and explicitly `DROP TYPE` both enums (follow the 002/003 convention).
-- [ ] T012 Run the migration round-trip on an **empty** database (`upgrade head → downgrade base → upgrade head`) and record the result. Do not use a database left by the test suite (it has objects but an empty `alembic_version`, which misreports as base).
+- [X] T008 [P] Write failing tests in `backend/tests/integration/test_schedule_schema.py` for: `(schedule_id, planned_at)` uniqueness violation; `CHECK (not enabled or next_run_at is not null)` rejecting an enabled rule with null `next_run_at`; `ON DELETE SET NULL` on `requests.source_schedule_id` when the schedule is deleted; `ON DELETE CASCADE` from `schedules` to `schedule_triggers`; and that deleting a schedule does **not** delete its requests or runs.
+- [X] T009 Implement `backend/app/models/schedule.py` with `Schedule` and `ScheduleTrigger` per `data-model.md`, including both enums, the unique constraint, the partial index `WHERE enabled`, and the `CHECK` constraints. Export from `backend/app/models/__init__.py`.
+- [X] T010 Add `source_schedule_id` (`ForeignKey("schedules.id", ondelete="SET NULL")`, nullable, indexed) plus the relationship to `backend/app/models/request.py`. Do not touch any existing column.
+- [X] T011 Write `backend/alembic/versions/0007_schedules.py`: create both enum types, both tables with constraints/indexes, and the `requests` column + FK + index. `downgrade` reverses in order and explicitly `DROP TYPE` both enums (follow the 002/003 convention).
+- [X] T012 Run the migration round-trip on an **empty** database (`upgrade head → downgrade base → upgrade head`) and record the result. Do not use a database left by the test suite (it has objects but an empty `alembic_version`, which misreports as base).
 - [ ] T013 [P] Add schemas in `backend/app/schemas/schedule.py`: `ScheduleTargetType`, `ScheduleTriggerResult` enums; `ScheduleTemplate`, `ScheduleTarget`; `ScheduleCreate`, `ScheduleUpdate` (partial), `ScheduleOut` (with display-only `target.name` / `target.status`, `owner_email` for admin only), `TriggerOut`, `TriggerListOut` (with `counts`). Keep `target.status` supporting `missing` to distinguish deleted from archived.
 
 **Checkpoint**: 迁移往返通过；约束测试全绿（含两条 `ON DELETE` 语义）。提交 Phase 3。
