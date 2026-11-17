@@ -1,11 +1,12 @@
 /** 工作台布局：吸顶毛玻璃导航 + 内容区（T037/T038 共用）。 */
 
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 
 import { useAuth } from '../../hooks/useAuth'
 import { Badge } from '../ui/Badge'
 import type { BadgeTone } from '../ui/Badge'
 import { Dropdown, DropdownItem, DropdownLabel, DropdownSeparator } from '../ui/Dropdown'
+import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { Icon } from '../ui/Icons'
 import type { IconName } from '../ui/Icons'
 import { LogoWordmark } from '../ui/Logo'
@@ -53,6 +54,9 @@ function navClass({ isActive }: { isActive: boolean }) {
 
 export function AppLayout() {
   const { user, logout } = useAuth()
+  // 用 location.key 作错误边界的复位信号：切页面时自动清掉上一页的渲染错误，
+  // 否则用户修好数据回到该页仍是错误状态（错误边界只在 key 变化时复位）。
+  const location = useLocation()
   const items = NAV_ITEMS.filter((item) => !item.adminOnly || user?.role === 'admin')
   const initial = (user?.email ?? '?').slice(0, 1).toUpperCase()
 
@@ -143,7 +147,11 @@ export function AppLayout() {
       </header>
 
       <main className="relative mx-auto w-full max-w-[1600px] px-4 pb-16 pt-5 sm:px-6 sm:pt-6 lg:px-8 lg:pt-8">
-        <Outlet />
+        {/* 区块级兜底：某个页面渲染崩溃时，导航栏仍可用，用户能切走。
+            根级兜底在 App.tsx，两层互补。 */}
+        <ErrorBoundary variant="section" resetKey={location.key}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </div>
   )

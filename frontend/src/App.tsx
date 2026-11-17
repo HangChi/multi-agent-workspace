@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
 
 import { ConfirmProvider } from './components/ui/ConfirmDialog'
+import { ErrorBoundary } from './components/ui/ErrorBoundary'
 import { ToastProvider } from './components/ui/Toast'
 import { AppRouter } from './router'
 import { useAuthStore } from './stores/authStore'
@@ -25,9 +26,13 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         <ConfirmProvider>
-          <BrowserRouter>
-            <AppRouter />
-          </BrowserRouter>
+          {/* 根级兜底：放在最外层，连 Router 自身崩了也能给出一张可交互的错误页
+              （所以内部只用 <a> 不用 <Link>）。区块级兜底在 AppLayout 里。 */}
+          <ErrorBoundary variant="page">
+            <BrowserRouter>
+              <AppRouter />
+            </BrowserRouter>
+          </ErrorBoundary>
         </ConfirmProvider>
       </ToastProvider>
     </QueryClientProvider>
