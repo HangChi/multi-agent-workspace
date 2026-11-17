@@ -91,20 +91,20 @@ description: "Implementation tasks for scheduled requests: cron rules, automatic
 
 ### Tests first
 
-- [ ] T021 [P] [US2] Write failing tests in `backend/tests/integration/test_schedule_dispatch.py` for the `fired` path across all four target shapes: `agent` (strategy `direct`), `group`+`fan_out` (parent + N children, `parent_run_id`), `group`+`pipeline` (only `sequence=1` enqueued), `group`+`router` (single parent, `assignee_type=group`).
-- [ ] T022 [P] [US2] Add the **structural equivalence** test (SC-003): perform the same assignment by hand against the same target and compare Run rows field-by-field (assignee_type, assignee_id, strategy, sequence, parent_run_id, `tool_grants_snapshot` presence). This is the test that prevents the scheduled path from silently degrading.
-- [ ] T023 [P] [US2] Add failing tests for atomicity (FR-009): make `assign()` fail (archived target, quota exhausted) and assert **no `requests` row survives** and exactly one `failed` trigger record exists with `next_run_at` advanced.
-- [ ] T024 [P] [US2] Add a test that `GET /requests/{id}` now returns `source_schedule_id` and its name, and that existing 001 request-contract assertions still pass (the new fields must be optional/null by default).
+- [X] T021 [P] [US2] Write failing tests in `backend/tests/integration/test_schedule_dispatch.py` for the `fired` path across all four target shapes: `agent` (strategy `direct`), `group`+`fan_out` (parent + N children, `parent_run_id`), `group`+`pipeline` (only `sequence=1` enqueued), `group`+`router` (single parent, `assignee_type=group`).
+- [X] T022 [P] [US2] Add the **structural equivalence** test (SC-003): perform the same assignment by hand against the same target and compare Run rows field-by-field (assignee_type, assignee_id, strategy, sequence, parent_run_id, `tool_grants_snapshot` presence). This is the test that prevents the scheduled path from silently degrading.
+- [X] T023 [P] [US2] Add failing tests for atomicity (FR-009): make `assign()` fail (archived target, quota exhausted) and assert **no `requests` row survives** and exactly one `failed` trigger record exists with `next_run_at` advanced.
+- [X] T024 [P] [US2] Add a test that `GET /requests/{id}` now returns `source_schedule_id` and its name, and that existing 001 request-contract assertions still pass (the new fields must be optional/null by default).
 
 ### Implementation
 
-- [ ] T025 [US2] Implement `fire_schedule(db, schedule, *, now)` in `backend/app/services/schedule_service.py` for the `fired` branch: build `Request` from template → `db.add` → `await db.flush()` → call `assignment_service.assign(...)` (reuse, do not reimplement). Add a comment explaining that `assign()` commits internally (R-05) and why `flush` (not `commit`) precedes it.
-- [ ] T026 [US2] Implement the failure re-open path: catch `AppError` from `assign()`, roll back the whole transaction (including the trigger placeholder), then **open a new transaction** to write the `failed` record and advance `next_run_at`. Without the new transaction the record is rolled back with the rest.
-- [ ] T027 [US2] Implement `run_due_schedules(db, *, now=None)` scanning `enabled` rules with `next_run_at <= now`, taking a per-rule `SELECT ... FOR UPDATE`, and isolating each rule's exception so one failure cannot abort the batch (FR-018). Support `now` injection for tests.
-- [ ] T028 [US2] Implement the trigger placeholder insert with `ON CONFLICT (schedule_id, planned_at) DO NOTHING` **before** creating the request, and abort the rule if the insert conflicted (this is the idempotency mechanism, R-03).
-- [ ] T029 [US2] Add the Celery task wrapper in `backend/app/tasks/schedule.py` and register `schedule-scan` (every minute) in `backend/app/tasks/celery_app.py`. Skip the scan when `schedule_scan_enabled` is false.
-- [ ] T030 [US2] Expose `next_run_at`/`last_run_at`/`last_result` updates atomically with the trigger record (same transaction as the placeholder), so a crash cannot leave `next_run_at` pointing at an already-processed instant.
-- [ ] T031 [US2] Run Phase gate and record the equivalence-test result explicitly.
+- [X] T025 [US2] Implement `fire_schedule(db, schedule, *, now)` in `backend/app/services/schedule_service.py` for the `fired` branch: build `Request` from template → `db.add` → `await db.flush()` → call `assignment_service.assign(...)` (reuse, do not reimplement). Add a comment explaining that `assign()` commits internally (R-05) and why `flush` (not `commit`) precedes it.
+- [X] T026 [US2] Implement the failure re-open path: catch `AppError` from `assign()`, roll back the whole transaction (including the trigger placeholder), then **open a new transaction** to write the `failed` record and advance `next_run_at`. Without the new transaction the record is rolled back with the rest.
+- [X] T027 [US2] Implement `run_due_schedules(db, *, now=None)` scanning `enabled` rules with `next_run_at <= now`, taking a per-rule `SELECT ... FOR UPDATE`, and isolating each rule's exception so one failure cannot abort the batch (FR-018). Support `now` injection for tests.
+- [X] T028 [US2] Implement the trigger placeholder insert with `ON CONFLICT (schedule_id, planned_at) DO NOTHING` **before** creating the request, and abort the rule if the insert conflicted (this is the idempotency mechanism, R-03).
+- [X] T029 [US2] Add the Celery task wrapper in `backend/app/tasks/schedule.py` and register `schedule-scan` (every minute) in `backend/app/tasks/celery_app.py`. Skip the scan when `schedule_scan_enabled` is false.
+- [X] T030 [US2] Expose `next_run_at`/`last_run_at`/`last_result` updates atomically with the trigger record (same transaction as the placeholder), so a crash cannot leave `next_run_at` pointing at an already-processed instant.
+- [X] T031 [US2] Run Phase gate and record the equivalence-test result explicitly.
 
 **Checkpoint**: US2 的 Independent Test 通过；SC-003 的结构比对测试绿。提交 Phase 5。
 **至此 MVP 完整**：能定义规则且到点自动执行。

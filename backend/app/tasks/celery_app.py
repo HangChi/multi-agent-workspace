@@ -38,6 +38,12 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.maintenance.purge_expired_sandbox_data",
         "schedule": crontab(hour=3, minute=0),
     },
+    # 定时调度扫描（004）：每分钟一次。宽限期 90s 恰好覆盖这一周期，
+    # 单次抖动不会被误记成"错过"。
+    "scan-due-schedules": {
+        "task": "app.tasks.schedule.scan_due_schedules",
+        "schedule": crontab(minute="*"),
+    },
 }
 
 # 自动发现 app/tasks 下的任务模块。
@@ -46,4 +52,9 @@ celery_app.conf.beat_schedule = {
 celery_app.autodiscover_tasks(["app.tasks"])
 
 # 显式导入任务模块，确保 Worker 注册（兜底 autodiscover 不递归的局限）
-from app.tasks import execute_run, maintenance, validate_external_server  # noqa: F401  (must be after celery_app is defined)
+from app.tasks import (  # noqa: F401  (must be after celery_app is defined)
+    execute_run,
+    maintenance,
+    schedule,
+    validate_external_server,
+)

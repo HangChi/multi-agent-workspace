@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, text
 
+from app.core.config import settings
 from app.models.request import Request
 from app.models.run import Run
 from app.models.schedule import Schedule, ScheduleTrigger
@@ -482,3 +483,99 @@ class TestRequestSourceExposure:
         body = detail.json()
         assert body["source_schedule_id"] is None
         assert body["source_schedule_name"] is None
+
+
+class TestRunDueSchedules:
+    """扫描入口：批量、隔离、以及 `now` 注入。"""
+
+    async def test_only_due_rules_are_processed(self, client, db_session, make_headers):
+        h = await make_headers(role="member")
+        agent = await _make_agent(client, h)
+        me = await _me(client, h)
+
+        due = await _make_schedule(
+            db_session, owner_id=me["id"], target_type="agent", target_id=agent["id"]
+        )
+        # 未来的规则不该被扫到
+        later = await _make_schedule(
+            db_session,
+            owner_id=me["id"],
+            target_type="agent",
+            target_id=agent["id"],
+            cron_expr="0 9 * * *",
+        )
+        later.next_run_at = datetime.now(UTC) + timedelta(hours=5)
+        await db_session.commit()
+
+        processed = await schedule_service.run_due_schedules(db_session)
+        assert processed == 1
+        await db_session.refresh(due)
+        await db_session.refresh(later)
+        assert due.last_result == "fired"
+        assert later.last_result is None
+
+    async def test_disabled_rule_is_not_processed(
+        self, client, db_session, make_headers
+    ):
+        h = await make_headers(role="member")
+        agent = await _make_agent(client, h)
+        me = await _me(client, h)
+        schedule = await _make_schedule(
+            db_session, owner_id=me["id"], target_type="agent", target_id=agent["id"]
+        )
+        schedule.enabled = False
+        schedule.next_run_at = None
+        await db_session.commit()
+
+        assert await schedule_service.run_due_schedules(db_session) == 0
+
+    async def test_one_broken_rule_does_not_abort_the_batch(
+        self, client, db_session, make_headers
+    ):
+        """FR-018：单条失败不能拖垮整批。
+
+        用一条 cron 表达式被改坏（直接改库绕过校验）的规则制造异常，
+        断言另一条正常规则仍被处理。
+        """
+        h = await make_headers(role="member")
+        agent = await _make_agent(client, h)
+        me = await _me(client, h)
+
+        broken = await _make_schedule(
+            db_session, owner_id=me["id"], target_type="agent", target_id=agent["id"]
+        )
+        healthy = await _make_schedule(
+            db_session, owner_id=me["id"], target_type="agent", target_id=agent["id"]
+        )
+        # 绕过 schema 直接写一个非法表达式。
+        # 必须 expire_all 之后才能生效：原生 UPDATE 绕过了 ORM，会话身份映射里
+        # 的 Schedule 对象仍缓存着旧的 cron_expr，扫描时会拿到旧值而不是坏值，
+        # 测试就会假通过（实测：不 expire 时这条规则会正常 fired，断言 2==1 失败）。
+        await db_session.execute(
+            text("UPDATE schedules SET cron_expr = 'broken' WHERE id = :sid"),
+            {"sid": broken.id},
+        )
+        await db_session.commit()
+        db_session.expire_all()
+
+        processed = await schedule_service.run_due_schedules(db_session)
+        # 坏的那条抛异常被隔离，好的那条正常处理
+        assert processed == 1
+        await db_session.refresh(healthy)
+        assert healthy.last_result == "fired"
+
+    async def test_scan_disabled_returns_zero_without_side_effects(
+        self, client, db_session, make_headers, monkeypatch
+    ):
+        """关掉扫描后，到期规则保持原状。"""
+        h = await make_headers(role="member")
+        agent = await _make_agent(client, h)
+        me = await _me(client, h)
+        schedule = await _make_schedule(
+            db_session, owner_id=me["id"], target_type="agent", target_id=agent["id"]
+        )
+        monkeypatch.setattr(settings, "schedule_scan_enabled", False)
+
+        assert await schedule_service.run_due_schedules(db_session) == 0
+        await db_session.refresh(schedule)
+        assert schedule.last_result is None
