@@ -30,7 +30,11 @@ _MAX_REDIRECTS = 3
 _TIMEOUT_SECONDS = 15.0
 _USER_AGENT = "AgentWorkbench/0.1 (+read_url)"
 # 一次解析最多尝试几个地址（域名可能同时有 A/AAAA 记录）。
-_MAX_CONNECT_ATTEMPTS = 4
+_MAX_CONNECT_ATTEMPTS = 2
+# 一轮地址全部连不上时重新解析再试：DNS 轮换、CDN 边缘节点下线都会让上一次解析
+# 的地址临时不可用。每轮都重新校验、连的仍是当轮校验过的地址，所以重试不会重开
+# DNS rebinding 的口子。
+_RESOLVE_ROUNDS = 2
 
 _BLOCKED_NETS = tuple(
     ipaddress.ip_network(net)
@@ -244,45 +248,60 @@ class ReadUrlExecutor(ToolExecutor):
         )
 
     async def _fetch(self, client: httpx.AsyncClient, url: str) -> _Fetched:
-        """解析一次、连那个 IP、边读边判上限。"""
+        """解析一次、连那个 IP、边读边判上限；一轮连不上就重新解析再试一次。"""
         parsed = urlparse(url)
-        addresses = await self._resolver(parsed.hostname or "")
-        if not addresses:
-            raise FetchError(f"域名解析失败: {parsed.hostname or ''}")
+        host = parsed.hostname or ""
         host_header = _authority(parsed)
+        extensions = {"sni_hostname": host} if parsed.scheme == "https" else {}
         last_error: Exception | None = None
-        for address in addresses[:_MAX_CONNECT_ATTEMPTS]:
-            target = _connect_url(url, address)
-            extensions = {"sni_hostname": parsed.hostname} if parsed.scheme == "https" else {}
-            try:
-                async with client.stream(
-                    "GET",
-                    target,
-                    headers={"Host": host_header},
-                    extensions=extensions,
-                ) as response:
-                    if response.is_redirect:
-                        # 不读 body：重定向只需要 Location
-                        return _Fetched(response.status_code, response, b"",
-                                        response.headers.get("location", ""))
-                    if response.status_code >= 400:
-                        return _Fetched(response.status_code, response, b"", None)
-                    buffer = bytearray()
-                    async for chunk in response.aiter_bytes():
-                        budget = _MAX_BYTES - len(buffer)
-                        if len(chunk) >= budget:
-                            # 超出上限就停止下载：不把整个 body 读进内存
-                            buffer.extend(chunk[:budget])
-                            break
-                        buffer.extend(chunk)
-                    return _Fetched(response.status_code, response, bytes(buffer), None)
-            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
-                # 只有「连不上这个地址」才换下一个；读超时换地址只会把时间翻倍
-                last_error = exc
-                continue
+        async with asyncio.timeout(_TIMEOUT_SECONDS):  # 整跳（含解析与重试）的总预算
+            for _round in range(_RESOLVE_ROUNDS):
+                addresses = (await self._resolver(host))[:_MAX_CONNECT_ATTEMPTS]
+                if not addresses:
+                    raise FetchError(f"域名解析失败: {host}")
+                for address in addresses:
+                    try:
+                        return await self._stream(
+                            client, _connect_url(url, address), host_header, extensions
+                        )
+                    except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                        # 只有「连不上这个地址」才换下一个；读超时换地址只会把时间翻倍
+                        last_error = exc
+                        continue
         if last_error is not None:
             raise last_error
         raise FetchError("没有可连接的地址")
+
+    async def _stream(
+        self,
+        client: httpx.AsyncClient,
+        target: str,
+        host_header: str,
+        extensions: dict[str, Any],
+    ) -> _Fetched:
+        """一次具体的请求：Host/SNI 是原域名，连接目标是已校验的地址。"""
+        async with client.stream(
+            "GET",
+            target,
+            headers={"Host": host_header},
+            extensions=extensions,
+        ) as response:
+            if response.is_redirect:
+                # 不读 body：重定向只需要 Location
+                return _Fetched(
+                    response.status_code, response, b"", response.headers.get("location", "")
+                )
+            if response.status_code >= 400:
+                return _Fetched(response.status_code, response, b"", None)
+            buffer = bytearray()
+            async for chunk in response.aiter_bytes():
+                budget = _MAX_BYTES - len(buffer)
+                if len(chunk) >= budget:
+                    # 超出上限就停止下载：不把整个 body 读进内存
+                    buffer.extend(chunk[:budget])
+                    break
+                buffer.extend(chunk)
+            return _Fetched(response.status_code, response, bytes(buffer), None)
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
         url = _normalize_url(str(arguments.get("url") or arguments.get("input") or ""))
@@ -328,6 +347,9 @@ class ReadUrlExecutor(ToolExecutor):
                 "truncated": truncated,
                 "body_truncated": len(raw) >= _MAX_BYTES,
             }
+        except TimeoutError:
+            # asyncio.timeout 的总预算耗尽（包含换地址/重新解析的重试）
+            return {"url": url, "error": f"抓取超时（上限 {int(_TIMEOUT_SECONDS)}s）"}
         except httpx.HTTPError as exc:
             return {"url": url, "error": f"抓取失败: {exc}"}
         except FetchError as exc:

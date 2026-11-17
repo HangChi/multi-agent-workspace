@@ -273,3 +273,68 @@ class TestExecute:
 
         result = await _executor(handler).execute({"url": "https://example.com/a"})
         assert "重定向缺少 Location" in result["error"]
+
+    async def test_re_resolves_once_when_every_address_of_a_round_fails(self):
+        """一轮地址全连不上时重新解析再试一次（DNS 轮换/边缘节点下线）。"""
+        rounds: list[list[str]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "93.184.216.50":
+                return httpx.Response(200, headers={"content-type": "text/plain"}, text="ok")
+            raise httpx.ConnectError("edge down", request=request)
+
+        async def resolver(host: str) -> list[str]:
+            rounds.append(["93.184.216.1", "93.184.216.2"] if not rounds
+                          else ["93.184.216.50"])
+            return rounds[-1]
+
+        result = await _executor(handler, resolver=resolver).execute(
+            {"url": "https://example.com/a"}
+        )
+        assert len(rounds) == 2, "第一轮全失败后必须重新解析一次"
+        assert result["status"] == 200 and result["text"] == "ok"
+
+    async def test_gives_up_after_the_bounded_number_of_rounds(self):
+        """重试有界：不会无限重新解析。"""
+        from app.executors import read_url as module
+
+        rounds: list[int] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("down", request=request)
+
+        async def resolver(host: str) -> list[str]:
+            rounds.append(1)
+            return ["93.184.216.1"]
+
+        result = await _executor(handler, resolver=resolver).execute(
+            {"url": "https://example.com/a"}
+        )
+        assert "error" in result and "抓取失败" in result["error"]
+        assert len(rounds) == module._RESOLVE_ROUNDS
+
+    async def test_the_whole_hop_is_bounded_by_one_deadline(self, monkeypatch):
+        """换地址 + 重新解析都在同一个总预算里，不会成倍放大。"""
+        import asyncio
+
+        from app.executors import read_url as module
+
+        monkeypatch.setattr(module, "_TIMEOUT_SECONDS", 0.2)
+
+        class _Never(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                await asyncio.sleep(30)
+                yield b""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            # 连上了但一直不返回字节：只有总预算能把它停下来
+            return httpx.Response(200, headers={"content-type": "text/plain"}, stream=_Never())
+
+        async def resolver(host: str) -> list[str]:
+            return [PUBLIC_IP]
+
+        result = await _executor(handler, resolver=resolver).execute(
+            {"url": "https://example.com/slow"}
+        )
+        assert "error" in result
+        assert "超时" in result["error"]
