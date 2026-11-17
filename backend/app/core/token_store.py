@@ -14,10 +14,9 @@
 若 Redis 抖动就让全体用户掉线，可用性损失大于收益。
 """
 
-import redis.asyncio as aioredis
 import structlog
 
-from app.core.config import settings
+from app.core.redis import get_redis
 
 logger = structlog.get_logger(__name__)
 
@@ -33,21 +32,14 @@ def _grace_key(jti: str) -> str:
     return f"{_GRACE_PREFIX}{jti}"
 
 
-def _client() -> aioredis.Redis:
-    return aioredis.from_url(settings.redis_url, decode_responses=True)
-
-
 async def register_refresh_token(jti: str, user_id: str, ttl_seconds: int) -> None:
     """登记 refresh token 的 jti（TTL 与 token 有效期一致）。"""
-    client = _client()
     try:
-        await client.set(_key(jti), user_id, ex=max(ttl_seconds, 1))
+        await get_redis().set(_key(jti), user_id, ex=max(ttl_seconds, 1))
     except Exception as exc:  # noqa: BLE001 - 存储不可用不应阻断登录
         logger.warning(
             "refresh_store_unavailable", op="register", error=type(exc).__name__
         )
-    finally:
-        await client.aclose()
 
 
 async def consume_refresh_token(jti: str, *, grace_seconds: int = 0) -> bool:
@@ -59,7 +51,7 @@ async def consume_refresh_token(jti: str, *, grace_seconds: int = 0) -> bool:
 
     Redis 异常时返回 True（fail-open，见模块 docstring）。
     """
-    client = _client()
+    client = get_redis()
     try:
         # 宽限期内：首次消费时留下的标记，允许再次使用
         if grace_seconds > 0 and await client.exists(_grace_key(jti)):
@@ -77,8 +69,6 @@ async def consume_refresh_token(jti: str, *, grace_seconds: int = 0) -> bool:
             "refresh_store_unavailable", op="consume", error=type(exc).__name__
         )
         return True
-    finally:
-        await client.aclose()
 
 
 async def revoke_all_refresh_tokens(user_id: str) -> int:
@@ -87,7 +77,7 @@ async def revoke_all_refresh_tokens(user_id: str) -> int:
     注意：按 jti 存储无法反查 user，这里用 SCAN 遍历匹配 value。
     用户量增大后应改为「按用户维护 jti 集合」，当前规模（内部工作台）可接受。
     """
-    client = _client()
+    client = get_redis()
     revoked = 0
     try:
         async for key in client.scan_iter(match=f"{_KEY_PREFIX}*", count=200):
@@ -98,6 +88,4 @@ async def revoke_all_refresh_tokens(user_id: str) -> int:
         logger.warning(
             "refresh_store_unavailable", op="revoke", error=type(exc).__name__
         )
-    finally:
-        await client.aclose()
     return revoked

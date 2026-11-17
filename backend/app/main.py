@@ -3,6 +3,9 @@
 注册：CORS、统一错误处理、/api/v1 健康检查（存活 + 就绪）、业务路由。
 """
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -30,14 +33,25 @@ from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.events import redis_ping
 from app.core.log_setup import configure_logging
+from app.core.redis import close_redis
 
 configure_logging()
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """关停时释放进程级 Redis 连接池（单例，不释放会留到进程被 kill）。"""
+    try:
+        yield
+    finally:
+        await close_redis()
 
 
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version="0.1.0",
+        lifespan=_lifespan,
         # 生产关闭交互式文档：避免对外暴露完整 API 结构
         docs_url=None if settings.is_production else "/docs",
         redoc_url=None if settings.is_production else "/redoc",

@@ -19,20 +19,16 @@ CPU 成本，攻击者用几条并发连接就能同时完成「猜密码」和�
 的取舍保持一致。唯一的例外是主动抛出的 `AppError`（429），它代表「确实超限」。
 """
 
-import redis.asyncio as aioredis
 import structlog
 
 from app.api.errors import AppError
 from app.core.config import settings
+from app.core.redis import get_redis
 
 logger = structlog.get_logger(__name__)
 
 _ACCOUNT_PREFIX = "login_fail:acct:"
 _IP_PREFIX = "login_fail:ip:"
-
-
-def _client() -> aioredis.Redis:
-    return aioredis.from_url(settings.redis_url, decode_responses=True)
 
 
 def _account_key(email: str, ip: str) -> str:
@@ -44,21 +40,13 @@ def _ip_key(ip: str) -> str:
     return f"{_IP_PREFIX}{ip}"
 
 
-async def _safe_close(client: aioredis.Redis) -> None:
-    """关闭连接；关闭失败也不该影响主流程。"""
-    try:
-        await client.aclose()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("login_limiter_close_failed", error=type(exc).__name__)
-
-
 async def check_login_allowed(*, email: str, ip: str) -> None:
     """登录前检查。超限抛 429（RATE_LIMITED）；存储异常放行。
 
     先查后计（不是先计后查）：第 N 次失败会在下一次请求被拦，
     不会出现「正在被爆破的账号反而先被锁」的误判顺序问题。
     """
-    client = _client()
+    client = get_redis()
     try:
         acct_raw = await client.get(_account_key(email, ip))
         if (
@@ -87,13 +75,11 @@ async def check_login_allowed(*, email: str, ip: str) -> None:
         logger.warning(
             "login_limiter_unavailable", op="check", error=type(exc).__name__
         )
-    finally:
-        await _safe_close(client)
 
 
 async def record_login_failure(*, email: str, ip: str) -> None:
     """记录一次登录失败（两个计数器各 +1，并设置过期）。"""
-    client = _client()
+    client = get_redis()
     ttl = settings.login_lockout_minutes * 60
     try:
         # pipeline 一次往返完成两组 INCR+EXPIRE
@@ -107,18 +93,13 @@ async def record_login_failure(*, email: str, ip: str) -> None:
         logger.warning(
             "login_limiter_unavailable", op="record", error=type(exc).__name__
         )
-    finally:
-        await _safe_close(client)
 
 
 async def reset_login_failures(*, email: str, ip: str) -> None:
     """登录成功后清掉该账号+IP 的失败计数（IP 级总计数不清，避免掩蔽撞库）。"""
-    client = _client()
     try:
-        await client.delete(_account_key(email, ip))
+        await get_redis().delete(_account_key(email, ip))
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "login_limiter_unavailable", op="reset", error=type(exc).__name__
         )
-    finally:
-        await _safe_close(client)

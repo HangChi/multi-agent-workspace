@@ -13,7 +13,7 @@ from typing import Any
 
 import redis.asyncio as aioredis
 
-from app.core.config import settings
+from app.core.redis import get_redis
 
 _run_event_prefix = "run:"
 
@@ -23,27 +23,20 @@ def channel_for_run(run_id: str) -> str:
 
 
 def _redis_client() -> aioredis.Redis:
-    return aioredis.from_url(settings.redis_url, decode_responses=True)
+    """复用进程级连接池（见 app.core.redis）。"""
+    return get_redis()
 
 
 async def publish_run_event(run_id: str, payload: dict[str, Any]) -> None:
     """向 run:{run_id} 频道发布一条事件。"""
-    client = _redis_client()
-    try:
-        await client.publish(
-            channel_for_run(run_id), json.dumps(payload, ensure_ascii=False)
-        )
-    finally:
-        await client.aclose()
+    await _redis_client().publish(
+        channel_for_run(run_id), json.dumps(payload, ensure_ascii=False)
+    )
 
 
 async def redis_ping() -> bool:
     """Redis 连通性探测（就绪检查用）。"""
-    client = _redis_client()
-    try:
-        return bool(await client.ping())
-    finally:
-        await client.aclose()
+    return bool(await _redis_client().ping())
 
 
 EventHandler = Callable[[dict[str, Any]], Awaitable[None]]
@@ -77,4 +70,5 @@ async def subscribe_run_events(
             await handler(payload)
     finally:
         await pubsub.unsubscribe(channel_for_run(run_id))
-        await client.aclose()
+        # 只关订阅对象，不关共享连接池：它是进程级单例，其他请求还在用
+        await pubsub.aclose()

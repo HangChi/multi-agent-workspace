@@ -107,10 +107,17 @@ async def test_limiter_check_swallows_redis_error(monkeypatch):
         async def get(self, *_a, **_kw):
             raise RedisConnectionError("redis down")
 
+        async def pipeline(self, *_a, **_kw):
+            raise RedisConnectionError("redis down")
+
+        async def delete(self, *_a, **_kw):
+            raise RedisConnectionError("redis down")
+
         async def aclose(self):
             return None
 
-    monkeypatch.setattr(login_limiter, "_client", lambda: _Broken())
+    # 连接池已是进程级单例（app.core.redis），这里替换同一个入口即可
+    monkeypatch.setattr(login_limiter, "get_redis", lambda: _Broken())
     # 不应抛异常
     await login_limiter.check_login_allowed(email="a@b.com", ip="1.2.3.4")
     # 记录失败也不应抛
