@@ -280,6 +280,13 @@ async def test_cancel_parent_cascades_to_children(client, make_headers, db_sessi
     await db_session.refresh(done)
     assert done.status == "completed"
 
+    # 需求同步收口：整棵树都停了，卡片不能还停在「执行中」
+    from app.models.request import Request
+
+    request_row = await db_session.get(Request, parent.request_id)
+    await db_session.refresh(request_row)
+    assert request_row.status == "cancelled"
+
 
 async def test_cancel_finished_fan_out_parent_still_stops_children(client, make_headers, db_session):
     """fan_out 的父 Run 建好即 completed，但取消它仍须停下还在跑的子 Run。

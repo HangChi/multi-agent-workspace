@@ -48,6 +48,7 @@ from app.services.external_invocation_service import (
     ensure_external_snapshots,
 )
 from app.services.quota_service import QuotaExceeded, assert_user_quota
+from app.services.request_service import settle_request_status
 from app.services.tool_service import (
     enabled_tool_specs,
     filter_grants,
@@ -678,6 +679,13 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
                 await _advance_pipeline(db, run)
             except Exception:
                 logger.exception("pipeline_advance_failed", run_id=_run_id_for_log(run))
+        # 需求状态收敛：分配时置为 running，终态必须由这里推出去，否则看板永远停在
+        # 「执行中」。放在 finally 里，失败/取消/超时同样收口。
+        try:
+            if await settle_request_status(db, run.request_id):
+                await db.commit()
+        except Exception:
+            logger.exception("request_settle_failed", run_id=_run_id_for_log(run))
 
 
 @celery_app.task(name="app.tasks.execute_run.execute_run", bind=True, max_retries=2)
@@ -709,6 +717,8 @@ def execute_run(self, run_id: str) -> str:
                 transition(run, RunStatus.FAILED)
                 await db.commit()
                 run_events.run_failed(run_id, run.error)
+                if await settle_request_status(db, run.request_id):
+                    await db.commit()
                 return "failed"
             await _execute(db, run, agent)
             await db.refresh(run)
@@ -732,6 +742,8 @@ def execute_run(self, run_id: str) -> str:
                     transition(run, RunStatus.FAILED)
                     await db.commit()
                     run_events.run_failed(run_id, run.error)
+                    if await settle_request_status(db, run.request_id):
+                        await db.commit()
         asyncio.run(_fail())
         return "failed"
     finally:

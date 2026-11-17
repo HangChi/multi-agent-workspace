@@ -33,6 +33,7 @@ from app.schemas.sandbox import EgressAccessList, ExecutionDetail, ExecutionSumm
 from app.services import artifact_service
 from app.services.assignment_service import _enqueue
 from app.services.external_invocation_service import list_run_invocations
+from app.services.request_service import settle_request_status
 from app.services.sandbox_service import execution_artifact_truncation
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -217,6 +218,8 @@ async def cancel_run(run_id: ResourceId, _m: MemberUser, user: CurrentUser, db: 
             "cancelled_descendants": len(cancelled_children),
         },
     )
+    # 取消后需求也要收口，否则看板上这张卡片永远停在「执行中」
+    await settle_request_status(db, run.request_id)
     await db.commit()
     return {
         "status": "cancelled" if cancellable else run.status,

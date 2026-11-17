@@ -228,6 +228,10 @@ async def test_full_flow_assign_execute_complete(client, make_headers, db_sessio
     await db_session.refresh(run)
     assert run.current_step == 4
 
+    # 8. 需求跟着 Run 一起收口，否则看板上这张卡片永远停在「执行中」
+    detail = (await client.get(f"{REQUESTS_URL}/{req['id']}", headers=headers)).json()
+    assert detail["status"] == "completed"
+
     # 7. WS 事件（真实 Redis 频道）到达：… → run_completed
     types = [e["type"] for e in events]
     assert "status_change" in types

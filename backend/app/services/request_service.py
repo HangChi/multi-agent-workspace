@@ -11,7 +11,40 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
 from app.models.request import Request
+from app.models.run import Run
 from app.schemas.request import RequestCreate, RequestUpdate
+
+# Run 的非终态：只要还有一个没结束，需求就仍在执行中。
+_ACTIVE_RUN_STATUSES = frozenset({"queued", "running", "needs_input"})
+
+
+async def settle_request_status(db: AsyncSession, request_id: str) -> str | None:
+    """把需求状态推进到与它名下所有 Run 的实际结果一致。
+
+    分配时需求被置为 running，但此前没有任何代码把它推进到终态：看板的
+    「已完成 / 失败」两列永远是空的，卡片一直停在「执行中」。规则保持可预期：
+    还有未终态的 Run 就维持 running；否则 失败 > 取消 > 完成（任一子任务失败即
+    整体失败，用户取消过就显示已取消）。
+
+    只处理 running 的需求，不覆盖 reaper 的判定，也不把 created/assigned 提前收口。
+    """
+    request = await db.get(Request, request_id)
+    if request is None or request.status != "running":
+        return None
+    statuses = list(
+        (await db.execute(select(Run.status).where(Run.request_id == request_id)))
+        .scalars()
+        .all()
+    )
+    if not statuses or any(status in _ACTIVE_RUN_STATUSES for status in statuses):
+        return None
+    if any(status in {"failed", "timeout"} for status in statuses):
+        request.status = "failed"
+    elif any(status == "cancelled" for status in statuses):
+        request.status = "cancelled"
+    else:
+        request.status = "completed"
+    return request.status
 
 
 def _check_owner(request: Request, user_id: str) -> None:
