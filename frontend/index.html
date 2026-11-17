@@ -8,26 +8,9 @@
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#080d17" media="(prefers-color-scheme: dark)" />
     <title>Agent 工作台</title>
-    <script>
-      /**
-       * 首屏防闪白：在样式与脚本加载前就把 .dark 打到 <html> 上。
-       * 读取的是 zustand persist 的结构 { state: { mode } }，与 themeStore 保持一致。
-       */
-      (function () {
-        try {
-          var raw = localStorage.getItem('aw_theme')
-          var mode = raw ? JSON.parse(raw).state.mode : 'system'
-          var dark =
-            mode === 'dark' ||
-            ((mode === 'system' || !mode) &&
-              window.matchMedia('(prefers-color-scheme: dark)').matches)
-          if (dark) document.documentElement.classList.add('dark')
-          document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
-        } catch (e) {
-          /* 隐私模式等场景读不到 localStorage，忽略即可 */
-        }
-      })()
-    </script>
+    <!-- 防闪白脚本外链：内联脚本会逼 CSP 放开 script-src 'unsafe-inline'。
+         放在 <head> 且不加 defer，确保在主 bundle 之前执行。 -->
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>
