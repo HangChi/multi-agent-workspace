@@ -11,7 +11,7 @@
 # （而不是悄悄重新解析），这正是我们要的确定性。
 
 # ---------- Stage 1: 依赖构建（仅安装非 dev 依赖） ----------
-FROM python:3.12-slim AS deps
+FROM python:3.15-slim AS deps
 
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -48,7 +48,7 @@ COPY alembic ./alembic
 RUN uv sync --locked --no-dev --no-editable
 
 # ---------- Stage 2: 运行时（非 root） ----------
-FROM python:3.12-slim AS runtime
+FROM python:3.15-slim AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
