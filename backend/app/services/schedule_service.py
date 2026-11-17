@@ -17,6 +17,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.core.audit import SCHEDULE_TRIGGER, write_audit
 from app.core.config import settings
 from app.models.agent import Agent
 from app.models.group import AgentGroup
@@ -876,8 +877,28 @@ async def run_due_schedules(db: AsyncSession, *, now: datetime | None = None) ->
             )
             if schedule is None:
                 continue
-            if await fire_schedule(db, schedule, now=now) is not None:
+            trigger = await fire_schedule(db, schedule, now=now)
+            if trigger is not None:
                 processed += 1
+                # 每次触发留一条审计（契约 §4：六个 action + 「每次触发」）。
+                # 写在 fire_schedule 返回之后而不是内部：那个函数会在各分支
+                # 自己 commit（assign 内部也 commit），塞在里面的审计会被
+                # 「已经提交的事务」带成孤儿或跟着 rollback 一起消失。
+                # 触发记录的 result 已落库，这里补的是「谁的动作导致了它」——
+                # 调度里没有真人，actor 记规则创建者，detail 里带结果与计划时刻。
+                await write_audit(
+                    db,
+                    user_id=schedule.owner_id,
+                    action=SCHEDULE_TRIGGER,
+                    target_type="schedule",
+                    target_id=schedule.id,
+                    detail={
+                        "result": trigger.result,
+                        "planned_at": trigger.planned_at.isoformat(),
+                        "request_id": trigger.request_id,
+                    },
+                )
+                await db.commit()
         except Exception:
             # 单条失败不拖垮整批：回滚该条、记日志、继续下一条
             await db.rollback()

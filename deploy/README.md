@@ -9,7 +9,7 @@
 | frontend | aw-frontend | `${FRONTEND_PORT:-8080}` | nginx 托管 SPA，反代 `/api` 与 `/ws` 到 api |
 | api | aw-api | 仅容器内 8000 | FastAPI（uvicorn 2 worker），不暴露到宿主机 |
 | worker | aw-worker | - | Celery Worker，执行 Run（`WORKER_CONCURRENCY`，默认 2） |
-| beat | aw-beat | - | Celery Beat，周期任务调度 |
+| beat | aw-beat | - | Celery Beat，周期任务调度（含每分钟的调度扫描） |
 | migrate | aw-migrate | - | 一次性：`alembic upgrade head`，api/worker/beat 等它成功 |
 | postgres | aw-postgres | `127.0.0.1:5432` | PostgreSQL 16，仅本机可连 |
 | redis | aw-redis | `127.0.0.1:6379` | 队列 / 事件 Pub-Sub / 结果后端 |
@@ -111,7 +111,33 @@ backend/.venv/bin/python deploy/verify/mcp_fixture_server.py --host 127.0.0.1 --
 
 当前 003 release gate 状态和已验证结果见 [`specs/003-mcp-tool-market/release-status.md`](../specs/003-mcp-tool-market/release-status.md)。截至该报告日期，真实部署并发/P95 smoke、disposable DB migration downgrade/upgrade 尚未完成；Feature 002 native Linux/full-stack acceptance 仍是独立前置条件，不能由 003 测试替代。
 
-## HTTPS 入口（可选）
+## 定时调度（004）
+
+`aw-beat` 每分钟投递一次 `scan-due-schedules`，`aw-worker` 消费后扫描 `schedules` 中
+`enabled AND next_run_at <= now()` 的规则，逐条独立加锁、独立事务——一条出错不影响其余。
+
+必看的几个环境变量（完整清单与取值理由见 `.env.example` 的「定时调度（004）」段）：
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `SCHEDULE_SCAN_ENABLED` | `true` | 总开关。`false` 时 Beat 仍调用任务但立即返回，用于排障时静默全部调度 |
+| `SCHEDULE_MISSED_GRACE_SECONDS` | `90` | 错过宽限期。取 0 会把正常的几十秒延迟都记成"错过"，让该判定失效 |
+| `SCHEDULE_MAX_FAILURES` | `5` | 连续失败阈值，达到后自动停用规则并写 `auto_disabled_reason` |
+| `SCHEDULE_BATCH_SIZE` | `200` | 单次扫描上限，超出留到下一分钟、不丢弃 |
+| `SCHEDULE_HISTORY_MAX_ROWS` / `_RETENTION_DAYS` | `500` / `90` | 触发历史保留策略，每日 03:30 清理 |
+
+**运维要点**：
+
+1. **Beat 停了会漏跑，且不补跑。** 停机期间跨过的计划时刻会被合并成一条 `missed`
+   记录（`missed_count` 为次数），恢复后只从 `now` 之后重新对齐，**不会**把错过的
+   任务一次性补齐。这是刻意的取舍——一次性补跑几十个需求会瞬间打满 worker 与配额。
+2. **排查"规则不动了"先看三处**：`aw-beat` 日志里有没有逐分钟的
+   `Sending due task scan-due-schedules`；`aw-worker` 有没有 `received` 该任务；
+   规则的 `last_result` / `consecutive_failures` / `auto_disabled_reason` 是否已指向具体原因。
+3. **容器资源限额未实测**：beat 配额为 0.5 CPU / 256MB，扫描 20 条规则在本地实测
+   p50≈288ms（见 `specs/004-scheduled-requests/quickstart.md` 的验证记录表），
+   但容器限额下的表现尚未压测。
+
 
 `Caddyfile` 是另一种入口方案（自动 HTTPS + WS 透传），适合公网部署：把
 `FRONTEND_PORT` 关掉、由 Caddy 直接反代 `api:8000` 与 `frontend:80`。

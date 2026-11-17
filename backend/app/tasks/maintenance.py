@@ -129,9 +129,7 @@ async def prune_schedule_history(
 
     # 2) 超过保留天数的
     expired = await db.execute(
-        text(
-            "DELETE FROM schedule_triggers WHERE planned_at < :cutoff RETURNING id"
-        ),
+        text("DELETE FROM schedule_triggers WHERE planned_at < :cutoff RETURNING id"),
         {"cutoff": cutoff},
     )
     removed += len(expired.all())

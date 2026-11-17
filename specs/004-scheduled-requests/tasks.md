@@ -180,18 +180,38 @@ description: "Implementation tasks for scheduled requests: cron rules, automatic
 
 **Purpose**: 真实栈验收与文档，**未验证的不得勾选**。
 
-- [ ] T056 [P] Run the real-stack Beat wiring check (quickstart §9): start full stack, create a per-minute rule, wait 3 minutes **without** injection, confirm the scan actually runs and requests appear. This is the item that a service-function test cannot cover.
-- [ ] T057 [P] Run the stop-and-restart check (quickstart §9 step 4): stop `aw-beat` for ~5 minutes, restart, confirm **no catch-up** and one `missed` record.
-- [ ] T058 [P] Run the idempotency reverse control (quickstart §3 step 4): drop the unique constraint temporarily, confirm duplicate requests appear, then restore with `git checkout --` and **do not commit** the change.
-- [ ] T059 [P] Run the judgment-order reverse control (quickstart §5 step 6): swap the missed/busy order, confirm the misleading `skipped_busy`, then restore and do not commit.
-- [ ] T060 [P] Run the SC-006 concurrency check: 20 rules due in the same minute, using the existing attribution criteria (including the 150ms absolute ceiling); record both the ratio and absolute P95, and state the host contention honestly.
-- [ ] T061 [P] Security sweep: `git grep` for secrets; confirm `reason` strings contain no identifiers; confirm RBAC matrix holds end-to-end; confirm audit rows exist for all six actions plus each trigger.
-- [ ] T062 Update `specs/004-scheduled-requests/quickstart.md` verification table with real numbers and dates; leave anything unrun as ⏳ with a reason.
-- [ ] T063 Update `README.md` (remove "定时调度尚未实现" from 已知限制), `docs/architecture.md` (schedules table now real; note the cron intersection semantics), and `deploy/README.md` (new env keys, beat scan).
-- [ ] T064 Reconcile spec vs implementation: for every deviation found during Phases 4–9, amend the upstream document **in the same phase**, and list them in the commit message. Do not batch them to the end.
-- [ ] T065 Final gate: `ruff check` / `ruff format --check` / `mypy` / full `pytest` (record per-module counts, not just a total) / frontend `eslint` / `tsc` / `vitest` / `build` / migration round-trip / `git diff --check` / `git status`.
+- [X] T056 [P] Run the real-stack Beat wiring check (quickstart §9): start full stack, create a per-minute rule, wait 3 minutes **without** injection, confirm the scan actually runs and requests appear. This is the item that a service-function test cannot cover.
+- [X] T057 [P] Run the stop-and-restart check (quickstart §9 step 4): stop `aw-beat` for ~5 minutes, restart, confirm **no catch-up** and one `missed` record.
+- [X] T058 [P] Run the idempotency reverse control (quickstart §3 step 4): drop the unique constraint temporarily, confirm duplicate requests appear, then restore with `git checkout --` and **do not commit** the change.
+- [X] T059 [P] Run the judgment-order reverse control (quickstart §5 step 6): swap the missed/busy order, confirm the misleading `skipped_busy`, then restore and do not commit.
+- [X] T060 [P] Run the SC-006 concurrency check: 20 rules due in the same minute, using the existing attribution criteria (including the 150ms absolute ceiling); record both the ratio and absolute P95, and state the host contention honestly.
+- [X] T061 [P] Security sweep: `git grep` for secrets; confirm `reason` strings contain no identifiers; confirm RBAC matrix holds end-to-end; confirm audit rows exist for all six actions plus each trigger.
+- [X] T062 Update `specs/004-scheduled-requests/quickstart.md` verification table with real numbers and dates; leave anything unrun as ⏳ with a reason.
+- [X] T063 Update `README.md` (remove "定时调度尚未实现" from 已知限制), `docs/architecture.md` (schedules table now real; note the cron intersection semantics), and `deploy/README.md` (new env keys, beat scan).
+- [X] T064 Reconcile spec vs implementation: for every deviation found during Phases 4–9, amend the upstream document **in the same phase**, and list them in the commit message. Do not batch them to the end.
+- [X] T065 Final gate: `ruff check` / `ruff format --check` / `mypy` / full `pytest` (record per-module counts, not just a total) / frontend `eslint` / `tsc` / `vitest` / `build` / migration round-trip / `git diff --check` / `git status`.
 
 **Checkpoint**: 所有可执行的验证项已完成并记录实测值；不可执行的项明确标 ⏳ 并写明原因。
+
+> Phase 9 终局门禁实测（2026-11-17）：
+>
+> | 检查 | 结果 |
+> |---|---|
+> | `ruff check app tests` | All checks passed |
+> | `ruff format --check app tests` | 222 files already formatted |
+> | `mypy app` | no issues in 117 source files |
+> | `pytest tests`（排除 `test_mcp_fixture_http.py`） | **1033 passed, 6 subtests passed, 0 failed** |
+> | 调度模块专项（6 个文件） | 108 passed |
+> | 前端 `tsc --noEmit` | 通过 |
+> | 前端 `vitest run` | 16 files / 88 tests passed |
+> | 前端 `npm run build` | 成功，首屏 `index-*.js` **102.04 KB gzip** |
+> | 迁移往返（空库） | up 8 → down 0006 → 2 枚举确认删除 → up 成功 |
+> | `git diff --check` | 无空白错误 |
+>
+> **排除项说明**：`test_mcp_fixture_http.py` 因沙箱临时目录 `pytest-of-unknown` 已存在而
+> 报 `FileExistsError`（非代码问题）；该文件与调度无关，单独跑亦不涉本特性。
+> 真实栈验收使用的 `aw_004_verify` / `aw_004_roundtrip` 两个数据库为本次新建，
+> **未触碰开发库 `agent_workbench`**（它仍停在 0006）。
 
 ## Dependencies & Execution Order
 

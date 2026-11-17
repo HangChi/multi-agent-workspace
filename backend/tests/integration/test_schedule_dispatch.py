@@ -587,3 +587,45 @@ class TestRunDueSchedules:
         assert await schedule_service.run_due_schedules(db_session) == 0
         await db_session.refresh(schedule)
         assert schedule.last_result is None
+
+    async def test_every_trigger_writes_an_audit_row(
+        self, client, db_session, make_headers
+    ):
+        """每次触发必须留一条 `schedule_trigger` 审计（契约 §4）。
+
+        这条曾经是缺口：`SCHEDULE_TRIGGER` 常量在 core/audit.py 里定义了、
+        也进了 `SCHEDULE_ACTIONS` 集合，但**没有任何地方写入它**。
+        真实栈验收时 `group by action` 只看到 `schedule_create` 才发现的 ——
+        这类「定义了但没接线」的缺口，单元测试是看不见的，
+        除非有一条测试直接查审计表。
+        """
+        from app.models.audit_log import AuditLog
+
+        h = await make_headers(role="member")
+        agent = await _make_agent(client, h)
+        me = await _me(client, h)
+        schedule = await _make_schedule(
+            db_session, owner_id=me["id"], target_type="agent", target_id=agent["id"]
+        )
+        sid = schedule.id
+
+        await schedule_service.run_due_schedules(db_session)
+
+        rows = (
+            (
+                await db_session.execute(
+                    select(AuditLog).where(
+                        AuditLog.action == "schedule_trigger",
+                        AuditLog.target_id == sid,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        # 不断言恰好 1 条：扫描全表，同会话其它用例的到期规则也会各写一条。
+        assert len(rows) >= 1, "触发后必须留下 schedule_trigger 审计"
+        # actor 是规则创建者：调度里没有真人，但审计仍需可归属
+        assert all(r.user_id == me["id"] for r in rows)
+        # detail 要能回答「这次结果是什么、建了哪条需求」
+        assert all(r.detail and "result" in r.detail for r in rows)

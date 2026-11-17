@@ -346,7 +346,9 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 - `Agent.tools` 已按工具目录过滤实际注入 LLM 的工具集；未授权目录工具会返回 `denied` 结构并写入审计日志。
 - `run_python` / `run_shell` 已接入 Docker 一次性容器，支持超时、取消、资源限制、输出截断与制品回收；真实 Linux 宿主的 iptables/conntrack 出网验证仍待完成。
 - 出网规则管理、Agent 限制模式和访问查询端点已接入；TLS 解密、URL 路径/请求体级记录仍不在范围内。
-- 定时调度（`schedules`）、MCP 服务器接入、Prometheus 指标尚未实现。
+- 定时调度已实现：`/schedules` 页面可建规则的周期（cron）、目标（Agent 或组）与建单模板，Celery Beat 每分钟扫描到期的规则自动建单并分配执行。错过的计划时刻**不补跑**，合并记一条 `missed` 并注明次数。周期表达式的「日期」与「星期」同时限定时按**交集**求值（`0 9 1 * 1` 只在既是 1 号又是周一那天触发），页面上已明示。
+- MCP 服务器接入、Prometheus 指标尚未实现。
+- 调度容器化资源限额（`aw-beat` 0.5 CPU / 256MB）未实测；接线正确性已在本地真实进程上验证。
 - 前端单测较薄（仅 `useRunSocket`、`client`、`ErrorBanner`），页面层依赖 Playwright 端到端验证。
 - 未指定开源许可证；仓库为私有自用。
 

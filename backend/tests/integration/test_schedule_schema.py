@@ -219,15 +219,21 @@ class TestDeleteSemantics:
             )
         )
         await db_session.flush()
+        sid = schedule.id
 
         await db_session.execute(
-            text("DELETE FROM schedules WHERE id = :sid"), {"sid": schedule.id}
+            text("DELETE FROM schedules WHERE id = :sid"), {"sid": sid}
         )
         await db_session.flush()
 
-        assert (
-            await db_session.scalar(text("SELECT count(*) FROM schedule_triggers")) == 0
+        # ⚠️ 不能断言「schedule_triggers 全表为 0」：同一测试会话里其它用例
+        # 也会写触发记录（混跑时全表 49 条），那个断言测的是「整库干净」
+        # 而不是「级联删除生效」。只查本用例这条规则的记录。
+        remaining = await db_session.scalar(
+            text("SELECT count(*) FROM schedule_triggers WHERE schedule_id = :sid"),
+            {"sid": sid},
         )
+        assert remaining == 0, "删除规则必须级联删掉它的触发历史"
 
     async def test_manual_requests_have_null_source(self, db_session):
         """手工创建的需求该列为 NULL —— 新增字段必须可空，否则破坏既有创建路径。"""

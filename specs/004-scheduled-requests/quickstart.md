@@ -160,22 +160,50 @@ docker exec aw-postgres psql -U aw -c 'DROP DATABASE aw_migration_probe'
 
 ## 验证记录表
 
+**实测环境**：macOS / Python 3.13.15 / PostgreSQL 16（`aw-postgres`）/ Redis 7 / Celery 5.7.0。
+真实栈验收用独立库 `aw_004_verify`（新建、从空库 `alembic upgrade head` 到 0007），
+**不碰开发库 `agent_workbench`**（它当时停在 0006、含 81 个既有用户）。
+验收记录日期：2026-11-17。
+
 | 场景 | 判据 | 状态 | 实测 / 备注 |
 |---|---|---|---|
-| S1 下次触发时间 | 下一工作日 09:00 | ⏳ | |
-| S1 非法表达式 | 422 + 字段定位 | ⏳ | |
-| S1 权限矩阵 | viewer 403 / admin 写 403 / 越权 404 | ⏳ | |
-| S2 Run 结构一致 | 与手工分配逐字段相同 | ⏳ | |
-| S2 配额耗尽 | failed + 无需求 + 不重试 | ⏳ | |
-| S3 幂等 | 需求数仍为 1 | ⏳ | |
-| S4 停机 2 小时 | 0 新需求 + 1 条 missed(25) | ⏳ | |
-| S4 延迟 45 秒 | fired（非 missed） | ⏳ | |
-| S5 判定顺序反向控制 | 变 skipped_busy（证明顺序必要） | ⏳ | |
-| S5 失败分类 | 5 种 reason 各自命中 | ⏳ | |
-| S5 自动停用 | 5 次后停用且不再记录 | ⏳ | |
-| S6 历史不变 | 需求 A 未被改写 | ⏳ | |
-| S6 删规则保留需求 | 需求与 Run 仍在 | ⏳ | |
-| S8 迁移往返 | up/down/up 各 8 | ⏳ | |
-| S9 Beat 真实接线 | 每分钟真的在跑 | ⏳ | |
-| S9 Beat 停机恢复 | 不补跑 | ⏳ | |
-| S10 20 并发 | 全部确定结果 + 无接口失败 | ⏳ | |
+| S1 下次触发时间 | 下一工作日 09:00 | ✅ | `0 9 * * 1-5` + Asia/Shanghai，创建返回 `next_run_at` 落在工作日 09:00 |
+| S1 非法表达式 | 422 + 字段定位 | ✅ | `detail.field == "cron_expr"`；契约要求的状态码已是 422（`AppError(status_code=422)`） |
+| S1 权限矩阵 | viewer 403 / admin 写 403 / 越权 404 | ✅ | 6 端点 27 项接口测试；真实栈 `GET /schedules` member=200、无 token=401 |
+| S2 Run 结构一致 | 与手工分配逐字段相同 | ✅ | 对同一目标先手工分配再调度触发，8 字段（含 `grants_frozen`）拉平比对 |
+| S2 配额耗尽 | failed + 无需求 + 不重试 | ✅ | reason=`本月配额已用尽`，不计入 `consecutive_failures` |
+| S3 幂等 | 需求数仍为 1 | ✅ | **真实栈实测**：同一 `planned_at` 处理两次，无注入时第 2 次 `processed=0` + 日志 `schedule_trigger_duplicate`；注入「忽略占位结果」后 `processed=1` 且记录被改写成 `skipped_busy`（把成功的触发篡改成"被跳过"）。见下方 S3 反向控制说明 |
+| S4 停机 2 小时 | 0 新需求 + 1 条 missed(25) | ✅ | **真实栈实测 7 班**（停机 12:19:30→12:24:38，跨 12:19…12:25）：1 条 `missed`、`missed_count=7`、需求数不变。另在服务层用注入时间复现契约的 25 班：`missed_count=25` |
+| S4 延迟 45 秒 | fired（非 missed） | ✅ | 宽限期 90s，45s 落 fired |
+| S5 判定顺序反向控制 | 变 skipped_busy（证明顺序必要） | ✅ | **真实栈实测**：交换第 3/4 步后，停机 2 小时 + 前次 running 的场景被记成 `skipped_busy`（"上次运行尚未结束"），还原后为 `missed` + `missed_count=121`。两次均只改了 `schedule_service.py` 的顺序、已 `cp` 还原（`git status` 干净） |
+| S5 失败分类 | 5 种 reason 各自命中 | ✅ | **指 `result=failed` 的 5 种**：`目标已归档`/`目标已删除`/`目标不可用`/`本月配额已用尽`/`创建者已停用`，各有测试覆盖。契约白名单共 **7** 种（另两种是 `missed` 的 `服务未运行，错过 N 次` 与 `skipped_busy` 的 `上次运行尚未结束`），也各有用例，即 7 种全部可达。DB 侧核验 reason 列不含 UUID / 表名 / 异常类（正则 0 命中） |
+| S5 自动停用 | 5 次后停用且不再记录 | ✅ | 达阈值置 `enabled=false` + `auto_disabled_reason` 非空 |
+| S6 历史不变 | 需求 A 未被改写 | ✅ | 改规则不回溯已建需求与其 Run |
+| S6 删规则保留需求 | 需求与 Run 仍在 | ✅ | `source_schedule_id` 置 NULL；触发历史级联删除 |
+| S8 迁移往返 | up/down/up 各 8 | ✅ | 空库 `upgrade head`（8 个 revision）→ `downgrade 0006` → 2 个新枚举确认删除 → `upgrade head` 成功。另在 `aw_drift_probe` 上比对迁移路径与 `create_all` 路径的 `pg_attribute`/`pg_constraint`/`pg_indexes` 三段 DDL，**diff 为空（各 60 行）** |
+| S9 Beat 真实接线 | 每分钟真的在跑 | ✅ | **真实栈实测**：beat 日志逐分钟出现 `Scheduler: Sending due task scan-due-schedules`；worker 收到并 `succeeded`；DB 落 `fired` 触发记录 + 带 `source_schedule_id` 的需求。三个进程（uvicorn / beat / worker）均为真实进程，**未做任何注入** |
+| S9 Beat 停机恢复 | 不补跑 | ✅ | 见 S4：停机 5 分 8 秒后重启，只留 1 条合并 `missed`，需求数不变 |
+| S10 20 并发 | 全部确定结果 + 无接口失败 | ✅ | 20 条同时到期：`processed=20`、`triggers=20`、无遗漏。耗时首轮 3003ms（冷启动：连接池 + LiteLLM 元数据拉取超时重试），后续 5 轮稳定 **p50=288ms / max=298ms**，即单条约 14ms |
+| 审计「每次触发一条」（契约 §4） | 每条 `schedule_triggers` 都有对应审计 | ✅ | **真实栈查审计表才发现的缺口**：`SCHEDULE_TRIGGER` 常量定义了、也进了 `SCHEDULE_ACTIONS`，但代码里没有任何 `write_audit` 调用。修复后按 `(schedule_id, planned_at, result)` 三元组逐条对齐：接线修复后的 **21 条触发 → 21 条审计 → 21 条精确匹配**；修复前的 22 条触发 **0 条审计**。这个前后边界就是缺口本身 |
+
+### 三项未能完全按原文执行，如实说明
+
+1. **S3 幂等反向控制的形态改了。** 原文要求"去掉唯一约束，确认出现重复建单"。实测：去掉
+   `uq_schedule_triggers_planned` 后，代码**直接抛**
+   `InvalidColumnReferenceError: there is no unique or exclusion constraint matching the ON CONFLICT specification`
+   —— 因为实现用的是 `ON CONFLICT ... DO NOTHING`（而不是捕获 `IntegrityError`），
+   `ON CONFLICT` 硬依赖约束存在。也就是说实现是 **fail-closed** 的：约束一旦缺失就整体报错，
+   而不是静默重复。这对"宁可漏跑也不重复跑"是更好的性质，但原文设想的复现路径不存在。
+   因此改用能真正打到要害的注入：保留约束、忽略占位判断的返回值 → 复现出
+   `processed=1` 且成功记录被改写成 `skipped_busy`。
+
+2. **S10 的"20 条同分钟到期"在本地单机测量，宿主存在资源争用。** 数值是
+   `run_due_schedules` 的端到端墙钟（含每次触发的建单 + `assign()` 事务），
+   不是纯 SQL 耗时。首轮 3003ms 与后续 285ms 的差距来自冷启动，不是并发退化。
+   本轮**没有**跑 API 端点的 P95 归因比（那是 002 的 SC-004 口径），
+   因为本特性的 SC-006 只要求"全部确定结果、无遗漏、无接口失败"，已满足。
+
+3. **S9 用的是本地进程而非 compose。** `aw-beat`/`aw-worker` 容器未启动（本机已有
+   `aw-postgres`/`aw-redis`/`aw-minio`，compose 全栈会争用同名容器与端口）。
+   接线性质（beat 调度 → broker → worker 消费 → 服务层落库）与容器内一致，
+   但**容器资源限额（beat 0.5 CPU / 256MB）未实测**，此项留 ⏳。

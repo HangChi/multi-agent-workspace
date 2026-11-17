@@ -254,6 +254,8 @@ WS         /api/v1/ws/runs/{id}                # 实时状态 + 分步日志流
 
 # 调度 / 统计
 GET|POST   /api/v1/schedules      PATCH|DELETE /api/v1/schedules/{id}
+POST       /api/v1/schedules/preview           # 预览下次触发（200 + error，不 4xx）
+GET        /api/v1/schedules/{id}/triggers     # 触发历史（分页 + 过滤 + 全量 counts）
 GET        /api/v1/stats/overview              # 仪表盘：运行中/队列深度/成功率/成本趋势
 ```
 
@@ -273,10 +275,25 @@ GET        /api/v1/stats/overview              # 仪表盘：运行中/队列深
 | `tools` | id, name, kind, config_encrypted, sandbox_level, owner_id | 工具定义 |
 | `mcp_servers` | id, name, url, config_encrypted, enabled | MCP 注册 |
 | `artifacts` | id, run_id, step_id, object_key, filename, size, mime | 制品 |
-| `schedules` | id, name, cron, request_template(jsonb), enabled, next_run_at | 定时 |
+| `schedules` | id, owner_id, name, cron_expr, timezone, template_*(title/description/expected_output/priority), target_type, target_id, target_strategy, enabled, next_run_at, last_run_at, last_result, consecutive_failures, auto_disabled_reason | 定时规则 |
+| `schedule_triggers` | id, schedule_id, planned_at, fired_at, result(fired/missed/skipped_busy/failed), reason, missed_count, window_start, window_end, request_id, run_id · UNIQUE(schedule_id, planned_at) | 触发事实（不可变） |
 | `audit_logs` | id, user_id, action, target_type, target_id, detail, created_at | 审计 |
 
-索引要点：`runs(status, created_at)`、`runs(request_id)`、`steps(run_id, seq)`、`requests(status, priority)`。
+索引要点：`runs(status, created_at)`、`runs(request_id)`、`steps(run_id, seq)`、`requests(status, priority)`、`schedules(next_run_at) WHERE enabled`（部分索引，扫描只走启用的规则）、`schedule_triggers(schedule_id, planned_at DESC, id DESC)`。
+
+**调度的两个语义要点**（完整论证见 `specs/004-scheduled-requests/`）：
+
+1. **周期表达式取交集。** 本项目用的 Celery 5.7.0 在「日期」与「星期」同时限定时取交集
+   （`0 9 1 * 1` 只在「既为 1 号又是周一」触发），与标准 cron 的并集不同。
+   规格采用交集并在 `/schedules` 页的 cron 输入框下方明示——这比自研一套 cron 解析器
+   更不易出错，代价是与部分用户的直觉不同。
+2. **错过不补跑，但必须记清楚。** 扫描发现 `lag > 90s` 时合并记一条 `missed`，
+   `missed_count` 是跨过的计划时刻数（实测停机 5 分钟 → 7 次）。
+   这条判定**必须早于**「前次未结束」——否则停机恢复后会被记成 `skipped_busy`，
+   用户看到"被跳过"而非"错过了 N 次"，真正的运维事实被掩盖（已用反向控制实测证明）。
+3. **幂等靠唯一约束先占位。** 先 `INSERT ... ON CONFLICT DO NOTHING RETURNING id` 占位，
+   插得进去才继续建单。反过来（先建单再写记录）会在进程崩溃时留下"需求已存在但记录不存在"，
+   唯一约束拦不住。占位法的失败模式是"占位了但没建单"，即漏跑一次，符合总体取舍。
 
 ---
 
@@ -347,7 +364,7 @@ Caddy (HTTPS 自动证书)
 **验收**：一个需求从拖拽到产出报告的全流程可用，运行过程实时可见。
 
 ### Phase 2 — 引擎强化
-组编排三策略（fan_out / pipeline / router）· 代码沙箱执行器 · MCP 服务器接入 · 重试/超时/取消完善 · 成本统计与配额熔断 · 定时调度（Celery Beat）
+组编排三策略（fan_out / pipeline / router）· 代码沙箱执行器 · MCP 服务器接入 · 重试/超时/取消完善 · 成本统计与配额熔断 · **定时调度（Celery Beat，已实现）**
 
 **验收**：任意类型任务（写文章、跑脚本、调外部 API）均可通过 Agent/组执行，成本可控。
 
