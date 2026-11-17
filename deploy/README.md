@@ -189,6 +189,48 @@ docker compose -p aw -f deploy/docker-compose.yml up -d   # migrate 会先跑 al
 
 `migrate` 每次 `up` 都会执行，alembic 幂等，已是最新版本时为空操作。
 
+### 构建期出网（Docker 内 DNS / 代理不通时）
+
+症状：`build` 停在 `RUN uv sync --locked --no-dev --no-install-project`，报
+`dns error: failed to lookup address information: Name does not resolve`，或换代理后变成
+`tunnel error: unsuccessful`。
+
+原因：构建容器（buildkit）的出网与 DNS 和宿主不是同一套。宿主机靠系统代理上网时，
+容器里既没有该代理的配置，也未必能解析 PyPI 域名，于是 `uv` 下载 wheel 必然失败。
+**逐层排查不要凭感觉**，先用一次性容器确认通道：
+
+```bash
+# 宿主代理端口设为 $PROXY（Docker Desktop 里用 host.docker.internal，不要用 127.0.0.1）
+docker run --rm -e HTTPS_PROXY=$PROXY -e HTTP_PROXY=$PROXY python:3.12-slim python -c "
+import urllib.request
+for u in ['https://pypi.org/simple/', 'https://files.pythonhosted.org/']:
+    try: print(u, urllib.request.urlopen(u, timeout=15).status)
+    except Exception as e: print(u, 'FAIL', type(e).__name__, str(e)[:110])
+"
+```
+
+- `pypi.org` 200、`files.pythonhosted.org` **404 也算通**（该域根路径本就 404，
+  要看的是「有没有 HTTP 响应」）；
+- 报 `Tunnel connection failed: 502` 说明代理把该域挡了，换代理节点，不是改 Dockerfile；
+- 两个都通，再把代理交给构建：
+
+```bash
+docker compose -p aw -f deploy/docker-compose.yml build \
+  --build-arg HTTP_PROXY=$PROXY --build-arg HTTPS_PROXY=$PROXY \
+  --build-arg NO_PROXY=localhost,127.0.0.1,postgres,redis,minio,host.docker.internal \
+  api worker beat migrate
+SERVICES="api worker beat" SKIP_BUILD=1 bash deploy/deploy.sh   # 复用刚构建的镜像
+```
+
+两个坑：
+
+1. `HTTP_PROXY` / `HTTPS_PROXY` 是**预定义 build args，参与缓存键**。一旦传入，
+   `uv sync` 那层缓存必然失效、要重新下载全部依赖——首次构建因此会慢几分钟，属正常。
+2. 代理程序（Clash 之类）默认可能只监听 `127.0.0.1`。容器经 `host.docker.internal`
+   连过去时源 IP 不是回环地址，需要放开局域网访问（allow-lan）或确认监听在 `0.0.0.0`。
+
+构建期代理只作用于 `RUN` 层，不会写进最终镜像的 `ENV`，运行时不受影响。
+
 ## 验证脚本（verify/）
 
 真实容器栈上的端到端验证，详见 `specs/001-core-workflow/quickstart.md`。
