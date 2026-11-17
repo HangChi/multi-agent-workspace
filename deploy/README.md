@@ -277,13 +277,29 @@ SERVICES="api worker beat" SKIP_BUILD=1 bash deploy/deploy.sh   # 复用刚构�
 
 构建期代理只作用于 `RUN` 层，不会写进最终镜像的 `ENV`，运行时不受影响。
 
+## 内置 Agent 模板（005）
+
+`backend/scripts/seed_agent_templates.py` 幂等注入 4 个内置模板（通用问答 / 代码审查 /
+数据摘要 / 资料检索）。换 LLM 端点后**重跑一次**，模板的模型会跟着 `LLM_MODEL` 更新
+（已存在的同名模板被跳过，不会重复插入）：
+
+```bash
+cd backend
+.venv/bin/python scripts/seed_agent_templates.py            # 实跑
+.venv/bin/python scripts/seed_agent_templates.py --dry-run  # 只看会插入什么
+```
+
+为什么不写进迁移：迁移不导入应用代码（本仓库既有约定），且内置模板的模型必须跟随
+`LLM_MODEL`——硬编码会把「换端点后所有内置模板都指向不存在的模型」固化进 schema。
+
 ## 验证脚本（verify/）
 
 真实容器栈上的端到端验证，详见 `specs/001-core-workflow/quickstart.md`。
 
 ```bash
 backend/.venv/bin/python deploy/verify/s1_s4_scenarios.py --base http://localhost:8080
-backend/.venv/bin/python deploy/verify/s5_scenarios.py   --base http://localhost:8080
+backend/.venv/bin/python deploy/verify/s5_scenarios.py   --base http://localhost:8080 --invite <INVITE>
+backend/.venv/bin/python deploy/verify/s6_agent_templates.py --base http://localhost:8080 --invite <INVITE>
 NODE_PATH=$HOME/.workbuddy/binaries/node/workspace/node_modules \
   node deploy/verify/ui_s4_s5.cjs                        # 真实浏览器（拖拽 + 实时日志）
 ```

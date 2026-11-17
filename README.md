@@ -28,7 +28,8 @@
 |---|---|---|
 | `/` | 看板 | 需求按状态分列、拖拽源、Agent/组作为投放目标 |
 | `/dashboard` | 仪表盘 | 运行中/排队数、今日完成与失败、7 日成功率与成本趋势 |
-| `/agents` | Agent 管理 | 名称、描述、系统提示词、模型、温度、最大步数、工具集、成本上限 |
+| `/agents` | Agent 管理 | 名称、描述、系统提示词、模型、温度、最大步数、工具集、成本上限；「从模板创建」一键预填，「克隆」复制配置，「存为模板」沉淀配置 |
+| `/agent-templates` | Agent 模板 | 内置模板（只读）+ 自己的模板：查看/编辑/删除/用模板创建（仅 member/admin） |
 | `/groups` | Agent 组 | 成员增删排序 + 默认路由策略 |
 | `/runs/:runId` | 运行详情 | 状态时间线、分步日志、成本、制品下载、取消/重试/回复 |
 | `/admin` | 管理后台 | 审计日志（仅 admin，前端有角色守卫 + 后端 403 双保险） |
@@ -88,6 +89,16 @@ python scripts/bootstrap.py \
 
 脚本会建/更新 admin 用户，并生成一个 `member` 角色的邀请码，供其他成员注册。API 文档见
 <http://localhost:8000/docs>（FastAPI 自动生成 OpenAPI）。
+
+**注入内置 Agent 模板**（幂等，可重复执行；模型取当前的 `LLM_MODEL`）：
+
+```bash
+cd backend
+.venv/bin/python scripts/seed_agent_templates.py            # 实跑
+.venv/bin/python scripts/seed_agent_templates.py --dry-run  # 只看会插入什么
+```
+
+换 LLM 端点后重跑一次即可把内置模板的模型改成新端点的模型；已存在的同名模板会被跳过。
 
 ---
 
@@ -202,6 +213,13 @@ GET    /auth/me                            当前用户
 GET|POST      /agents                      列表（?status=&q=）/ 创建
 PATCH|DELETE  /agents/{id}                 编辑 / 删除（被组引用时 409，只能归档）
 POST          /agents/{id}/archive         归档
+POST          /agents/from-template/{tid}  从模板创建（模板值打底 + 请求体覆盖）
+POST          /agents/{id}/clone           一键克隆（拷配置，不带运行历史与授权）
+POST          /agents/{id}/save-as-template  把 Agent 快照成模板
+
+GET           /agent-templates             模板列表（内置 + 自己的，?scope=&q=）
+GET           /agent-templates/{id}        模板详情
+PATCH|DELETE  /agent-templates/{id}        编辑 / 删除自己的（内置 403）
 
 GET|POST      /groups                      Agent 组
 PATCH|DELETE  /groups/{id}
@@ -347,6 +365,7 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 - `run_python` / `run_shell` 已接入 Docker 一次性容器，支持超时、取消、资源限制、输出截断与制品回收；原生 Linux 的 iptables/nftables 出网验收已在 CI 的原生 VM 上通过（`iptables-save` / `ip6tables-save` / `nft` 残留全 0，域名矩阵 18/18）。唯一例外是 `public HTTPS with DNS attribution`：它依赖宿主公网，按非门禁用例运行并在产物里留证。
 - 出网规则管理、Agent 限制模式和访问查询端点已接入；TLS 解密、URL 路径/请求体级记录仍不在范围内。
 - 定时调度已实现：`/schedules` 页面可建规则的周期（cron）、目标（Agent 或组）与建单模板，Celery Beat 每分钟扫描到期的规则自动建单并分配执行。错过的计划时刻**不补跑**，合并记一条 `missed` 并注明次数。周期表达式的「日期」与「星期」同时限定时按**交集**求值（`0 9 1 * 1` 只在既是 1 号又是周一那天触发），页面上已明示。beat 的资源限额按实测定（1.0 CPU / 512MB，峰值 268 MiB、无 `max` 事件、CPU 节流 12%）。
+- Agent 模板与一键克隆已实现（`005`）：模板是**个人私有**的配置快照库，从模板创建、一键克隆、另存为模板三条路径；内置模板由 `scripts/seed_agent_templates.py` 幂等注入（模型跟随 `LLM_MODEL`）。**不含**跨用户共享/模板市场、版本历史、导入导出与使用统计。
 - 外部 MCP 工具已实现（`003`，65/65 任务）：仅支持 Streamable HTTP 传输，stdio 传输与工具市场之外的自定义 UI 不在范围内。
 - **指标与告警**：`/metrics`（Prometheus 文本格式，零依赖实现）已接入，覆盖 HTTP/WS/LLM/沙箱/队列深度/成本；
   Celery 进程通过 Redis 快照合并进同一端点。`deploy/observability/` 有抓取配置与 8 条告警规则，

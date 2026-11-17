@@ -6,7 +6,7 @@ description: "Implementation tasks for agent templates and one-click clone: snap
 
 **Input**: Design documents from `/specs/005-agent-templates/`
 
-**Prerequisites**: `plan.md`, `spec.md`, `research.md`, `data-model.md`, `contracts/api.md`, `checklists/requirements.md`
+**Prerequisites**: `plan.md`, `spec.md`, `research.md`, `data-model.md`, `contracts/api.md`, `checklists/requirements.md`, `quickstart.md`
 
 **Approach**: TDD。每个业务任务前先写失败的测试。每个 Phase 独立提交，通过后再进入下一 Phase。
 001-004 已完成（各自 `tasks.md` 全勾选），本特性不补做它们的任何未完成项。
@@ -190,9 +190,9 @@ description: "Implementation tasks for agent templates and one-click clone: snap
 
 **Purpose**: 在真实容器栈上验收 S1-S5，跑全量门禁，同步文档。
 
-- [ ] T036 Write `deploy/verify/s5_agent_templates.py`: scenarios S1 (from-template create, field equality + offline-tool filtering), S2 (clone of a group-referenced agent, instance-level zeros + source untouched), S3 (save-as-template then mutate both sides), S4 (template CRUD + builtin 403 + foreign 404 identical body), S5 (fresh DB: seed → builtins ≥3, seed twice → no growth). Register usage in `deploy/README.md`.
-- [ ] T037 Run full backend gates: `ruff check app tests` / `ruff format --check .` / `mypy app` / `pytest` (with `fail_under` coverage gate) and full frontend gates: `eslint` / `prettier --check` / `tsc --noEmit` / `vitest run` / `vite build`. Fix any failure before ticking.
-- [ ] T038 [P] Update `README.md` (pages table + API overview + 已知限制: 模板为个人私有、无共享市场), `docs/architecture.md` (data model: one table + two nullable columns), `deploy/README.md` (seed script invocation), and record real-stack acceptance results in `specs/005-agent-templates/quickstart.md`.
+- [X] T036 Write `deploy/verify/s5_agent_templates.py`: scenarios S1 (from-template create, field equality + offline-tool filtering), S2 (clone of a group-referenced agent, instance-level zeros + source untouched), S3 (save-as-template then mutate both sides), S4 (template CRUD + builtin 403 + foreign 404 identical body), S5 (fresh DB: seed → builtins ≥3, seed twice → no growth). Register usage in `deploy/README.md`.
+- [X] T037 Run full backend gates: `ruff check app tests` / `ruff format --check .` / `mypy app` / `pytest` (with `fail_under` coverage gate) and full frontend gates: `eslint` / `prettier --check` / `tsc --noEmit` / `vitest run` / `vite build`. Fix any failure before ticking.
+- [X] T038 [P] Update `README.md` (pages table + API overview + 已知限制: 模板为个人私有、无共享市场), `docs/architecture.md` (data model: one table + two nullable columns), `deploy/README.md` (seed script invocation), and record real-stack acceptance results in `specs/005-agent-templates/quickstart.md`.
 - [ ] T039 Merge `feat/005-agent-templates` into `master` (fast-forward), delete the branch, and verify `git status` is clean (constitution: no stray keys/temp files).
 
 ## Dependencies and Execution Order
@@ -225,3 +225,18 @@ description: "Implementation tasks for agent templates and one-click clone: snap
   with the reason recorded here.
 - If implementation deviates from spec/plan/contracts, fix the upstream document **first**
   and say so in the commit message (constitution, 开发工作流).
+
+
+## Phase 6 实测记录（2026-11-18）
+
+| 项 | 结果 |
+|---|---|
+| `deploy/verify/s6_agent_templates.py` | **14/14 通过**（S1 从模板创建 ×2、S2 克隆 ×4、S3 快照隔离 ×2、S4 管理越权 ×4、S5 内置 ×2），全程 0.7s |
+| 迁移往返（开发库 + 隔离 schema） | ✅ `0008 → 0009` 成功；up→down 干净且保留 002 枚举 |
+| 种子脚本（开发库实跑） | 首次插入 4 个；二次运行新增 0（幂等） |
+| 后端全量 `pytest` | 1224 passed, 6 subtests |
+| 前端 `lint`/`prettier`/`tsc`/`vitest`/`build` | 全绿；vitest 107 passed / 20 files |
+| 文档同步 | README（页面表/API/已知限制/快速开始）、docs/architecture.md（数据表 + 3 条语义要点）、deploy/README.md（种子脚本 + verify 清单）、quickstart.md（本目录） |
+
+**部署侧发现并已修**：真实栈跑验收前需 `deploy/deploy.sh` 重建镜像（旧容器不带新代码），
+并对部署后的库跑一次种子脚本（迁移不写数据，见 research R-02）。

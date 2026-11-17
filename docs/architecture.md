@@ -277,9 +277,16 @@ GET        /api/v1/stats/overview              # 仪表盘：运行中/队列深
 | `artifacts` | id, run_id, step_id, object_key, filename, size, mime | 制品 |
 | `schedules` | id, owner_id, name, cron_expr, timezone, template_*(title/description/expected_output/priority), target_type, target_id, target_strategy, enabled, next_run_at, last_run_at, last_result, consecutive_failures, auto_disabled_reason | 定时规则 |
 | `schedule_triggers` | id, schedule_id, planned_at, fired_at, result(fired/missed/skipped_busy/failed), reason, missed_count, window_start, window_end, request_id, run_id · UNIQUE(schedule_id, planned_at) | 触发事实（不可变） |
+| `agent_templates` | id, owner_id(可空=NULL 即内置), name, description, system_prompt, model, temperature, max_steps, max_run_seconds, tools(jsonb), cost_limit_cents, egress_mode, created_at, updated_at · UNIQUE(owner_id, name) + 部分唯一索引 name WHERE owner_id IS NULL | Agent 配置快照（005） |
 | `audit_logs` | id, user_id, action, target_type, target_id, detail, created_at | 审计 |
 
-索引要点：`runs(status, created_at)`、`runs(request_id)`、`steps(run_id, seq)`、`requests(status, priority)`、`schedules(next_run_at) WHERE enabled`（部分索引，扫描只走启用的规则）、`schedule_triggers(schedule_id, planned_at DESC, id DESC)`。
+索引要点：`runs(status, created_at)`、`runs(request_id)`、`steps(run_id, seq)`、`requests(status, priority)`、`schedules(next_run_at) WHERE enabled`（部分索引，扫描只走启用的规则）、`schedule_triggers(schedule_id, planned_at DESC, id DESC)`、`agent_templates(owner_id, created_at)`、`agent_templates(name) WHERE owner_id IS NULL`（内置唯一性）、`agents(source_template_id)`、`agents(source_agent_id)`（来源反查）。
+
+**模板的三个语义要点**（完整论证见 `specs/005-agent-templates/`）：
+
+1. **模板是快照，不是引用。** 从模板创建 / 克隆都是写时拷贝，之后模板与产物双向隔离。引用式复用会让「改一个模板」同时改掉 N 个 Agent 的提示词与成本上限，排障与成本核算都会失真——与调度「修改规则不改写已产生的需求」是同一条纪律。
+2. **内置模板的唯一性必须用部分唯一索引。** PostgreSQL 的唯一约束在含 NULL 时**不生效**（NULL 与 NULL 不相等），而内置模板的 `owner_id` 全是 NULL。只写 `UNIQUE(owner_id, name)` 的话，种子脚本重复执行会插入一堆重名内置模板，而这个问题只在生产才暴露。
+3. **克隆不复制实例级数据。** 运行历史、组成员关系、外部工具授权、出站规则一律不复制——授权涉及凭证，复制会得到「界面显示已授权、跑起来才被拒」的假象。`agents.source_template_id` / `source_agent_id` 两个可空外键都 `ON DELETE SET NULL`：删模板/删源 Agent 都不带走产物。
 
 **调度的两个语义要点**（完整论证见 `specs/004-scheduled-requests/`）：
 
