@@ -105,6 +105,52 @@ def test_ws_handshake_succeeds_for_owner():
         assert ws.receive_json() == {"type": "ready"}
 
 
+# ---------- 子协议传票据（token 不进 URL）----------
+
+
+def test_ws_accepts_token_via_subprotocol_without_query():
+    """凭证走 Sec-WebSocket-Protocol，URL 里不带 token，服务端只回显协议名。"""
+    user_id, run_id = asyncio.run(_make_run())
+    client = TestClient(app)
+
+    with client.websocket_connect(
+        f"{WS_URL}/{run_id}", subprotocols=["aw.bearer", _token(user_id)]
+    ) as ws:
+        assert ws.accepted_subprotocol == "aw.bearer"
+        assert ws.receive_json() == {"type": "ready"}
+
+
+def test_ws_rejects_invalid_token_in_subprotocol():
+    """子协议里的 token 无效同样拒绝，不能因为换了传递方式就跳过校验。"""
+    _user_id, run_id = asyncio.run(_make_run())
+    client = TestClient(app)
+
+    with (
+        pytest.raises(WebSocketDisconnect) as exc,
+        client.websocket_connect(
+            f"{WS_URL}/{run_id}", subprotocols=["aw.bearer", "invalid-token"]
+        ),
+    ):
+        pass
+    assert exc.value.code == 1008
+
+
+def test_ws_subprotocol_still_enforces_ownership():
+    """换了传票据的方式，归属校验必须照旧生效。"""
+    _owner_id, run_id = asyncio.run(_make_run())
+    intruder_id, _ = asyncio.run(_make_run())
+    client = TestClient(app)
+
+    with (
+        pytest.raises(WebSocketDisconnect) as exc,
+        client.websocket_connect(
+            f"{WS_URL}/{run_id}", subprotocols=["aw.bearer", _token(intruder_id)]
+        ),
+    ):
+        pass
+    assert exc.value.code == 1008
+
+
 # ---------- 归属校验（IDOR 防护）----------
 
 

@@ -1,6 +1,8 @@
 /** 运行实时事件订阅（T072，US5）：/ws/runs/{id} WebSocket 客户端。
  *
- * - 连接时带上 access token（?token=），服务端鉴权 + 归属校验
+ * - 连接时把 access token 作为**子协议**携带：`new WebSocket(url, ['aw.bearer', token])`
+ *   —— 浏览器无法自定义握手头，早期实现把 token 塞进 `?token=`，于是它会进
+ *   nginx access/error 日志。子协议只在握手头里，服务端只回显 `aw.bearer`。
  * - 按事件类型回调：status_change / step_new / step_update / log_line /
  *   cost_update / needs_input / run_completed / run_failed
  * - 心跳保活：每 25s 发 ping（nginx proxy_read_timeout 300s，空闲会被掐断）
@@ -21,14 +23,15 @@ const MAX_RETRIES = 5
 const BASE_DELAY_MS = 1000
 /** 心跳间隔：远小于反代 300s 空闲超时 */
 const HEARTBEAT_MS = 25_000
+/** 子协议名：服务端据此识别「第二个元素是 access token」，且只回显这一个名字 */
+const BEARER_PROTOCOL = 'aw.bearer'
 
 /** 终态事件：到达后 Run 已结束，无需保持连接 */
 const TERMINAL_EVENTS = new Set(['run_completed', 'run_failed', 'run_cancelled'])
 
-function wsUrl(runId: string, token: string): string {
+function wsUrl(runId: string): string {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const base = `${proto}://${window.location.host}`
-  return `${base}/ws/runs/${runId}?token=${encodeURIComponent(token)}`
+  return `${proto}://${window.location.host}/ws/runs/${runId}`
 }
 
 export function useRunSocket(
@@ -82,7 +85,7 @@ export function useRunSocket(
 
     const connect = () => {
       if (closedByUnmount || terminal) return
-      const ws = new WebSocket(wsUrl(runId, accessToken))
+      const ws = new WebSocket(wsUrl(runId), [BEARER_PROTOCOL, accessToken])
       wsRef.current = ws
 
       ws.onopen = () => {

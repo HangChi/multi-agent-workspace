@@ -19,6 +19,7 @@ class MockWebSocket {
   static instances: MockWebSocket[] = []
 
   url: string
+  protocols: string[] | string | undefined
   readyState = 0
   sent: string[] = []
   closed = false
@@ -28,8 +29,9 @@ class MockWebSocket {
   onclose: (() => void) | null = null
   onerror: (() => void) | null = null
 
-  constructor(url: string) {
+  constructor(url: string, protocols?: string[]) {
     this.url = url
+    this.protocols = protocols
     MockWebSocket.instances.push(this)
   }
 
@@ -73,6 +75,16 @@ function setup(runId = 'run-1') {
 }
 
 describe('useRunSocket 心跳', () => {
+  it('用子协议携带凭证，token 不出现在 URL 里', () => {
+    // token 曾经以 ?token= 传递，会进 nginx access/error 日志
+    setup()
+    const ws = MockWebSocket.instances[0]
+
+    expect(ws.url).toBe('ws://localhost:3000/ws/runs/run-1')
+    expect(ws.url).not.toContain('token')
+    expect(ws.protocols).toEqual(['aw.bearer', 'test-token'])
+  })
+
   it('连接建立后每 25s 发送 ping', () => {
     vi.useFakeTimers()
     setup()

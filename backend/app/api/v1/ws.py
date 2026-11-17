@@ -1,7 +1,10 @@
 """运行实时事件 WebSocket 端点（T071，US5）：/ws/runs/{run_id}。
 
 对齐 contracts/api.md WebSocket 契约（FR-015，SC-003）：
-- 握手需 ?token=<access>；无效/缺失 token 拒绝（1008 unauthorized）
+- 握手凭证**优先取子协议**：`Sec-WebSocket-Protocol: aw.bearer, <access>`
+  （浏览器 `new WebSocket(url, ['aw.bearer', token])`，服务端回显 `aw.bearer`）
+- 兼容旧客户端的 `?token=<access>`：浏览器无法自定义握手头，早期实现把 token
+  放进 URL；但 query 会进 nginx/SDK 的访问与错误日志，因此新客户端不再使用它
 - **归属校验**：仅 Run 的 owner（或 admin）可订阅，否则 1008 forbidden
   （此前只验 token 不验归属，任意登录用户拿到 run_id 即可读取他人
    执行日志、步骤输入输出与最终结果——IDOR 越权）
@@ -35,6 +38,23 @@ router = APIRouter(tags=["ws"])
 # 关闭码：1008 = policy violation（鉴权/权限语义，客户端不应无限重连）
 _CLOSE_UNAUTHORIZED = (1008, "unauthorized")
 _CLOSE_FORBIDDEN = (1008, "forbidden")
+
+# 子协议名：客户端把凭证作为第二个子协议传入，服务端只回显这一个名字，
+# 因此 token 不会出现在任何 URL/日志里。
+_BEARER_SUBPROTOCOL = "aw.bearer"
+
+
+def _credential(websocket: WebSocket) -> tuple[str | None, str | None]:
+    """从握手取 access token，返回 (token, 需要回显的子协议)。
+
+    优先 `Sec-WebSocket-Protocol: aw.bearer, <jwt>`；没有时回退到 `?token=`。
+    """
+    raw = websocket.headers.get("sec-websocket-protocol")
+    if raw:
+        parts = [part.strip() for part in raw.split(",")]
+        if len(parts) >= 2 and parts[0] == _BEARER_SUBPROTOCOL:
+            return parts[1], _BEARER_SUBPROTOCOL
+    return websocket.query_params.get("token"), None
 
 
 def _authorize(token: str | None) -> str | None:
@@ -81,7 +101,8 @@ async def ws_run_events(websocket: WebSocket, run_id: str) -> None:
     - 收到 {"type": "ping"} → 回 {"type": "pong"}
     - 断开时清理订阅（subscribe_run_events 的 finally 负责）
     """
-    user_id = _authorize(websocket.query_params.get("token"))
+    token, subprotocol = _credential(websocket)
+    user_id = _authorize(token)
     if user_id is None:
         await websocket.close(*_CLOSE_UNAUTHORIZED)
         return
@@ -91,7 +112,8 @@ async def ws_run_events(websocket: WebSocket, run_id: str) -> None:
         await websocket.close(*_CLOSE_FORBIDDEN)
         return
 
-    await websocket.accept()
+    # 只回显自己认识的那个子协议名，绝不把 token 回显给客户端
+    await websocket.accept(subprotocol=subprotocol)
 
     # 发送串行化：转发事件与 ready/pong 可能并发（同一 WebSocket 不能并发 send）
     send_lock = asyncio.Lock()
