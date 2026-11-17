@@ -77,6 +77,11 @@
 ### GET /requests
 看板列表 → 200 `{"items": [Request], "total": n}`。参数：`?status=&q=&priority=&page=&page_size=`。
 
+列表与详情都带 `runs_summary`（该需求名下 Run 的结果构成，未分配时为 `null`）：
+`{"total": n, "completed": n, "failed": n, "cancelled": n, "active": n}`。
+需求状态按 **失败 > 取消 > 完成** 收敛（任一 Run 失败即需求失败，不静默当完成），
+`runs_summary` 就是用来让界面说清「5 个里 3 个完成、1 个失败」，而不是只给一个红色「失败」。
+
 ### POST /requests
 创建。请求 `{"title", "description", "expected_output", "priority"}` → 201 Request（status=created）。
 

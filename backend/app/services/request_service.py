@@ -6,13 +6,16 @@
 - GET /requests/{id}: 详情（含 attachments）
 """
 
+import structlog
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
 from app.models.request import Request
 from app.models.run import Run
-from app.schemas.request import RequestCreate, RequestUpdate
+from app.schemas.request import RequestCreate, RequestUpdate, RunOutcomeSummary
+
+logger = structlog.get_logger(__name__)
 
 # Run 的非终态：只要还有一个没结束，需求就仍在执行中。
 _ACTIVE_RUN_STATUSES = frozenset({"queued", "running", "needs_input"})
@@ -44,7 +47,44 @@ async def settle_request_status(db: AsyncSession, request_id: str) -> str | None
         request.status = "cancelled"
     else:
         request.status = "completed"
+    logger.info(
+        "request_settled",
+        request_id=request_id,
+        status=request.status,
+        runs=len(statuses),
+    )
     return request.status
+
+
+async def run_outcome_summaries(
+    db: AsyncSession, request_ids: list[str]
+) -> dict[str, RunOutcomeSummary]:
+    """按需求汇总其 Run 的结果构成（一次分组查询，供列表与详情复用）。
+
+    只返回确实有 Run 的需求：未分配的需求不该出现「0/0」这种噪音。
+    """
+    if not request_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(Run.request_id, Run.status, func.count())
+            .where(Run.request_id.in_(request_ids))
+            .group_by(Run.request_id, Run.status)
+        )
+    ).all()
+    counts: dict[str, RunOutcomeSummary] = {}
+    for request_id, status, count in rows:
+        summary = counts.setdefault(request_id, RunOutcomeSummary())
+        summary.total += count
+        if status == "completed":
+            summary.completed += count
+        elif status in {"failed", "timeout"}:
+            summary.failed += count
+        elif status == "cancelled":
+            summary.cancelled += count
+        elif status in _ACTIVE_RUN_STATUSES:
+            summary.active += count
+    return counts
 
 
 def _check_owner(request: Request, user_id: str) -> None:

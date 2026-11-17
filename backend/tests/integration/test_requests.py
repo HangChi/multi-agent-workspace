@@ -180,3 +180,60 @@ async def test_list_requests_pagination(client, make_headers):
 
     resp = await client.get(f"{REQUESTS_URL}?page=3&page_size=2", headers=headers)
     assert len(resp.json()["items"]) == 1
+
+
+# ---------- 运行结果构成（混合结果不再只是个「失败」） ----------
+
+
+async def _add_run(db_session, request: dict, *, status: str, owner_id: str, index: int) -> None:
+    from app.models.run import Run
+
+    db_session.add(
+        Run(
+            request_id=request["id"],
+            owner_id=owner_id,
+            assignee_type="agent",
+            assignee_id=owner_id,
+            strategy="fan_out",
+            sequence=index,
+            status=status,
+        )
+    )
+    await db_session.commit()
+
+
+async def test_request_detail_exposes_the_run_outcome_mix(client, make_headers, db_session):
+    """部分失败的需求仍判 failed，但构成要说清楚：3 完成 / 1 失败 / 1 取消。"""
+    headers = await make_headers(role="member")
+    request = await _create_request(client, headers)
+    owner_id = request["owner_id"]
+    for index, status in enumerate(("completed", "completed", "completed", "failed", "cancelled")):
+        await _add_run(db_session, request, status=status, owner_id=owner_id, index=index)
+
+    detail = await client.get(f"{REQUESTS_URL}/{request['id']}", headers=headers)
+    assert detail.status_code == 200
+    summary = detail.json()["runs_summary"]
+    assert summary == {"total": 5, "completed": 3, "failed": 1, "cancelled": 1, "active": 0}
+
+
+async def test_list_requests_carries_the_same_summary(client, make_headers, db_session):
+    """看板读的是列表，列表也必须带构成，否则详情弹窗只能显示一个红标。"""
+    headers = await make_headers(role="member")
+    request = await _create_request(client, headers)
+    await _add_run(
+        db_session, request, status="running", owner_id=request["owner_id"], index=0
+    )
+
+    items = (await client.get(REQUESTS_URL, headers=headers)).json()["items"]
+    mine = next(item for item in items if item["id"] == request["id"])
+    assert mine["runs_summary"] == {
+        "total": 1, "completed": 0, "failed": 0, "cancelled": 0, "active": 1,
+    }
+
+
+async def test_an_unassigned_request_has_no_summary(client, make_headers):
+    """还没分配的需求不显示 0/0 这种噪音。"""
+    headers = await make_headers(role="member")
+    request = await _create_request(client, headers)
+    detail = await client.get(f"{REQUESTS_URL}/{request['id']}", headers=headers)
+    assert detail.json()["runs_summary"] is None

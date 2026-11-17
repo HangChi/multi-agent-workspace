@@ -245,6 +245,32 @@ export function BoardPage() {
           }
         >
           <div className="space-y-4">
+            {currentDetail.runs_summary && currentDetail.runs_summary.total > 0 && (
+              <div>
+                <p className="mb-1 text-[13px] font-medium text-ink-soft">运行结果</p>
+                <p className="rounded-lg bg-surface-muted px-3 py-2.5 text-sm text-ink-soft">
+                  {[
+                    `${currentDetail.runs_summary.completed} 完成`,
+                    currentDetail.runs_summary.failed > 0
+                      ? `${currentDetail.runs_summary.failed} 失败`
+                      : null,
+                    currentDetail.runs_summary.cancelled > 0
+                      ? `${currentDetail.runs_summary.cancelled} 取消`
+                      : null,
+                    currentDetail.runs_summary.active > 0
+                      ? `${currentDetail.runs_summary.active} 进行中`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                  <span className="text-ink-faint">
+                    {' '}
+                    / 共 {currentDetail.runs_summary.total} 个
+                  </span>
+                </p>
+              </div>
+            )}
+
             {currentDetail.description && (
               <div>
                 <p className="mb-1 text-[13px] font-medium text-ink-soft">描述</p>

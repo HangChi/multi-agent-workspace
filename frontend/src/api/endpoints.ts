@@ -490,6 +490,15 @@ export interface AttachmentUploadResult extends AttachmentMeta {
   presigned_put_url: string
 }
 
+/** 需求名下 Run 的结果构成（部分成功时用来解释「失败」到底失败了几项）。 */
+export interface RunOutcomeSummary {
+  total: number
+  completed: number
+  failed: number
+  cancelled: number
+  active: number
+}
+
 export interface WorkRequest {
   id: string
   owner_id: string
@@ -499,6 +508,8 @@ export interface WorkRequest {
   priority: RequestPriority
   status: RequestStatus
   attachments: AttachmentMeta[]
+  /** 尚未分配时为 null（后端不回 0/0 噪音） */
+  runs_summary?: RunOutcomeSummary | null
   created_at: string
   updated_at: string
 }

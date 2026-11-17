@@ -81,6 +81,20 @@ class RequestUpdate(BaseModel):
         return v
 
 
+class RunOutcomeSummary(BaseModel):
+    """需求名下 Run 的结果构成。
+
+    fan_out 的「部分成功」在需求状态上只能显示成 failed（不能静默当完成），
+    这个计数让界面能说清「4 个里 3 个完成、1 个失败」，而不是只给一个红标。
+    """
+
+    total: int = 0
+    completed: int = 0
+    failed: int = 0
+    cancelled: int = 0
+    active: int = 0
+
+
 class RequestOut(BaseModel):
     id: str
     owner_id: str
@@ -90,6 +104,8 @@ class RequestOut(BaseModel):
     priority: str
     status: str
     attachments: list[dict] = Field(default_factory=list)
+    # 尚未分配时没有 Run，保持 None（界面据此隐藏「运行结果」）
+    runs_summary: RunOutcomeSummary | None = None
     created_at: datetime
     updated_at: datetime
 

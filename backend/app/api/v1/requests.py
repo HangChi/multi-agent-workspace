@@ -57,7 +57,16 @@ async def list_requests(
         page=page,
         page_size=page_size,
     )
-    return {"items": [RequestOut.model_validate(r) for r in rows], "total": total}
+    summaries = await request_service.run_outcome_summaries(db, [row.id for row in rows])
+    return {
+        "items": [
+            RequestOut.model_validate(row).model_copy(
+                update={"runs_summary": summaries.get(row.id)}
+            )
+            for row in rows
+        ],
+        "total": total,
+    }
 
 
 @router.post("", response_model=RequestOut, status_code=201)
@@ -84,7 +93,10 @@ async def create_request(
 async def get_request(request_id: ResourceId, user: CurrentUser, db: DB):
     """需求详情（归属校验）。"""
     request = await request_service.get_request(db, request_id, user.id)
-    return RequestOut.model_validate(request)
+    summaries = await request_service.run_outcome_summaries(db, [request.id])
+    return RequestOut.model_validate(request).model_copy(
+        update={"runs_summary": summaries.get(request.id)}
+    )
 
 
 @router.post("/{request_id}/attachments", response_model=AttachmentListOut, status_code=201)
