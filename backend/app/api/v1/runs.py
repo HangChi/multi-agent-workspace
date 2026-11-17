@@ -28,7 +28,7 @@ from app.models.run import Run
 from app.models.sandbox_execution import SandboxExecution
 from app.models.step import Step
 from app.orchestrator.state_machine import RunStatus, transition
-from app.schemas.run import RunOut
+from app.schemas.run import RunOut, RunReplyIn
 from app.schemas.sandbox import EgressAccessList, ExecutionDetail, ExecutionSummary
 from app.services import artifact_service
 from app.services.assignment_service import _enqueue
@@ -313,9 +313,7 @@ async def retry_run(run_id: ResourceId, _m: MemberUser, user: CurrentUser, db: D
 
 
 @router.post("/{run_id}/reply")
-async def reply_run(
-    run_id: ResourceId, user: CurrentUser, db: DB, payload: dict | None = None
-):
+async def reply_run(run_id: ResourceId, payload: RunReplyIn, user: CurrentUser, db: DB):
     """回复运行（FR-021）：needs_input → running（继续执行）；其余 409。
 
     用户回复内容保存到 run.user_reply，恢复执行时注入对话上下文（缺陷 A 修复）。
@@ -325,11 +323,12 @@ async def reply_run(
     # 幂等分支会吞掉 running→running，必须显式校验前置状态（FR-021）
     if run.status != "needs_input":
         raise _conflict("仅 needs_input 状态可回复")
-    message = (payload or {}).get("message")
-    if not message or not str(message).strip():
+    # schema 已挡掉空串；全空白仍需业务层判定（" " 通过 min_length）
+    message = payload.message.strip()
+    if not message:
         raise _conflict("回复内容不能为空")
     # 保存用户回复（FR-021）：供恢复执行时注入对话上下文
-    run.user_reply = str(message).strip()
+    run.user_reply = message
     transition(run, RunStatus.RUNNING)
 
     await write_audit(

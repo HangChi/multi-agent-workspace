@@ -8,9 +8,19 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.sandbox import ExecutionSummary
+
+
+class RunReplyIn(BaseModel):
+    """用户回复（FR-021）：needs_input 恢复执行时注入的用户消息。
+
+    之前端点签名是 `payload: dict | None = None`：字段名写错、传数组、传超长文本
+    都要到业务层才炸，而且 OpenAPI 里看不出请求体长什么样。
+    """
+
+    message: str = Field(min_length=1, max_length=4000)
 
 
 class StepOut(BaseModel):
