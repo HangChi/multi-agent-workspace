@@ -17,7 +17,7 @@ COPY . .
 RUN npm run build
 
 # ---------- Stage 2: 运行时（nginx 非 root） ----------
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.31-alpine AS runtime
 
 # 非 root：nginx 以低权限用户运行
 # - 官方 entrypoint 会尝试写 /etc/nginx/conf.d 与 /run/nginx.pid，
