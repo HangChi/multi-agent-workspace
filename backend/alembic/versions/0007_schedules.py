@@ -81,7 +81,8 @@ def upgrade() -> None:
             server_default="normal",
         ),
         sa.Column(
-            "target_type", _enum("schedule_target_type", "agent", "group"),
+            "target_type",
+            _enum("schedule_target_type", "agent", "group"),
             nullable=False,
         ),
         sa.Column("target_id", sa.Uuid(as_uuid=False), nullable=False),
@@ -166,9 +167,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("reason", sa.Text(), nullable=True),
-        sa.Column(
-            "missed_count", sa.Integer(), nullable=False, server_default="0"
-        ),
+        sa.Column("missed_count", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("window_start", sa.DateTime(timezone=True), nullable=True),
         sa.Column("window_end", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
@@ -192,7 +191,9 @@ def upgrade() -> None:
         sa.UniqueConstraint(
             "schedule_id", "planned_at", name="uq_schedule_triggers_planned"
         ),
-        sa.CheckConstraint("missed_count >= 0", name="ck_schedule_triggers_missed_count"),
+        sa.CheckConstraint(
+            "missed_count >= 0", name="ck_schedule_triggers_missed_count"
+        ),
     )
     op.create_index(
         "idx_schedule_triggers_lookup",
