@@ -37,16 +37,33 @@ _ERROR_MAP: dict[str, int] = {
 
 
 class AppError(Exception):
-    """业务异常：code 必须是 _ERROR_MAP 中的键。"""
+    """业务异常：code 必须是 _ERROR_MAP 中的键。
 
-    def __init__(self, code: str, message: str, *, detail: dict | None = None):
+    `status_code` 可显式覆盖映射值：同是 `INVALID_INPUT`，可用状态码区分为
+    「参数不相容」（400）与「单个字段取值不合法」（422）。契约
+    contracts/api.md §1 明确要求 cron/时区错误是 **422 INVALID_INPUT**
+    并带 `detail.field`，而 strategy 不相容是 **400 INVALID_INPUT** ——
+    两者 code 相同、状态码不同，只能靠覆盖表达。
+    """
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        detail: dict | None = None,
+        status_code: int | None = None,
+    ):
         self.code = code
         self.message = message
         self.detail = detail
+        self._status_code = status_code
         super().__init__(message)
 
     @property
     def status_code(self) -> int:
+        if self._status_code is not None:
+            return self._status_code
         return _ERROR_MAP.get(self.code, 400)
 
 

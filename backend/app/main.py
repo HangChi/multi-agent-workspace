@@ -22,6 +22,7 @@ from app.api.v1.groups import router as groups_router
 from app.api.v1.marketplace import router as marketplace_router
 from app.api.v1.requests import router as requests_router
 from app.api.v1.runs import router as runs_router
+from app.api.v1.schedules import router as schedules_router
 from app.api.v1.stats import router as stats_router
 from app.api.v1.tools import router as tools_router
 from app.api.v1.ws import router as ws_router
@@ -66,6 +67,7 @@ def create_app() -> FastAPI:
     api_v1.include_router(external_tool_grants_router)
     api_v1.include_router(external_observability_router)
     api_v1.include_router(requests_router)
+    api_v1.include_router(schedules_router)
     api_v1.include_router(runs_router)
     api_v1.include_router(stats_router)
     api_v1.include_router(tools_router)

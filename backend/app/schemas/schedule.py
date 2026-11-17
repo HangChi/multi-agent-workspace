@@ -146,6 +146,14 @@ class ScheduleTemplatePatch(BaseModel):
                 raise ValueError("模板标题不能为空")
         return v
 
+    def changes(self) -> dict:
+        """同 `ScheduleUpdate.changes()`：只返回用户真正传了的字段。
+
+        嵌套模板的 PATCH 同样有「没传 ≠ 传 null」的问题：若用裸
+        `model_dump()`，只改 priority 会把 title 一起补成 None 送下去。
+        """
+        return self.model_dump(exclude_unset=True)
+
 
 class ScheduleUpdate(BaseModel):
     """部分更新。
