@@ -72,6 +72,7 @@ service_image_ref() {
 }
 
 previous=()
+services_started=0
 for service in $SERVICES; do
   if ref="$(service_image_ref "$service")"; then
     docker tag "$ref" "${PROJECT}-${service}:previous"
@@ -83,6 +84,12 @@ for service in $SERVICES; do
 done
 
 rollback() {
+  # 服务还没被替换（例如迁移阶段就失败）时不做任何回滚：
+  # 此时把 latest 标签指回旧镜像只会让下一次重试拿到旧代码，问题更难查。
+  if [ "$services_started" -eq 0 ]; then
+    log "尚未替换服务，跳过回滚（镜像标签保持为本次构建）"
+    return 0
+  fi
   log "开始回滚..."
   local service
   for service in "${previous[@]:-}"; do
@@ -122,11 +129,12 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 exit_code="$(docker inspect -f '{{.State.ExitCode}}' "aw-migrate" 2>/dev/null || echo 1)"
-[ "$exit_code" = "0" ] || die "迁移失败（exit=$exit_code），日志：docker logs aw-migrate"
+[ "$exit_code" = "0" ] || die "迁移失败（exit=${exit_code}），日志：docker logs aw-migrate"
 log "迁移完成"
 
 # ---------- 5. 换服务 ----------
 log "启动服务：$SERVICES"
+services_started=1
 compose up -d --no-deps $SERVICES
 
 # ---------- 6. 健康门禁 ----------
