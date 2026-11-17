@@ -29,6 +29,12 @@
 import { Component } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 
+import {
+  isChunkLoadError,
+  readReloadFlag,
+  shouldAttemptReload,
+  writeReloadFlag,
+} from '../../utils/chunkReload'
 import { cn } from './cn'
 
 interface ErrorBoundaryProps {
@@ -45,6 +51,8 @@ interface ErrorBoundaryProps {
 
 interface ErrorBoundaryState {
   error: Error | null
+  /** 本次错误是否为懒加载 chunk 失效（发版后旧 chunk 404）。 */
+  chunkFailed: boolean
 }
 
 const DEFAULT_TITLE = {
@@ -53,27 +61,34 @@ const DEFAULT_TITLE = {
 } as const
 
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { error: null }
+  state: ErrorBoundaryState = { error: null, chunkFailed: false }
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { error }
+    return { error, chunkFailed: isChunkLoadError(error) }
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     // 先落日志：即使 onError 自己抛错，也至少留下原始堆栈
     console.error('[ErrorBoundary] 渲染异常', error, info.componentStack)
     this.props.onError?.(error, info)
+
+    // 懒加载 chunk 失效（发版后旧文件名 404）：自动刷新一次即可拿到新版本。
+    // 冷却判断防止刷新后仍失败时无限 reload —— 那会变成白屏闪烁。
+    if (isChunkLoadError(error) && shouldAttemptReload(readReloadFlag(), Date.now())) {
+      writeReloadFlag()
+      window.location.reload()
+    }
   }
 
   componentDidUpdate(prevProps: ErrorBoundaryProps) {
     // 路由切换（resetKey 变化）时自动复位，否则切走再切回仍是错误页
     if (this.state.error !== null && prevProps.resetKey !== this.props.resetKey) {
-      this.setState({ error: null })
+      this.setState({ error: null, chunkFailed: false })
     }
   }
 
   private handleReset = () => {
-    this.setState({ error: null })
+    this.setState({ error: null, chunkFailed: false })
   }
 
   private handleReload = () => {
@@ -81,11 +96,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   render() {
-    const { error } = this.state
+    const { error, chunkFailed } = this.state
     if (!error) return this.props.children
 
     const { variant = 'section', title } = this.props
-    const heading = title ?? DEFAULT_TITLE[variant]
+    // chunk 失效的文案要和「渲染炸了」区分开：用户只需刷新，不是系统坏了
+    const heading = chunkFailed ? '检测到新版本' : (title ?? DEFAULT_TITLE[variant])
     const detail = import.meta.env.DEV ? this.describe(error) : null
 
     const body = (
@@ -111,8 +127,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
         <p className="text-base font-semibold text-ink">{heading}</p>
         <p className="mt-1 max-w-sm text-sm leading-relaxed text-ink-muted">
-          界面渲染时遇到了意外错误，已中断本次渲染以免影响其他内容。
-          {variant === 'section' ? '你可以切换页面，或按下面的按钮重试。' : ''}
+          {chunkFailed
+            ? '应用可能已经更新，当前页面引用的资源已失效。刷新一下即可继续使用。'
+            : '界面渲染时遇到了意外错误，已中断本次渲染以免影响其他内容。'}
+          {!chunkFailed && variant === 'section' ? '你可以切换页面，或按下面的按钮重试。' : ''}
         </p>
 
         {detail && (
@@ -122,20 +140,34 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         )}
 
         <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-          <button
-            type="button"
-            onClick={this.handleReset}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand-600 px-3 text-sm font-medium text-white shadow-card transition-colors hover:bg-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 focus-visible:ring-offset-2"
-          >
-            重试
-          </button>
-          <button
-            type="button"
-            onClick={this.handleReload}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 text-sm font-medium text-ink-soft shadow-card transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45"
-          >
-            刷新页面
-          </button>
+          {/* chunk 失效时重试无效（模块已经被打包成新文件名，重新 import 还是 404），
+              所以把「刷新页面」提为主按钮，避免用户反复点一个注定失败的按钮。 */}
+          {chunkFailed ? (
+            <button
+              type="button"
+              onClick={this.handleReload}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand-600 px-3 text-sm font-medium text-white shadow-card transition-colors hover:bg-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 focus-visible:ring-offset-2"
+            >
+              刷新页面
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={this.handleReset}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand-600 px-3 text-sm font-medium text-white shadow-card transition-colors hover:bg-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 focus-visible:ring-offset-2"
+              >
+                重试
+              </button>
+              <button
+                type="button"
+                onClick={this.handleReload}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 text-sm font-medium text-ink-soft shadow-card transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45"
+              >
+                刷新页面
+              </button>
+            </>
+          )}
           {variant === 'section' && (
             <a
               href="/"
