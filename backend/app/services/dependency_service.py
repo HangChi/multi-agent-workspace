@@ -76,10 +76,18 @@ async def _adjacency_for(db: AsyncSession, request_id: str) -> dict[str, set[str
 async def _load_editable_request(
     db: AsyncSession, request_id: str, user_id: str
 ) -> Request:
-    """被依赖方（request_id 侧）的编辑权校验：owner-or-assignee，否则 404。"""
-    from app.services.request_service import get_request
+    """被依赖方（request_id 侧）的编辑权校验：owner-or-assignee，否则 404。
 
-    return await get_request(db, request_id, user_id)
+    刻意不借 request_service.get_request——那个函数对「存在但非属主」抛
+    403（006 锁定契约，既有需求端点不能动）；009 的边端点是新端点，
+    按 007 立下的「新端点不暴露存在性」纪律一律 404（contracts §1.2 步 3）。
+    """
+    request = await db.get(Request, request_id)
+    if request is None or not (
+        request.owner_id == user_id or request.assignee_id == user_id
+    ):
+        raise AppError("NOT_FOUND", "需求不存在")
+    return request
 
 
 async def add_dependency(
@@ -158,44 +166,34 @@ async def remove_dependency(
     )
 
 
-async def list_dependencies(db: AsyncSession, request_id: str) -> list[Request]:
-    """我依赖谁（前置列表，带标题与状态，按连边时间正序）。"""
+async def list_dependency_edges(
+    db: AsyncSession, request_id: str
+) -> list[tuple[RequestDependency, Request]]:
+    """我依赖谁（边 + 前置需求，按连边时间正序）。"""
     rows = (
-        (
-            await db.execute(
-                select(Request)
-                .join(
-                    RequestDependency,
-                    RequestDependency.dependency_id == Request.id,
-                )
-                .where(RequestDependency.request_id == request_id)
-                .order_by(RequestDependency.created_at)
-            )
+        await db.execute(
+            select(RequestDependency, Request)
+            .join(Request, Request.id == RequestDependency.dependency_id)
+            .where(RequestDependency.request_id == request_id)
+            .order_by(RequestDependency.created_at)
         )
-        .scalars()
-        .all()
-    )
-    return list(rows)
+    ).all()
+    return [(edge, target) for edge, target in rows]
 
 
-async def list_dependents(db: AsyncSession, request_id: str) -> list[Request]:
-    """谁依赖我（反向视图，按连边时间正序）。"""
+async def list_dependent_edges(
+    db: AsyncSession, request_id: str
+) -> list[tuple[RequestDependency, Request]]:
+    """谁依赖我（边 + 后续需求，按连边时间正序）。"""
     rows = (
-        (
-            await db.execute(
-                select(Request)
-                .join(
-                    RequestDependency,
-                    RequestDependency.request_id == Request.id,
-                )
-                .where(RequestDependency.dependency_id == request_id)
-                .order_by(RequestDependency.created_at)
-            )
+        await db.execute(
+            select(RequestDependency, Request)
+            .join(Request, Request.id == RequestDependency.request_id)
+            .where(RequestDependency.dependency_id == request_id)
+            .order_by(RequestDependency.created_at)
         )
-        .scalars()
-        .all()
-    )
-    return list(rows)
+    ).all()
+    return [(edge, target) for edge, target in rows]
 
 
 async def unmet_dependencies(db: AsyncSession, request_id: str) -> list[Request]:
@@ -305,7 +303,7 @@ async def ready_dependents(
             continue
         # 其余前置是否都已终态：把 candidate 的全部前置查出来内存判定
         # （candidate 的前置数量是个位数，不值得再 JOIN）
-        deps = await list_dependencies(db, candidate.id)
+        deps = [target for _, target in await list_dependency_edges(db, candidate.id)]
         if all(d.status in TERMINAL_STATUSES for d in deps):
             ready.append(candidate)
     return ready

@@ -129,11 +129,18 @@ async def test_edges_cascade_with_request(db_session):
     await db_session.delete(a)
     await db_session.commit()
 
-    # 直接查库绕身份映射（008 同款教训）；两条边（a 为前置、b 为被依赖方
-    # 的这条）随 a 的删除一起消失
+    # 直接查库绕身份映射（008 同款教训）。必须按本测试的 request_id 过滤——
+    # 测试库是会话级共享的，别的文件经 API commit 的边也在这张表里
+    # （不过滤会数到别人的数据，本特性第二轮就踩到）
     count = int(
         (
-            await db_session.execute(text("SELECT count(*) FROM request_dependencies"))
+            await db_session.execute(
+                text(
+                    "SELECT count(*) FROM request_dependencies "
+                    "WHERE request_id = :rid OR dependency_id = :rid"
+                ),
+                {"rid": b.id},
+            )
         ).scalar()
     )
     assert count == 0

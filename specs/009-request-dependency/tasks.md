@@ -14,12 +14,12 @@
 
 ## Phase 3a — 依赖边纯增量（提交点：`feat(dependency): 009 依赖边 CRUD`）
 
-- [ ] T007 [P] Integration: `backend/tests/integration/test_dependencies.py` — 先写红（D-1~D-12 全用例：加边/自依赖 400/目标 404/重复 409/两环 409/删边/删不存在 404/他人 404/viewer 403/经手人可删/反向视图）
-- [ ] T008 Modify `backend/app/core/audit.py`：`request_dependency_add` / `request_dependency_remove` 两动作
-- [ ] T009 Write `backend/app/services/dependency_service.py`：add（自依赖/重复/成环判定）/ remove / list_dependencies（带标题状态）/ list_dependents / **assert_not_blocked（门禁半连接查询，返回未完成前置列表）**
-- [ ] T010 Write `backend/app/schemas/dependency.py`：`DependencyEdgeCreate/Out/List`
-- [ ] T011 Write 边端点：`backend/app/api/v1/dependencies.py`（挂在 `/requests/{id}/dependencies` 与 `/dependents`）+ main.py 挂路由 + 审计
-- [ ] T012 跑 T007 转绿 + 全量回归
+- [X] T007 [P] Integration: `backend/tests/integration/test_dependencies.py` — 先写红（D-1~D-12 全用例：加边/自依赖 400/目标 404/重复 409/两环 409/删边/删不存在 404/他人 404/viewer 403/经手人可删/反向视图）
+- [X] T008 Modify `backend/app/core/audit.py`：`request_dependency_add` / `request_dependency_remove` 两动作
+- [X] T009 Write `backend/app/services/dependency_service.py`：add（自依赖/重复/成环判定）/ remove / list_dependencies（带标题状态）/ list_dependents / **assert_not_blocked（门禁半连接查询，返回未完成前置列表）**
+- [X] T010 Write `backend/app/schemas/dependency.py`：`DependencyEdgeCreate/Out/List`
+- [X] T011 Write 边端点：`backend/app/api/v1/dependencies.py`（挂在 `/requests/{id}/dependencies` 与 `/dependents`）+ main.py 挂路由 + 审计
+- [X] T012 跑 T007 转绿 + 全量回归
 
 ## Phase 3b — 门禁与通知（改既有，提交点：`feat(assign): 009 硬门禁与解锁通知`）
 

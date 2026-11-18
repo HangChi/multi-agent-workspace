@@ -28,6 +28,7 @@ from app.core.audit import (
 )
 from app.core.events import publish_request_event
 from app.models.schedule import Schedule
+from app.schemas.dependency import DependencyEdgeList, DependencyEdgeOut
 from app.schemas.request import (
     AssignOut,
     AssignRequest,
@@ -44,6 +45,7 @@ from app.schemas.request import (
 from app.services import (
     artifact_service,
     assignment_service,
+    dependency_service,
     dispatch_service,
     request_service,
 )
@@ -203,6 +205,28 @@ async def update_request(
     )
     await db.commit()
     return RequestOut.model_validate(request)
+
+
+@router.get("/{request_id}/dependents", response_model=DependencyEdgeList)
+async def list_dependents(request_id: ResourceId, user: CurrentUser, db: DB):
+    """009 反向视图：谁在等我（依赖我的需求，带标题与状态）。"""
+    from app.services.request_service import get_request
+
+    await get_request(db, request_id, user.id)  # 归属校验（404 纪律）
+    pairs = await dependency_service.list_dependent_edges(db, request_id)
+    # 反向视图的 Out 里 dependency_* 字段语义翻转为「后续方」的信息
+    items = [
+        DependencyEdgeOut(
+            id=edge.id,
+            request_id=edge.request_id,
+            dependency_id=edge.dependency_id,
+            dependency_title=target.title,
+            dependency_status=target.status,
+            created_at=edge.created_at.isoformat(),
+        )
+        for edge, target in pairs
+    ]
+    return {"items": items, "total": len(items)}
 
 
 @router.get("/{request_id}", response_model=RequestOut)

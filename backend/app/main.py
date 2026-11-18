@@ -20,6 +20,7 @@ from app.api.v1.agent_egress import router as agent_egress_router
 from app.api.v1.agent_templates import router as agent_templates_router
 from app.api.v1.agents import router as agents_router
 from app.api.v1.auth import router as auth_router
+from app.api.v1.dependencies import router as dependencies_router
 from app.api.v1.external_observability import router as external_observability_router
 from app.api.v1.external_tool_grants import router as external_tool_grants_router
 from app.api.v1.external_tool_servers import router as external_tool_servers_router
@@ -90,6 +91,7 @@ def create_app() -> FastAPI:
     api_v1.include_router(external_tool_grants_router)
     api_v1.include_router(external_observability_router)
     api_v1.include_router(requests_router)
+    api_v1.include_router(dependencies_router)
     api_v1.include_router(schedules_router)
     api_v1.include_router(runs_router)
     api_v1.include_router(stats_router)

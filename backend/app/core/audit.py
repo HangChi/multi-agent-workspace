@@ -85,6 +85,12 @@ PROJECT_CREATE = "project_create"
 PROJECT_UPDATE = "project_update"
 PROJECT_DELETE = "project_delete"
 
+# ===== 需求依赖（009）的审计动作 =====
+# detail 带对端标题快照——「这条边当初连的是哪条需求」不依赖目标还存在
+# （边可删、需求可取消，快照是唯一留痕）。
+REQUEST_DEPENDENCY_ADD = "request_dependency_add"
+REQUEST_DEPENDENCY_REMOVE = "request_dependency_remove"
+
 
 async def write_audit(
     db: AsyncSession,
