@@ -13,11 +13,11 @@
 
 ## Phase 3a — 成员管理纯增量（提交点：`feat(project): 010 成员管理端点`）
 
-- [ ] T006 [P] Integration: `backend/tests/integration/test_project_members.py` — 先写红（M-1~M-12 全用例：加人 201+通知/重复 409/停用 400/不存在 404/成员加人 403/他人 404/自移除 409/移除不存在 404/列表含 owner/成员可见列表/删项目级联且无通知）
-- [ ] T007 Modify `backend/app/core/audit.py`：`project_member_add` / `project_member_remove` 两动作
-- [ ] T008 Write `backend/app/services/project_member_service.py`：add（在职校验/PK 冲突 409/通知）/ remove（自移除 409/通知）/ list（含 owner 标记）/ `is_member` / `member_project_ids`（relevant 口径反查）
-- [ ] T009 Write `backend/app/schemas/project_member.py`：`ProjectMemberCreate/Out/List`（Out 带 user_email + is_owner）
-- [ ] T010 Write 成员端点：`backend/app/api/v1/project_members.py`（挂 `/projects/{id}/members`）+ main.py 挂路由 + 审计；跑 T006 转绿 + 全量回归
+- [X] T006 [P] Integration: `backend/tests/integration/test_project_members.py` — 先写红（M-1~M-12 全用例：加人 201+通知/重复 409/停用 400/不存在 404/成员加人 403/他人 404/自移除 409/移除不存在 404/列表含 owner/成员可见列表/删项目级联且无通知）
+- [X] T007 Modify `backend/app/core/audit.py`：`project_member_add` / `project_member_remove` 两动作
+- [X] T008 Write `backend/app/services/project_member_service.py`：add（在职校验/PK 冲突 409/通知）/ remove（自移除 409/通知）/ list（含 owner 标记）/ `is_member` / `member_project_ids`（relevant 口径反查）
+- [X] T009 Write `backend/app/schemas/project_member.py`：`ProjectMemberCreate/Out/List`（Out 带 user_email + is_owner）
+- [X] T010 Write 成员端点：`backend/app/api/v1/project_members.py`（挂 `/projects/{id}/members`）+ main.py 挂路由 + 审计；跑 T006 转绿 + 全量回归
 
 ## Phase 3b — 口径与谓词扩展（改既有，提交点：`feat(scope): 010 共享可见性与协作谓词`）
 

@@ -27,6 +27,7 @@ from app.api.v1.external_tool_servers import router as external_tool_servers_rou
 from app.api.v1.groups import router as groups_router
 from app.api.v1.marketplace import router as marketplace_router
 from app.api.v1.notifications import router as notifications_router
+from app.api.v1.project_members import router as project_members_router
 from app.api.v1.projects import router as projects_router
 from app.api.v1.requests import router as requests_router
 from app.api.v1.runs import router as runs_router
@@ -98,6 +99,7 @@ def create_app() -> FastAPI:
     api_v1.include_router(tools_router)
     api_v1.include_router(users_router)
     api_v1.include_router(projects_router)
+    api_v1.include_router(project_members_router)
     api_v1.include_router(notifications_router)
     api_v1.include_router(admin_router)
     api_v1.include_router(admin_egress_router)

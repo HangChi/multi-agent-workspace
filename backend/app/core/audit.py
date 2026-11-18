@@ -91,6 +91,11 @@ PROJECT_DELETE = "project_delete"
 REQUEST_DEPENDENCY_ADD = "request_dependency_add"
 REQUEST_DEPENDENCY_REMOVE = "request_dependency_remove"
 
+# ===== 项目成员（010）的审计动作 =====
+# detail 带对方 user_id 与项目名——「谁被加进了哪个项目」事后可查。
+PROJECT_MEMBER_ADD = "project_member_add"
+PROJECT_MEMBER_REMOVE = "project_member_remove"
+
 
 async def write_audit(
     db: AsyncSession,
