@@ -35,6 +35,10 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.5",
     "mypy>=1.10",
+    # 011 浏览器走查验收（s12）：只进 dev extras——Dockerfile 是
+    # uv sync --locked --no-dev，生产镜像不装（运行时不变量不受影响）。
+    # 安装需经代理（沙箱直连 pythonhosted 502）：HTTPS_PROXY=...:7897。
+    "playwright>=1.40",
 ]
 
 [build-system]
