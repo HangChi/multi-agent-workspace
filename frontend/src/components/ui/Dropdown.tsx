@@ -12,6 +12,11 @@ interface DropdownProps {
   triggerClassName?: string
   children: ReactNode
   align?: 'start' | 'end'
+  /**
+   * 面板方向。侧栏底部的账号菜单必须向上弹，
+   * 否则 7 天里总有那么一天它会掉出视口外。
+   */
+  placement?: 'bottom' | 'top'
   panelClassName?: string
   ariaLabel?: string
 }
@@ -21,6 +26,7 @@ export function Dropdown({
   triggerClassName,
   children,
   align = 'end',
+  placement = 'bottom',
   panelClassName,
   ariaLabel,
 }: DropdownProps) {
@@ -64,7 +70,8 @@ export function Dropdown({
           role="menu"
           onClick={() => setOpen(false)}
           className={cn(
-            'absolute z-50 mt-2 min-w-[12rem] rounded-xl border border-line bg-surface p-1.5 shadow-pop animate-pop-in',
+            'absolute z-50 min-w-[12rem] rounded-xl border border-line bg-surface p-1.5 shadow-pop animate-pop-in',
+            placement === 'top' ? 'bottom-full mb-2' : 'top-full mt-2',
             align === 'end' ? 'right-0' : 'left-0',
             panelClassName
           )}

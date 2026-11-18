@@ -8,6 +8,14 @@
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#080d17" media="(prefers-color-scheme: dark)" />
     <title>Agent 工作台</title>
+    <!-- 正文字体只覆盖拉丁区（约 30KB），首屏优先拉取，避免标题/数字先回退再跳字 -->
+    <link
+      rel="preload"
+      href="/fonts/instrument-sans-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
     <!-- 防闪白脚本外链：内联脚本会逼 CSP 放开 script-src 'unsafe-inline'。
          放在 <head> 且不加 defer，确保在主 bundle 之前执行。 -->
     <script src="/theme-init.js"></script>

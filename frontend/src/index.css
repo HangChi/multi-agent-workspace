@@ -3,6 +3,34 @@
 @tailwind utilities;
 
 /* ==========================================================================
+   自托管字形：只覆盖拉丁区（含数字、常用标点）。
+   中文不落这里——CJK 字体动辄数 MB，交给系统字形更清晰也更省流量。
+   font-display: swap 保证首屏不等字体。
+   ========================================================================== */
+
+@font-face {
+  font-family: 'Instrument Sans';
+  src: url('/fonts/instrument-sans-latin.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/jetbrains-mono-latin.woff2') format('woff2');
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+
+/* ==========================================================================
    主题令牌：浅色 = 蓝白；深色 = 深海军蓝。
    组件一律引用这些语义令牌（surface / line / ink / brand），
    所以切主题只需要给 <html> 加 .dark，不需要逐个元素写 dark: 变体。
@@ -12,16 +40,16 @@
   color-scheme: light;
 
   /* 表面层级 */
-  --canvas: 248 250 252; /* 页面底 */
+  --canvas: 246 248 252; /* 页面底：比纯白灰一档，让白卡片浮起来 */
   --surface: 255 255 255; /* 卡片 / 弹层 / 输入框 */
-  --surface-muted: 248 250 252; /* 次级块（卡片内浅底、hover） */
-  --surface-subtle: 241 245 249; /* 三级块（看板列、分段控件槽） */
+  --surface-muted: 248 250 253; /* 次级块（卡片内浅底、hover） */
+  --surface-subtle: 241 245 250; /* 三级块（看板列、分段控件槽） */
   --surface-inset: 255 255 255;
 
   /* 描边 */
   --line: 226 232 240;
   --line-strong: 203 213 225;
-  --line-subtle: 241 245 249;
+  --line-subtle: 240 244 249;
 
   /* 文字 */
   --ink: 15 23 42;
@@ -45,6 +73,10 @@
   --accent: 29 78 216;
 
   --shadow: 15 23 42;
+
+  /* 页面氛围光：克制的一层冷色渐晕，避免大片死白 */
+  --glow-1: 219 234 254;
+  --glow-2: 224 242 254;
 }
 
 .dark {
@@ -81,6 +113,9 @@
   --accent: 147 197 253;
 
   --shadow: 0 0 0;
+
+  --glow-1: 23 51 98;
+  --glow-2: 12 42 74;
 }
 
 /* ==========================================================================
@@ -96,6 +131,7 @@
   body {
     @apply bg-canvas font-sans text-[15px] leading-normal text-ink antialiased;
     font-variant-numeric: tabular-nums;
+    font-feature-settings: 'cv11' 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -105,6 +141,11 @@
   h3,
   h4 {
     @apply tracking-tight text-ink;
+  }
+
+  /* 页面主标题用展示字族的字距与字重，跟正文形成明确层级 */
+  h1 {
+    letter-spacing: -0.022em;
   }
 
   ::selection {
@@ -225,6 +266,37 @@
   /* 看板列的纵向渐隐边，暗示可滚动 */
   .fade-b {
     mask-image: linear-gradient(to bottom, black calc(100% - 16px), transparent);
+  }
+
+  /**
+   * 小节标题：全站「分组标签」的唯一写法。
+   * 比正文更小、字距更开，用来在不加分割线的位置切分信息块。
+   */
+  .label-caps {
+    @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint;
+  }
+
+  /* 大号指标数字：等宽数位 + 负字距，避免「1」左右留白把数字撑散 */
+  .text-metric {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.03em;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  /**
+   * 页面氛围：极淡的冷色渐晕 + 24px 点阵网格，向下淡出。
+   * 用伪元素铺在布局底层，不参与滚动，也不干扰可读性。
+   */
+  .canvas-atmosphere {
+    background-image:
+      radial-gradient(58rem 32rem at 12% -12%, rgb(var(--glow-1) / 0.85), transparent 62%),
+      radial-gradient(48rem 28rem at 92% -6%, rgb(var(--glow-2) / 0.7), transparent 58%),
+      radial-gradient(circle at 1px 1px, rgb(var(--ink-faint) / 0.13) 1px, transparent 0);
+    background-size:
+      auto,
+      auto,
+      24px 24px;
+    mask-image: linear-gradient(to bottom, black 0%, black 62%, transparent 100%);
   }
 }
 

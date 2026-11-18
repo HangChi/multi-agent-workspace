@@ -43,7 +43,8 @@ const VARIANTS: Record<ButtonVariant, string> = {
 
 const SIZES: Record<ButtonSize, string> = {
   xs: 'h-7 rounded-md px-2 text-xs',
-  sm: 'h-8 rounded-lg px-2.5 text-[13px]',
+  // 36px 是「鼠标友好 + 触屏可点」的折中下限；移动端主操作一律用 md/lg（40/44px）
+  sm: 'h-9 rounded-lg px-3 text-[13px]',
   md: 'h-10 rounded-lg px-4 text-sm',
   lg: 'h-11 rounded-xl px-5 text-sm',
 }

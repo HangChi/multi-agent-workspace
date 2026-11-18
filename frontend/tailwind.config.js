@@ -51,17 +51,28 @@ export default {
         },
       },
       fontFamily: {
+        /**
+         * 拉丁字形用自托管的 Instrument Sans（可变字重 400–700），
+         * 中文仍交给 PingFang / 微软雅黑——中文 Web 字体动辄几 MB，
+         * 而 CJK 的系统字形在各自平台上本就是最优解。
+         * 于是标题、数字、模型名、ID 有了辨识度，中文排版不降级。
+         */
         sans: [
+          '"Instrument Sans"',
           '-apple-system',
           'BlinkMacSystemFont',
-          '"Segoe UI"',
           '"PingFang SC"',
           '"Hiragino Sans GB"',
           '"Microsoft YaHei"',
           '"Noto Sans SC"',
-          'Roboto',
-          'Helvetica',
-          'Arial',
+          'sans-serif',
+        ],
+        /** 数字/指标专用的拉丁展示字体（与正文同族，靠字重与字距拉开层级） */
+        display: [
+          '"Instrument Sans"',
+          '-apple-system',
+          'BlinkMacSystemFont',
+          '"PingFang SC"',
           'sans-serif',
         ],
         mono: [
@@ -76,17 +87,31 @@ export default {
       },
       fontSize: {
         '2xs': ['0.6875rem', { lineHeight: '1rem' }],
+        /** 页面主标题：比旧版 20/24 再大一级，配合收紧字距形成层级 */
+        'page-title': ['1.75rem', { lineHeight: '2.125rem', letterSpacing: '-0.022em' }],
+        'page-title-sm': ['1.5rem', { lineHeight: '1.9rem', letterSpacing: '-0.02em' }],
       },
       boxShadow: {
-        card: '0 1px 2px 0 rgb(var(--shadow) / 0.04), 0 1px 3px 0 rgb(var(--shadow) / 0.06)',
-        pop: '0 16px 40px -16px rgb(var(--shadow) / 0.22), 0 6px 16px -8px rgb(var(--shadow) / 0.14)',
+        card: '0 1px 2px 0 rgb(var(--shadow) / 0.04), 0 1px 3px 0 rgb(var(--shadow) / 0.05)',
+        /** 悬浮面板：更长的扩散、更低的透明度，避免「脏灰边」 */
+        panel:
+          '0 1px 2px 0 rgb(var(--shadow) / 0.04), 0 12px 32px -20px rgb(var(--shadow) / 0.22)',
+        pop: '0 24px 48px -24px rgb(var(--shadow) / 0.28), 0 8px 20px -12px rgb(var(--shadow) / 0.16)',
         'btn-primary':
           '0 1px 2px 0 rgb(var(--brand-800) / 0.24), inset 0 1px 0 0 rgb(255 255 255 / 0.16)',
         field: 'inset 0 1px 2px 0 rgb(var(--shadow) / 0.04)',
+        /** 侧栏激活项的内发光，替代生硬的左边框 */
+        'nav-active': 'inset 0 1px 0 0 rgb(255 255 255 / 0.6), 0 1px 2px 0 rgb(var(--brand-800) / 0.08)',
       },
       borderRadius: {
         xl: '0.875rem',
         '2xl': '1.125rem',
+        '3xl': '1.5rem',
+      },
+      spacing: {
+        /** 侧栏宽度（展开 / 收起），布局与内容偏移共用一份真实来源 */
+        rail: '4.75rem',
+        sidebar: '16rem',
       },
       transitionTimingFunction: {
         'out-expo': 'cubic-bezier(0.16, 1, 0.3, 1)',
@@ -108,6 +133,10 @@ export default {
           from: { opacity: '0', transform: 'translateX(16px)' },
           to: { opacity: '1', transform: 'translateX(0)' },
         },
+        'slide-in-left': {
+          from: { opacity: '0', transform: 'translateX(-16px)' },
+          to: { opacity: '1', transform: 'translateX(0)' },
+        },
         shimmer: {
           '100%': { transform: 'translateX(100%)' },
         },
@@ -126,6 +155,7 @@ export default {
         'fade-in-up': 'fade-in-up 0.24s cubic-bezier(0.16, 1, 0.3, 1) both',
         'pop-in': 'pop-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both',
         'slide-in-right': 'slide-in-right 0.22s cubic-bezier(0.16, 1, 0.3, 1) both',
+        'slide-in-left': 'slide-in-left 0.22s cubic-bezier(0.16, 1, 0.3, 1) both',
         shimmer: 'shimmer 1.6s infinite',
         'pulse-ring': 'pulse-ring 2s infinite',
         indeterminate: 'indeterminate 1.2s ease-in-out infinite',

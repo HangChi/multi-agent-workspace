@@ -27,8 +27,8 @@ const PADDINGS = {
 } as const
 
 const TONES = {
-  white: 'border-line/90 bg-surface',
-  slate: 'border-line/90 bg-surface-muted',
+  white: 'border-line/80 bg-surface',
+  slate: 'border-line/80 bg-surface-muted',
   amber: 'border-amber-200 bg-amber-50/60 dark:border-amber-500/25 dark:bg-amber-500/10',
   dark: 'border-line-strong/80 bg-[#060b14]',
   none: 'border-transparent bg-transparent',
@@ -48,7 +48,7 @@ export function Card({
         TONES[tone],
         PADDINGS[padding],
         interactive &&
-          'transition-[box-shadow,border-color,transform] duration-200 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-pop',
+          'transition-[box-shadow,border-color,transform] duration-200 ease-out-expo hover:-translate-y-0.5 hover:border-line-strong hover:shadow-panel',
         className
       )}
     >
