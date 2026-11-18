@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
 
 import { fetchTools } from '../../../api/endpoints'
@@ -34,7 +35,13 @@ describe('AgentForm tool catalog', () => {
       ],
       total: 1,
     })
-    render(<AgentForm onSubmit={vi.fn()} onCancel={vi.fn()} />)
+    // AgentForm 的工具目录走 TanStack Query（加载/错误三态），需要 Provider
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AgentForm onSubmit={vi.fn()} onCancel={vi.fn()} />
+      </QueryClientProvider>
+    )
     await waitFor(() => expect(screen.getByText('执行 Python')).toBeInTheDocument())
     expect(screen.queryByText('旧工具')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /run_python/ })).toHaveAttribute(

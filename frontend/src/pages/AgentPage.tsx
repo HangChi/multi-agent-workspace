@@ -1,6 +1,6 @@
 /** Agent 管理页（T037）：列表/创建/编辑/归档/删除，TanStack Query 缓存。 */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { extractError } from '../api/client'
@@ -58,13 +58,25 @@ export function AgentPage() {
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
   const [page, setPage] = useState(1)
-  /** 名称/描述搜索（后端 q 参数，SQL 层完成，不分页失真） */
+  /** 名称/描述搜索（后端 q 参数，SQL 层完成，不分页失真）。300ms 防抖：
+   *  每键一发请求会把后端和分页状态一起打抖。 */
   const [q, setQ] = useState('')
-  const search = q.trim()
+  const [qDebounced, setQDebounced] = useState('')
+  useEffect(() => {
+    const timer = window.setTimeout(() => setQDebounced(q.trim()), 300)
+    return () => window.clearTimeout(timer)
+  }, [q])
+  const search = qDebounced
+  const formWrapRef = useRef<HTMLDivElement>(null)
 
   // 分页交给后端：status 过滤 + 分页在 SQL 层完成，
   // 前端不再「取全量再本地 slice」—— 那样数据一多首屏就会拖慢。
-  const { data, isLoading } = useQuery({
+  const {
+    data,
+    isLoading,
+    isError: listError,
+    refetch: refetchAgents,
+  } = useQuery({
     queryKey: ['agents', 'list', filter, page, search],
     queryFn: () =>
       fetchAgents({
@@ -163,10 +175,6 @@ export function AgentPage() {
   // status 过滤已由后端完成，这里不再本地 filter（否则分页数与总数会对不上）
   const items = useMemo(() => data?.items ?? [], [data])
   const total = data?.total ?? 0
-
-  // 「活跃 N 个」的统计口径：过滤到单页后本地算不出全量，
-  // 因此在「全部」视图下用 total 兜底，在具体状态视图下就是 total
-  const activeCount = filter === 'active' ? total : undefined
   const formOpen = showForm || !!editing || !!fromTemplate
 
   /** 切换状态筛选要回到第 1 页，否则可能停在新列表不存在的页码上。 */
@@ -187,6 +195,38 @@ export function AgentPage() {
     } else {
       createMut.mutate(values)
     }
+  }
+
+  /**
+   * 打开表单的三态互斥：新建 / 编辑 / 按模板创建。
+   *
+   * 此前是三个独立 state（showForm/editing/fromTemplate），「从模板创建」
+   * 打开后不清 fromTemplate 就去点编辑，onSubmit 仍走
+   * createAgentFromTemplate——用户以为在改 Agent，实际静默新建了一个。
+   * 现在任何入口都把另外两个清干净。
+   */
+  const openCreate = () => {
+    setEditing(null)
+    setFromTemplate(null)
+    setShowForm(true)
+    setError(null)
+  }
+  const openEdit = (agent: Agent) => {
+    setFromTemplate(null)
+    setShowForm(false)
+    setEditing(agent)
+    setError(null)
+    // 表单在列表上方，打开后滚到可见区并聚焦首个字段
+    requestAnimationFrame(() => {
+      formWrapRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+      document.getElementById('agent-form-name')?.focus()
+    })
+  }
+  const openFromTemplate = (tpl: AgentTemplate) => {
+    setEditing(null)
+    setShowForm(false)
+    setFromTemplate(tpl)
+    setError(null)
   }
 
   const onArchive = async (agent: Agent) => {
@@ -249,20 +289,15 @@ export function AgentPage() {
             >
               从模板创建
             </Button>
-            <Button
-              variant={formOpen ? 'secondary' : 'primary'}
-              leftIcon={formOpen ? 'chevron-up' : 'plus'}
-              onClick={() => {
-                if (formOpen) {
-                  closeForm()
-                } else {
-                  setEditing(null)
-                  setShowForm(true)
-                }
-                setError(null)
-              }}
-            >
-              {formOpen ? '收起' : '新建 Agent'}
+            {formOpen && (
+              <Button variant="secondary" leftIcon="chevron-up" onClick={closeForm}>
+                收起
+              </Button>
+            )}
+            {/* 主按钮恒为「新建 Agent」：编辑中也要能直接开新的，
+                不必先收起（此前主按钮会变成「收起」） */}
+            <Button variant="primary" leftIcon="plus" onClick={openCreate}>
+              新建 Agent
             </Button>
           </div>
         }
@@ -270,8 +305,19 @@ export function AgentPage() {
 
       {error && <ErrorBanner error={error} onDismiss={() => setError(null)} />}
 
+      {/* 列表拉取失败 ≠ 没有 Agent */}
+      {listError && (
+        <ErrorBanner
+          error="Agent 列表加载失败，可能是网络或服务暂时不可用"
+          retry={() => void refetchAgents()}
+        />
+      )}
+
       {formOpen && (
-        <div className="rounded-xl border border-line/90 bg-surface shadow-card animate-fade-in-up">
+        <div
+          ref={formWrapRef}
+          className="rounded-xl border border-line/90 bg-surface shadow-card animate-fade-in-up"
+        >
           <div className="flex items-center gap-2.5 border-b border-line-subtle px-5 py-3.5">
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-50 text-accent ring-1 ring-inset ring-brand-100">
               <Icon name={editing ? 'edit' : 'plus'} className="h-4 w-4" />
@@ -286,6 +332,9 @@ export function AgentPage() {
           </div>
           <div className="p-5">
             <AgentForm
+              // key 按编辑对象走：连点两个「编辑」不会把 A 的字段留给 B
+              // （组件已挂载，useState 初始化器不会重跑——静默数据覆盖）
+              key={editing?.id ?? fromTemplate?.id ?? 'new'}
               initial={
                 editing ??
                 (fromTemplate
@@ -311,6 +360,7 @@ export function AgentPage() {
               onSubmit={fromTemplate ? onSubmitFromTemplate : onSubmit}
               onCancel={closeForm}
               submitting={createMut.isPending || updateMut.isPending || fromTemplateMut.isPending}
+              error={error}
             />
           </div>
         </div>
@@ -354,12 +404,6 @@ export function AgentPage() {
             {!search && (
               <>
                 共 <span className="font-medium text-ink-soft">{total}</span> 个
-                {activeCount !== undefined && (
-                  <>
-                    {' '}
-                    · 活跃 <span className="font-medium text-emerald-600">{activeCount}</span> 个
-                  </>
-                )}
               </>
             )}
           </p>
@@ -415,10 +459,7 @@ export function AgentPage() {
             <AgentListItem
               key={agent.id}
               agent={agent}
-              onEdit={() => {
-                setEditing(agent)
-                setShowForm(true)
-              }}
+              onEdit={() => openEdit(agent)}
               onArchive={() => void onArchive(agent)}
               onDelete={() => void onDelete(agent)}
               onClone={() => onClone(agent)}
@@ -440,10 +481,7 @@ export function AgentPage() {
         onClose={() => setPickerOpen(false)}
         onPick={(tpl) => {
           setPickerOpen(false)
-          setEditing(null)
-          setShowForm(false)
-          setFromTemplate(tpl)
-          setError(null)
+          openFromTemplate(tpl)
         }}
       />
 

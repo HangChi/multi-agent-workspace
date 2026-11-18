@@ -6,8 +6,18 @@ import {
   fetchAgentEgressRules,
   type EgressRule,
 } from '../../api/endpoints'
+import { extractError } from '../../api/client'
+import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
+import { ErrorBanner } from '../ui/ErrorBanner'
 import { Input } from '../ui/Field'
+import { Skeleton } from '../ui/Skeleton'
+
+const TARGET_TYPE_LABEL: Record<string, string> = {
+  domain: '域名',
+  ip: 'IP',
+  cidr: '网段',
+}
 
 export function EgressRules({
   agentId,
@@ -17,6 +27,7 @@ export function EgressRules({
   mode: 'default' | 'restricted'
 }) {
   const [rules, setRules] = useState<EgressRule[]>([])
+  const [loading, setLoading] = useState(true)
   const [target, setTarget] = useState('')
   const [port, setPort] = useState('')
   const [busy, setBusy] = useState(false)
@@ -28,8 +39,10 @@ export function EgressRules({
       // 分页会让靠后的规则既看不到也删不掉。
       const data = await fetchAgentEgressRules(agentId, { all: true })
       setRules(data.items)
-    } catch {
-      setError('出站规则加载失败。')
+    } catch (err) {
+      setError(extractError(err))
+    } finally {
+      setLoading(false)
     }
   }, [agentId])
 
@@ -55,8 +68,8 @@ export function EgressRules({
       setTarget('')
       setPort('')
       await load()
-    } catch {
-      setError('规则保存失败，请检查域名、网段或端口范围。')
+    } catch (err) {
+      setError(extractError(err))
     } finally {
       setBusy(false)
     }
@@ -68,8 +81,8 @@ export function EgressRules({
     try {
       await deleteAgentEgressRule(agentId, ruleId)
       await load()
-    } catch {
-      setError('规则删除失败。')
+    } catch (err) {
+      setError(extractError(err))
     } finally {
       setBusy(false)
     }
@@ -95,40 +108,47 @@ export function EgressRules({
           value={target}
           onChange={(e) => setTarget(e.target.value)}
           placeholder="例如 pypi.org 或 203.0.113.0/24"
+          controlSize="sm"
         />
         <Input
           aria-label="端口范围"
           value={port}
           onChange={(e) => setPort(e.target.value)}
           placeholder="端口（可选）"
+          controlSize="sm"
         />
-        <Button size="sm" variant="secondary" loading={busy} onClick={() => void add()}>
+        {/* size=md（h-10）与两个 sm 输入框同网格行对齐；sm 会矮一截 */}
+        <Button size="md" variant="secondary" loading={busy} onClick={() => void add()}>
           添加规则
         </Button>
       </div>
-      {error && (
-        <p role="alert" className="text-xs text-rose-600">
-          {error}
-        </p>
-      )}
-      {rules.length > 0 ? (
+      {error && <ErrorBanner error={error} variant="inline" className="text-xs" />}
+      {loading ? (
+        <div className="space-y-2" aria-hidden="true">
+          <Skeleton className="h-8" />
+          <Skeleton className="h-8" />
+        </div>
+      ) : rules.length > 0 ? (
         <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
           {rules.map((rule) => (
             <li key={rule.id} className="flex items-center gap-3 px-3 py-2 text-xs">
+              <Badge tone="slate">{TARGET_TYPE_LABEL[rule.target_type] ?? rule.target_type}</Badge>
               <span className="min-w-0 flex-1 truncate font-mono text-ink" title={rule.target}>
                 {rule.target}
               </span>
               <span className="text-ink-faint">
                 {rule.port_range ? `端口 ${rule.port_range}` : '全部端口'}
               </span>
-              <button
-                type="button"
+              {/* ghost Button 自带焦点环；裸按钮此前键盘用户看不见焦点 */}
+              <Button
+                variant="ghost"
+                size="sm"
                 disabled={busy}
                 onClick={() => void remove(rule.id)}
-                className="min-h-11 px-2 text-rose-600 hover:underline"
+                className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-300 dark:hover:bg-rose-500/15"
               >
                 删除
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

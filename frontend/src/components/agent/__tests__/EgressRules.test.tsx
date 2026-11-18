@@ -6,6 +6,8 @@ import { EgressRules } from '../EgressRules'
 
 vi.mock('../../../api/client', () => ({
   apiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
+  // 组件的错误分支走 extractError（mock 里必须给，否则报未定义导出）
+  extractError: (err: unknown) => String(err),
 }))
 
 describe('EgressRules', () => {

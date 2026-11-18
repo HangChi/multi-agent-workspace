@@ -1,9 +1,11 @@
 /** Agent 创建/编辑表单（T037）。 */
 
-import { useEffect, useState } from 'react'
+import { useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 
 import { Agent, fetchTools, ToolSpec } from '../../api/endpoints'
 import { Button } from '../ui/Button'
+import { ErrorBanner } from '../ui/ErrorBanner'
 import { Icon } from '../ui/Icons'
 import { Input, NumberInput, Slider, Select, Textarea } from '../ui/Field'
 import { cn } from '../ui/cn'
@@ -29,6 +31,10 @@ interface Props {
   onSubmit: (values: AgentFormValues) => void
   onCancel: () => void
   submitting?: boolean
+  /** 页面级错误（提交失败时由父级传入，内联展示在表单底部） */
+  error?: string | null
+  /** 服务端字段级错误定位（409 撞名等）：把错误钉到具体字段上 */
+  errorField?: 'name' | 'system_prompt' | null
 }
 
 // 与后端 LLM_BASE_URL 指向的 OpenAI 兼容端点保持一致：这几种都实测过
@@ -42,9 +48,7 @@ const MODELS = [
   'doubao-seed-2.0-pro',
 ]
 
-export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
-  const [catalog, setCatalog] = useState<ToolSpec[]>([])
-  const [toolsLoading, setToolsLoading] = useState(true)
+export function AgentForm({ initial, onSubmit, onCancel, submitting, error, errorField }: Props) {
   const [values, setValues] = useState<AgentFormValues>({
     name: initial?.name ?? '',
     description: initial?.description ?? '',
@@ -58,23 +62,24 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
     egress_mode: initial?.egress_mode ?? 'default',
   })
   const [touched, setTouched] = useState(false)
+  const formRef = useRef<HTMLFormElement>(null)
 
-  useEffect(() => {
-    let active = true
-    fetchTools()
-      .then((result) => {
-        if (active) setCatalog(result.items.filter((tool) => tool.enabled))
-      })
-      .catch(() => {
-        if (active) setCatalog([])
-      })
-      .finally(() => {
-        if (active) setToolsLoading(false)
-      })
-    return () => {
-      active = false
-    }
-  }, [])
+  /**
+   * 工具目录走 Query：加载/错误/重试三态分明。
+   * 此前的裸 fetch + catch(setCatalog([])) 把「拉取失败」伪装成
+   * 「平台没有工具」，用户看到的是一片空 + 一条误导性的配置警告。
+   */
+  const {
+    data: toolsData,
+    isLoading: toolsLoading,
+    isError: toolsError,
+    refetch: refetchTools,
+  } = useQuery({
+    queryKey: ['tools', 'catalog'],
+    queryFn: fetchTools,
+    staleTime: 60_000,
+  })
+  const catalog: ToolSpec[] = (toolsData?.items ?? []).filter((tool) => tool.enabled)
 
   const set = <K extends keyof AgentFormValues>(key: K, value: AgentFormValues[K]) => {
     setValues((v) => ({ ...v, [key]: value }))
@@ -87,13 +92,25 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
     )
   }
 
-  const nameError = touched && !values.name.trim() ? '请填写 Agent 名称' : null
-  const promptError = touched && !values.system_prompt.trim() ? '请填写系统提示词' : null
+  const nameError =
+    (touched && !values.name.trim() ? '请填写 Agent 名称' : null) ??
+    (errorField === 'name' ? error : null)
+  const promptError =
+    (touched && !values.system_prompt.trim() ? '请填写系统提示词' : null) ??
+    (errorField === 'system_prompt' ? error : null)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setTouched(true)
-    if (!values.name.trim() || !values.system_prompt.trim()) return
+    if (!values.name.trim() || !values.system_prompt.trim()) {
+      // 聚焦第一个出错字段：长表单里错误提示可能滚出视口
+      const firstInvalid = !values.name.trim()
+        ? document.getElementById('agent-form-name')
+        : document.getElementById('agent-form-prompt')
+      firstInvalid?.focus()
+      firstInvalid?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      return
+    }
     onSubmit({
       ...values,
       name: values.name.trim(),
@@ -107,9 +124,22 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+    <form
+      ref={formRef}
+      onSubmit={handleSubmit}
+      className="space-y-5"
+      noValidate
+      // ⌘/Ctrl+Enter 快捷提交：长表单（8000 字提示词）不用拖回底部找按钮
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault()
+          handleSubmit(e as unknown as React.FormEvent)
+        }
+      }}
+    >
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Input
+          id="agent-form-name"
           label="名称"
           required
           value={values.name}
@@ -148,6 +178,7 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
       />
 
       <Textarea
+        id="agent-form-prompt"
         label="系统提示词"
         required
         value={values.system_prompt}
@@ -240,54 +271,80 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
             {toolsLoading ? '加载中…' : `已选 ${values.tools.length} 个`}
           </span>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {catalog.map((tool) => {
-            const active = values.tools.includes(tool.name)
-            return (
-              <button
-                key={tool.name}
-                type="button"
-                aria-pressed={active}
-                onClick={() => toggleTool(tool.name)}
-                title={tool.description}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all duration-150',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:ring-offset-1',
-                  active
-                    ? 'border-brand-300 bg-brand-50 text-accent shadow-sm'
-                    : 'border-line bg-surface text-ink-muted hover:border-line-strong hover:bg-surface-muted hover:text-ink-soft'
-                )}
-              >
-                <Icon name={active ? 'check' : 'plus'} className="h-3 w-3" />
-                <span className="font-mono">{tool.name}</span>
-                <span
+        {toolsError ? (
+          <ErrorBanner
+            error="工具目录加载失败，暂时无法选择工具"
+            retry={() => void refetchTools()}
+          />
+        ) : (
+          <div
+            role="group"
+            aria-label="工具白名单"
+            className="flex flex-wrap gap-2"
+          >
+            {catalog.map((tool) => {
+              const active = values.tools.includes(tool.name)
+              return (
+                <button
+                  key={tool.name}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => toggleTool(tool.name)}
+                  title={tool.description}
                   className={cn(
-                    'font-sans text-micro',
-                    active ? 'text-brand-400' : 'text-ink-faint'
+                    'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all duration-150',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:ring-offset-1',
+                    active
+                      ? 'border-brand-300 bg-brand-50 text-accent shadow-sm'
+                      : 'border-line bg-surface text-ink-muted hover:border-line-strong hover:bg-surface-muted hover:text-ink-soft'
                   )}
                 >
-                  {tool.display_name}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-        {values.tools.length === 0 && (
-          <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-600">
+                  <Icon name={active ? 'check' : 'plus'} className="h-3 w-3" />
+                  <span className="font-mono">{tool.name}</span>
+                  <span
+                    className={cn(
+                      'font-sans text-micro',
+                      active ? 'text-brand-400' : 'text-ink-faint'
+                    )}
+                  >
+                    {tool.display_name}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+        {values.tools.length === 0 && !toolsError && (
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300">
             <Icon name="alert-triangle" className="h-3.5 w-3.5" />
             未选择工具时，Agent 只能用模型自身知识作答
           </p>
         )}
       </div>
 
-      <div className="flex items-center justify-end gap-2 border-t border-line-subtle pt-4">
-        <Button type="button" variant="secondary" onClick={onCancel}>
-          取消
-        </Button>
-        <Button type="submit" variant="primary" loading={submitting} leftIcon="check">
-          {submitting ? '保存中…' : initial ? '保存修改' : '创建 Agent'}
-        </Button>
+      {/* 提交栏贴底：长表单（提示词 + 参数 + 工具 + 出网规则）滚到底部
+          才不会丢失保存入口 */}
+      <div className="sticky bottom-0 -mx-5 -mb-5 flex items-center justify-between gap-2 rounded-b-xl border-t border-line-subtle bg-surface/95 px-5 py-3 backdrop-blur">
+        <span className="hidden text-micro text-ink-faint sm:inline">
+          <kbd className="rounded border border-line bg-surface-muted px-1">⌘</kbd>
+          {' + '}
+          <kbd className="rounded border border-line bg-surface-muted px-1">↵</kbd>{' '}
+          快速保存
+        </span>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="secondary" onClick={onCancel}>
+            取消
+          </Button>
+          <Button type="submit" variant="primary" loading={submitting} leftIcon="check">
+            {submitting ? '保存中…' : initial ? '保存修改' : '创建 Agent'}
+          </Button>
+        </div>
       </div>
+
+      {/* 提交失败的内联错误（原来只在页面顶部横幅，离操作点很远） */}
+      {error && errorField !== 'name' && errorField !== 'system_prompt' && (
+        <ErrorBanner error={error} className="mt-0" />
+      )}
     </form>
   )
 }

@@ -58,7 +58,7 @@ export function AgentListItem({
             <div className="flex flex-wrap items-center gap-2">
               <h3
                 className={cn(
-                  'truncate text-[15px] font-semibold',
+                  'truncate text-body font-semibold',
                   active ? 'text-ink' : 'text-ink-muted'
                 )}
               >

@@ -9,6 +9,7 @@ import {
   fetchMarketplaceInstallations,
 } from '../../../api/endpoints'
 import { ExternalToolGrants } from '../ExternalToolGrants'
+import { ToastProvider } from '../../ui/Toast'
 
 vi.mock('../../../api/endpoints', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../api/endpoints')>()),
@@ -76,7 +77,9 @@ describe('ExternalToolGrants', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(
       <QueryClientProvider client={queryClient}>
-        <ExternalToolGrants agentId="agent-1" />
+        <ToastProvider>
+          <ExternalToolGrants agentId="agent-1" />
+        </ToastProvider>
       </QueryClientProvider>
     )
     await waitFor(() => expect(screen.getByText(/mcp_fixture_lookup/)).toBeInTheDocument())
