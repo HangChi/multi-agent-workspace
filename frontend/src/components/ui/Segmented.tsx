@@ -3,8 +3,14 @@
  * - SegmentedControl：2~4 个短选项的横向切换（类似 iOS 分段控件）
  * - OptionCards：带标题+说明的卡片式单选（路由策略、优先级等需要解释的场景）
  *
- * 都是「单选」，语义上用 aria-pressed / role=radiogroup 表达，键盘可操作。
+ * 都是「单选」，语义用 radiogroup + radio 表达。
+ * 键盘遵循 WAI-ARIA radiogroup 模式：roving tabindex（只有选中项可 Tab 进来），
+ * ←→↑↓ 在选项间移动并即选——纯 aria-pressed 按钮组做不到方向键导航，
+ * 而这是读屏用户对「一组单选」的默认期待。
  */
+
+import { useCallback } from 'react'
+import type { KeyboardEvent } from 'react'
 
 import { Icon } from './Icons'
 import type { IconName } from './Icons'
@@ -14,6 +20,35 @@ interface SegmentOption<T extends string> {
   value: T
   label: string
   icon?: IconName
+}
+
+/**
+ * radiogroup 的方向键导航：把焦点与选中态一起移到相邻项。
+ * 返回按键处理器；非方向键不拦截。
+ */
+function useRovingRadio<T extends string>(
+  values: T[],
+  value: T,
+  onChange: (v: T) => void
+) {
+  return useCallback(
+    (e: KeyboardEvent<HTMLElement>) => {
+      const keys = ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp']
+      if (!keys.includes(e.key)) return
+      const dir = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1
+      const current = values.indexOf(value)
+      const next = values[(current + dir + values.length) % values.length]
+      e.preventDefault()
+      onChange(next)
+      // 选中态变化后按钮重渲染，焦点要显式跟上（roving tabindex 的焦点转移）
+      requestAnimationFrame(() => {
+        const group = e.currentTarget
+        const idx = values.indexOf(next)
+        group.querySelectorAll<HTMLElement>('[role="radio"]')[idx]?.focus()
+      })
+    },
+    [values, value, onChange]
+  )
 }
 
 export function SegmentedControl<T extends string>({
@@ -29,10 +64,17 @@ export function SegmentedControl<T extends string>({
   ariaLabel: string
   className?: string
 }) {
+  const onKeyDown = useRovingRadio(
+    options.map((o) => o.value),
+    value,
+    onChange
+  )
+
   return (
     <div
-      role="group"
+      role="radiogroup"
       aria-label={ariaLabel}
+      onKeyDown={onKeyDown}
       className={cn(
         'inline-flex items-center gap-0.5 rounded-lg border border-line bg-surface-subtle/80 p-0.5',
         className
@@ -44,7 +86,9 @@ export function SegmentedControl<T extends string>({
           <button
             key={opt.value}
             type="button"
-            aria-pressed={active}
+            role="radio"
+            aria-checked={active}
+            tabIndex={active ? 0 : -1}
             onClick={() => onChange(opt.value)}
             className={cn(
               'inline-flex items-center gap-1.5 rounded-[7px] px-2.5 py-1 text-xs font-medium transition-all duration-150',
@@ -93,10 +137,17 @@ export function OptionCards<T extends string>({
         ? 'sm:grid-cols-3'
         : 'sm:grid-cols-2 lg:grid-cols-4'
 
+  const onKeyDown = useRovingRadio(
+    options.map((o) => o.value),
+    value,
+    onChange
+  )
+
   return (
     <div
       role="radiogroup"
       aria-label={name}
+      onKeyDown={onKeyDown}
       className={cn('grid grid-cols-1 gap-2', grid, className)}
     >
       {options.map((opt) => {
@@ -107,6 +158,7 @@ export function OptionCards<T extends string>({
             type="button"
             role="radio"
             aria-checked={active}
+            tabIndex={active ? 0 : -1}
             onClick={() => onChange(opt.value)}
             className={cn(
               'group relative flex items-start gap-2.5 rounded-lg border p-3 text-left transition-all duration-150',

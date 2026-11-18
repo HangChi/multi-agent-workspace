@@ -9,7 +9,7 @@
  */
 
 import { useId, useRef } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import { createPortal } from 'react-dom'
 
 import { useFocusTrap } from '../../hooks/useFocusTrap'
@@ -34,6 +34,11 @@ export interface ModalProps {
   children?: ReactNode
   footer?: ReactNode
   size?: keyof typeof SIZES
+  /**
+   * 打开时聚焦的元素（确认框聚焦「取消」这类安全默认）。
+   * 缺省聚焦面板本身。
+   */
+  initialFocus?: RefObject<HTMLElement>
 }
 
 export function Modal({
@@ -45,13 +50,14 @@ export function Modal({
   children,
   footer,
   size = 'md',
+  initialFocus,
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
   const descId = useId()
 
   // ESC 关闭 + 背景滚动锁定 + 焦点陷阱 + 焦点归还（含弹层栈语义）
-  useFocusTrap(open, onClose, panelRef)
+  useFocusTrap(open, onClose, panelRef, initialFocus)
 
   if (!open) return null
 

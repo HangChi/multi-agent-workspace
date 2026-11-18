@@ -1,14 +1,15 @@
 /**
  * 分页器：列表页底部统一的翻页控件。
  *
- * 与 AdminPage 里内联的分页 UI 保持同一视觉语言（第 X / Y 页 · 每页 N 条），
- * 抽出来避免每加一个列表页就复制一遍。
- *
  * 设计约定：
  * - 受控组件：page / pageSize / total 全由外部传入，自身不存状态
  * - total 是**过滤后的全量条数**（后端已保证），总页数由它算出来
  * - 只有一页时整体不渲染 —— 一个永远禁用的翻页条只会增加噪音
  * - 总数很大时展示「共 N 条」，帮用户判断是否需要继续翻
+ * - 无障碍：nav 地标 + aria-current="page" + 翻页后朗读当前页
+ *   （纯 div + 两个按钮，读屏用户不知道这是分页、也不知道在第几页）；
+ * - 页数多时给数字页 + 省略号：审计日志这类几百页的场景，
+ *   只有上/下页意味着要点的次数正比于目标页
  */
 
 import { Button } from './Button'
@@ -40,6 +41,24 @@ function totalPagesOf(total: number, pageSize: number): number {
   return Math.max(1, Math.ceil(total / pageSize))
 }
 
+/**
+ * 数字页序列：首尾 + 当前页左右各一，其余折成省略号。
+ * 返回 number 或 '…'；不超过 7 个元素，窄屏也放得下。
+ */
+function pageItems(current: number, totalPages: number): (number | 'ellipsis')[] {
+  if (totalPages <= 5) return Array.from({ length: totalPages }, (_, i) => i + 1)
+  const pages = new Set<number>([1, totalPages, current, current - 1, current + 1])
+  const sorted = [...pages].filter((p) => p >= 1 && p <= totalPages).sort((a, b) => a - b)
+  const out: (number | 'ellipsis')[] = []
+  let prev = 0
+  for (const p of sorted) {
+    if (p - prev > 1) out.push('ellipsis')
+    out.push(p)
+    prev = p
+  }
+  return out
+}
+
 export function Pagination({
   page,
   pageSize,
@@ -59,8 +78,11 @@ export function Pagination({
     if (clamped !== page) onChange(clamped)
   }
 
+  const items = pageItems(page, totalPages)
+
   return (
-    <div
+    <nav
+      aria-label="分页"
       className={cn(
         'flex flex-wrap items-center justify-between gap-2 border-t border-line-subtle pt-3',
         className
@@ -73,7 +95,7 @@ export function Pagination({
         <span className="mx-1.5 text-ink-faint">·</span>
         每页 {pageSize} 条
       </p>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <Button
           size="sm"
           variant="secondary"
@@ -83,6 +105,39 @@ export function Pagination({
         >
           上一页
         </Button>
+
+        {/* 数字页：>5 页才出现，否则纯噪音 */}
+        {totalPages > 5 && (
+          <div className="hidden items-center gap-0.5 sm:flex">
+            {items.map((it, i) =>
+              it === 'ellipsis' ? (
+                <span key={`e${i}`} className="px-1 text-xs text-ink-faint" aria-hidden="true">
+                  …
+                </span>
+              ) : (
+                <button
+                  key={it}
+                  type="button"
+                  onClick={() => go(it)}
+                  disabled={loading}
+                  aria-current={it === page ? 'page' : undefined}
+                  aria-label={`第 ${it} 页`}
+                  className={cn(
+                    'h-8 min-w-8 rounded-lg px-2 text-xs font-medium tabular-nums transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45',
+                    'disabled:cursor-not-allowed disabled:opacity-50',
+                    it === page
+                      ? 'bg-brand-50 text-accent ring-1 ring-inset ring-brand-100 dark:bg-brand-500/10'
+                      : 'text-ink-muted hover:bg-surface-subtle hover:text-ink'
+                  )}
+                >
+                  {it}
+                </button>
+              )
+            )}
+          </div>
+        )}
+
         <Button
           size="sm"
           variant="secondary"
@@ -93,6 +148,11 @@ export function Pagination({
           下一页
         </Button>
       </div>
-    </div>
+
+      {/* 翻页朗读：按钮上的 aria-current 之外，再给读屏一个明确的当前位置 */}
+      <p className="sr-only" role="status">
+        当前第 {page} 页，共 {totalPages} 页
+      </p>
+    </nav>
   )
 }

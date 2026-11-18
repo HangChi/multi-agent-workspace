@@ -24,7 +24,9 @@ const stack: symbol[] = []
 export function useFocusTrap(
   active: boolean,
   onClose: () => void,
-  panelRef: RefObject<HTMLElement>
+  panelRef: RefObject<HTMLElement>,
+  /** 打开时优先聚焦的元素（如确认框的「取消」）；缺省聚焦面板本身 */
+  initialFocus?: RefObject<HTMLElement>
 ) {
   useEffect(() => {
     if (!active) return
@@ -75,8 +77,12 @@ export function useFocusTrap(
     document.body.style.overflow = 'hidden'
     if (scrollbarWidth > 0) document.body.style.paddingRight = `${scrollbarWidth}px`
 
-    // 焦点进入面板，避免读屏停留在背后的页面；延时一帧等挂载稳定
-    const timer = window.setTimeout(() => panelRef.current?.focus(), 0)
+    // 焦点进入面板（或调用方指定的初始焦点），避免读屏停留在背后的页面；
+    // 延时一帧等挂载稳定
+    const timer = window.setTimeout(() => {
+      const target = initialFocus?.current ?? panelRef.current
+      target?.focus()
+    }, 0)
 
     return () => {
       const i = stack.indexOf(entry)
@@ -88,5 +94,5 @@ export function useFocusTrap(
       // 焦点归还：仅当触发元素仍在文档中才还，避免抢走用户已主动转移的焦点
       if (previouslyFocused?.isConnected) previouslyFocused.focus()
     }
-  }, [active, onClose, panelRef])
+  }, [active, onClose, panelRef, initialFocus])
 }

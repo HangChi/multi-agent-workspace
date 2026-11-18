@@ -3,14 +3,21 @@
  * 键盘交互遵循 WAI-ARIA menu 模式：打开后焦点移入第一项，↑↓ 在项间移动，
  * Home/End 跳首尾，ESC 或选中后焦点归还触发按钮 —— 否则焦点一直挂在
  * trigger 上，屏幕阅读器不会念出菜单内容，键盘用户也只能盲 Tab。
+ *
+ * 菜单项角色不限于 menuitem：menuitemradio（主题三选一）与
+ * menuitemcheckbox 同样参与方向键导航——CSS 属性选择器按精确值匹配，
+ * 只写 [role="menuitem"] 会让单选菜单（如主题切换）键盘全部失效。
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { Icon } from './Icons'
 import type { IconName } from './Icons'
 import { cn } from './cn'
+
+/** 菜单项角色全集：方向键导航与初始焦点都按这个收集。 */
+const MENU_ITEM_SELECTOR = '[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]'
 
 interface DropdownProps {
   trigger: ReactNode
@@ -39,6 +46,7 @@ export function Dropdown({
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const triggerId = useId()
 
   useEffect(() => {
     if (!open) return
@@ -64,7 +72,7 @@ export function Dropdown({
   useEffect(() => {
     if (!open) return
     const timer = window.setTimeout(() => {
-      panelRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+      panelRef.current?.querySelector<HTMLElement>(MENU_ITEM_SELECTOR)?.focus()
     }, 0)
     return () => window.clearTimeout(timer)
   }, [open])
@@ -73,7 +81,7 @@ export function Dropdown({
   const onPanelKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
     const items = Array.from(
-      panelRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []
+      panelRef.current?.querySelectorAll<HTMLElement>(MENU_ITEM_SELECTOR) ?? []
     )
     if (items.length === 0) return
     e.preventDefault()
@@ -110,8 +118,16 @@ export function Dropdown({
         <div
           ref={panelRef}
           role="menu"
+          // 面板以 trigger 为可访问名（aria-label 挂 trigger 上读屏不念菜单）
+          aria-labelledby={triggerId}
           onKeyDown={onPanelKeyDown}
-          onClick={() => {
+          // Tab 移出即收：焦点与可见状态不能脱节（浮层滞留是常见故障形态）
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) setOpen(false)
+          }}
+          onClick={(e) => {
+            // 只有点菜单项才当作「选中」：点分隔线/空白不该关菜单抢焦点
+            if (!(e.target as HTMLElement).closest(MENU_ITEM_SELECTOR)) return
             setOpen(false)
             // 选中后焦点归还 trigger，保持「从哪里来回到哪里去」
             triggerRef.current?.focus()
