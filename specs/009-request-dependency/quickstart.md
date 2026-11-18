@@ -43,8 +43,8 @@ backend/.venv/bin/python deploy/verify/s10_request_dependency.py \
 
 ## 2. 前端走查（人工或浏览器脚本）
 
-- [ ] 详情弹层「前置需求」区块：边列表（标题+状态）、添加器、移除按钮——⏳ **失败（2026-11-18 s12（`deploy/verify/s12_browser_walkthrough.py`，8/15 通过））**：B1。**弹层永远显示「前置需求 0 个」**。根因：`BoardPage` 的 `detailSource = inList ?? deepLinkRequest` 优先用**列表项**（`dependencies=null`，列表端不填明细），只有请求不在看板第一页时才走深链取详情。连边/删边 API 全部正常（集成测试 9/9），坏的是弹层数据源。修复方向：弹层打开时按 id 取一次详情，或 `detailSource` 优先 `deepLinkRequest`。**未修（011 纪律）**
-- [ ] 被挡住时区块顶部提示「有 N 个前置未完成，暂不能分配执行」——⏳ **失败（2026-11-18 s12（`deploy/verify/s12_browser_walkthrough.py`，8/15 通过））**：B2。提示文案出现了但数字是「有 **0** 个前置未完成」——与「被挡住」自相矛盾。根因同上（`blocked` 布尔来自列表项为 true，`unmet_count` 却取不到）。
+- [x] 详情弹层「前置需求」区块：边列表（标题+状态）、添加器、移除按钮——✅ **2026-11-18 s12（013 修复后复跑，15/15）**：B1 全环（列表/添加/移除）。修复：DependencySection 加 onChanged 回调 + BoardPage 重拉弹层详情（013）——弹层 detail 是局部快照不吃 invalidateQueries，增删边后不重拉就会显示陈旧列表
+- [x] 被挡住时区块顶部提示「有 N 个前置未完成，暂不能分配执行」——✅ **2026-11-18 s12（013 修复后复跑，15/15）**：B2（文案与数量「有 1 个」均验）
 - [x] 卡片前置徽章（未完成数量 + hover 标题），前置就绪后消失——✅ **2026-11-18 s12（`deploy/verify/s12_browser_walkthrough.py`，8/15 通过）**：B3（数量/hover/前置终态后消失全验；计数来自列表端 `unmet_count`，不受弹层 bug 影响）
 - [x] 拖被挡住的需求给 Agent → 错误横幅逐条列出阻塞项——✅ **2026-11-18 s12（012 修复后复跑）**：B4 转绿——模态错误横幅逐条显示「有 N 个前置需求未完成：…」原文。**修复记录**：首轮失败根因是 `ErrorBanner` 对已提取字符串二次 `extractError` 落兜底（19 处调用点全中的系统性 bug，自 007 T082 起所有后端错误消息不可见），由 012（`feat/012-error-message-passthrough`）一行判型修掉；s12 的 B4 同步加「先搜索收窄看板」消除拖拽抖动
 - [x] 铃铛收到「前置就绪」通知，点开跳到后续需求——✅ **2026-11-18 s12（`deploy/verify/s12_browser_walkthrough.py`，8/15 通过）**：B5（`dependency_ready` 通知 + 点击跳 `/?request=` 打开后续需求详情）

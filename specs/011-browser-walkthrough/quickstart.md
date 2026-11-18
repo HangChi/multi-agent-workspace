@@ -68,9 +68,9 @@ backend/.venv/bin/python deploy/verify/s11_project_sharing.py --base ... --invit
 
 | # | 发现 | 根因 | 影响项 |
 |---|---|---|---|
-| 1 | 详情弹层永远显示「前置需求 0 个」，blocked 提示自相矛盾（「有 0 个前置未完成」） | `BoardPage` 的 `detailSource = inList ?? deepLinkRequest` 优先用列表项（`dependencies=null`） | B1/B2（009） |
+| 1 | 详情弹层数据不完整 / 增删边后不刷新（✅ **已修复，013**） | 两部分：① 弹层 detail 是 BoardPage 局部快照，不吃 `invalidateQueries`——增删边后显示陈旧列表；② s12 自身没等详情拉取完成就断言（曾把该时序误判成本 bug）。修复：DependencySection 加 `onChanged` 回调、BoardPage 重拉弹层详情；s12 `_open_detail` 等 `GET /requests/{id}` 完成 | B1/B2（009） |
 | 2 | 409 的逐条阻塞消息到不了用户，只显示（✅ 已修复，012）「请求失败，请稍后重试」 | `ErrorBanner` 对**已提取的字符串**二次 `extractError` 落兜底；**19 处调用点全中**（自 007 T082 起所有后端错误消息都不可见） | B4（009）+ 全局 | 修复：`typeof error === "string" ? error : extractError(error)`（012 一行判型+2 单测；s12 B4 复跑转 ✅） |
-| 3 | viewer 看得见「项目」导航入口 | `nav.ts` 的 `/projects` 项无 `memberOnly: true` | A5/C5（008/010） |
-| 4 | 成员的项目页与建需求表单看不到共享项目 | `ProjectsPage`/`RequestForm` 查 `scope: 'mine'`（后端 relevant 口径 010 已扩展，前端没接） | C2/C3（010） |
+| 3 | viewer 看得见「项目」导航入口（✅ **已修复，013**） | `nav.ts` 的 `/projects` 项无 `memberOnly: true`（模板/调度项都有） | A5/C5（008/010） | 修复：给该导航项加 `memberOnly: true` |
+| 4 | 成员的项目页与建需求表单看不到共享项目（✅ **已修复，013**） | `ProjectsPage`/`RequestForm` 查 `scope: 'mine'`（后端 relevant 口径 010 已扩展，前端没接） | C2/C3（010） | 修复：两处查询切 `relevant` |
 
-修复优先级建议：#2（一行修，全局影响）→ #1（009 核心 UI）→ #4 → #3。
+**全部已修复**：#2 → 012（ErrorBanner）；#1/#3/#4 → 013（依赖弹层刷新 + nav memberOnly + scope relevant）。s12 终态 **15/15**。
