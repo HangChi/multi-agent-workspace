@@ -93,9 +93,24 @@ interface Props {
   emptyAction?: React.ReactNode
 }
 
-/** 键盘拖拽的中文播报：dnd-kit 默认英文，读屏用户听不懂。 */
+/** 键盘拖拽的中文播报：dnd-kit 默认英文，读屏用户听不懂。
+ *  instructions 是「怎么操作」的说明，announcements 是操作过程的实时播报。 */
 const SCREEN_READER_INSTRUCTIONS = {
   draggable: '按空格键拾起需求卡片，用方向键在目标间移动，再按空格键放到高亮的目标上，按 Esc 取消。',
+}
+
+const DRAG_ANNOUNCEMENTS = {
+  onDragStart: ({ active }: { active: { data: { current?: { title?: string } } } }) =>
+    `已拾起需求「${active.data.current?.title ?? ''}」，用方向键选择目标，空格键放下，Esc 取消。`,
+  onDragOver: ({ over }: { over: { data: { current?: { kind?: string; id?: string } } } | null }) => {
+    if (!over) return '不在任何目标上'
+    const kind = over.data.current?.kind
+    const label = kind === 'user' ? '同事' : kind === 'group' ? 'Agent 组' : 'Agent'
+    return `已对准${label}目标`
+  },
+  onDragEnd: ({ over }: { over: { data: { current?: { kind?: string } } } | null }) =>
+    over ? '已放下，正在打开确认弹窗' : '已取消，需求保持原状',
+  onDragCancel: () => '已取消拖拽，需求保持原状',
 }
 
 export function Board({
@@ -281,7 +296,10 @@ export function Board({
       ) : (
         <DndContext
           sensors={sensors}
-          accessibility={{ screenReaderInstructions: SCREEN_READER_INSTRUCTIONS }}
+          accessibility={{
+            screenReaderInstructions: SCREEN_READER_INSTRUCTIONS,
+            announcements: DRAG_ANNOUNCEMENTS,
+          }}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
           onDragCancel={handleDragCancel}

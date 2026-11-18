@@ -53,8 +53,10 @@ export function CommandPalette({ open, onClose }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
-  // 焦点陷阱 + 焦点归还 + 滚动锁定（与 Modal 同一套语义）
-  useFocusTrap(open, onClose, panelRef)
+  // 焦点陷阱 + 焦点归还 + 滚动锁定（与 Modal 同一套语义）。
+  // initialFocus 传输入框：默认聚焦面板会让读屏与键盘用户
+  // 多按一次 Tab 才能开始打字
+  useFocusTrap(open, onClose, panelRef, inputRef)
 
   // 打开时才拉数据：面板不常驻，没必要为它提前发三个请求
   const enabled = open
@@ -81,8 +83,7 @@ export function CommandPalette({ open, onClose }: Props) {
     if (open) {
       setQ('')
       setCursor(0)
-      // 等一帧再聚焦：弹层挂载的同一帧里 focus 会被浏览器吞掉
-      requestAnimationFrame(() => inputRef.current?.focus())
+      // 焦点由 useFocusTrap 的 initialFocus（输入框）负责，这里只重置状态
     }
   }, [open])
 

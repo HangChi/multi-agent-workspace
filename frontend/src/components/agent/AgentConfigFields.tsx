@@ -21,6 +21,7 @@ import { Icon } from '../ui/Icons'
 import { Input, NumberInput, Slider, Select, Textarea } from '../ui/Field'
 import { Skeleton } from '../ui/Skeleton'
 import { cn } from '../ui/cn'
+import { hasFinePointer } from '../../utils/platform'
 import { MODELS, type AgentConfigValues } from './constants'
 import { useToolsCatalog } from '../../hooks/useToolsCatalog'
 
@@ -83,6 +84,9 @@ export function AgentConfigFields({
           hint={nameHint}
           placeholder={namePlaceholder}
           maxLength={60}
+          // 打开表单即聚焦名称（精确指针设备）：触屏不 autofocus，
+          // 一进页面就弹键盘会把标题和 CTA 顶出首屏
+          autoFocus={hasFinePointer()}
         />
         <Select
           label="模型"
