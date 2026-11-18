@@ -19,7 +19,9 @@ from app.models.external_validation import ServerValidation
 from app.models.group import AgentGroup
 from app.models.group_member import GroupMember
 from app.models.invite_code import InviteCode
+from app.models.notification import Notification
 from app.models.request import Request
+from app.models.request_dispatch import RequestDispatch
 from app.models.run import Run
 from app.models.sandbox_execution import SandboxExecution
 from app.models.schedule import Schedule, ScheduleTrigger
@@ -43,7 +45,9 @@ __all__ = [
     "GroupMember",
     "InviteCode",
     "MarketplaceListing",
+    "Notification",
     "Request",
+    "RequestDispatch",
     "Run",
     "RunExternalToolSnapshot",
     "SandboxExecution",

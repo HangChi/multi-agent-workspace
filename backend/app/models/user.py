@@ -55,5 +55,10 @@ class User(Base):
     )
     agents = relationship("Agent", back_populates="owner")
     groups = relationship("AgentGroup", back_populates="owner")
-    requests = relationship("Request", back_populates="owner")
+    # requests ↔ users 有两条外键路径（requests.owner_id 与 requests.assignee_id，
+    # 007 新增），必须显式指定 foreign_keys 消歧（同 invite_code 的处理）。
+    # 用字符串形式避免 models.user ↔ models.request 循环导入。
+    requests = relationship(
+        "Request", back_populates="owner", foreign_keys="Request.owner_id"
+    )
     runs = relationship("Run", back_populates="owner")
