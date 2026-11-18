@@ -321,9 +321,10 @@ GET        /api/v1/stats/overview              # 仪表盘：运行中/队列深
 | `request_dispatches` | id, request_id, action(dispatch/reassign/accept/reject), actor_id, from_assignee_id, to_assignee_id, reason, **seq**, created_at | 经手链（007，append-only） |
 | `notifications` | id, user_id, type, request_id, title(标题快照), payload(jsonb), read_at, created_at | 站内通知（007） |
 | `projects` | id, owner_id, name(≤100), description, status(active/archived), created_at, updated_at · UNIQUE(owner_id, name) | 需求的业务容器（008，单人归属） |
+| `request_dependencies` | id, request_id(被依赖方), dependency_id(前置), created_by, created_at · UNIQUE(request_id, dependency_id) + CHECK 防自依赖 | 依赖边（009，可增删不更新） |
 | `audit_logs` | id, user_id, action, target_type, target_id, detail, created_at | 审计 |
 
-索引要点：`runs(status, created_at)`、`runs(request_id)`、`steps(run_id, seq)`、`requests(status, priority)`、`schedules(next_run_at) WHERE enabled`（部分索引，扫描只走启用的规则）、`schedule_triggers(schedule_id, planned_at DESC, id DESC)`、`agent_templates(owner_id, created_at)`、`agent_templates(name) WHERE owner_id IS NULL`（内置唯一性）、`agents(source_template_id)`、`agents(source_agent_id)`（来源反查）、`requests(assignee_id, status)`（007 收件箱）、`request_dispatches(request_id, seq)`（007 经手链正序）、`notifications(user_id, created_at DESC) WHERE read_at IS NULL`（007 未读部分索引）、`projects(owner_id, status)`（008 列表）、`requests(project_id)`（008 项目筛选）。
+索引要点：`runs(status, created_at)`、`runs(request_id)`、`steps(run_id, seq)`、`requests(status, priority)`、`schedules(next_run_at) WHERE enabled`（部分索引，扫描只走启用的规则）、`schedule_triggers(schedule_id, planned_at DESC, id DESC)`、`agent_templates(owner_id, created_at)`、`agent_templates(name) WHERE owner_id IS NULL`（内置唯一性）、`agents(source_template_id)`、`agents(source_agent_id)`（来源反查）、`requests(assignee_id, status)`（007 收件箱）、`request_dispatches(request_id, seq)`（007 经手链正序）、`notifications(user_id, created_at DESC) WHERE read_at IS NULL`（007 未读部分索引）、`projects(owner_id, status)`（008 列表）、`requests(project_id)`（008 项目筛选）、`request_dependencies(request_id)`（009 门禁）、`request_dependencies(dependency_id)`（009 解锁反查）。
 
 **模板的三个语义要点**（完整论证见 `specs/005-agent-templates/`）：
 
@@ -448,10 +449,10 @@ Prometheus/Grafana 监控告警 · 审计日志完善 · 备份演练 · CI/CD�
 
 **验收**：系统稳定运行、故障可发现可回溯、扩容操作文档化。
 
-**当前状态（2026-11-18）**：Phase 1 / Phase 2 / Phase 3 主体已完成，八个特性全部落地
+**当前状态（2026-11-18）**：Phase 1 / Phase 2 / Phase 3 主体已完成，九个特性全部落地
 （001 核心闭环 84/84、002 沙箱与出网 76/76、003 外部 MCP 65/65、004 定时调度 65/65、
 005 Agent 模板与克隆 39/39、006 运行自动重试 39/39、007 需求分派与收件箱 41/41、
-008 项目实体与需求归属 30/30），均有 CI 门禁与真实栈验收。007 补齐了系统设计动机的
+008 项目实体与需求归属 30/30、009 需求依赖编排 29/29），均有 CI 门禁与真实栈验收。007 补齐了系统设计动机的
 最后一环——「需求分派给员工，员工接收后拖给 Agent」（见 §5.1.1）；008 给需求加了
 业务容器（项目），看板可按项目筛选。**需求间依赖/DAG 明确未做**（用户确认留后续）。
 Phase 3 进展：
@@ -466,7 +467,24 @@ Phase 3 进展：
 数据表与索引仍与实现一致（005 之后补了 `agent_templates` 表与两个来源外键；
 006 之后补了 `runs` 重试三字段；007 之后补了 `requests` 分派三列与
 `request_dispatches` / `notifications` 两表；008 之后补了 `projects` 表与
-`requests` 归属两列，见第 8 节）。
+`requests` 归属两列；009 之后补了 `request_dependencies` 表与
+`notification_type` 枚举的 `dependency_ready` 值，见第 8 节）。
+
+**需求依赖的四个语义要点**（完整论证见 `specs/009-request-dependency/research.md`）：
+
+1. **门禁判据是「前置是否终态」而非「是否成功」。** 门禁管顺序不管成败；
+   failed/cancelled 的前置同样解锁——否则一个失败的前置会把后续方永久挡死，
+   逼用户做「边外科手术」。成败判断交给人，通知说明实际终态。
+2. **不加 blocked 状态。** 门禁是 assign 时的一次前置校验，不是需求状态——
+   加态要让状态机 +2 迁移、看板 +1 列、007/008 全部状态断言回归，
+   而同样的信息用卡片徽章零状态成本给出。
+3. **解锁通知落在 settle_request_status。** 它是需求终态的唯一汇聚点
+   （完成/失败/取消/超时都经过它），且 running 门禁天然保证幂等；
+   落在 execute_run 各分支要重复四次还会漏掉取消路径。
+4. **调度撞门禁 = 建单不分配。** 门禁异常用 `DependencyBlockedError`
+   子类区分：调度分支按类型分流（建单 + trigger=fired + reason），
+   不走 assign 的 AppError→failed 旧路径——那条路径 rollback 连需求
+   一起回滚，且连续失败会 auto-disable 规则。
 
 **项目容器的四个语义要点**（完整论证见 `specs/008-project-entity/research.md`）：
 
