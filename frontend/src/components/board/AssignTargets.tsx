@@ -87,32 +87,39 @@ export function AssignTargets({ agents, groups }: Props) {
         <span className="tabular-nums">({agents.length + groups.length})</span>
       </span>
 
-      <div className="scrollbar-none flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-0.5">
-        {agents.map((a) => (
-          <TargetChip
-            key={a.id}
-            id={a.id}
-            kind="agent"
-            name={a.name}
-            meta={`${a.model} · ${a.tools.length} 个工具`}
-            initials={a.name.slice(0, 1)}
-          />
-        ))}
+      <div className="relative min-w-0 flex-1">
+        {/* 右侧渐隐：提示这一排还能横向滑（目标多时右侧会被裁掉） */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-gradient-to-l from-canvas to-transparent"
+        />
+        <div className="scrollbar-none flex items-center gap-1.5 overflow-x-auto py-0.5 pr-8">
+          {agents.map((a) => (
+            <TargetChip
+              key={a.id}
+              id={a.id}
+              kind="agent"
+              name={a.name}
+              meta={`${a.model} · ${a.tools.length} 个工具`}
+              initials={a.name.slice(0, 1)}
+            />
+          ))}
 
-        {groups.length > 0 && agents.length > 0 && (
-          <span className="mx-0.5 h-5 w-px shrink-0 bg-line" aria-hidden="true" />
-        )}
+          {groups.length > 0 && agents.length > 0 && (
+            <span className="mx-0.5 h-5 w-px shrink-0 bg-line" aria-hidden="true" />
+          )}
 
-        {groups.map((g) => (
-          <TargetChip
-            key={g.id}
-            id={g.id}
-            kind="group"
-            name={g.name}
-            meta={`${STRATEGY_LABELS[g.routing_strategy]} · ${g.members.length} 个成员`}
-            isGroup
-          />
-        ))}
+          {groups.map((g) => (
+            <TargetChip
+              key={g.id}
+              id={g.id}
+              kind="group"
+              name={g.name}
+              meta={`${STRATEGY_LABELS[g.routing_strategy]} · ${g.members.length} 个成员`}
+              isGroup
+            />
+          ))}
+        </div>
       </div>
     </section>
   )
