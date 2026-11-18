@@ -12,18 +12,18 @@
  * 直接打开预填好的 AgentForm，不让用户再选一次。
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 
 import { extractError } from '../api/client'
 import {
-  createAgent,
+  createAgentFromTemplate,
   deleteAgentTemplate,
   fetchAgentTemplates,
   updateAgentTemplate,
 } from '../api/endpoints'
-import type { Agent, AgentTemplate } from '../api/endpoints'
+import type { AgentTemplate } from '../api/endpoints'
 import { AgentForm } from '../components/agent/AgentForm'
 import type { AgentFormValues } from '../components/agent/AgentForm'
 import { TemplateForm } from '../components/agent/TemplateForm'
@@ -52,16 +52,27 @@ export function AgentTemplatesPage() {
   const { user } = useAuth()
 
   const [editing, setEditing] = useState<AgentTemplate | null>(null)
-  /** 模板搜索：模板数量会随团队沉淀增长，滚列表不如先搜 */
+  /** 模板搜索：服务端 q + 300ms 防抖。此前 page_size=100 后本地过滤，
+   *  超过 100 条会静默漏结果（与 TemplatePicker 的服务端搜索不一致）。 */
   const [q, setQ] = useState('')
+  const [qDebounced, setQDebounced] = useState('')
+  useEffect(() => {
+    const timer = window.setTimeout(() => setQDebounced(q.trim()), 300)
+    return () => window.clearTimeout(timer)
+  }, [q])
   const [using, setUsing] = useState<AgentTemplate | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const canManage = user?.role === 'admin' || user?.role === 'member'
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['agent-templates', 'page'],
-    queryFn: () => fetchAgentTemplates({ scope: 'all', page_size: 100 }),
+  const { data, isLoading, isError: listError, refetch: refetchTemplates } = useQuery({
+    queryKey: ['agent-templates', 'page', qDebounced],
+    queryFn: () =>
+      fetchAgentTemplates({
+        scope: 'all',
+        q: qDebounced || undefined,
+        page_size: 100,
+      }),
     enabled: canManage,
   })
 
@@ -89,9 +100,15 @@ export function AgentTemplatesPage() {
     onError: (err) => setError(extractError(err)),
   })
 
+  /**
+   * 「用这个模板创建」走 from-template 端点（与 AgentPage 的 TemplatePicker
+   * 同一条路）：该端点会把模板里已下线的工具自动过滤并给 warning
+   * （FR-008）。此前这里走普通 createAgent，两条「用模板创建」入口
+   * 行为不一致，模板页这条丢失了过滤与提示。
+   */
   const useMutationCreate = useMutation({
     mutationFn: (values: AgentFormValues) =>
-      createAgent({
+      createAgentFromTemplate(using!.id, {
         name: values.name,
         description: values.description,
         system_prompt: values.system_prompt,
@@ -103,8 +120,10 @@ export function AgentTemplatesPage() {
         cost_limit_cents: values.cost_limit_cents,
         egress_mode: values.egress_mode,
       }),
-    onSuccess: (agent: Agent) => {
-      toast.success('Agent 已创建')
+    onSuccess: (agent) => {
+      toast.success(
+        agent.warning ? `已创建，但${agent.warning}` : `已按模板创建「${agent.name}」`
+      )
       setUsing(null)
       invalidate()
       void navigate(`/agents?highlight=${agent.id}`)
@@ -129,6 +148,7 @@ export function AgentTemplatesPage() {
   }
 
   const items = data?.items ?? []
+  const total = data?.total ?? 0
 
   const handleDelete = async (template: AgentTemplate) => {
     const ok = await confirm({
@@ -140,16 +160,8 @@ export function AgentTemplatesPage() {
     if (ok) deleteMutation.mutate(template.id)
   }
 
-  const keyword = q.trim().toLowerCase()
-  const shown = keyword
-    ? items.filter(
-        (t) =>
-          t.name.toLowerCase().includes(keyword) ||
-          (t.description ?? '').toLowerCase().includes(keyword)
-      )
-    : items
-  const builtins = shown.filter((t) => t.is_builtin)
-  const mine = shown.filter((t) => !t.is_builtin)
+  const builtins = items.filter((t) => t.is_builtin)
+  const mine = items.filter((t) => !t.is_builtin)
 
   return (
     <Page>
@@ -166,25 +178,36 @@ export function AgentTemplatesPage() {
         </div>
       )}
 
+      {listError && (
+        <div className="mb-4">
+          <ErrorBanner
+            error="模板列表加载失败，可能是网络或服务暂时不可用"
+            retry={() => void refetchTemplates()}
+          />
+        </div>
+      )}
+
       {isLoading && (
-        <div className="space-y-2">
+        // 骨架与真实布局同构（lg:grid-cols-2），切换不闪
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <CardSkeleton />
           <CardSkeleton />
           <CardSkeleton />
           <CardSkeleton />
         </div>
       )}
 
-      {!isLoading && shown.length === 0 && (
+      {!isLoading && items.length === 0 && (
         <EmptyState
-          icon={keyword ? 'search' : 'layers'}
-          title={keyword ? `没有匹配「${q.trim()}」的模板` : '还没有模板'}
+          icon={qDebounced ? 'search' : 'layers'}
+          title={qDebounced ? `没有匹配「${q.trim()}」的模板` : '还没有模板'}
           description={
-            keyword
+            qDebounced
               ? '换个关键词，或清空搜索看看全部模板。'
               : '内置模板会在部署时由种子脚本注入；你也可以在 Agent 列表里把调好的 Agent「另存为模板」。'
           }
           action={
-            keyword ? (
+            qDebounced ? (
               <Button variant="secondary" leftIcon="refresh" onClick={() => setQ('')}>
                 清空搜索
               </Button>
@@ -193,6 +216,7 @@ export function AgentTemplatesPage() {
         />
       )}
 
+      {/* 搜索栏在空态上方（原来空态渲染在搜索栏上面，顺序颠倒） */}
       <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
         <Input
           value={q}
@@ -215,14 +239,14 @@ export function AgentTemplatesPage() {
           }
         />
         <p className="text-micro text-ink-faint">
-          {q.trim() ? (
+          {qDebounced ? (
             <>
-              「<span className="text-ink-soft">{q.trim()}</span>」命中{' '}
-              <span className="font-medium text-ink-soft">{items.length}</span> 个
+              「<span className="text-ink-soft">{qDebounced}</span>」命中{' '}
+              <span className="font-medium text-ink-soft">{total}</span> 个
             </>
           ) : (
             <>
-              共 <span className="font-medium text-ink-soft">{items.length}</span> 个模板
+              共 <span className="font-medium text-ink-soft">{total}</span> 个模板
             </>
           )}
         </p>
@@ -288,6 +312,7 @@ export function AgentTemplatesPage() {
           size="2xl"
         >
           <TemplateForm
+            key={editing.id}
             initial={{
               name: editing.name,
               description: editing.description,
@@ -303,6 +328,9 @@ export function AgentTemplatesPage() {
             submitting={updateMutation.isPending}
             onCancel={() => setEditing(null)}
             onSubmit={(values) => updateMutation.mutate(values)}
+            // 错误内联进表单：Modal 经 portal 挂在 body，页面级横幅在
+            // 遮罩下面，用户点了保存却看不到任何反馈
+            error={error}
           />
         </Modal>
       )}
@@ -316,6 +344,7 @@ export function AgentTemplatesPage() {
           size="2xl"
         >
           <AgentForm
+            key={using.id}
             initial={{
               id: '',
               owner_id: user?.id ?? '',
@@ -336,6 +365,7 @@ export function AgentTemplatesPage() {
             submitting={useMutationCreate.isPending}
             onCancel={() => setUsing(null)}
             onSubmit={(values) => useMutationCreate.mutate(values)}
+            error={error}
           />
         </Modal>
       )}
@@ -359,7 +389,7 @@ function TemplateCard({
       <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="truncate text-[15px] font-semibold text-ink">{template.name}</h3>
+            <h3 className="truncate text-body font-semibold text-ink">{template.name}</h3>
             {template.is_builtin && <Badge tone="slate">内置</Badge>}
           </div>
           <p className="mt-1 line-clamp-2 text-ui leading-relaxed text-ink-muted">

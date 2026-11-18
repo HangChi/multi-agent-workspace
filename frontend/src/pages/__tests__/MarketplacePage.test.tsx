@@ -8,6 +8,7 @@ import {
   installMarketplaceTool,
 } from '../../api/endpoints'
 import { marketplaceToolFixture } from '../../test/mcpHandlers'
+import { ToastProvider } from '../../components/ui/Toast'
 import { MarketplacePage } from '../MarketplacePage'
 
 vi.mock('../../api/endpoints', async (importOriginal) => ({
@@ -35,7 +36,9 @@ describe('MarketplacePage', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(
       <QueryClientProvider client={queryClient}>
-        <MarketplacePage />
+        <ToastProvider>
+          <MarketplacePage />
+        </ToastProvider>
       </QueryClientProvider>
     )
     await waitFor(() => expect(screen.getByText('Fixture MCP / search')).toBeInTheDocument())

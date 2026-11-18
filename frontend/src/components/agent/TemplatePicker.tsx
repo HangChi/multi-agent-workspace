@@ -53,15 +53,23 @@ export function TemplatePicker({ open, onClose, onPick }: Props) {
     setQ('')
   }
 
+  // 关闭即清空选择态：否则重开会带着上次的选中，确认按钮直接可点
+  // （用户以为没选，其实选的是上一个）
+  const handleClose = () => {
+    setSelectedId(null)
+    setQ('')
+    onClose()
+  }
+
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       title="从模板创建 Agent"
       description="选一个模板作为起点，表单会被预填，之后仍可改任何字段。"
       icon={
         <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-50 text-brand-600 ring-1 ring-inset ring-brand-100">
-          <Icon name="layers" className="h-4.5 w-4.5" />
+          <Icon name="layers" className="h-4 w-4" />
         </span>
       }
       size="xl"
@@ -110,7 +118,7 @@ export function TemplatePicker({ open, onClose, onPick }: Props) {
         {builtins.length > 0 && (
           <section>
             <h4 className="mb-2 text-ui font-medium text-ink-soft">内置模板（只读）</h4>
-            <ul className="space-y-2">
+            <ul role="radiogroup" aria-label="内置模板" className="space-y-2">
               {builtins.map((t) => (
                 <TemplateRow
                   key={t.id}
@@ -126,7 +134,7 @@ export function TemplatePicker({ open, onClose, onPick }: Props) {
         {mine.length > 0 && (
           <section>
             <h4 className="mb-2 text-ui font-medium text-ink-soft">我的模板</h4>
-            <ul className="space-y-2">
+            <ul role="radiogroup" aria-label="我的模板" className="space-y-2">
               {mine.map((t) => (
                 <TemplateRow
                   key={t.id}
@@ -157,7 +165,8 @@ function TemplateRow({
       <button
         type="button"
         onClick={onSelect}
-        aria-pressed={selected}
+        role="radio"
+        aria-checked={selected}
         className={cn(
           'w-full rounded-xl border p-3 text-left transition-all duration-150',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
@@ -167,7 +176,7 @@ function TemplateRow({
         )}
       >
         <div className="flex items-center gap-2">
-          <span className="truncate text-[14px] font-semibold text-ink">{template.name}</span>
+          <span className="truncate text-body font-semibold text-ink">{template.name}</span>
           {template.is_builtin && (
             <Badge tone="slate" className="shrink-0">
               内置
