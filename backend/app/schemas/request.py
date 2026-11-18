@@ -20,6 +20,8 @@ class Priority(str, Enum):
 
 class RequestStatus(str, Enum):
     created = "created"
+    pending = "pending"
+    accepted = "accepted"
     assigned = "assigned"
     running = "running"
     completed = "completed"
@@ -134,16 +136,49 @@ class RequestList(BaseModel):
 class AssigneeType(str, Enum):
     agent = "agent"
     group = "group"
+    # 007：人作为落点 = 转交处理责任（不建 Run、不入队）。
+    # 与 agent/group 并列同一个 assign 入口，前端拖拽目标注册表不分叉。
+    user = "user"
 
 
 class AssignRequest(BaseModel):
-    """分配请求（T055）：assignee_type + assignee_id + 可选 strategy。"""
+    """分配请求（T055 + 007）：assignee_type + assignee_id + 可选 strategy。
+
+    `note`：分派/转交留言（仅 user 落点有意义，agent/group 分支忽略），
+    随历史与通知 payload 落库。
+    """
 
     assignee_type: AssigneeType
     assignee_id: str = Field(min_length=1)
     strategy: str | None = Field(
         default=None, pattern="^(direct|fan_out|pipeline|router)$"
     )
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class RejectIn(BaseModel):
+    """退回请求（007）：原因必填——「已退回却查不出理由」的记录没有审计价值。"""
+
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("reason")
+    @classmethod
+    def reason_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("退回原因不能为空")
+        return v
+
+
+class DispatchActionOut(BaseModel):
+    """分派类动作响应（202）：需求 id + 迁移后状态。
+
+    刻意不返回完整 RequestOut：accept/reject 的调用方（看板/详情）会
+    自行 invalidate 查询，且 3a 尚未扩展 RequestOut 的分派字段（3b 统一加）。
+    """
+
+    request_id: str
+    status: str
 
 
 class AssignOut(BaseModel):

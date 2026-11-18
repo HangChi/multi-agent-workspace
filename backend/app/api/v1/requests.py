@@ -17,18 +17,25 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.api.deps import DB, CurrentUser, MemberUser, ResourceId
-from app.core.audit import write_audit
+from app.core.audit import REQUEST_ACCEPT, REQUEST_REJECT, write_audit
 from app.models.schedule import Schedule
 from app.schemas.request import (
     AssignOut,
     AssignRequest,
     AttachmentListOut,
     AttachmentMeta,
+    DispatchActionOut,
+    RejectIn,
     RequestCreate,
     RequestList,
     RequestOut,
 )
-from app.services import artifact_service, assignment_service, request_service
+from app.services import (
+    artifact_service,
+    assignment_service,
+    dispatch_service,
+    request_service,
+)
 
 router = APIRouter(prefix="/requests", tags=["requests"])
 
@@ -110,6 +117,60 @@ async def get_request(request_id: ResourceId, user: CurrentUser, db: DB):
             "source_schedule_name": schedule_name,
         }
     )
+
+
+@router.post("/{request_id}/accept", response_model=DispatchActionOut, status_code=202)
+async def accept_request(
+    request_id: ResourceId,
+    _m: MemberUser,
+    user: CurrentUser,
+    db: DB,
+):
+    """接收分派给我的需求（007 / US2）：pending → accepted，通知分派人。
+
+    仅当前接收人可接收；非相关人员 404；重复接收 409（service 层拦截）。
+    """
+    request = await dispatch_service.accept_request(
+        db, request_id=request_id, actor_id=user.id
+    )
+    await write_audit(
+        db,
+        user_id=user.id,
+        action=REQUEST_ACCEPT,
+        target_type="request",
+        target_id=request_id,
+        strict=True,
+    )
+    await db.commit()
+    return DispatchActionOut(request_id=request.id, status=request.status)
+
+
+@router.post("/{request_id}/reject", response_model=DispatchActionOut, status_code=202)
+async def reject_request(
+    request_id: ResourceId,
+    payload: RejectIn,
+    _m: MemberUser,
+    user: CurrentUser,
+    db: DB,
+):
+    """退回分派来的需求（007 / US2）：pending|accepted → created，原因必填。
+
+    创建者可撤回分派；接收人可附原因退回。执行中/终态 409。
+    """
+    request = await dispatch_service.reject_request(
+        db, request_id=request_id, actor_id=user.id, reason=payload.reason
+    )
+    await write_audit(
+        db,
+        user_id=user.id,
+        action=REQUEST_REJECT,
+        target_type="request",
+        target_id=request_id,
+        detail={"reason": payload.reason},
+        strict=True,
+    )
+    await db.commit()
+    return DispatchActionOut(request_id=request.id, status=request.status)
 
 
 @router.post(

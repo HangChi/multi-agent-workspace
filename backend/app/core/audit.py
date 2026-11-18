@@ -60,6 +60,24 @@ SCHEDULE_ACTIONS = frozenset(
     }
 )
 
+# ===== 需求分派（007）的审计动作 =====
+# 与既有的 request_create / assign（内联在 requests.py）分开：分派类操作是
+# 「责任转交」，assign 是「启动执行」，混在一起会让「谁经手过」的统计失真。
+# 宪法：分派/接收/退回/转交 100% 可审计（FR-013 / SC-003）。
+REQUEST_DISPATCH = "request_dispatch"
+REQUEST_ACCEPT = "request_accept"
+REQUEST_REJECT = "request_reject"
+NOTIFICATION_READ = "notification_read"
+
+REQUEST_DISPATCH_ACTIONS = frozenset(
+    {
+        REQUEST_DISPATCH,
+        REQUEST_ACCEPT,
+        REQUEST_REJECT,
+        NOTIFICATION_READ,
+    }
+)
+
 
 async def write_audit(
     db: AsyncSession,

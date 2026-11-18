@@ -34,13 +34,13 @@
 
 ## Phase 3：分派闭环（TDD）— 3a 纯增量（新端点），单独提交
 
-- [ ] T013 [P] Unit: schemas 校验（`AssigneeType +user`、`RequestStatus +2`、
+- [X] T013 [P] Unit: schemas 校验（`AssigneeType +user`、`RequestStatus +2`、
       `RejectIn` reason 必填 1..2000、`NotificationOut` 字段）。
-- [ ] T014 [P] Integration: `backend/tests/integration/test_dispatch_actions.py` —
+- [X] T014 [P] Integration: `backend/tests/integration/test_dispatch_actions.py` —
       accept/reject 全用例（AC-1..5 / RJ-1..5）：状态、assignee 清空、通知、历史、审计。
-- [ ] T015 Write `backend/app/services/dispatch_service.py`：accept / reject / reassign
+- [X] T015 Write `backend/app/services/dispatch_service.py`：accept / reject / reassign
       纯增量逻辑（历史 append + 通知 + 审计 + 状态机迁移；行级锁 `for_update`）。
-- [ ] T016 Modify `backend/app/api/v1/requests.py`：新增 `POST /{id}/accept`、
+- [X] T016 Modify `backend/app/api/v1/requests.py`：新增 `POST /{id}/accept`、
       `POST /{id}/reject` 端点（挂 dispatch_service；判定顺序照 contracts §4/§5）。
 
 ## Phase 3：分派闭环 — 3b 改既有（契约变更），单独提交

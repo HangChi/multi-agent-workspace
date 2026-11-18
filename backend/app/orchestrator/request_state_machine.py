@@ -20,6 +20,7 @@ Request 管「一件需求的責任歸屬」。Request 跨多次 Run（重试/�
 """
 
 from enum import Enum
+from typing import Any, Protocol
 
 
 class RequestStatus(str, Enum):
@@ -96,13 +97,17 @@ class TransitionError(ValueError):
     """非法需求状态迁移。service 层转换为 409 CONFLICT。"""
 
 
-class RequestLike:
-    """迁移函数所需的最小接口（ORM Request 或测试 dataclass 均满足）。"""
+class RequestLike(Protocol):
+    """迁移函数所需的最小接口（ORM Request 或测试 dataclass 均满足）。
+
+    时间戳字段用 Any：ORM 侧是 ``datetime | None``、测试侧是 ``object``，
+    协议属性不变式下写死任一种都会让另一边不匹配；这里只做存在性判断。
+    """
 
     status: str
     assignee_id: str | None
-    dispatched_at: object
-    accepted_at: object
+    dispatched_at: Any
+    accepted_at: Any
 
 
 def is_terminal(status: str | RequestStatus) -> bool:
