@@ -7,11 +7,19 @@ Sync Impact Report
   - 组编排策略的「router(智能路由)」实现细节（LLM 选路 vs 规则选路）待 Phase 2 细化
   - 代码沙箱的 Docker 隔离基线（seccomp/gVisor 路径）待 Phase 3 加固时定
   - 是否需要引入图执行引擎支撑复杂多 Agent 协作，Phase 2 结束后评审
+- Version change: 1.0.0 → 1.1.0（2026-11-18，007-request-dispatch 开工时经用户确认）
+- Modified sections: 开头定位段（系统定位纳入「需求分派给员工」闭环）
+- Rationale: 001–006 落地后审计发现系统实际只有「谁建需求谁拖给 Agent」，
+  与设计动机「公司内部系统：员工接收需求后再拖给 Agent」存在结构性偏差。
+  007 补齐该闭环，宪法定位随之更新；不更新则后续每份 spec 的 Constitution Check
+  都带着旧定位核对。
+- Impact assessment: 仅定位描述变更，无原则条款增删；既有 I–VIII 原则与全部
+  MUST 条款不受影响，无需回溯修订 001–006 的 spec/plan。
 -->
 
 # Agent 工作台系统 Constitution
 
-「拖拽式任务分发 + 多角色 Agent 执行」的工作台系统：用户创建带角色/提示词/工具集的 Agent，自由组合成 Agent 组，把需求拖到 Agent/组上即触发编排执行，全过程实时可见。**本宪法是全仓库最高约束**，所有 spec、plan、实现都必须遵守，不得以任何理由绕过。
+「拖拽式任务分发 + 多角色 Agent 执行」的工作台系统：用户创建带角色/提示词/工具集的 Agent，自由组合成 Agent 组；需求可分派给具体员工，由员工接收后拖到 Agent/组上触发编排执行（员工也可直接处理自己创建的需求），全过程实时可见。**本宪法是全仓库最高约束**，所有 spec、plan、实现都必须遵守，不得以任何理由绕过。
 
 ## Core Principles
 
