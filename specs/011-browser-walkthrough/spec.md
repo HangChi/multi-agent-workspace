@@ -31,9 +31,9 @@ s12_browser_walkthrough.py --base ... --invite ...`）就把 008/009/010 的
    三组共 15 项逐项 ✅/❌，末行汇总「合计 15 项：N 通过 / M 失败」。
 2. **Given** 任一项断言失败，**When** 跑完，**Then** 退出码非零、失败项
    落截图 + 页面关键 DOM 到产物目录（默认 `deploy/verify/.artifacts/`）。
-3. **Given** 前端 dev server 未启动，**When** 跑 s12，**Then** 脚本自行
-   拉起（`npm run dev -- --port <port>`）并在结束时回收（finally），
-   端口占用时给出明确错误而不是挂死。
+3. **Given** 前端目标未指定，**When** 跑 s12，**Then** 默认驱动栈上
+   前端容器（`http://localhost:8080`，nginx + 构建产物，deploy.sh
+   已重建）；`--frontend-url` 可指向任意实例（如开发者本机 dev server）。
 4. **Given** 本机无可用的 Chromium，**When** 跑 s12，**Then** 明确失败并
    提示 `S12_CHROMIUM_PATH` 环境变量用法（不静默跳过——静默跳过的验收
    等于没验收）。
@@ -105,8 +105,8 @@ s12_browser_walkthrough.py --base ... --invite ...`）就把 008/009/010 的
 
 ### Edge Cases
 
-- **dev server 端口占用**：默认 5199（非常用端口），`--frontend-port` 可改；
-  占用时明确报错退出，不静默换端口（换端口会让用户对不上日志）。
+- **前端目标不可达**：`--frontend-url` 默认 `http://localhost:8080`
+  （与 `--base` 同主机）；不可达时首项即失败并给出连接错误（不重试）。
 - **浏览器缺失**：按 `S12_CHROMIUM_PATH` → 扫描 `PLAYWRIGHT_BROWSERS_PATH`
   （默认 `~/Library/Caches/ms-playwright`，取最高版本 headless shell）→
   Playwright 默认顺序解析；都失败则明确退出并提示（US1 场景 4）。
@@ -136,9 +136,12 @@ s12_browser_walkthrough.py --base ... --invite ...`）就把 008/009/010 的
 - **FR-003**：种子数据 MUST 走 API（httpx）：注册三个用户
   （owner/mate/viewer）、建项目、建需求、连依赖边、加成员、建 Agent；
   **不直连数据库**（绕应用层的种子会漏掉校验与审计）。
-- **FR-004**：前端 dev server MUST 由脚本自管理：未提供 `--frontend-url`
-  时自行 `npm run dev -- --port <port> --strictPort`，轮询就绪后继续，
-  finally 回收子进程；`--frontend-url` 可指向已运行的实例（CI 场景）。
+- **FR-004**：前端目标 MUST 由 `--frontend-url` 指定，**默认
+  `http://localhost:8080`**（栈上前端容器：nginx + 构建产物，deploy.sh
+  重建后即最新）。脚本 MUST NOT 自拉 dev server——实测 vite 的代理
+  目标 `127.0.0.1:8000` 未发布到宿主机（API 只在 docker 网络内），
+  dev server 在宿主机上必然 API 404；改 vite.config 又违反零应用改动
+  （修订记录见 research R-04）。
 - **FR-005**：15 项清单断言 MUST 与三份 quickstart 的走查条目一一对应
   （§US2/3/4），输出行带清单编号（如 `A3`）便于回填 quickstart。
 - **FR-006**：失败项 MUST 落产物：截图 PNG + 该页可见文本摘要到
@@ -187,8 +190,8 @@ s12_browser_walkthrough.py --base ... --invite ...`）就把 008/009/010 的
 
 - 运行环境有 Node ≥18（跑 dev server）与至少一个可用 Chromium（本机缓存
   或 `S12_CHROMIUM_PATH` 指定）；都没有时脚本明确失败而非跳过。
-- 后端 `--base`（默认 localhost:8080）可达；前端 dev server 由脚本按需
-  拉起，用户也可用 `--frontend-url` 指向已有实例。
+- 后端 `--base` 与前端 `--frontend-url`（均默认 localhost:8080——
+  栈的 nginx 同时服务 SPA 与 /api 代理）可达；验收前跑过 deploy.sh。
 - viewer 角色经 `--viewer-invite`（可选）注册；不提供则 viewer 相关项
   （A5/C5）标记为「跳过（未提供 viewer 邀请码）」并**不勾选**对应
   quickstart 条目（同 s9 的诚实跳过纪律）。

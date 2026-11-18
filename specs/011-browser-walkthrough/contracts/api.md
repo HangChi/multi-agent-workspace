@@ -10,8 +10,7 @@ backend/.venv/bin/python deploy/verify/s12_browser_walkthrough.py \
   --base http://localhost:8080 \
   --invite <MEMBER-INVITE> \
   [--viewer-invite <VIEWER-INVITE>] \
-  [--frontend-port 5199] \
-  [--frontend-url http://localhost:5173]
+  [--frontend-url http://localhost:8080]
 ```
 
 | 参数 | 默认 | 说明 |
@@ -19,8 +18,7 @@ backend/.venv/bin/python deploy/verify/s12_browser_walkthrough.py \
 | `--base` | `http://localhost:8080` | 后端 API（同 s 系列） |
 | `--invite` | 必填 | member 邀请码（注册种子用户） |
 | `--viewer-invite` | 无 | viewer 邀请码；不提供则 A5/C5 标记「跳过」并**不勾选** quickstart 条目 |
-| `--frontend-port` | 5199 | 自管理 dev server 的端口（占用则明确报错退出） |
-| `--frontend-url` | 无 | 指向已在运行的前端实例；提供则脚本不拉 dev server |
+| `--frontend-url` | `http://localhost:8080` | 前端目标（栈的 nginx：SPA + /api 代理）；不拉 dev server（R-04） |
 
 环境变量：`S12_CHROMIUM_PATH`（浏览器二进制直接指定）、
 `PLAYWRIGHT_BROWSERS_PATH`（缓存目录扫描，默认 `~/Library/Caches/ms-playwright`）。
@@ -90,7 +88,7 @@ member  = POST /api/v1/projects/{proj_c}/members {user_id: mate}              # 
 | 情况 | 行为 |
 |---|---|
 | `--base` 不可达 | 首项即失败，输出连接错误（不重试） |
-| dev server 端口占用 | 明确报错退出（不换端口） |
+| `--frontend-url` 不可达 | 首项即失败，输出连接错误（不重试） |
 | 浏览器解析失败 | 明确退出 + `S12_CHROMIUM_PATH` 提示 |
 | 某项 UI 断言失败 | 该项 ❌ + 产物；后续项继续跑（不中断——一次跑拿全失败面） |
 | viewer 邀请码缺失 | A5/C5 标记「跳过」，不计失败 |

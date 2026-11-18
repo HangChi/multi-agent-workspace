@@ -9,7 +9,7 @@
 - [ ] T001 [P] Write `deploy/verify/s12_browser_walkthrough.py` 骨架：CLI（--base/--invite/--viewer-invite/--frontend-port/--frontend-url）+ Result/汇总/退出码（对齐 s1–s11 输出格式）
 - [ ] T002 [P] 浏览器解析：`S12_CHROMIUM_PATH` → `PLAYWRIGHT_BROWSERS_PATH` 扫描取最高版本 headless shell → Playwright 默认；全失败明确退出并提示
 - [ ] T003 [P] 种子数据（httpx，随机后缀）：注册 owner/mate/stranger/viewer、建 agent、建项目×2、建需求×N、连依赖边、加成员
-- [ ] T004 [P] dev server 自管理：子进程拉起 `npm run dev -- --port <port> --strictPort` + 轮询就绪 + finally 回收；`--frontend-url` 分支
+- [ ] T004 [P] 前端目标：`--frontend-url`（默认 http://localhost:8080，栈的 nginx）+ 可达性探测（不可达则首项失败，不重试）
 - [ ] T005 [P] 失败产物：截图 PNG + innerText 摘要落 `deploy/verify/.artifacts/s12-<ts>/`；`.gitignore` 加该目录
 - [ ] T006 [P] 冒烟一项（A4 卡片项目徽章）跑通，证明基建可用
 
@@ -48,6 +48,7 @@
    （汇总行、✅/❌、耗时括号、退出码 0/1）。
 5. **种子全随机后缀**（w-<rand>）：断言不依赖空库、不依赖上一次残留
    （SC-004 的防线）。
-6. **dev server 端口默认 5199 且冲突即报错**：不静默换端口（R-04）。
+6. **不拉 dev server**（R-04）：vite 代理目标 8000 未发布到宿主机，
+   脚本只驱动栈上前端容器（--frontend-url 默认 8080）。
 7. 代理：如需重装 playwright，`HTTPS_PROXY=http://127.0.0.1:7897`。
 8. 迁移：无（零 schema 变更）。

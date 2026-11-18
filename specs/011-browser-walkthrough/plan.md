@@ -5,7 +5,7 @@
 ## Technical Context
 
 - 验收脚本：Python 3.13（backend venv）+ Playwright 1.65（sync API，dev extras）+ httpx（种子数据）
-- 前端：React + Vite dev server（脚本以子进程拉起，Node ≥18）
+- 前端：栈的前端容器（nginx + 构建产物，:8080）——脚本只消费 `--frontend-url`，不拉 dev server（R-04）
 - 新增依赖：**仅 dev extras**（`playwright>=1.40`，Docker `--no-dev` 不装，R-02）
 - 安装注意：沙箱直连 pythonhosted 502，需 `HTTPS_PROXY=http://127.0.0.1:7897`（用户 2026-11-18 提供）
 - 涉及既有文件：**零应用代码改动**（R-08）；仅新增 `deploy/verify/s12_browser_walkthrough.py`、
@@ -44,7 +44,7 @@
 
 | Phase | 内容 | 任务 | 提交点 |
 |---|---|---|---|
-| P2 基建设施 | playwright dev extras（已完成）+ 脚本骨架（CLI/浏览器解析/种子/登录/产物/dev server 自管理）+ 冒烟一项 | T001–T006 | `test(verify): 011 s12 骨架与基建设施` |
+| P2 基建设施 | playwright dev extras（已完成）+ 脚本骨架（CLI/浏览器解析/种子/登录/产物）+ 冒烟一项 | T001–T006 | `test(verify): 011 s12 骨架与基建设施` |
 | P3 清单自动化 | A 组 5 项 → B 组 5 项 → C 组 5 项（按组提交） | T007–T011 | `test(verify): 011 A 组（008 清单）` 等三次 |
 | P4 回填与回归 | 三份 quickstart 回填 + s 系列全回归 + SC-005 反证实验 | T012–T016 | `docs(spec): 011 三份清单回填` 等 |
 | P5 收尾合并 | README 登记 + .gitignore 核对 + ff 合并 | T017–T020 | 每项一次提交 |
@@ -55,8 +55,8 @@
 
 - **dnd-kit 拖拽在无头环境不响应**：R-06 的退化路径（点选 + 注明）；
   若三组全过但 B4 走了退化，回填时如实写「（退化：点选）」。
-- **dev server 启动慢/首屏超时**：条件轮询（等 `networkidle` 或
-  选择器出现）而非固定 sleep；SC-003 的 180s 预算兜底。
+- **首屏/交互慢**：条件轮询（等选择器出现）而非固定 sleep；
+  SC-003 的 180s 预算兜底。
 - **浏览器 revision 漂移**：R-01 的缓存扫描 + `S12_CHROMIUM_PATH`
   覆盖；全失败明确退出而非静默跳过。
 - **验收脚本自身 flaky**：SC-004 的可重复跑（随机后缀 + 不依赖残留）
