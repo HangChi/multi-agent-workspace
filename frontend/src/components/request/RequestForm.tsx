@@ -56,8 +56,10 @@ export function RequestForm({ onSubmit, onCancel, submitting }: Props) {
   // 项目下拉数据（本人 active 项目）。失败静默——选不了项目不影响建需求
   // 主流程， degrade 成「没有项目可选」而不是弹错误横幅。
   const { data: projects } = useQuery({
-    queryKey: ['projects', 'options', 'active'],
-    queryFn: () => fetchProjects({ scope: 'mine' }),
+    // 010：relevant（含共享项目）——成员要能把自己的需求归到共享项目里
+    // （s12 的 C3 现场：只查 mine 时表单没有共享项目）
+    queryKey: ['projects', 'options', 'relevant'],
+    queryFn: () => fetchProjects({ scope: 'relevant' }),
     retry: false,
   })
   const activeProjects = (projects?.items ?? []).filter((p) => p.status === 'active')

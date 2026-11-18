@@ -281,13 +281,29 @@ class Walkthrough:
             page.wait_for_timeout(400)
 
     @staticmethod
-    def _open_detail(page: Page, title: str) -> None:
-        """点卡片 hover 出现的「详情」按钮打开弹层。"""
+    def _open_detail(page: Page, title: str, request_id: str | None = None) -> None:
+        """点卡片 hover 出现的「详情」按钮打开弹层。
+
+        必须等详情拉取完成：卡片点击是「先用列表数据秒开、再
+        fetchRequest 补全详情（dependencies/经手链）」两段式，
+        不等待就直接断言会读到列表项的 dependencies=null——
+        011 曾把这个时序误判成「弹层拿不到 dependencies」的 app bug。
+        """
         Walkthrough._close_modals(page)
         card = page.locator("article", has_text=title).first
         card.hover()
         card.get_by_role("button", name="详情").click()
         page.get_by_role("dialog").wait_for(timeout=8000)
+        if request_id:
+            try:
+                page.wait_for_response(
+                    lambda r: f"/api/v1/requests/{request_id}" in r.url
+                    and r.request.method == "GET",
+                    timeout=8000,
+                )
+            except Exception:  # noqa: BLE001,S110 - 拉取失败时应用会降级为列表数据
+                pass
+            page.wait_for_timeout(600)
 
     @staticmethod
     def _open_bell(page: Page) -> None:
@@ -517,10 +533,11 @@ class Walkthrough:
         # B1 依赖区块（增删）
         started = time.monotonic()
         try:
-            self._open_detail(page, b_title)
-            section = page.locator("div", has_text="前置需求").last
-            section_text = section.inner_text()
-            ok_listed = pre_title in section_text
+            self._open_detail(page, b_title, self.seed["req_b"]["id"])
+            # 用对话框整体文本判「边在列表里」——section 的 div 定位在嵌套
+            # 结构下会命中只含标题的小容器（011 曾因此误判）
+            dialog = page.get_by_role("dialog")
+            ok_listed = pre_title in dialog.inner_text()
             # 添加器连一条：选「归属需求」再点添加。
             # 候选也是异步查询（scope=relevant）——先等选项出现
             select = page.get_by_label("选择前置需求")
@@ -568,7 +585,7 @@ class Walkthrough:
         # B2 blocked 提示
         started = time.monotonic()
         try:
-            self._open_detail(page, b_title)
+            self._open_detail(page, b_title, self.seed["req_b"]["id"])
             dialog_text = page.get_by_role("dialog").inner_text()
             # 断言具体数量「有 1 个前置未完成」——只匹配「个前置未完成」的话，
             # 「有 0 个」也会通过（首轮就这样漏过了详情拿不到 dependencies 的真 bug）

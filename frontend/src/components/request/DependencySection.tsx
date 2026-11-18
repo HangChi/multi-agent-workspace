@@ -49,6 +49,12 @@ interface Props {
   requestId: string
   /** 详情端下发的 blocked（避免组件再查一次）。 */
   blocked: boolean
+  /**
+   * 增删边成功后回调。父级（详情弹层）的 dependencies 多是一次性快照，
+   * 不吃 invalidateQueries——不通知父级重拉，弹层会显示陈旧边列表
+   * （013 修的就是这个：加边后移除按钮不出现的现场）。
+   */
+  onChanged?: () => void
   /** 详情端下发的依赖概要（含 terminal，无需再拉列表）。 */
   dependencies: {
     id: string
@@ -59,7 +65,7 @@ interface Props {
   }[]
 }
 
-export function DependencySection({ requestId, blocked, dependencies }: Props) {
+export function DependencySection({ requestId, blocked, dependencies, onChanged }: Props) {
   const qc = useQueryClient()
   const toast = useToast()
   const [error, setError] = useState<string | null>(null)
@@ -84,6 +90,7 @@ export function DependencySection({ requestId, blocked, dependencies }: Props) {
     mutationFn: (dependencyId: string) => addDependency(requestId, dependencyId),
     onSuccess: () => {
       invalidate()
+      onChanged?.()
       setPicked('')
       toast.success('已添加前置依赖')
     },
@@ -94,6 +101,7 @@ export function DependencySection({ requestId, blocked, dependencies }: Props) {
     mutationFn: (dependencyId: string) => removeDependency(requestId, dependencyId),
     onSuccess: () => {
       invalidate()
+      onChanged?.()
       toast.success('已移除前置依赖')
     },
     onError: (err) => setError(extractError(err)),

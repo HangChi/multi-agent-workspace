@@ -69,6 +69,13 @@ export function BoardPage() {
   const [showForm, setShowForm] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [detail, setDetail] = useState<WorkRequest | null>(null)
+
+  /** 重拉单个需求的完整详情（经手链/dependencies 只有详情端有）。 */
+  const refreshDetail = (id: string) => {
+    void fetchRequest(id)
+      .then(setDetail)
+      .catch(() => undefined)
+  }
   // 007：退回原因弹窗
   const [showReject, setShowReject] = useState(false)
 
@@ -327,9 +334,7 @@ export function BoardPage() {
         onOpenDetail={(r) => {
           // 先用列表数据秒开弹层，再拉完整详情补经手链（失败则降级为列表数据）
           setDetail(r)
-          void fetchRequest(r.id)
-            .then(setDetail)
-            .catch(() => undefined)
+          void refreshDetail(r.id)
         }}
       />
 
@@ -408,6 +413,7 @@ export function BoardPage() {
               requestId={currentDetail.id}
               blocked={currentDetail.blocked ?? false}
               dependencies={currentDetail.dependencies ?? []}
+              onChanged={() => refreshDetail(currentDetail.id)}
             />
 
             {/* 007：分派信息 + 接收/退回 + 经手时间线（有分派语义的需求才显示） */}

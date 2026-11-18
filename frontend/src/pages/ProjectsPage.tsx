@@ -46,8 +46,10 @@ export function ProjectsPage() {
   const [renameDraft, setRenameDraft] = useState('')
 
   const { data, isLoading } = useQuery({
-    queryKey: ['projects', 'list', 'mine'],
-    queryFn: () => fetchProjects({ scope: 'mine' }),
+    // 010：默认 relevant（我创建的 + 共享给我的）——页面用「我的/共享的」
+    // 徽章区分归属（s12 的 C2 现场：只查 mine 时成员看不到共享项目）
+    queryKey: ['projects', 'list', 'relevant'],
+    queryFn: () => fetchProjects({ scope: 'relevant' }),
     enabled: !isViewer,
   })
   const projects = data?.items ?? []

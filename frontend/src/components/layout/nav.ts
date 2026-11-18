@@ -30,7 +30,15 @@ export const MAIN_NAV: NavItem[] = [
   { to: '/dashboard', label: '仪表盘', icon: 'activity' },
   { to: '/agents', label: 'Agent 管理', shortLabel: 'Agent', icon: 'bot' },
   { to: '/groups', label: 'Agent 组', shortLabel: '组', icon: 'users' },
-  { to: '/projects', label: '项目管理', shortLabel: '项目', icon: 'layers' },
+  {
+    to: '/projects',
+    label: '项目管理',
+    shortLabel: '项目',
+    icon: 'layers',
+    // 008/010：项目是成员级能力（建需求/管成员都要 member）——viewer
+    // 看得见入口点进去只会吃 403，不如不进（s12 的 A5/C5 现场）
+    memberOnly: true,
+  },
 ]
 
 /**
