@@ -20,10 +20,11 @@ import {
   removeProjectMember,
 } from '../../api/endpoints'
 import { Badge } from '../ui/Badge'
-import { Button } from '../ui/Button'
+import { Button, IconButton } from '../ui/Button'
 import { ErrorBanner } from '../ui/ErrorBanner'
 import { Icon } from '../ui/Icons'
 import { Select } from '../ui/Field'
+import { Skeleton } from '../ui/Skeleton'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../ui/useToast'
 
@@ -41,7 +42,7 @@ export function MemberSection({ projectId, ownerId }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [picked, setPicked] = useState('')
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['projectMembers', projectId],
     queryFn: () => fetchProjectMembers(projectId),
   })
@@ -90,7 +91,16 @@ export function MemberSection({ projectId, ownerId }: Props) {
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-ink-faint">加载中…</p>
+        <div className="space-y-1.5" aria-hidden="true">
+          <Skeleton className="h-9" />
+          <Skeleton className="h-9" />
+        </div>
+      ) : isError ? (
+        <ErrorBanner error="成员列表加载失败" retry={() => void refetch()} />
+      ) : members.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-line-strong/70 px-3 py-4 text-center text-xs text-ink-faint">
+          还没有成员——项目目前只有创建者可见
+        </p>
       ) : (
         <ul className="space-y-1.5">
           {members.map((m) => (
@@ -105,14 +115,13 @@ export function MemberSection({ projectId, ownerId }: Props) {
               {m.is_owner ? (
                 <Badge tone="brand">创建者</Badge>
               ) : isOwner ? (
-                <button
-                  type="button"
+                <IconButton
+                  icon="x"
+                  label={`移除成员 ${m.user_email ?? m.user_id}`}
+                  size="xs"
+                  variant="danger"
                   onClick={() => removeMut.mutate(m.user_id)}
-                  aria-label={`移除成员 ${m.user_email ?? m.user_id}`}
-                  className="shrink-0 rounded-md p-1 text-ink-faint transition-colors hover:bg-surface-subtle hover:text-rose-500"
-                >
-                  <Icon name="x" className="h-3.5 w-3.5" />
-                </button>
+                />
               ) : (
                 <Badge tone="slate">成员</Badge>
               )}

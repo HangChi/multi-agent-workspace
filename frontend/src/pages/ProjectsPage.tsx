@@ -29,6 +29,7 @@ import { CardSkeleton } from '../components/ui/Skeleton'
 import { useConfirm } from '../components/ui/useConfirm'
 import { useToast } from '../components/ui/useToast'
 import { useAuth } from '../hooks/useAuth'
+import { hasFinePointer } from '../utils/platform'
 
 export function ProjectsPage() {
   const qc = useQueryClient()
@@ -159,7 +160,16 @@ export function ProjectsPage() {
       {error && <ErrorBanner error={error} onDismiss={() => setError(null)} />}
 
       {showCreate && (
-        <div className="space-y-3 rounded-xl border border-line bg-surface p-4 shadow-card">
+        <form
+          className="space-y-3 rounded-xl border border-line bg-surface p-4 shadow-card"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (newName.trim()) createMut.mutate()
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setShowCreate(false)
+          }}
+        >
           <Input
             label="项目名称"
             required
@@ -168,6 +178,7 @@ export function ProjectsPage() {
             placeholder="例如：官网改版"
             maxLength={100}
             labelExtra={<span className="tabular-nums text-ink-faint">{newName.length}/100</span>}
+            autoFocus={hasFinePointer()}
           />
           <Input
             label="描述（可选）"
@@ -175,21 +186,25 @@ export function ProjectsPage() {
             onChange={(e) => setNewDescription(e.target.value)}
             placeholder="这个项目要达成什么"
             maxLength={2000}
+            // 与名称一致的字数计数：此前只有名称有，两个字段标准不一
+            labelExtra={
+              <span className="tabular-nums text-ink-faint">{newDescription.length}/2000</span>
+            }
           />
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setShowCreate(false)}>
               取消
             </Button>
             <Button
+              type="submit"
               variant="primary"
               loading={createMut.isPending}
               disabled={!newName.trim()}
-              onClick={() => createMut.mutate()}
             >
               创建项目
             </Button>
           </div>
-        </div>
+        </form>
       )}
 
       {isLoading ? (
@@ -224,6 +239,10 @@ export function ProjectsPage() {
                       renameMut.mutate({ id: project.id, name: renameDraft.trim() })
                     }
                   }}
+                  // Esc 取消行内改名（与弹层契约一致）
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setRenamingId(null)
+                  }}
                 >
                   <Input
                     value={renameDraft}
@@ -232,6 +251,7 @@ export function ProjectsPage() {
                     controlSize="sm"
                     wrapperClassName="flex-1"
                     aria-label="项目新名称"
+                    autoFocus={hasFinePointer()}
                   />
                   <Button
                     type="submit"
@@ -301,6 +321,7 @@ export function ProjectsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      tone="danger"
                       leftIcon="trash"
                       onClick={() => void onDelete(project)}
                     >

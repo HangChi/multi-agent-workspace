@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -10,6 +10,8 @@ import {
   rotateExternalCredential,
 } from '../api/endpoints'
 import { ExternalToolServers } from '../components/admin/ExternalToolServers'
+import { ConfirmProvider } from '../components/ui/ConfirmDialog'
+import { ToastProvider } from '../components/ui/Toast'
 
 vi.mock('../api/endpoints', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/endpoints')>()),
@@ -70,7 +72,11 @@ describe('external lifecycle controls', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(
       <QueryClientProvider client={queryClient}>
-        <ExternalToolServers />
+        <ToastProvider>
+          <ConfirmProvider>
+            <ExternalToolServers />
+          </ConfirmProvider>
+        </ToastProvider>
       </QueryClientProvider>
     )
 
@@ -81,7 +87,11 @@ describe('external lifecycle controls', () => {
     await waitFor(() =>
       expect(pauseMarketplaceTool).toHaveBeenCalledWith('listing-1', { reason: expect.any(String) })
     )
+    // 撤销凭证走确认框：点「撤销凭证」→ 确认框里点「撤销」才真正执行
+    // （行内也有个「撤销」按钮，必须限定在对话框内找，否则匹配到两个）
     fireEvent.click(screen.getByRole('button', { name: '撤销凭证' }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: '撤销' }))
     await waitFor(() =>
       expect(revokeExternalCredential).toHaveBeenCalledWith('server-1', 'credential-1')
     )

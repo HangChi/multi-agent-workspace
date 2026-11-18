@@ -14,6 +14,7 @@ import {
   fetchEgressAccesses,
   fetchExternalInvocationAudit,
 } from '../api/endpoints'
+import { extractError } from '../api/client'
 import { ExternalToolServers } from '../components/admin/ExternalToolServers'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
@@ -24,11 +25,21 @@ import { Input } from '../components/ui/Field'
 import { Icon } from '../components/ui/Icons'
 import { Page } from '../components/ui/Page'
 import { PageHeader } from '../components/ui/PageHeader'
+import { Pagination } from '../components/ui/Pagination'
 import { Skeleton } from '../components/ui/Skeleton'
+import { useToast } from '../components/ui/useToast'
 import { cn } from '../components/ui/cn'
 import { formatBytes } from '../utils/formatBytes'
 
 const PAGE_SIZE = 20
+
+/** 出站目标类型推断（与 AgentForm 的出站规则同一套判定）：
+ *  裸 IPv4（1.2.3.4）含点但不含斜杠，旧逻辑会误判成 domain。 */
+function inferTargetType(target: string): 'cidr' | 'ip' | 'domain' {
+  if (target.includes('/')) return 'cidr'
+  if (target.includes(':') || /^(?:\d{1,3}\.){3}\d{1,3}$/.test(target)) return 'ip'
+  return 'domain'
+}
 
 /** 时间格式化：YYYY-MM-DD HH:mm:ss（本地时区）。 */
 function formatTime(iso: string): string {
@@ -52,6 +63,7 @@ function actionTone(action: string): 'brand' | 'emerald' | 'amber' | 'rose' | 's
 }
 
 export function AdminPage() {
+  const toast = useToast()
   const [items, setItems] = useState<AuditLogItem[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -67,13 +79,19 @@ export function AdminPage() {
   const [accesses, setAccesses] = useState<EgressAccess[]>([])
   const [externalInvocations, setExternalInvocations] = useState<ExternalInvocationAudit[]>([])
   const [externalInvocationTotal, setExternalInvocationTotal] = useState(0)
+  const [invocationPage, setInvocationPage] = useState(1)
+  // 外部审计筛选：草稿 + 300ms 防抖（此前每敲一个字符发一次全量请求）
+  const [draftServerFilter, setDraftServerFilter] = useState('')
+  const [draftStatusFilter, setDraftStatusFilter] = useState('')
   const [invocationServerFilter, setInvocationServerFilter] = useState('')
   const [invocationStatusFilter, setInvocationStatusFilter] = useState('')
+  const [invocationLoading, setInvocationLoading] = useState(true)
   const [invocationError, setInvocationError] = useState<string | null>(null)
   const [accessSummary, setAccessSummary] = useState<Record<string, number>>({})
   const [egressTarget, setEgressTarget] = useState('')
   const [egressBusy, setEgressBusy] = useState(false)
   const [egressError, setEgressError] = useState<string | null>(null)
+  const [egressLoading, setEgressLoading] = useState(true)
 
   useEffect(() => {
     let cancelled = false
@@ -92,7 +110,9 @@ export function AdminPage() {
       })
       .catch((e: unknown) => {
         if (cancelled) return
-        setError(e instanceof Error ? e.message : '加载审计日志失败')
+        // extractError 解包后端 {error:{code,message}}——原来直接
+        // e.message，用户看到的是「Request failed with status code 400」
+        setError(extractError(e))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -102,8 +122,14 @@ export function AdminPage() {
     }
   }, [page, actionFilter, userFilter, reloadKey])
 
+  /**
+   * 出站配置（黑名单 + 访问记录）挂载即加载。
+   * 此前只在两个「刷新」按钮里拉取：进页面看到「暂无规则/暂无记录」
+   * 的假空态——不是没有数据，是根本没请求。
+   */
   const loadEgress = async () => {
     setEgressError(null)
+    setEgressLoading(true)
     try {
       const [blacklistData, accessData] = await Promise.all([
         fetchBlacklist(),
@@ -113,18 +139,26 @@ export function AdminPage() {
       setAccesses(accessData.items)
       setAccessSummary(accessData.summary ?? {})
     } catch (e: unknown) {
-      setEgressError(e instanceof Error ? e.message : '加载出站配置失败')
+      setEgressError(extractError(e))
+    } finally {
+      setEgressLoading(false)
     }
   }
+
+  // 挂载即拉 + 页面级刷新按钮覆盖（reloadKey 变化时重拉）
+  useEffect(() => {
+    void loadEgress()
+  }, [reloadKey])
 
   useEffect(() => {
     let cancelled = false
     setInvocationError(null)
+    setInvocationLoading(true)
     fetchExternalInvocationAudit({
       server_id: invocationServerFilter || undefined,
       status: invocationStatusFilter || undefined,
-      page: 1,
-      page_size: 20,
+      page: invocationPage,
+      page_size: PAGE_SIZE,
     })
       .then((data) => {
         if (cancelled) return
@@ -132,13 +166,26 @@ export function AdminPage() {
         setExternalInvocationTotal(data.total)
       })
       .catch((cause: unknown) => {
-        if (!cancelled)
-          setInvocationError(cause instanceof Error ? cause.message : '加载外部调用审计失败')
+        if (!cancelled) setInvocationError(extractError(cause))
+      })
+      .finally(() => {
+        if (!cancelled) setInvocationLoading(false)
       })
     return () => {
       cancelled = true
     }
-  }, [invocationServerFilter, invocationStatusFilter, reloadKey])
+  }, [invocationServerFilter, invocationStatusFilter, invocationPage, reloadKey])
+
+  // 外部审计筛选防抖：与审计日志的「草稿+查询」同思路，但两个输入框
+  // 各配查询按钮太沉，300ms 防抖更轻
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setInvocationServerFilter(draftServerFilter.trim())
+      setInvocationStatusFilter(draftStatusFilter.trim())
+      setInvocationPage(1)
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [draftServerFilter, draftStatusFilter])
 
   const addBlacklist = async () => {
     const target = egressTarget.trim().toLowerCase()
@@ -147,14 +194,16 @@ export function AdminPage() {
     setEgressError(null)
     try {
       await createBlacklist({
-        target_type: target.includes('/') ? 'cidr' : 'domain',
+        // 裸 IPv4（1.2.3.4）不含斜杠，旧逻辑会误判成 domain
+        target_type: inferTargetType(target),
         target,
         port_range: null,
       })
       setEgressTarget('')
       await loadEgress()
+      toast.success('已加入黑名单', '新规则对所有 Agent 生效')
     } catch (e: unknown) {
-      setEgressError(e instanceof Error ? e.message : '黑名单保存失败')
+      setEgressError(extractError(e))
     } finally {
       setEgressBusy(false)
     }
@@ -163,17 +212,18 @@ export function AdminPage() {
   const removeBlacklist = async (rule: BlacklistRule) => {
     if (rule.builtin) return
     setEgressBusy(true)
+    setEgressError(null)
     try {
       await deleteBlacklist(rule.id)
       await loadEgress()
-    } catch {
-      setEgressError('黑名单删除失败')
+      toast.success('已移出黑名单')
+    } catch (e: unknown) {
+      setEgressError(extractError(e))
     } finally {
       setEgressBusy(false)
     }
   }
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const hasFilter = Boolean(userFilter || actionFilter)
 
   /** 应用筛选：重置到第一页。 */
@@ -276,19 +326,34 @@ export function AdminPage() {
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-line bg-surface-muted/80">
-                <th className="w-[152px] whitespace-nowrap px-4 py-2.5 text-left text-micro font-semibold uppercase tracking-wide text-ink-muted">
+                <th
+                  scope="col"
+                  className="w-[152px] whitespace-nowrap px-4 py-2.5 text-left text-micro font-semibold uppercase tracking-wide text-ink-muted"
+                >
                   时间
                 </th>
-                <th className="w-[118px] whitespace-nowrap px-4 py-2.5 text-left text-micro font-semibold uppercase tracking-wide text-ink-muted">
+                <th
+                  scope="col"
+                  className="w-[118px] whitespace-nowrap px-4 py-2.5 text-left text-micro font-semibold uppercase tracking-wide text-ink-muted"
+                >
                   用户
                 </th>
-                <th className="w-[150px] whitespace-nowrap px-4 py-2.5 text-left text-micro font-semibold uppercase tracking-wide text-ink-muted">
+                <th
+                  scope="col"
+                  className="w-[150px] whitespace-nowrap px-4 py-2.5 text-left text-micro font-semibold uppercase tracking-wide text-ink-muted"
+                >
                   动作
                 </th>
-                <th className="w-[172px] whitespace-nowrap px-4 py-2.5 text-left text-micro font-semibold uppercase tracking-wide text-ink-muted">
+                <th
+                  scope="col"
+                  className="w-[172px] whitespace-nowrap px-4 py-2.5 text-left text-micro font-semibold uppercase tracking-wide text-ink-muted"
+                >
                   目标
                 </th>
-                <th className="px-4 py-2.5 text-left text-micro font-semibold uppercase tracking-wide text-ink-muted">
+                <th
+                  scope="col"
+                  className="px-4 py-2.5 text-left text-micro font-semibold uppercase tracking-wide text-ink-muted"
+                >
                   详情
                 </th>
               </tr>
@@ -385,34 +450,15 @@ export function AdminPage() {
           </table>
         </div>
 
-        {/* 分页 */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line-subtle px-4 py-3">
-          <p className="text-xs text-ink-muted">
-            第 <span className="font-medium text-ink-soft">{page}</span> / {totalPages} 页
-            <span className="mx-1.5 text-ink-faint">·</span>
-            每页 {PAGE_SIZE} 条
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              leftIcon="chevron-left"
-              disabled={page <= 1 || loading}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              上一页
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              rightIcon="chevron-right"
-              disabled={page >= totalPages || loading}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            >
-              下一页
-            </Button>
-          </div>
-        </div>
+        {/* 分页：复用统一 Pagination 组件（原先是文件内手写一份同视觉的实现） */}
+        <Pagination
+          className="border-t border-line-subtle px-4 py-3"
+          page={page}
+          pageSize={PAGE_SIZE}
+          total={total}
+          onChange={setPage}
+          loading={loading}
+        />
       </Card>
 
       <ExternalToolServers />
@@ -428,37 +474,75 @@ export function AdminPage() {
           <Input
             label="服务器 ID"
             aria-label="外部审计服务器筛选"
-            value={invocationServerFilter}
-            onChange={(event) => setInvocationServerFilter(event.target.value)}
+            value={draftServerFilter}
+            onChange={(event) => setDraftServerFilter(event.target.value)}
             wrapperClassName="w-full sm:w-64"
           />
           <Input
             label="状态"
             aria-label="外部审计状态筛选"
-            value={invocationStatusFilter}
-            onChange={(event) => setInvocationStatusFilter(event.target.value)}
+            value={draftStatusFilter}
+            onChange={(event) => setDraftStatusFilter(event.target.value)}
             placeholder="auth_error"
             wrapperClassName="w-full sm:w-40"
           />
           <Badge tone="slate">共 {externalInvocationTotal} 条</Badge>
         </div>
         {invocationError && (
-          <ErrorBanner error={invocationError} onDismiss={() => setInvocationError(null)} />
+          <ErrorBanner
+            error={invocationError}
+            onDismiss={() => setInvocationError(null)}
+          />
         )}
         <div className="mt-3 overflow-x-auto">
           <table className="min-w-full text-xs">
             <thead>
               <tr className="border-b border-line text-left text-micro uppercase tracking-wide text-ink-muted">
-                <th className="px-2 py-2">时间</th>
-                <th className="px-2 py-2">运行</th>
-                <th className="px-2 py-2">服务器 / 版本</th>
-                <th className="px-2 py-2">状态</th>
-                <th className="px-2 py-2">耗时</th>
-                <th className="px-2 py-2">策略</th>
+                <th scope="col" className="px-2 py-2">
+                  时间
+                </th>
+                <th scope="col" className="px-2 py-2">
+                  运行
+                </th>
+                <th scope="col" className="px-2 py-2">
+                  服务器 / 版本
+                </th>
+                <th scope="col" className="px-2 py-2">
+                  状态
+                </th>
+                <th scope="col" className="px-2 py-2">
+                  耗时
+                </th>
+                <th scope="col" className="px-2 py-2">
+                  策略
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line-subtle">
-              {externalInvocations.length === 0 ? (
+              {invocationLoading && externalInvocations.length === 0 ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i}>
+                    <td className="px-2 py-2">
+                      <Skeleton className="h-3.5 w-28" />
+                    </td>
+                    <td className="px-2 py-2">
+                      <Skeleton className="h-3.5 w-16" />
+                    </td>
+                    <td className="px-2 py-2">
+                      <Skeleton className="h-3.5 w-32" />
+                    </td>
+                    <td className="px-2 py-2">
+                      <Skeleton className="h-5 w-16 rounded" />
+                    </td>
+                    <td className="px-2 py-2">
+                      <Skeleton className="h-3.5 w-12" />
+                    </td>
+                    <td className="px-2 py-2">
+                      <Skeleton className="h-3.5 w-24" />
+                    </td>
+                  </tr>
+                ))
+              ) : externalInvocations.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-2 py-5 text-center text-ink-faint">
                     暂无外部工具调用记录。
@@ -497,6 +581,15 @@ export function AdminPage() {
             </tbody>
           </table>
         </div>
+        {/* 分页：此前固定 page_size=20 无翻页，第 21 条起永远看不到 */}
+        <Pagination
+          className="px-2 py-3"
+          page={invocationPage}
+          pageSize={PAGE_SIZE}
+          total={externalInvocationTotal}
+          onChange={setInvocationPage}
+          loading={invocationLoading}
+        />
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-2">
@@ -508,14 +601,6 @@ export function AdminPage() {
                 内置内网与云元数据规则不可删除，自定义规则会覆盖所有 Agent。
               </p>
             </div>
-            <Button
-              size="sm"
-              variant="secondary"
-              loading={egressBusy}
-              onClick={() => void loadEgress()}
-            >
-              刷新
-            </Button>
           </div>
           <div className="mt-3 flex gap-2">
             <Input
@@ -537,33 +622,37 @@ export function AdminPage() {
               添加
             </Button>
           </div>
-          {egressError && (
-            <p role="alert" className="mt-2 text-xs text-rose-600">
-              {egressError}
-            </p>
+          {egressError && <ErrorBanner error={egressError} variant="inline" className="mt-2" />}
+          {egressLoading && blacklist.length === 0 ? (
+            <div className="mt-3 space-y-2" aria-hidden="true">
+              <Skeleton className="h-8" />
+              <Skeleton className="h-8" />
+            </div>
+          ) : (
+            <ul className="mt-3 divide-y divide-line rounded-lg border border-line">
+              {blacklist.length === 0 ? (
+                <li className="px-3 py-4 text-xs text-ink-faint">暂无黑名单规则。</li>
+              ) : (
+                blacklist.map((rule) => (
+                  <li key={rule.id} className="flex items-center gap-2 px-3 py-2 text-xs">
+                    <span className="min-w-0 flex-1 truncate font-mono text-ink" title={rule.target}>
+                      {rule.target}
+                    </span>
+                    {rule.builtin && <Badge tone="slate">内置</Badge>}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      tone="danger"
+                      disabled={rule.builtin || egressBusy}
+                      onClick={() => void removeBlacklist(rule)}
+                    >
+                      删除
+                    </Button>
+                  </li>
+                ))
+              )}
+            </ul>
           )}
-          <ul className="mt-3 divide-y divide-line rounded-lg border border-line">
-            {blacklist.length === 0 ? (
-              <li className="px-3 py-4 text-xs text-ink-faint">暂无黑名单规则。</li>
-            ) : (
-              blacklist.map((rule) => (
-                <li key={rule.id} className="flex items-center gap-2 px-3 py-2 text-xs">
-                  <span className="min-w-0 flex-1 truncate font-mono text-ink" title={rule.target}>
-                    {rule.target}
-                  </span>
-                  {rule.builtin && <Badge tone="slate">内置</Badge>}
-                  <button
-                    type="button"
-                    disabled={rule.builtin || egressBusy}
-                    onClick={() => void removeBlacklist(rule)}
-                    className="min-h-11 px-2 text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    删除
-                  </button>
-                </li>
-              ))
-            )}
-          </ul>
         </Card>
 
         <Card>
@@ -574,14 +663,6 @@ export function AdminPage() {
                 查看沙箱访问目标与策略结果，直连 IP 需要重点核查。
               </p>
             </div>
-            <Button
-              size="sm"
-              variant="secondary"
-              loading={egressBusy}
-              onClick={() => void loadEgress()}
-            >
-              刷新
-            </Button>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <Badge tone="emerald">放行 {accessSummary.allow ?? 0}</Badge>
@@ -592,14 +673,28 @@ export function AdminPage() {
             <table className="min-w-full text-xs">
               <thead>
                 <tr className="border-b border-line text-left text-micro uppercase tracking-wide text-ink-muted">
-                  <th className="px-2 py-2">目标</th>
-                  <th className="px-2 py-2">端口</th>
-                  <th className="px-2 py-2">动作</th>
-                  <th className="px-2 py-2">流量</th>
+                  <th scope="col" className="px-2 py-2">
+                    目标
+                  </th>
+                  <th scope="col" className="px-2 py-2">
+                    端口
+                  </th>
+                  <th scope="col" className="px-2 py-2">
+                    动作
+                  </th>
+                  <th scope="col" className="px-2 py-2">
+                    流量
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line-subtle">
-                {accesses.length === 0 ? (
+                {egressLoading && accesses.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-2 py-4">
+                      <Skeleton className="h-3.5 w-full" />
+                    </td>
+                  </tr>
+                ) : accesses.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="px-2 py-4 text-center text-ink-faint">
                       暂无出站访问记录。
