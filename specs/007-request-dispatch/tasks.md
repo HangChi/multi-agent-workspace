@@ -74,18 +74,18 @@
 
 ## Phase 5：前端（每提交过 eslint/prettier/tsc/vitest）
 
-- [ ] T029 [P] Unit: `api/endpoints.ts` 新封装 + 类型（fetchUserOptions /
+- [X] T029 [P] Unit: `api/endpoints.ts` 新封装 + 类型（fetchUserOptions /
       acceptRequest / rejectRequest / fetchNotifications / markNotificationsRead）。
-- [ ] T030 Modify `stores/boardStore.ts` + `hooks/useRequests.ts`：scope 参数、
+- [X] T030 Modify `stores/boardStore.ts` + `hooks/useRequests.ts`：scope 参数、
       accept/reject mutation、`?request=` 深链兼容。
-- [ ] T031 Write `components/board/EmployeeTargets.tsx` + `AssignModal` user 分支
+- [X] T031 Write `components/board/EmployeeTargets.tsx` + `AssignModal` user 分支
       （落点视觉 + 无策略步骤的直接确认）。
-- [ ] T032 Modify `pages/BoardPage.tsx`：「待接收」列、三类拖拽目标、范围切换器。
-- [ ] T033 Write `components/layout/NotificationBell.tsx` + 通知中心面板：
+- [X] T032 Modify `pages/BoardPage.tsx`：「待接收」列、三类拖拽目标、范围切换器。
+- [X] T033 Write `components/layout/NotificationBell.tsx` + 通知中心面板：
       TanStack Query `refetchInterval` ≤30s、全部已读、未读角标。
-- [ ] T034 Modify `pages/BoardPage.tsx` 详情弹层：分派信息（当前接收人）+
+- [X] T034 Modify `pages/BoardPage.tsx` 详情弹层：分派信息（当前接收人）+
       经手时间线（dispatch/reassign/accept/reject，来自新详情字段）。
-- [ ] T035 [P] Unit: 新组件与 store 测试（vitest；含 scope 默认值与越权不渲染）。
+- [X] T035 [P] Unit: 新组件与 store 测试（vitest；含 scope 默认值与越权不渲染）。
 
 ## Phase 6：验收与合并
 

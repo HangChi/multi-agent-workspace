@@ -31,6 +31,7 @@ import { LogoMark } from '../ui/Logo'
 import { ThemeToggle } from '../ui/ThemeToggle'
 import { cn } from '../ui/cn'
 import { useCommandPalette } from '../command/useCommandPalette'
+import { NotificationBell } from './NotificationBell'
 import { MAIN_NAV, filterNav } from './nav'
 
 const ROLE_LABEL: Record<string, string> = {
@@ -102,6 +103,9 @@ export function Topbar() {
 
           {/* 一键明暗切换：三选一（含跟随系统）在设置 → 通用设置里 */}
           <ThemeToggle variant="toggle" />
+
+          {/* 007：通知铃铛（未读数轮询 ≤30s，见 NotificationBell） */}
+          <NotificationBell />
 
           <Dropdown
             ariaLabel="个人菜单"

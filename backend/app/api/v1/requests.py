@@ -166,13 +166,32 @@ async def get_request(request_id: ResourceId, user: CurrentUser, db: DB):
         emails = await request_service.assignee_emails(db, [request.assignee_id])
         assignee_email = emails.get(request.assignee_id)
     history = await request_service.dispatch_history(db, request.id)
+    # 经手链的人名展示：一次 IN 查询取齐所有相关用户的邮箱
+    # （US1/US2 要求「谁、何时、为什么」——只有 UUID 的经手链说不出「谁」）
+    involved_ids = {request.owner_id, request.assignee_id} - {None}
+    for h in history:
+        involved_ids.update({h.actor_id, h.from_assignee_id, h.to_assignee_id} - {None})
+    emails = await request_service.assignee_emails(db, [i for i in involved_ids if i])
     return RequestOut.model_validate(request).model_copy(
         update={
             "runs_summary": summaries.get(request.id),
             "source_schedule_id": request.source_schedule_id,
             "source_schedule_name": schedule_name,
             "assignee_email": assignee_email,
-            "dispatch_history": [DispatchRecordOut.model_validate(h) for h in history],
+            "dispatch_history": [
+                DispatchRecordOut.model_validate(h).model_copy(
+                    update={
+                        "actor_email": emails.get(h.actor_id),
+                        "from_assignee_email": emails.get(h.from_assignee_id)
+                        if h.from_assignee_id
+                        else None,
+                        "to_assignee_email": emails.get(h.to_assignee_id)
+                        if h.to_assignee_id
+                        else None,
+                    }
+                )
+                for h in history
+            ],
         }
     )
 

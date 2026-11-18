@@ -1,10 +1,25 @@
 import { apiClient } from './client'
 
-// ---------- 需求（T047/T048）----------
+// ---------- 需求（T047/T048 + 007 分派）----------
 
 export type RequestPriority = 'high' | 'normal' | 'low'
 export type RequestStatus =
-  'created' | 'assigned' | 'running' | 'completed' | 'failed' | 'cancelled'
+  'created' | 'pending' | 'accepted' | 'assigned' | 'running' | 'completed' | 'failed' | 'cancelled'
+
+/** 007：经手链一条（详情页时间线，按 seq 正序）。 */
+export interface DispatchRecord {
+  id: string
+  seq: number
+  action: 'dispatch' | 'reassign' | 'accept' | 'reject'
+  actor_id: string
+  actor_email?: string | null
+  from_assignee_id: string | null
+  from_assignee_email?: string | null
+  to_assignee_id: string | null
+  to_assignee_email?: string | null
+  reason: string | null
+  created_at: string
+}
 
 export interface AttachmentMeta {
   key: string
@@ -47,6 +62,13 @@ export interface WorkRequest {
    */
   source_schedule_id?: string | null
   source_schedule_name?: string | null
+  /** 007：当前接收人（分派指针）。未分派为 null。 */
+  assignee_id?: string | null
+  assignee_email?: string | null
+  dispatched_at?: string | null
+  accepted_at?: string | null
+  /** 007：经手链。仅详情端点填充，列表端为 null。 */
+  dispatch_history?: DispatchRecord[] | null
   created_at: string
   updated_at: string
 }
@@ -63,14 +85,25 @@ export interface RequestList {
   total: number
 }
 
+/** 007：分派类动作的统一响应（accept/reject/dispatch-to-user）。 */
+export interface DispatchActionResult {
+  request_id: string
+  status: RequestStatus
+}
+
 export interface AttachmentUploadParams {
   filename: string
   size: number
   mime_type: string
 }
 
-/** 需求列表（?status=&q=&priority=&page=&page_size=）。 */
+/**
+ * 需求列表。
+ * 007：scope=relevant（默认，我创建的 + 分派给我的）｜mine（仅我创建的）。
+ * 默认值变更是后端契约变更——不传 scope 时看到的不只是自己的需求了。
+ */
 export async function fetchRequests(params?: {
+  scope?: 'relevant' | 'mine'
   status?: RequestStatus
   q?: string
   priority?: RequestPriority
@@ -78,6 +111,23 @@ export async function fetchRequests(params?: {
   page_size?: number
 }): Promise<RequestList> {
   const { data } = await apiClient.get<RequestList>('/requests', { params })
+  return data
+}
+
+/** 接收分派给我的需求（007：pending → accepted）。 */
+export async function acceptRequest(requestId: string): Promise<DispatchActionResult> {
+  const { data } = await apiClient.post<DispatchActionResult>(`/requests/${requestId}/accept`)
+  return data
+}
+
+/** 退回分派来的需求（007：pending|accepted → created，原因必填）。 */
+export async function rejectRequest(
+  requestId: string,
+  reason: string
+): Promise<DispatchActionResult> {
+  const { data } = await apiClient.post<DispatchActionResult>(`/requests/${requestId}/reject`, {
+    reason,
+  })
   return data
 }
 

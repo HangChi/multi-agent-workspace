@@ -107,7 +107,12 @@ class RunOutcomeSummary(BaseModel):
 
 
 class DispatchRecordOut(BaseModel):
-    """经手链一条（007 详情页时间线）。"""
+    """经手链一条（007 详情页时间线）。
+
+    带 *_email 展示字段：US1/US2 的验收要求「谁、何时、为什么」——
+    只有 UUID 的经手链说不出「谁」，邮箱是人员列表（users/options）
+    同源的最小展示口径。
+    """
 
     model_config = {"from_attributes": True}
 
@@ -115,8 +120,11 @@ class DispatchRecordOut(BaseModel):
     seq: int
     action: str
     actor_id: str
+    actor_email: str | None = None
     from_assignee_id: str | None = None
+    from_assignee_email: str | None = None
     to_assignee_id: str | None = None
+    to_assignee_email: str | None = None
     reason: str | None = None
     created_at: datetime
 

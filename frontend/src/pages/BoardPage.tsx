@@ -11,6 +11,7 @@ import {
   fetchGroups,
   fetchRequest,
   fetchRequests,
+  fetchUserOptions,
   openDownloadUrl,
   resolveAttachmentDownloadUrl,
   RoutingStrategy,
@@ -18,6 +19,8 @@ import {
 } from '../api/endpoints'
 import { Board } from '../components/board/Board'
 import { AssignModal } from '../components/board/AssignModal'
+import { DispatchPanel } from '../components/board/DispatchPanel'
+import { RejectModal } from '../components/board/RejectModal'
 import { AttachmentUploader } from '../components/request/AttachmentUploader'
 import { RequestForm, RequestFormValues } from '../components/request/RequestForm'
 import { Badge } from '../components/ui/Badge'
@@ -29,7 +32,9 @@ import { Modal } from '../components/ui/Modal'
 import { Page } from '../components/ui/Page'
 import { PageHeader } from '../components/ui/PageHeader'
 import { useToast } from '../components/ui/useToast'
-import { useAssignRequest } from '../hooks/useRequests'
+import { cn } from '../components/ui/cn'
+import { useAcceptRequest, useAssignRequest, useRejectRequest } from '../hooks/useRequests'
+import { useAuthStore } from '../stores/authStore'
 import { useBoardStore } from '../stores/boardStore'
 
 const PRIORITY_LABEL: Record<string, string> = {
@@ -39,7 +44,9 @@ const PRIORITY_LABEL: Record<string, string> = {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  created: '待分配',
+  created: '待处理',
+  pending: '待接收',
+  accepted: '已接收',
   assigned: '已分配',
   running: '执行中',
   completed: '已完成',
@@ -56,9 +63,12 @@ const PRIORITY_TONE = {
 export function BoardPage() {
   const qc = useQueryClient()
   const toast = useToast()
+  const currentUser = useAuthStore((s) => s.user)
   const [showForm, setShowForm] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [detail, setDetail] = useState<WorkRequest | null>(null)
+  // 007：退回原因弹窗
+  const [showReject, setShowReject] = useState(false)
 
   /**
    * 深链打开详情：`/?request=<id>`。
@@ -92,9 +102,17 @@ export function BoardPage() {
   const openAssign = useBoardStore((s) => s.openAssign)
   const closeAssign = useBoardStore((s) => s.closeAssign)
 
+  // 007：看板范围（relevant 默认 = 我创建的 + 分派给我的；mine = 仅我创建的）
+  const [scope, setScope] = useState<'relevant' | 'mine'>('relevant')
   const { data, isLoading } = useQuery({
-    queryKey: ['requests'],
-    queryFn: () => fetchRequests(),
+    queryKey: ['requests', scope],
+    queryFn: () => fetchRequests({ scope }),
+  })
+
+  // 007：员工拖放目标（第三类落点——转交处理责任）
+  const { data: userOptions } = useQuery({
+    queryKey: ['users', 'options'],
+    queryFn: fetchUserOptions,
   })
 
   // 分配目标：活跃 Agent + 全部组。
@@ -124,7 +142,26 @@ export function BoardPage() {
     if (err) setError(err)
     else {
       closeAssign()
-      toast.success('已分配并进入执行队列')
+      toast.success(
+        pending?.target.kind === 'user' ? '已分派，对方会收到通知' : '已分配并进入执行队列'
+      )
+    }
+  })
+
+  const { accept, isPending: accepting } = useAcceptRequest((err) => {
+    if (err) setError(err)
+    else {
+      setDetail(null)
+      toast.success('已接收，现在可以把需求拖给 Agent 了')
+    }
+  })
+
+  const { reject, isPending: rejecting } = useRejectRequest((err) => {
+    if (err) setError(err)
+    else {
+      setDetail(null)
+      setShowReject(false)
+      toast.success('已退回，创建者会收到通知')
     }
   })
 
@@ -148,10 +185,20 @@ export function BoardPage() {
     retry: false,
   })
 
-  // 列表刷新后同步弹层里的数据（附件上传后会 invalidate）
+  /**
+   * 详情数据源优先级：detail（点卡片时单独拉取的完整详情，含经手链）>
+   * 列表项 > 深链单取。
+   *
+   * 为什么要点卡片时多拉一次：经手链（dispatch_history）只有详情端点
+   * 返回，列表为了 N+1 不返回——看板时间线要么完整要么不显示，
+   * 「有时候有有时候没有」比没有更糟。列表刷新（invalidate）后
+   * detail 仍保留，靠「操作成功后关弹层」避免陈旧数据。
+   */
   const detailSource = detail ?? inList ?? deepLinkRequest
   const currentDetail = detailSource
-    ? (requests.find((r) => r.id === detailSource.id) ?? detailSource)
+    ? detail && detail.id === detailSource.id
+      ? detail
+      : (requests.find((r) => r.id === detailSource.id) ?? detailSource)
     : null
 
   const counts = {
@@ -165,10 +212,41 @@ export function BoardPage() {
       <PageHeader
         eyebrow="工作台"
         title="需求看板"
-        description="把需求写成卡片，拖到上方的 Agent 或组上即可开始执行。"
+        description={
+          scope === 'relevant'
+            ? '我的需求与分派给我的需求同板显示；拖到员工卡是转交责任，拖到 Agent/组是启动执行。'
+            : '仅显示我创建的需求。'
+        }
         icon={<Icon name="grid" />}
         actions={
           <>
+            {/* 007：范围切换（relevant 默认 / mine 兼容旧视图） */}
+            <div
+              role="group"
+              aria-label="看板范围"
+              className="hidden items-center gap-1 rounded-lg border border-line bg-surface p-0.5 shadow-card sm:flex"
+            >
+              {(
+                [
+                  ['relevant', '与我相关'],
+                  ['mine', '我创建的'],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={scope === value}
+                  onClick={() => setScope(value)}
+                  className={cn(
+                    'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
+                    scope === value ? 'bg-brand-600 text-white' : 'text-ink-muted hover:text-ink'
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             {counts.running > 0 && (
               <span className="hidden items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs text-ink-muted shadow-card sm:flex">
                 <span className="h-1.5 w-1.5 rounded-full bg-sky-500 animate-pulse-ring" />
@@ -211,12 +289,19 @@ export function BoardPage() {
         requests={requests}
         agents={activeAgents}
         groups={allGroups}
+        users={userOptions?.items ?? []}
         isLoading={isLoading}
         onAssignStart={openAssign}
-        onOpenDetail={setDetail}
+        onOpenDetail={(r) => {
+          // 先用列表数据秒开弹层，再拉完整详情补经手链（失败则降级为列表数据）
+          setDetail(r)
+          void fetchRequest(r.id)
+            .then(setDetail)
+            .catch(() => undefined)
+        }}
       />
 
-      {/* 分配确认弹窗 */}
+      {/* 分配 / 分派确认弹窗 */}
       {pending && (
         <AssignModal
           request={pending.request}
@@ -231,9 +316,14 @@ export function BoardPage() {
               ? allGroups.find((g) => g.id === pending.target.id)
               : undefined
           }
+          user={
+            pending.target.kind === 'user'
+              ? userOptions?.items.find((u) => u.id === pending.target.id)
+              : undefined
+          }
           submitting={assigning}
           error={error}
-          onConfirm={({ strategy }: { strategy: RoutingStrategy }) => {
+          onConfirm={({ strategy, note }: { strategy?: RoutingStrategy; note?: string }) => {
             setError(null)
             assign({
               requestId: pending.request.id,
@@ -241,6 +331,7 @@ export function BoardPage() {
                 assignee_type: pending.target.kind,
                 assignee_id: pending.target.id,
                 strategy,
+                note,
               },
             })
           }}
@@ -280,6 +371,18 @@ export function BoardPage() {
           }
         >
           <div className="space-y-4">
+            {/* 007：分派信息 + 接收/退回 + 经手时间线（有分派语义的需求才显示） */}
+            {(currentDetail.assignee_id || (currentDetail.dispatch_history ?? []).length > 0) && (
+              <DispatchPanel
+                request={currentDetail}
+                currentUserId={currentUser?.id ?? ''}
+                accepting={accepting}
+                rejecting={rejecting}
+                onAccept={() => accept(currentDetail.id)}
+                onReject={() => setShowReject(true)}
+              />
+            )}
+
             {currentDetail.runs_summary && currentDetail.runs_summary.total > 0 && (
               <div>
                 <p className="mb-1 text-ui font-medium text-ink-soft">运行结果</p>
@@ -391,6 +494,17 @@ export function BoardPage() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* 007：退回原因弹窗 */}
+      {showReject && currentDetail && (
+        <RejectModal
+          request={currentDetail}
+          submitting={rejecting}
+          error={error}
+          onConfirm={(reason) => reject({ requestId: currentDetail.id, reason })}
+          onCancel={() => setShowReject(false)}
+        />
       )}
     </Page>
   )

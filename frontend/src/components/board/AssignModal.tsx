@@ -2,11 +2,12 @@
 
 import { useState } from 'react'
 
-import { Agent, Group, RoutingStrategy, WorkRequest } from '../../api/endpoints'
+import { Agent, Group, RoutingStrategy, UserOption, WorkRequest } from '../../api/endpoints'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { IconTile } from '../ui/Card'
 import { ErrorBanner } from '../ui/ErrorBanner'
+import { Textarea } from '../ui/Field'
 import { Icon } from '../ui/Icons'
 import type { IconName } from '../ui/Icons'
 import { Modal } from '../ui/Modal'
@@ -57,17 +58,23 @@ const PRIORITY_LABEL: Record<string, string> = {
   low: '低',
 }
 
-export type AssignTarget = { kind: 'agent'; id: string } | { kind: 'group'; id: string }
+/**
+ * 拖拽落点。007 起有三类：agent / group / **user**。
+ * user 落点是「转交处理责任」——不建 Run、不选策略，员工接收后自行拖给 Agent。
+ */
+export type AssignTarget =
+  { kind: 'agent'; id: string } | { kind: 'group'; id: string } | { kind: 'user'; id: string }
 
 interface Props {
   request: WorkRequest
   target: AssignTarget
-  /** 拖到的目标详情（Agent 或组）。 */
+  /** 拖到的目标详情（Agent 或组；user 落点为员工）。 */
   agent?: Agent
   group?: Group
+  user?: UserOption
   submitting: boolean
   error: string | null
-  onConfirm: (payload: { strategy: RoutingStrategy }) => void
+  onConfirm: (payload: { strategy?: RoutingStrategy; note?: string }) => void
   onCancel: () => void
 }
 
@@ -76,6 +83,7 @@ export function AssignModal({
   target,
   agent,
   group,
+  user,
   submitting,
   error,
   onConfirm,
@@ -83,25 +91,33 @@ export function AssignModal({
 }: Props) {
   // 拖到组时默认取组配置的路由策略
   const [strategy, setStrategy] = useState<RoutingStrategy>(group?.routing_strategy ?? 'direct')
+  // 007：分派留言（仅 user 落点）
+  const [note, setNote] = useState('')
 
   const isAgent = target.kind === 'agent'
-  const targetName = isAgent ? (agent?.name ?? '该 Agent') : (group?.name ?? '该组')
+  const isUser = target.kind === 'user'
+  const targetName = isAgent
+    ? (agent?.name ?? '该 Agent')
+    : isUser
+      ? (user?.email ?? '该同事')
+      : (group?.name ?? '该组')
 
   return (
     <Modal
       open
       onClose={onCancel}
       size="lg"
-      title="确认分配"
+      title={isUser ? '确认分派' : '确认分配'}
       description={
         <>
-          将需求「{request.title}」分配给{' '}
+          将需求「{request.title}」{isUser ? '转交给' : '分配给'}{' '}
           <span className="font-medium text-ink-soft">{targetName}</span>
+          {isUser && '，对方接收后开始处理'}
         </>
       }
       icon={
-        <IconTile tone={isAgent ? 'brand' : 'sky'}>
-          <Icon name={isAgent ? 'bot' : 'users'} className="h-[18px] w-[18px]" />
+        <IconTile tone={isUser ? 'amber' : isAgent ? 'brand' : 'sky'}>
+          <Icon name={isUser ? 'user' : isAgent ? 'bot' : 'users'} className="h-[18px] w-[18px]" />
         </IconTile>
       }
       footer={
@@ -111,11 +127,13 @@ export function AssignModal({
           </Button>
           <Button
             variant="primary"
-            leftIcon="play"
+            leftIcon={isUser ? 'send' : 'play'}
             loading={submitting}
-            onClick={() => onConfirm({ strategy })}
+            onClick={() =>
+              isUser ? onConfirm({ note: note.trim() || undefined }) : onConfirm({ strategy })
+            }
           >
-            {submitting ? '分配中…' : '确认分配'}
+            {submitting ? (isUser ? '分派中…' : '分配中…') : isUser ? '确认分派' : '确认分配'}
           </Button>
         </>
       }
@@ -130,9 +148,9 @@ export function AssignModal({
           >
             {PRIORITY_LABEL[request.priority] ?? request.priority}
           </Badge>
-          <span className="ml-1 text-xs text-ink-muted">执行方式</span>
-          <Badge tone={isAgent ? 'emerald' : 'sky'} dot>
-            {isAgent ? '直接分配' : STRATEGY_LABELS[strategy]}
+          <span className="ml-1 text-xs text-ink-muted">{isUser ? '转交方式' : '执行方式'}</span>
+          <Badge tone={isUser ? 'amber' : isAgent ? 'emerald' : 'sky'} dot>
+            {isUser ? '转交处理责任' : isAgent ? '直接分配' : STRATEGY_LABELS[strategy]}
           </Badge>
           {isAgent && agent && (
             <span className="ml-auto text-xs text-ink-faint">
@@ -141,7 +159,26 @@ export function AssignModal({
           )}
         </div>
 
-        {!isAgent && group && (
+        {isUser && (
+          <div className="space-y-2">
+            <Textarea
+              label="留言（可选）"
+              hint="随通知一起发给对方，说明背景或期望"
+              labelExtra={<span className="tabular-nums text-ink-faint">{note.length}/2000</span>}
+              rows={3}
+              value={note}
+              maxLength={2000}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="例如：这周内需要初稿，优先看竞品部分"
+            />
+            <p className="flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-2 text-xs text-amber-700 ring-1 ring-inset ring-amber-200/70 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/25">
+              <Icon name="info" className="mt-px h-3.5 w-3.5 shrink-0" />
+              分派只是转交责任，不会自动开始执行；对方接收后可自行拖给 Agent，也可以再次转交或退回。
+            </p>
+          </div>
+        )}
+
+        {!isAgent && !isUser && group && (
           <div>
             <div className="mb-2 flex items-center justify-between">
               <p className="text-ui font-medium text-ink-soft">路由策略</p>

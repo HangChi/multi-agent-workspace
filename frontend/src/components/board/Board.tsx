@@ -1,4 +1,4 @@
-/** 看板（T047 + T056）：状态列 + 筛选 + dnd-kit 拖拽分配。
+/** 看板（T047 + T056 + 007）：状态列 + 筛选 + dnd-kit 拖拽分配/分派。
  *
  * 版式取舍（对齐 Trello / Linear 的看板密度）：
  * - 列宽固定 300px，横向滚动 + 吸附。不再让列「撑满」可用宽度：
@@ -8,12 +8,15 @@
  * - 列头只留「名称 + 计数」，不用彩色徽章 —— 颜色留给优先级色条，
  *    一列之内再出现五六种彩色标签，眼睛反而找不到重点；
  * - 拖放目标横条放在列上方，见 AssignTargets。
+ *
+ * 007：新增「待接收 / 已接收」两列（分派链路），员工卡成为拖放目标
+ * （转交责任，不启动执行）。assigned 仍不占列——它是入队瞬态。
  */
 
 import { DndContext, DragOverlay, DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import { useMemo, useState } from 'react'
 
-import { Agent, Group, WorkRequest } from '../../api/endpoints'
+import { Agent, Group, UserOption, WorkRequest } from '../../api/endpoints'
 import { IconButton } from '../ui/Button'
 import { Icon } from '../ui/Icons'
 import { Input } from '../ui/Field'
@@ -28,15 +31,22 @@ const COLUMNS: {
   label: string
   hint: string
 }[] = [
-  { status: 'created', label: '待分配', hint: '拖到上方目标完成分配' },
+  { status: 'created', label: '待处理', hint: '自己处理或拖到目标分派/分配' },
+  { status: 'pending', label: '待接收', hint: '已分派给同事，等待对方接收' },
+  { status: 'accepted', label: '已接收', hint: '同事已认领，可拖到 Agent 开始执行' },
   { status: 'running', label: '执行中', hint: 'Agent 正在处理' },
   { status: 'completed', label: '已完成', hint: '执行成功' },
   { status: 'failed', label: '失败', hint: '可重新分配' },
   { status: 'cancelled', label: '已取消', hint: '已终止' },
 ]
 
-/** 可拖拽（待分配/已分配可重新分配）。 */
-const DRAGGABLE_STATUSES = new Set<WorkRequest['status']>(['created', 'assigned'])
+/** 可拖拽（待处理/待接收/已接收可转交或分配）。 */
+const DRAGGABLE_STATUSES = new Set<WorkRequest['status']>([
+  'created',
+  'pending',
+  'accepted',
+  'assigned',
+])
 
 const PRIORITY_LABEL: Record<string, string> = {
   high: '高优先级',
@@ -50,14 +60,24 @@ interface Props {
   requests: WorkRequest[]
   agents: Agent[]
   groups: Group[]
+  /** 007：在职员工（分派落点）。 */
+  users: UserOption[]
   isLoading?: boolean
-  /** 拖拽落点回调（触发分配弹窗）。 */
+  /** 拖拽落点回调（触发分配/分派弹窗）。 */
   onAssignStart: (request: WorkRequest, target: AssignTarget) => void
   /** 打开需求详情 */
   onOpenDetail?: (request: WorkRequest) => void
 }
 
-export function Board({ requests, agents, groups, isLoading, onAssignStart, onOpenDetail }: Props) {
+export function Board({
+  requests,
+  agents,
+  groups,
+  users,
+  isLoading,
+  onAssignStart,
+  onOpenDetail,
+}: Props) {
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [active, setActive] = useState<WorkRequest | null>(null)
@@ -98,11 +118,13 @@ export function Board({ requests, agents, groups, isLoading, onAssignStart, onOp
     setActive(null)
     if (!over || !activeReq) return
     const overId = String(over.id)
-    // 目标 id 形如 agent:<uuid> / group:<uuid>
+    // 目标 id 形如 agent:<uuid> / group:<uuid> / user:<uuid>
     if (overId.startsWith('agent:')) {
       onAssignStart(activeReq, { kind: 'agent', id: overId.slice('agent:'.length) })
     } else if (overId.startsWith('group:')) {
       onAssignStart(activeReq, { kind: 'group', id: overId.slice('group:'.length) })
+    } else if (overId.startsWith('user:')) {
+      onAssignStart(activeReq, { kind: 'user', id: overId.slice('user:'.length) })
     }
   }
 
@@ -169,7 +191,7 @@ export function Board({ requests, agents, groups, isLoading, onAssignStart, onOp
       </div>
 
       <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <AssignTargets agents={agents} groups={groups} />
+        <AssignTargets agents={agents} groups={groups} users={users} />
 
         <div className="relative mt-3">
           <div className="scrollbar-none flex snap-x snap-mandatory items-stretch gap-3 overflow-x-auto pb-2">
