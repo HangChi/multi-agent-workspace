@@ -8,6 +8,11 @@ import { extractError } from '../api/client'
 import { StepList } from '../components/run/StepList'
 import { ExecutionCard } from '../components/run/ExecutionCard'
 import { ExternalToolInvocationCard } from '../components/run/ExternalToolInvocationCard'
+import {
+  RETRY_STATUS_META,
+  formatRetryCountdown,
+  retryProgressText,
+} from '../components/run/RetryStatus'
 import { Badge } from '../components/ui/Badge'
 import type { BadgeTone } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
@@ -23,25 +28,31 @@ import { useRunSocket, type RunSocketEvent } from '../hooks/useRunSocket'
 import { cn } from '../components/ui/cn'
 import { formatBytes } from '../utils/formatBytes'
 
-const STATUS_LABEL: Record<api.RunStatus, string> = {
-  queued: '排队中',
-  running: '执行中',
-  needs_input: '等待输入',
-  completed: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
-  timeout: '超时',
+/**
+ * 006：距下次重试的剩余秒数，每秒刷新。
+ *
+ * 用本地计算而不是轮询后端：`next_retry_at` 一次性写入后不会变，轮询只会给
+ * API 添负载。WS 的 `run_retrying` 到达时 next_retry_at 被重置，这里自然重新起算。
+ */
+function useRetryCountdown(nextRetryAt: string | null): number | null {
+  const [secondsLeft, setSecondsLeft] = useState(() => formatRetryCountdown(nextRetryAt))
+  useEffect(() => {
+    setSecondsLeft(formatRetryCountdown(nextRetryAt))
+    if (!nextRetryAt) return
+    const timer = window.setInterval(() => setSecondsLeft(formatRetryCountdown(nextRetryAt)), 1000)
+    return () => window.clearInterval(timer)
+  }, [nextRetryAt])
+  return secondsLeft
 }
 
-const STATUS_TONE: Record<api.RunStatus, BadgeTone> = {
-  queued: 'slate',
-  running: 'sky',
-  needs_input: 'amber',
-  completed: 'emerald',
-  failed: 'rose',
-  cancelled: 'slate',
-  timeout: 'orange',
-}
+// 006：状态元数据收敛到 RetryStatus.tsx（含 retrying 与未知状态降级），
+// 避免页面里各写一份而漏掉新状态。
+const STATUS_LABEL: Record<api.RunStatus, string> = Object.fromEntries(
+  (Object.keys(RETRY_STATUS_META) as api.RunStatus[]).map((k) => [k, RETRY_STATUS_META[k].label])
+) as Record<api.RunStatus, string>
+const STATUS_TONE: Record<api.RunStatus, BadgeTone> = Object.fromEntries(
+  (Object.keys(RETRY_STATUS_META) as api.RunStatus[]).map((k) => [k, RETRY_STATUS_META[k].tone])
+) as Record<api.RunStatus, BadgeTone>
 
 const STRATEGY_LABEL: Record<string, string> = {
   direct: '直接路由',
@@ -60,6 +71,20 @@ const LOG_LEVEL_CLASS: Record<string, string> = {
   warning: 'text-amber-300',
   error: 'text-rose-300',
   debug: 'text-slate-500',
+}
+
+/** 006：「第 2/3 次 · 约 4s 后重试」——重试等待中的进度提示。 */
+function RetryProgress({ attempt, nextRetryAt }: { attempt: number; nextRetryAt: string | null }) {
+  const secondsLeft = useRetryCountdown(nextRetryAt)
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200/70 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/25"
+      data-testid="retry-progress"
+    >
+      <Icon name="clock" className="h-3.5 w-3.5" />
+      {retryProgressText({ attempt, maxAttempts: null, secondsLeft })}
+    </span>
+  )
 }
 
 function MetaTile({ label, children }: { label: string; children: React.ReactNode }) {
@@ -236,6 +261,21 @@ export function RunDetailPage() {
       case 'needs_input':
         setRun((prev) => (prev ? { ...prev, status: 'needs_input' } : prev))
         break
+      case 'run_retrying': {
+        // 006：瞬时失败后进入重试等待。attempt 是「即将开始的第几次」，
+        // 与后端 events.run_retrying 的语义一致。
+        setRun((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: 'retrying',
+                attempt: (event.attempt as number) ?? prev.attempt,
+                next_retry_at: (event.next_retry_at as string) ?? null,
+              }
+            : prev
+        )
+        break
+      }
       case 'run_failed':
         setRun((prev) =>
           prev ? { ...prev, status: 'failed', error: (event.error as string) ?? prev.error } : prev
@@ -400,6 +440,9 @@ export function RunDetailPage() {
         <Badge tone={STATUS_TONE[run.status]} dot pulse={run.status === 'running'} size="md">
           {STATUS_LABEL[run.status]}
         </Badge>
+        {run.status === 'retrying' && (
+          <RetryProgress attempt={run.attempt} nextRetryAt={run.next_retry_at} />
+        )}
       </div>
 
       {/* 概要 */}
@@ -459,6 +502,7 @@ export function RunDetailPage() {
           <MetaTile label="累计成本">
             <span className="tabular-nums">¥{formatCostYuan(run.cost_cents, run.cost_micros)}</span>
           </MetaTile>
+          {run.attempt > 1 && <MetaTile label="尝试次数">第 {run.attempt} 次</MetaTile>}
           <MetaTile label="实时连接">
             {connected ? (
               <span className="inline-flex items-center gap-1.5 text-emerald-600">
@@ -559,6 +603,40 @@ export function RunDetailPage() {
               </div>
             </div>
           </div>
+        </Card>
+      )}
+
+      {/* 006：重试历史（FR-017：每次尝试的败因都可查） */}
+
+      {run.retry_history.length > 0 && (
+        <Card>
+          <CardHeader
+            title="重试历史"
+
+            description="每次失败的原因与时刻；自动重试与手动重试都记录在此"
+          />
+
+          <ol className="space-y-2">
+            {[...run.retry_history].reverse().map((entry) => (
+              <li
+                key={entry.attempt}
+
+                className="flex items-start gap-2.5 rounded-lg border border-line-subtle bg-surface-muted/60 p-3"
+              >
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-100 text-2xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                  {entry.attempt}
+                </span>
+
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] leading-relaxed text-ink">{entry.error}</p>
+
+                  <p className="mt-1 text-2xs text-ink-faint">
+                    {new Date(entry.at).toLocaleString('zh-CN')}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
         </Card>
       )}
 

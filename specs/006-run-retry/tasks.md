@@ -68,14 +68,30 @@
 
 **Checkpoint**: 重试进度在详情页与看板可见，不与「执行中/失败」混淆。
 
-- [ ] T028 [P] [US4] Unit(vitest): 状态徽章组件 — `retrying` 渲染为「重试中」且色调区别于 `failed`；未知状态降级显示原始字符串。
-- [ ] T029 [P] [US1] Unit(vitest): 倒计时 hook — 由 `next_retry_at` 计算剩余秒数，到点归零不变负；WS 事件到达时重置。
-- [ ] T030 [US4] Modify 运行详情页: 状态徽章支持 `retrying`；「执行」区块下增加重试历史折叠列表（attempt 倒序，含错误与时刻）；显示「第 N/M 次 · 约 Xs 后重试」。
-- [ ] T031 [US1] Modify WS 事件处理: 消费 `run_retrying`，更新对应 Run 的状态与倒计时。
-- [ ] T032 [P] [US1] Modify 看板/列表卡片: `retrying` 状态用琥珀色调，与 `failed`（红）明确区分。
-- [ ] T033 [P] [US1] Modify 前端 `Run` 类型与 API 封装: 补 `attempt` / `next_retry_at` / `retry_history` 三个字段（含迁移前旧数据的默认值处理）。
+- [X] T028 [P] [US4] Unit(vitest): 状态徽章组件 — `retrying` 渲染为「重试中」且色调区别于 `failed`；未知状态降级显示原始字符串。
+- [X] T029 [P] [US1] Unit(vitest): 倒计时 hook — 由 `next_retry_at` 计算剩余秒数，到点归零不变负；WS 事件到达时重置。
+- [X] T030 [US4] Modify 运行详情页: 状态徽章支持 `retrying`；「执行」区块下增加重试历史折叠列表（attempt 倒序，含错误与时刻）；显示「第 N/M 次 · 约 Xs 后重试」。
+- [X] T031 [US1] Modify WS 事件处理: 消费 `run_retrying`，更新对应 Run 的状态与倒计时。
+- [X] T032 [P] [US1] Modify 看板/列表卡片: `retrying` 状态用琥珀色调，与 `failed`（红）明确区分。
+- [X] T033 [P] [US1] Modify 前端 `Run` 类型与 API 封装: 补 `attempt` / `next_retry_at` / `retry_history` 三个字段（含迁移前旧数据的默认值处理）。
 
 **Checkpoint 3**: `npm run lint` + `prettier --check` + `tsc --noEmit` + `vitest run` + `vite build` 全绿。
+
+**Phase 3 实测记录（2026-11-18）**
+
+| 项 | 结果 |
+|---|---|
+| `vitest` | 115 passed / 21 files（新增 RetryStatus 8 例） |
+| `eslint` / `prettier --check` / `tsc --noEmit` / `vite build` | 全绿 |
+
+**实现说明**：
+- 状态元数据收敛到 `components/run/RetryStatus.ts`（含 `retrying` 与未知状态降级），
+  RunDetailPage 的 STATUS_LABEL/STATUS_TONE 从它派生，避免页面里各写一份漏掉新状态
+- 文件用 `.ts` 而非 `.tsx`：内容没有 JSX，放 `.tsx` 会触发 react-refresh 警告
+- 倒计时用本地计算（`next_retry_at` 一次性写入，轮询只会给 API 添负载），
+  WS `run_retrying` 到达时自然重新起算
+- 重试历史卡片只在 `retry_history.length > 0` 时渲染；「尝试次数」MetaTile 仅在
+  `attempt > 1` 时出现，避免给绝大多数从未重试的运行加噪声
 
 ---
 

@@ -3,7 +3,22 @@ import { apiClient } from './client'
 // ---------- 运行（T072，US5）----------
 
 export type RunStatus =
-  'queued' | 'running' | 'needs_input' | 'completed' | 'failed' | 'cancelled' | 'timeout'
+  | 'queued'
+  | 'running'
+  | 'needs_input'
+  /** 006：瞬时失败后等待自动重试（中间态，会自动回到 running 或转 failed） */
+  | 'retrying'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'timeout'
+
+/** 006：一次失败的记录（retry_history 的元素）。 */
+export interface RetryHistoryEntry {
+  attempt: number
+  error: string
+  at: string
+}
 
 export interface RunStep {
   id: string
@@ -222,6 +237,12 @@ export interface RunDetail {
   strategy: 'direct' | 'fan_out' | 'pipeline' | 'router'
   status: RunStatus
   current_step: number
+  /** 006：第几次尝试（首次为 1） */
+  attempt: number
+  /** 006：下次重试时刻；非重试中为 null */
+  next_retry_at: string | null
+  /** 006：历次失败原因 */
+  retry_history: RetryHistoryEntry[]
   tool_grants_snapshot?: string[] | null
   result: Record<string, unknown> | null
   error: string | null
