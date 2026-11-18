@@ -16,10 +16,10 @@
 
 ## Phase 4 — 回填与合并（每项一次提交）
 
-- [ ] T007 009 quickstart 的 B4 条目 ⏳ → ✅（附 s12 复跑记录与日期）
-- [ ] T008 011 quickstart §5 发现 #1 标记「已修复（012）」+ 012 quickstart 实测记录回填
-- [ ] T009 README/docs/architecture 同步（012 特性行 + ErrorBanner 契约说明）
-- [ ] T010 ff 合并 master 删分支 + 更新 MEMORY
+- [X] T007 009 quickstart 的 B4 条目 ⏳ → ✅（附 s12 复跑记录与日期）
+- [X] T008 011 quickstart §5 发现 #1 标记「已修复（012）」+ 012 quickstart 实测记录回填
+- [X] T009 README/docs/architecture 同步（012 特性行 + ErrorBanner 契约说明）
+- [X] T010 ff 合并 master 删分支 + 更新 MEMORY
 
 ## Notes
 
