@@ -6,27 +6,32 @@
  *   几乎都是「宽内容」（看板、列表、表格），横向导航更划算；
  * - 于是横栏只放 4 个业务入口（看板、仪表盘、Agent、组）。
  *
- * 设置不进横栏，全部收进右上角「个人菜单」（头像下拉）：账号信息 +
- * 通用/模板/调度/工具市场/管理后台 + 退出。这是 Linear / GitHub 的做法——
- * 设置是低频且属于「我自己」的操作，不该和业务入口抢导航位。
+ * 设置不进横栏，收在右上角「个人菜单」（头像下拉）里：账号信息 + 一个
+ * 「设置」入口 + 退出。这是 Linear / GitHub 的做法——设置是低频且属于
+ * 「我自己」的操作，不该和业务入口抢导航位。
+ *
+ * 菜单里只放**一个**设置入口，不罗列通用/模板/调度/工具/管理五个子项：
+ * 那五个目的地的完整导航在设置页自己的二级导航里（SettingsLayout），
+ * 头像菜单再列一遍就是同一份清单两个入口，点进去看到的内容也完全相同。
+ * 需要直达某个设置子页时用 ⌘K（命令面板已索引全部设置页）。
  *
  * 右上角保持克制：只有 ⌘K、明/暗切换、个人菜单。
  * 「系统正常」pill 已撤掉——它既不是真监控（没有后端探活背书），
  * 又和设置里的主题、版本信息重复；主题的三选一在设置 → 通用设置。
  */
 
-import { Link, NavLink } from 'react-router-dom'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
 
 import { useAuth } from '../../hooks/useAuth'
 import { Badge } from '../ui/Badge'
 import type { BadgeTone } from '../ui/Badge'
-import { Dropdown, DropdownItem, DropdownLabel, DropdownSeparator } from '../ui/Dropdown'
+import { Dropdown, DropdownItem, DropdownSeparator } from '../ui/Dropdown'
 import { Icon } from '../ui/Icons'
 import { LogoMark } from '../ui/Logo'
 import { ThemeToggle } from '../ui/ThemeToggle'
 import { cn } from '../ui/cn'
 import { useCommandPalette } from '../command/useCommandPalette'
-import { MAIN_NAV, SETTINGS_NAV, filterNav } from './nav'
+import { MAIN_NAV, filterNav } from './nav'
 
 const ROLE_LABEL: Record<string, string> = {
   admin: '管理员',
@@ -53,8 +58,8 @@ function navClass({ isActive }: { isActive: boolean }) {
 export function Topbar() {
   const { user, logout } = useAuth()
   const { toggle } = useCommandPalette()
+  const navigate = useNavigate()
   const mainItems = filterNav(MAIN_NAV, user?.role)
-  const settingsItems = filterNav(SETTINGS_NAV, user?.role)
   const initial = (user?.email ?? '?').slice(0, 1).toUpperCase()
 
   return (
@@ -111,8 +116,9 @@ export function Topbar() {
               </>
             }
           >
-            {/* 个人模块：账号信息 + 全部设置入口 + 退出。
-                设置不再占顶栏，全部收在这里——这是 Linear / GitHub 的做法 */}
+            {/* 个人模块：账号信息 + 单一设置入口 + 退出。
+                五个设置子页不在这里罗列——设置页的二级导航是它们唯一的
+                完整清单，两处各列一遍就是双入口重复。 */}
             <div className="px-2.5 pb-2 pt-1.5">
               <p className="truncate text-ui font-medium text-ink">{user?.email}</p>
               <div className="mt-1.5">
@@ -122,17 +128,13 @@ export function Topbar() {
               </div>
             </div>
 
-            {settingsItems.length > 0 && (
-              <>
-                <DropdownSeparator />
-                <DropdownLabel>设置</DropdownLabel>
-                {settingsItems.map((item) => (
-                  <Link key={item.to} to={item.to}>
-                    <DropdownItem icon={item.icon}>{item.label}</DropdownItem>
-                  </Link>
-                ))}
-              </>
-            )}
+            <DropdownSeparator />
+            {/* 用 navigate 而不是 <Link> 包 button：嵌套交互元素既不符合 HTML
+                规范，也会让焦点在菜单卸载后坠回 body；Dropdown 的 panel
+                onClick 会顺手把焦点还给头像按钮 */}
+            <DropdownItem icon="settings" onClick={() => navigate('/settings/general')}>
+              设置
+            </DropdownItem>
 
             <DropdownSeparator />
             <DropdownItem icon="log-out" tone="danger" onClick={logout}>
