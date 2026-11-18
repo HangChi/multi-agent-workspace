@@ -20,7 +20,6 @@ import { AgentForm, AgentFormValues } from '../components/agent/AgentForm'
 import { TemplatePicker } from '../components/agent/TemplatePicker'
 import { AgentListItem } from '../components/agent/AgentListItem'
 import { Button, IconButton } from '../components/ui/Button'
-import { IconTile } from '../components/ui/Card'
 import { useConfirm } from '../components/ui/useConfirm'
 import { EmptyState } from '../components/ui/EmptyState'
 import { ErrorBanner } from '../components/ui/ErrorBanner'
@@ -236,11 +235,7 @@ export function AgentPage() {
         eyebrow="工作台"
         title="Agent 管理"
         description="创建可执行的 Agent：提示词、模型、工具集与成本上限。"
-        icon={
-          <IconTile tone="brand" size="lg">
-            <Icon name="bot" className="h-5 w-5" />
-          </IconTile>
-        }
+        icon={<Icon name="bot" />}
         actions={
           <div className="flex items-center gap-2">
             <Button

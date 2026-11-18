@@ -99,11 +99,7 @@ export function SettingsPage() {
         eyebrow="设置"
         title="通用设置"
         description="外观、账号与系统信息。低频但又必须能找到的东西，都放在这里。"
-        icon={
-          <IconTile tone="brand" size="lg">
-            <Icon name="settings" className="h-5 w-5" />
-          </IconTile>
-        }
+        icon={<Icon name="settings" />}
       />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
@@ -114,7 +110,8 @@ export function SettingsPage() {
             </IconTile>
             <div className="min-w-0">
               <h2 className="text-sm font-semibold text-ink">外观</h2>
-              <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">
+              <p className="mt-0.5 text-ui leading-relaxed text-ink-muted">
+                右上角的按钮只在浅色 / 深色之间快速切换；三个选项（含跟随系统）在这里选。
                 主题只影响界面呈现，不改动任何数据。
               </p>
             </div>
@@ -241,7 +238,8 @@ export function SettingsPage() {
               <h2 className="text-sm font-semibold text-ink">系统信息</h2>
               <p className="mt-0.5 text-ui leading-relaxed text-ink-muted">
                 前端 v0.1.0 · 时区 Asia/Shanghai · 构建产物经 Nginx 提供静态服务。
-                运行状态只在顶栏显示，这里放不会随状态变化的信息。
+                这里只放不随运行状态变化的信息——界面不再显示「系统正常」徽标，
+                需要看运行情况请到仪表盘。
               </p>
             </div>
           </div>

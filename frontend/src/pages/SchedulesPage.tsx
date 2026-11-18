@@ -30,7 +30,6 @@ import type { ScheduleFormValues } from '../components/schedule/ScheduleForm'
 import { ScheduleList } from '../components/schedule/ScheduleList'
 import { TriggerHistory } from '../components/schedule/TriggerHistory'
 import { Button } from '../components/ui/Button'
-import { IconTile } from '../components/ui/Card'
 import { useConfirm } from '../components/ui/useConfirm'
 import { EmptyState } from '../components/ui/EmptyState'
 import { ErrorBanner } from '../components/ui/ErrorBanner'
@@ -236,11 +235,7 @@ export function SchedulesPage() {
         eyebrow="设置"
         title="定时调度"
         description="按周期自动创建需求并分配执行。错过的时间点会记录为「已错过」，不会补跑。"
-        icon={
-          <IconTile tone="brand" size="lg">
-            <Icon name="clock" className="h-5 w-5" />
-          </IconTile>
-        }
+        icon={<Icon name="clock" />}
         actions={
           <Button
             variant={formOpen ? 'secondary' : 'primary'}

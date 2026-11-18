@@ -1,21 +1,58 @@
-/** 主题切换：浅色 / 深色 / 跟随系统（下拉菜单，当前项打勾）。 */
+/**
+ * 主题控件，两种形态：
+ * - `menu`（默认）：浅色 / 深色 / 跟随系统 三选一下拉，登录页用；
+ * - `toggle`：一键明暗切换，工作台顶栏用。
+ *
+ * 为什么顶栏用 toggle：主题的完整选择（含跟随系统）已经放进
+ * 设置 → 通用设置 → 外观，顶栏只承担「我现在想换个亮度」这一件事，
+ * 一个按钮点一下就够，不该再弹一层菜单。
+ *
+ * 从「跟随系统」一键切过来时会落成明确的 light/dark，
+ * 这是用户意图的显式表达，比继续跟随更符合预期。
+ */
 
 import { Icon } from './Icons'
 import type { IconName } from './Icons'
 import { Dropdown } from './Dropdown'
-import { useThemeStore } from '../../stores/themeStore'
+import { resolveDark, useThemeStore } from '../../stores/themeStore'
 import type { ThemeMode } from '../../stores/themeStore'
 import { cn } from './cn'
 
 const MODES: { value: ThemeMode; label: string; hint: string; icon: IconName }[] = [
   { value: 'light', label: '浅色', hint: '蓝白配色', icon: 'sun' },
   { value: 'dark', label: '深色', hint: '夜间低亮度', icon: 'moon' },
-  { value: 'system', label: '跟随系统', hint: '随系统外观切换', icon: 'monitor' },
+  { value: 'system', label: '跟随系统', hint: '随系统外观自动切换', icon: 'monitor' },
 ]
 
-export function ThemeToggle({ className }: { className?: string }) {
+interface Props {
+  className?: string
+  variant?: 'menu' | 'toggle'
+}
+
+export function ThemeToggle({ className, variant = 'menu' }: Props) {
   const mode = useThemeStore((s) => s.mode)
   const setMode = useThemeStore((s) => s.setMode)
+
+  if (variant === 'toggle') {
+    const dark = resolveDark(mode)
+    return (
+      <button
+        type="button"
+        onClick={() => setMode(dark ? 'light' : 'dark')}
+        aria-label={dark ? '切换到浅色' : '切换到深色'}
+        title={dark ? '切换到浅色' : '切换到深色'}
+        className={cn(
+          'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors',
+          'hover:bg-surface-subtle hover:text-ink',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 focus-visible:ring-offset-2',
+          className
+        )}
+      >
+        <Icon name={dark ? 'sun' : 'moon'} className="h-[17px] w-[17px]" />
+      </button>
+    )
+  }
+
   const current = MODES.find((m) => m.value === mode) ?? MODES[2]
 
   return (

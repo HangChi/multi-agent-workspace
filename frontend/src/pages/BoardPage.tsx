@@ -166,11 +166,7 @@ export function BoardPage() {
         eyebrow="工作台"
         title="需求看板"
         description="把需求写成卡片，拖到上方的 Agent 或组上即可开始执行。"
-        icon={
-          <IconTile tone="brand" size="lg">
-            <Icon name="grid" className="h-5 w-5" />
-          </IconTile>
-        }
+        icon={<Icon name="grid" />}
         actions={
           <>
             {counts.running > 0 && (

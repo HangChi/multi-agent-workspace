@@ -353,11 +353,7 @@ export function DashboardPage() {
       eyebrow="工作台"
       title="仪表盘"
       description="我的工作负载与成本概览，每 15 秒自动刷新。"
-      icon={
-        <IconTile tone="brand" size="lg">
-          <Icon name="activity" className="h-5 w-5" />
-        </IconTile>
-      }
+      icon={<Icon name="activity" />}
       actions={
         <>
           {dataUpdatedAt > 0 && (

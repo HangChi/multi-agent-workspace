@@ -11,7 +11,7 @@ import {
 } from '../api/endpoints'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
-import { Card, IconTile } from '../components/ui/Card'
+import { Card } from '../components/ui/Card'
 import { EmptyState } from '../components/ui/EmptyState'
 import { ErrorBanner } from '../components/ui/ErrorBanner'
 import { Icon } from '../components/ui/Icons'
@@ -59,11 +59,7 @@ export function MarketplacePage() {
         eyebrow="设置"
         title="工具市场"
         description="浏览已审核、可安全安装的第三方 MCP 工具。"
-        icon={
-          <IconTile tone="brand" size="lg">
-            <Icon name="plug" className="h-5 w-5" />
-          </IconTile>
-        }
+        icon={<Icon name="plug" />}
       />
       <Card padding="md">
         <form

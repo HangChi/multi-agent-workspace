@@ -275,11 +275,7 @@ export function GroupPage() {
         eyebrow="工作台"
         title="Agent 组管理"
         description="把多个 Agent 编成一组，按路由策略协调执行。"
-        icon={
-          <IconTile tone="sky" size="lg">
-            <Icon name="users" className="h-5 w-5" />
-          </IconTile>
-        }
+        icon={<Icon name="users" />}
         actions={
           <Button
             variant={showForm ? 'secondary' : 'primary'}

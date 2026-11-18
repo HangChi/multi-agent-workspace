@@ -157,11 +157,7 @@ export function AgentTemplatesPage() {
         eyebrow="设置"
         title="Agent 模板"
         description="把调好的配置沉淀成模板，创建 Agent 时一键复用。模板是快照——改模板不会改动已创建的 Agent。"
-        icon={
-          <IconTile tone="brand" size="lg">
-            <Icon name="layers" className="h-5 w-5" />
-          </IconTile>
-        }
+        icon={<Icon name="layers" />}
       />
 
       {error && (

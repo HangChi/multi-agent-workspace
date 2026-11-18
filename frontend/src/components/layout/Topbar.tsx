@@ -10,8 +10,9 @@
  * 通用/模板/调度/工具市场/管理后台 + 退出。这是 Linear / GitHub 的做法——
  * 设置是低频且属于「我自己」的操作，不该和业务入口抢导航位。
  *
- * 「系统正常」只在这里出现一次：页脚、设置页各显示一遍没有意义，
- * 顶栏是唯一合理的实时状态位；版本号收敛到设置 → 通用设置里。
+ * 右上角保持克制：只有 ⌘K、明/暗切换、个人菜单。
+ * 「系统正常」pill 已撤掉——它既不是真监控（没有后端探活背书），
+ * 又和设置里的主题、版本信息重复；主题的三选一在设置 → 通用设置。
  */
 
 import { Link, NavLink } from 'react-router-dom'
@@ -94,12 +95,8 @@ export function Topbar() {
             </kbd>
           </button>
 
-          <span className="mr-1 hidden items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-micro font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200/70 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/25 lg:flex">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse-ring" />
-            系统正常
-          </span>
-
-          <ThemeToggle className="h-9 w-9 rounded-lg" />
+          {/* 一键明暗切换：三选一（含跟随系统）在设置 → 通用设置里 */}
+          <ThemeToggle variant="toggle" />
 
           <Dropdown
             ariaLabel="个人菜单"
