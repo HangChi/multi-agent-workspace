@@ -12,13 +12,38 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
 from app.models.request import Request
+from app.models.request_dispatch import RequestDispatch
 from app.models.run import Run
+from app.models.user import User
 from app.schemas.request import RequestCreate, RequestUpdate, RunOutcomeSummary
 
 logger = structlog.get_logger(__name__)
 
 # Run 的非终态：只要还有一个没结束，需求就仍在执行中。
 _ACTIVE_RUN_STATUSES = frozenset({"queued", "running", "needs_input"})
+
+
+async def assignee_emails(db: AsyncSession, user_ids: list[str]) -> dict[str, str]:
+    """批量取用户邮箱（需求列表/详情展示「当前接收人」用，一次 IN 查询）。"""
+    ids = [uid for uid in user_ids if uid]
+    if not ids:
+        return {}
+    rows = (await db.execute(select(User.id, User.email).where(User.id.in_(ids)))).all()
+    return {row.id: row.email for row in rows}
+
+
+async def dispatch_history(db: AsyncSession, request_id: str) -> list[RequestDispatch]:
+    """经手链（详情页时间线）：按 seq 正序——「谁先谁后」是叙事顺序。
+
+    排序键是 seq 不是 created_at：PG 的 now() 是事务开始时间，行锁等待会
+    让后插入的事务持有更早的时间戳（data-model §3 / 模型注释）。
+    """
+    stmt = (
+        select(RequestDispatch)
+        .where(RequestDispatch.request_id == request_id)
+        .order_by(RequestDispatch.seq)
+    )
+    return list((await db.execute(stmt)).scalars().all())
 
 
 async def settle_request_status(db: AsyncSession, request_id: str) -> str | None:
@@ -88,7 +113,17 @@ async def run_outcome_summaries(
 
 
 def _check_owner(request: Request, user_id: str) -> None:
-    if request.owner_id != user_id:
+    """资源访问权（007）：创建者**或当前接收人**。
+
+    旧口径仅 owner——分派后接收人会被拒，员工对「派给自己的需求」
+    毫无操作权（research R-02）。
+
+    错误码沿用既有契约：**非相关人员 403 FORBIDDEN**（test_requests.py
+    明确锁定，FR-014 要求零变化）。注意这与 agent/组（404）及 007 新的
+    分派端点 accept/reject/dispatch（404）不同——三者的差异是历史形成的，
+    统一收敛不在 007 范围（spec §US6 已记录该偏差）。
+    """
+    if request.owner_id != user_id and request.assignee_id != user_id:
         raise AppError("FORBIDDEN", "无权操作他人需求")
 
 
@@ -133,14 +168,24 @@ async def list_requests(
     db: AsyncSession,
     *,
     user_id: str,
+    scope: str = "relevant",
     status: str | None = None,
     q: str | None = None,
     priority: str | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[Request], int]:
-    """列表：仅自己的，支持状态/关键词/优先级过滤 + 分页。"""
-    conditions = [Request.owner_id == user_id]
+    """列表：scope=relevant（默认，我创建的 + 分派给我的）｜mine（仅我创建的）。
+
+    relevant 是 007 的默认值——看板要能同时看到「我的活」和「派给我的活」。
+    这是**只扩大不缩小**的契约变更（spec Assumptions 2）：不传 scope 的旧
+    调用方从「只看自己的」变为「自己的 + 派给我的」，没有人因此看不到原来
+    能看的东西。mine 保持 006 及以前逐字段一致（回归测试钉住）。
+    """
+    if scope == "mine":
+        conditions = [Request.owner_id == user_id]
+    else:  # relevant：并集
+        conditions = [or_(Request.owner_id == user_id, Request.assignee_id == user_id)]
     if status:
         conditions.append(Request.status == status)
     if priority:

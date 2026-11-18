@@ -16,6 +16,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     Uuid,
@@ -53,11 +54,20 @@ class RequestDispatch(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 每需求单调序号（1,2,3…）。为什么不能只按 created_at 排序：
+    # PG 的 now() 是**事务开始时间**，行锁等待会让「后插入」的事务持有
+    # 更早的时间戳（它先开始、只是后拿到锁）——并发下 created_at 会颠倒，
+    # 而经手链是叙事顺序，颠倒就说反了「谁先谁后」。seq 在请求行锁保护下
+    # 取 max+1，与锁串行化天然一致。
+    seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
     request = relationship("Request", back_populates="dispatches")
 
-    # 经手链查询（详情页时间线，按 request_id 倒序）。与迁移 0011 一致。
-    __table_args__ = (Index("ix_request_dispatches_request_id", "request_id"),)
+    # 经手链查询（详情页时间线，按 request_id + seq 正序）。与迁移 0011 一致。
+    __table_args__ = (
+        Index("ix_request_dispatches_request_id", "request_id"),
+        Index("ix_request_dispatches_request_seq", "request_id", "seq"),
+    )

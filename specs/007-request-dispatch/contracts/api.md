@@ -83,7 +83,7 @@
 | A-7 | owner 月配额已满，拖给别人 | 429，不建任何记录（FR-009：记 owner） |
 | A-8 | 员工 A 把 accepted 的需求拖给自己组的 agent | 202 queued，Run 创建；request.owner 配额扣减（非 A） |
 | A-9 | 未 accept 直接拖 agent | 409（提示先接收），需求状态不变 |
-| A-10 | 两个客户端同时对 pending 需求 accept/dispatch | 仅一个 202，另一个 409（行级锁，同 001 并发纪律） |
+| A-10 | 两个客户端同时对 pending 需求 accept/reject | 仅一个 202，另一个 409（行级锁，同 001 并发纪律）。**dispatch 并发除外**：pending 上再拖人的语义就是转交（US1 第二场景），两条并发 dispatch 的正确结果是都 202——一条 dispatch + 一条 reassign，行级锁保证无丢失更新（经手链按每需求单调 seq 排序，不用 created_at：PG 的 now() 是事务开始时间，锁等待会让后插入者持有更早时间戳） |
 
 ## 4. `POST /requests/{id}/accept` — 接收（新）
 
@@ -195,8 +195,13 @@ notification_read  已读（detail: count）
 
 | 码 | 场景 |
 |---|---|
-| 404 | 需求不存在或非「创建者/当前接收人」；目标用户不存在/禁用 |
-| 409 | 状态不允许（执行中/终态拒分派、重复 accept、未 accept 拖 agent） |
+| 404 | **007 新分派端点**（accept/reject/dispatch-user）：需求不存在或非「创建者/当前接收人」；目标用户不存在/禁用 |
+| 403 | **既有需求端点**（GET 详情/附件/assign-to-agent）非相关人员——延续 006 锁定契约（test_requests.py），FR-014 零变化 |
+| 409 | 状态不允许（执行中/终态拒分派、重复 accept、未 accept 拖 agent、并发接收/退回败者） |
 | 422 | body 校验失败（reason 缺失/超长、assignee_type 非法） |
 | 429 | 需求 owner 月配额超限 |
 | 403 | viewer 越权（users/options、建需求、分派） |
+
+**403 与 404 并存的说明**：这是历史形成的差异（agent/组与 007 新端点用 404，
+既有需求端点用 403），统一收敛不在 007 范围——改了就是动 006 锁定的契约，
+违反 FR-014。spec US6/FR-008 已按此口径记录。

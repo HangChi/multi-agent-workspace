@@ -90,6 +90,7 @@ def upgrade() -> None:
             nullable=True,
         ),
         sa.Column("reason", sa.Text(), nullable=True),
+        sa.Column("seq", sa.Integer(), nullable=False, server_default="0"),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -101,6 +102,13 @@ def upgrade() -> None:
         "ix_request_dispatches_request_id",
         "request_dispatches",
         ["request_id"],
+    )
+    # 经手链按 (request_id, seq) 正序：seq 是每需求单调序号，created_at 的
+    # now() 是事务时间、行锁下会颠倒，不能作排序键（见模型注释）。
+    op.create_index(
+        "ix_request_dispatches_request_seq",
+        "request_dispatches",
+        ["request_id", "seq"],
     )
 
     # 3. notifications：站内通知，未读部分索引。

@@ -68,7 +68,11 @@ created ──dispatch──▶ pending ──accept──▶ accepted ──ass
 | `from_assignee_id` | `uuid NULL FK → users.id` | 原接收人（dispatch 为 NULL） |
 | `to_assignee_id` | `uuid NULL FK → users.id` | 新接收人（accept 为当前人、reject 为 NULL） |
 | `reason` | `text NULL` | reject 必填，其余可空 |
+| `seq` | `int NOT NULL` | 每需求单调序号（行锁下 max+1）。排序键**不能用 created_at**：PG 的 `now()` 是事务开始时间，行锁等待会让后插入的事务持有更早时间戳，并发下经手链会说反「谁先谁后」（实测翻转，见 007 Phase 3b 提交记录） |
 | `created_at` | `timestamptz` | `server_default now()` |
+
+索引：`ix_request_dispatches_request_seq (request_id, seq)`（时间线查询）、
+`ix_request_dispatches_request_id`（按需求过滤）。
 
 **只插入不更新不删除**（宪法不可变纪律，同 004 调度触发历史）。查询面：
 按 `request_id` 查经手链（US1/US2 详情页时间线）；按 `actor_id`/`to_assignee_id`

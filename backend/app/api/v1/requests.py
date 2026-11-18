@@ -17,7 +17,12 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.api.deps import DB, CurrentUser, MemberUser, ResourceId
-from app.core.audit import REQUEST_ACCEPT, REQUEST_REJECT, write_audit
+from app.core.audit import (
+    REQUEST_ACCEPT,
+    REQUEST_DISPATCH,
+    REQUEST_REJECT,
+    write_audit,
+)
 from app.models.schedule import Schedule
 from app.schemas.request import (
     AssignOut,
@@ -25,6 +30,7 @@ from app.schemas.request import (
     AttachmentListOut,
     AttachmentMeta,
     DispatchActionOut,
+    DispatchRecordOut,
     RejectIn,
     RequestCreate,
     RequestList,
@@ -45,18 +51,29 @@ async def list_requests(
     user: CurrentUser,
     _m: MemberUser,
     db: DB,
+    scope: str = Query(
+        default="relevant",
+        pattern="^(relevant|mine)$",
+        description="relevant=我创建的+分派给我的（默认）；mine=仅我创建的",
+    ),
     status: str | None = Query(
-        default=None, pattern="^(created|assigned|running|completed|failed|cancelled)$"
+        default=None,
+        pattern="^(created|pending|accepted|assigned|running|completed|failed|cancelled)$",
     ),
     q: str | None = Query(default=None, max_length=100),
     priority: str | None = Query(default=None, pattern="^(high|normal|low)$"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
 ):
-    """看板列表（member/admin 可见自己的；viewer 403）。"""
+    """看板列表（member/admin 可见相关的；viewer 403）。
+
+    007：默认 scope=relevant（我创建的 + 分派给我的）——只扩大不缩小的
+    契约变更（spec Assumptions 2）；status 过滤放行 pending/accepted。
+    """
     rows, total = await request_service.list_requests(
         db,
         user_id=user.id,
+        scope=scope,
         status=status,
         q=q,
         priority=priority,
@@ -66,10 +83,19 @@ async def list_requests(
     summaries = await request_service.run_outcome_summaries(
         db, [row.id for row in rows]
     )
+    # 当前接收人邮箱一次 IN 查询批量填充（看板卡片可直接显示「在谁手上」）
+    emails = await request_service.assignee_emails(
+        db, [row.assignee_id for row in rows if row.assignee_id]
+    )
     return {
         "items": [
             RequestOut.model_validate(row).model_copy(
-                update={"runs_summary": summaries.get(row.id)}
+                update={
+                    "runs_summary": summaries.get(row.id),
+                    "assignee_email": emails.get(row.assignee_id)
+                    if row.assignee_id
+                    else None,
+                }
             )
             for row in rows
         ],
@@ -99,10 +125,13 @@ async def create_request(
 
 @router.get("/{request_id}", response_model=RequestOut)
 async def get_request(request_id: ResourceId, user: CurrentUser, db: DB):
-    """需求详情（归属校验）。
+    """需求详情（归属校验：创建者或当前接收人，007）。
 
     含来源调度（004）：`source_schedule_id` + 展示用的 `source_schedule_name`。
     规则被删除后 id 与 name 都为 null，但需求本身与其 Run 全部保留。
+
+    007 新增：`assignee_*` 分派指针 + `dispatch_history` 经手链
+    （dispatch/reassign/accept/reject 正序，详情页时间线）。
     """
     request = await request_service.get_request(db, request_id, user.id)
     summaries = await request_service.run_outcome_summaries(db, [request.id])
@@ -110,11 +139,18 @@ async def get_request(request_id: ResourceId, user: CurrentUser, db: DB):
     if request.source_schedule_id:
         schedule = await db.get(Schedule, request.source_schedule_id)
         schedule_name = schedule.name if schedule else None
+    assignee_email = None
+    if request.assignee_id:
+        emails = await request_service.assignee_emails(db, [request.assignee_id])
+        assignee_email = emails.get(request.assignee_id)
+    history = await request_service.dispatch_history(db, request.id)
     return RequestOut.model_validate(request).model_copy(
         update={
             "runs_summary": summaries.get(request.id),
             "source_schedule_id": request.source_schedule_id,
             "source_schedule_name": schedule_name,
+            "assignee_email": assignee_email,
+            "dispatch_history": [DispatchRecordOut.model_validate(h) for h in history],
         }
     )
 
@@ -239,7 +275,11 @@ async def download_attachment(
     return RedirectResponse(url, status_code=302)
 
 
-@router.post("/{request_id}/assign", response_model=AssignOut, status_code=202)
+@router.post(
+    "/{request_id}/assign",
+    response_model=AssignOut | DispatchActionOut,
+    status_code=202,
+)
 async def assign_request(
     request_id: ResourceId,
     payload: AssignRequest,
@@ -247,13 +287,42 @@ async def assign_request(
     user: CurrentUser,
     db: DB,
 ):
-    """分配（T055）：拖到 Agent/组，校验 + 建 Run 入队，需求变执行中。
+    """分配（T055 + 007）：拖到 Agent/组 → 建 Run 执行；拖到员工 → 仅转交责任。
 
     - 拖单 Agent：strategy 可省（默认 direct）
     - 拖组：strategy 可省（默认取组配置）
-    - 202 {"run_id","status":"queued"}；409 已在执行；400 归档目标/未实现策略；
-      404 目标不存在/无权限
+    - 拖员工（007）：不建 Run、不入队，需求 → pending，收件箱 + 通知；
+      首次分派与转交同入口（pending 时再拖 = 转交）
+    - 202；409 已在执行/未接收；400 归档目标/未实现策略；
+      404 目标不存在/无权限；429 需求 owner 配额超限（007 改记 owner）
     """
+    if payload.assignee_type.value == "user":
+        # 员工落点：责任转交（dispatch_service：行级锁 + 配额门 + 状态机 +
+        # 历史 + 通知）。判定顺序见 contracts §3。
+        request = await dispatch_service.dispatch_request(
+            db,
+            request_id=request_id,
+            actor_id=user.id,
+            target_user_id=payload.assignee_id,
+            note=payload.note,
+        )
+        await write_audit(
+            db,
+            user_id=user.id,
+            action=REQUEST_DISPATCH,
+            target_type="request",
+            target_id=request_id,
+            detail={
+                # dispatch/reassign 的区分由 service 按「当前有无接收人」判定，
+                # 精确动作在 request_dispatches 历史表；审计这里记落点与留言。
+                "to_assignee_id": payload.assignee_id,
+                "note": payload.note,
+            },
+            strict=True,
+        )
+        await db.commit()
+        return DispatchActionOut(request_id=request.id, status=request.status)
+
     parent_run_id, runs, strategy = await assignment_service.assign(
         db,
         request_id=request_id,

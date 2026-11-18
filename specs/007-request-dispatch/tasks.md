@@ -45,17 +45,17 @@
 
 ## Phase 3：分派闭环 — 3b 改既有（契约变更），单独提交
 
-- [ ] T017 [P] Integration: 可见性谓词（A-5 越权 404 / scope=relevant&mine / R-1..R-5）。
-- [ ] T018 Modify `backend/app/services/request_service.py`：`get_request` 谓词
+- [X] T017 [P] Integration: 可见性谓词（A-5 越权 404 / scope=relevant&mine / R-1..R-5）。
+- [X] T018 Modify `backend/app/services/request_service.py`：`get_request` 谓词
       owner-or-assignee；`list_requests` 加 scope；**同步更新既有被收窄的测试断言**
       （清单见 Notes-3，逐条在提交信息说明）。
-- [ ] T019 Modify `backend/app/services/assignment_service.py`：`_ASSIGNABLE_STATUSES`
+- [X] T019 Modify `backend/app/services/assignment_service.py`：`_ASSIGNABLE_STATUSES`
       +accepted；`assert_user_quota` 入参改 `request.owner_id`（R-03）；user 分支
       （不建 Run 不入队）与 agent/group 分支拆分。
-- [ ] T020 Modify `backend/app/schemas/request.py` + assign 端点：`assignee_type=user`
+- [X] T020 Modify `backend/app/schemas/request.py` + assign 端点：`assignee_type=user`
       受理 + `note` 参数；user 分支响应 `{"request_id","status":"pending"}`。
-- [ ] T021 Integration: assign 全用例 A-1..A-10（含并发 A-10/AC-5 双请求断言）。
-- [ ] T022 Modify `backend/app/core/audit.py`：`REQUEST_DISPATCH_ACTIONS` 四动作
+- [X] T021 Integration: assign 全用例 A-1..A-10（含并发 A-10/AC-5 双请求断言）。
+- [X] T022 Modify `backend/app/core/audit.py`：`REQUEST_DISPATCH_ACTIONS` 四动作
       集中定义（request_dispatch/accept/reject/notification_read）+ 断言测试
       （有操作必有行，SC-003）。
 

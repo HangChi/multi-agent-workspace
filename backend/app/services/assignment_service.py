@@ -1,12 +1,18 @@
-"""分配服务（T054）：拖拽分配的校验、策略展开与 Run 创建入队（US4）。
+"""分配服务（T054 + 007）：拖拽分配的校验、策略展开与 Run 创建入队（US4）。
 
 对齐 contracts/api.md 分配契约（FR-010~013）：
-- 幂等校验：需求状态非 created/assigned → 409（FR-012 已在执行拒绝）
+- 幂等校验：需求状态非 created/assigned/accepted → 409（FR-012 已在执行拒绝；
+  007 加入 accepted——员工接收后的需求与自己的需求同权执行）
 - 目标校验：不存在/无权限 → 404；已归档 → 400
 - 按策略建 Run：direct 1 个 / fan_out 1 父 Run + N 个子 Run（含 parent_run_id）
 - 事务提交后：Redis 事件发布 + Celery 入队（失败不阻塞业务，仅告警；
   API 只入队，重活交 Worker，对齐 RT<100ms 目标）
 - 入队成功 → 需求 status=running（FR-013）
+
+007 变更（research R-03）：
+- 月配额入参从**操作人**改为 **request.owner_id**。旧口径下二者恒等所以无感；
+  分派后操作人 ≠ owner，若按操作人扣配额，员工的月配额会被别人派来的活吃爆，
+  且与 Run.owner_id 的既有继承分裂成双口径。成本恒记需求创建者。
 """
 
 import os
@@ -23,6 +29,7 @@ from app.models.group import AgentGroup
 from app.models.group_member import GroupMember
 from app.models.request import Request
 from app.models.run import Run
+from app.orchestrator.request_state_machine import AGENT_ASSIGNABLE_STATUSES
 from app.orchestrator.strategies import (
     NotImplementedStrategyError,
     StrategyResolver,
@@ -35,8 +42,9 @@ from app.services.tool_service import enabled_tool_specs, reconcile_agent_grants
 
 logger = structlog.get_logger(__name__)
 
-# 需求可分配状态（created 未分配 / assigned 已分配待入队）
-_ASSIGNABLE_STATUSES = frozenset({"created", "assigned"})
+# 需求可分配状态（created 未分配 / assigned 已分配待入队 / accepted 员工已接收）。
+# 单一来源在 request_state_machine——分派类准入与执行准入不再各写一份。
+_ASSIGNABLE_STATUSES = frozenset(s.value for s in AGENT_ASSIGNABLE_STATUSES)
 
 
 async def _load_agent(db: AsyncSession, agent_id: str, user_id: str) -> Agent:
@@ -156,11 +164,15 @@ async def assign(
     `dispatch_assigned()` 发布事件并投递 Celery（docs/code-audit #9）。
     """
     # 1. 需求归属 + 存在性（行级锁：状态检查与迁移必须原子，防并发重复分配）
+    #    007：谓词为 owner-or-assignee（request_service._check_owner），员工可
+    #    以执行分派给自己且已接收的需求。
     request = await get_request(db, request_id, user_id, for_update=True)
 
-    # 1.5 配额熔断（T077）：月用量 >= 上限 → 429 RATE_LIMITED（宪法「每个用户有月配额」）
+    # 1.5 配额熔断（T077 + 007）：月用量 >= 上限 → 429 RATE_LIMITED（宪法「每个用户有月配额」）
+    # 入参是 request.owner_id 而非操作人——分派后经手人 ≠ owner，成本恒记
+    # 需求创建者（research R-03 / FR-009 / SC-005 双边断言）。
     # 前置校验：不建 Run、需求状态保持不变（可重试）
-    await assert_user_quota(db, user_id)
+    await assert_user_quota(db, request.owner_id)
 
     # 2. 幂等校验（FR-012）
     if request.status not in _ASSIGNABLE_STATUSES:

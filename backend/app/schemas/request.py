@@ -106,6 +106,21 @@ class RunOutcomeSummary(BaseModel):
     active: int = 0
 
 
+class DispatchRecordOut(BaseModel):
+    """经手链一条（007 详情页时间线）。"""
+
+    model_config = {"from_attributes": True}
+
+    id: str
+    seq: int
+    action: str
+    actor_id: str
+    from_assignee_id: str | None = None
+    to_assignee_id: str | None = None
+    reason: str | None = None
+    created_at: datetime
+
+
 class RequestOut(BaseModel):
     id: str
     owner_id: str
@@ -122,6 +137,14 @@ class RequestOut(BaseModel):
     source_schedule_id: str | None = None
     #: 展示用：来源规则名。规则已删除时为 null（外键 SET NULL，历史需求保留）
     source_schedule_name: str | None = None
+    # 007：当前接收人（分派指针）。未分派为 null；email 由服务层批量填充。
+    assignee_id: str | None = None
+    assignee_email: str | None = None
+    dispatched_at: datetime | None = None
+    accepted_at: datetime | None = None
+    #: 经手链（dispatch/reassign/accept/reject 正序）。仅详情端点填充——
+    #: 列表端点保持 None，避免每条需求都带一圈历史查询。
+    dispatch_history: list[DispatchRecordOut] | None = None
     created_at: datetime
     updated_at: datetime
 

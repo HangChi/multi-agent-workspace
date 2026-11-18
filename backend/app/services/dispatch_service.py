@@ -12,7 +12,7 @@
 """
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
@@ -94,6 +94,20 @@ async def _notify(
     await db.flush()
 
 
+async def _next_seq(db: AsyncSession, request_id: str) -> int:
+    """经手链下一个序号（每需求单调）。
+
+    调用方全部持有 request 行锁（本服务三个入口都先 FOR UPDATE），
+    因此 max+1 无竞争——这也正是 seq 比 created_at 可靠的原因：
+    PG 的 now() 是事务开始时间，锁等待会让后插入者持有更早的时间戳。
+    """
+    stmt = select(func.max(RequestDispatch.seq)).where(
+        RequestDispatch.request_id == request_id
+    )
+    current = (await db.execute(stmt)).scalar()
+    return (current or 0) + 1
+
+
 async def _record_history(
     db: AsyncSession,
     *,
@@ -113,6 +127,7 @@ async def _record_history(
             from_assignee_id=from_assignee_id,
             to_assignee_id=to_assignee_id,
             reason=reason,
+            seq=await _next_seq(db, request.id),
         )
     )
     await db.flush()
@@ -135,6 +150,13 @@ async def dispatch_request(
     """
     request = await _load_request_locked(db, request_id)
     _check_access(request, actor_id)
+
+    # 配额门（契约 §3 判定顺序第 3 项）：成本恒记 owner（R-03）——owner 额度
+    # 耗尽时分派即拒，把错误暴露在「派人」这一刻，而不是让接收人 accept 后
+    # 才在拖给 agent 时撞 429。user 分派不建 Run，此门是前置闸而非计费点。
+    from app.services.quota_service import assert_user_quota
+
+    await assert_user_quota(db, request.owner_id)
 
     if RequestStatus(request.status) not in DISPATCHABLE_STATUSES:
         raise AppError("CONFLICT", "需求已在执行或已终结，不能分派")
