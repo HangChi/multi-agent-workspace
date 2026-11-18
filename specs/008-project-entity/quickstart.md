@@ -49,11 +49,11 @@ backend/.venv/bin/python deploy/verify/s9_project_container.py \
 
 ## 2. 前端走查（人工或浏览器脚本）
 
-- [ ] `/projects` 管理页：列表（名称/描述/状态/需求数）+ 新建 + 行内改名 + 归档切换 + 删除确认（文案说明「需求会保留、归属 cleared」）
-- [ ] 建需求表单出现项目选择器（默认「不归类」，仅列本人 active 项目）
-- [ ] 看板工具条项目下拉（全部/各项目带计数/未归属），选中进 URL `?project=`，刷新保持
-- [ ] 需求卡片显示项目徽章（无归属不渲染）
-- [ ] viewer 登录：无项目下拉、`/projects` 无入口
+- [x] `/projects` 管理页：列表（名称/描述/状态/需求数）+ 新建 + 行内改名 + 归档切换 + 删除确认（文案说明「需求会保留、归属 cleared」）——✅ **2026-11-18 s12（`deploy/verify/s12_browser_walkthrough.py`，8/15 通过）**：A1 全环通过（新建→改名→归档→删除确认含「保留」文案）
+- [x] 建需求表单出现项目选择器（默认「不归类」，仅列本人 active 项目）——✅ **2026-11-18 s12（`deploy/verify/s12_browser_walkthrough.py`，8/15 通过）**：A2（默认不归类 + 仅本人 active 项目）
+- [x] 看板工具条项目下拉（全部/各项目带计数/未归属），选中进 URL `?project=`，刷新保持——✅ **2026-11-18 s12（`deploy/verify/s12_browser_walkthrough.py`，8/15 通过）**：A3（URL 深链 + 刷新保持均验）
+- [x] 需求卡片显示项目徽章（无归属不渲染）——✅ **2026-11-18 s12（`deploy/verify/s12_browser_walkthrough.py`，8/15 通过）**：A4（有归属渲染/无归属不渲染双向断言）
+- [ ] viewer 登录：无项目下拉、`/projects` 无入口——⏳ **部分失败（2026-11-18 s12（`deploy/verify/s12_browser_walkthrough.py`，8/15 通过））**：看板无项目下拉 ✅，但**导航里看得见「项目」入口** ❌。根因：`nav.ts` 的 `/projects` 项没有 `memberOnly: true`（模板/调度项都有），viewer 点进去会吃到后端 403。修复：给该导航项加 `memberOnly: true`。**未修（011 零应用改动纪律，发现另开特性）**
 
 ## 4. 门禁（合并前全量）
 
