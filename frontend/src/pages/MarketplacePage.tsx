@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 
 import {
   fetchMarketplaceInstallations,
@@ -9,7 +10,8 @@ import {
   installMarketplaceTool,
 } from '../api/endpoints'
 import { Badge } from '../components/ui/Badge'
-import { Card } from '../components/ui/Card'
+import { Button } from '../components/ui/Button'
+import { Card, IconTile } from '../components/ui/Card'
 import { EmptyState } from '../components/ui/EmptyState'
 import { ErrorBanner } from '../components/ui/ErrorBanner'
 import { Icon } from '../components/ui/Icons'
@@ -24,6 +26,8 @@ export function MarketplacePage() {
   const [capability, setCapability] = useState('')
   const [applied, setApplied] = useState({ q: '', category: '', capability: '' })
   const queryClient = useQueryClient()
+  /** 是否处于筛选状态：决定空态文案与「清除」按钮是否出现 */
+  const hasFilters = applied.q !== '' || applied.category !== '' || applied.capability !== ''
   const { data: installations } = useQuery({
     queryKey: ['marketplace-installations'],
     queryFn: fetchMarketplaceInstallations,
@@ -56,14 +60,14 @@ export function MarketplacePage() {
         title="工具市场"
         description="浏览已审核、可安全安装的第三方 MCP 工具。"
         icon={
-          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-50 text-accent ring-1 ring-inset ring-brand-100">
-            <Icon name="zap" className="h-5 w-5" />
-          </span>
+          <IconTile tone="brand" size="lg">
+            <Icon name="plug" className="h-5 w-5" />
+          </IconTile>
         }
       />
-      <Card>
+      <Card padding="md">
         <form
-          className="grid gap-2 sm:grid-cols-[1fr_10rem_10rem_auto]"
+          className="grid gap-2 sm:grid-cols-[1fr_9rem_9rem_auto]"
           onSubmit={(event) => {
             event.preventDefault()
             setApplied({
@@ -95,12 +99,32 @@ export function MarketplacePage() {
             onChange={(event) => setCapability(event.target.value)}
             wrapperClassName="min-w-0"
           />
-          <button
-            type="submit"
-            className="h-10 rounded-lg bg-brand-600 px-4 text-sm font-medium text-white transition hover:bg-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45"
-          >
-            筛选
-          </button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="submit"
+              variant="primary"
+              leftIcon="search"
+              loading={isLoading}
+              className="h-10"
+            >
+              筛选
+            </Button>
+            {hasFilters && (
+              <Button
+                type="button"
+                variant="ghost"
+                leftIcon="x"
+                onClick={() => {
+                  setQuery('')
+                  setCategory('')
+                  setCapability('')
+                  setApplied({ q: '', category: '', capability: '' })
+                }}
+              >
+                清除
+              </Button>
+            )}
+          </div>
         </form>
       </Card>
       {isError && <ErrorBanner error="工具市场加载失败，请稍后重试。" />}
@@ -110,9 +134,35 @@ export function MarketplacePage() {
         </div>
       ) : data?.items.length === 0 ? (
         <EmptyState
-          icon="search"
-          title="没有匹配的工具"
-          description="尝试更换关键词或清空筛选条件。"
+          icon={hasFilters ? 'search' : 'plug'}
+          title={hasFilters ? '没有匹配的工具' : '市场上还没有发布的工具'}
+          description={
+            hasFilters
+              ? '尝试更换关键词，或清除筛选条件看看全部工具。'
+              : '管理员可以在「管理后台 → 外部工具服务」里发布可安装的 MCP 工具。'
+          }
+          action={
+            hasFilters ? (
+              <Button
+                variant="secondary"
+                leftIcon="refresh"
+                onClick={() => {
+                  setQuery('')
+                  setCategory('')
+                  setCapability('')
+                  setApplied({ q: '', category: '', capability: '' })
+                }}
+              >
+                清除筛选条件
+              </Button>
+            ) : (
+              <Link to="/settings/admin">
+                <Button variant="secondary" leftIcon="shield">
+                  前往管理后台
+                </Button>
+              </Link>
+            )
+          }
         />
       ) : (
         <div className="grid gap-4 md:grid-cols-2">

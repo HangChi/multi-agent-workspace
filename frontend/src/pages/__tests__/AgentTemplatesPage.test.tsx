@@ -83,12 +83,12 @@ describe('AgentTemplatesPage', () => {
 
     await waitFor(() => expect(screen.getByText('代码审查助手')).toBeInTheDocument())
     expect(screen.getByText('团队周报助手')).toBeInTheDocument()
-    // 两个分区标题都在
-    expect(screen.getByText('内置模板（只读）')).toBeInTheDocument()
-    expect(screen.getByText('团队周报助手')).toBeInTheDocument()
-    // 内置卡片给出只读说明，且没有编辑/删除按钮
+    // 两个分区标题都在（内置区标题带「只读」说明）
+    expect(screen.getByText('内置模板')).toBeInTheDocument()
+    expect(screen.getByText('我的模板')).toBeInTheDocument()
+    // 只读说明上移到分区标题行，不再每张卡重复一遍
     expect(
-      screen.getByText(/内置模板不可修改；需要改就先「用这个模板」创建 Agent/)
+      screen.getByText(/内置模板不可修改：需要改就先「用这个模板」创建 Agent/)
     ).toBeInTheDocument()
     const editButtons = screen.getAllByRole('button', { name: '编辑' })
     expect(editButtons).toHaveLength(1) // 只有「我的模板」那张卡有

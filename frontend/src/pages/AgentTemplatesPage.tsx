@@ -29,7 +29,7 @@ import type { AgentFormValues } from '../components/agent/AgentForm'
 import { TemplateForm } from '../components/agent/TemplateForm'
 import type { TemplateFormValues } from '../components/agent/TemplateForm'
 import { Badge } from '../components/ui/Badge'
-import { Button } from '../components/ui/Button'
+import { Button, IconButton } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { useConfirm } from '../components/ui/useConfirm'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -37,6 +37,7 @@ import { ErrorBanner } from '../components/ui/ErrorBanner'
 import { IconTile } from '../components/ui/Card'
 import { Icon } from '../components/ui/Icons'
 import { Modal } from '../components/ui/Modal'
+import { Input } from '../components/ui/Field'
 import { Page } from '../components/ui/Page'
 import { PageHeader } from '../components/ui/PageHeader'
 import { CardSkeleton } from '../components/ui/Skeleton'
@@ -51,6 +52,8 @@ export function AgentTemplatesPage() {
   const { user } = useAuth()
 
   const [editing, setEditing] = useState<AgentTemplate | null>(null)
+  /** 模板搜索：模板数量会随团队沉淀增长，滚列表不如先搜 */
+  const [q, setQ] = useState('')
   const [using, setUsing] = useState<AgentTemplate | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -126,8 +129,6 @@ export function AgentTemplatesPage() {
   }
 
   const items = data?.items ?? []
-  const builtins = items.filter((t) => t.is_builtin)
-  const mine = items.filter((t) => !t.is_builtin)
 
   const handleDelete = async (template: AgentTemplate) => {
     const ok = await confirm({
@@ -138,6 +139,17 @@ export function AgentTemplatesPage() {
     })
     if (ok) deleteMutation.mutate(template.id)
   }
+
+  const keyword = q.trim().toLowerCase()
+  const shown = keyword
+    ? items.filter(
+        (t) =>
+          t.name.toLowerCase().includes(keyword) ||
+          (t.description ?? '').toLowerCase().includes(keyword)
+      )
+    : items
+  const builtins = shown.filter((t) => t.is_builtin)
+  const mine = shown.filter((t) => !t.is_builtin)
 
   return (
     <Page>
@@ -166,17 +178,73 @@ export function AgentTemplatesPage() {
         </div>
       )}
 
-      {!isLoading && items.length === 0 && (
+      {!isLoading && shown.length === 0 && (
         <EmptyState
-          icon="layers"
-          title="还没有模板"
-          description="内置模板会在部署时由种子脚本注入；你也可以在 Agent 列表里把调好的 Agent「另存为模板」。"
+          icon={keyword ? 'search' : 'layers'}
+          title={keyword ? `没有匹配「${q.trim()}」的模板` : '还没有模板'}
+          description={
+            keyword
+              ? '换个关键词，或清空搜索看看全部模板。'
+              : '内置模板会在部署时由种子脚本注入；你也可以在 Agent 列表里把调好的 Agent「另存为模板」。'
+          }
+          action={
+            keyword ? (
+              <Button variant="secondary" leftIcon="refresh" onClick={() => setQ('')}>
+                清空搜索
+              </Button>
+            ) : undefined
+          }
         />
       )}
 
+      <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="搜索模板名称或描述"
+          leftIcon="search"
+          controlSize="sm"
+          aria-label="搜索模板"
+          wrapperClassName="w-full lg:w-72"
+          rightSlot={
+            q.trim() ? (
+              <IconButton
+                icon="x"
+                label="清除搜索"
+                size="xs"
+                onClick={() => setQ('')}
+                className="mr-0.5"
+              />
+            ) : undefined
+          }
+        />
+        <p className="text-2xs text-ink-faint">
+          {q.trim() ? (
+            <>
+              「<span className="text-ink-soft">{q.trim()}</span>」命中{' '}
+              <span className="font-medium text-ink-soft">{items.length}</span> 个
+            </>
+          ) : (
+            <>
+              共 <span className="font-medium text-ink-soft">{items.length}</span> 个模板
+            </>
+          )}
+        </p>
+      </div>
+
       {builtins.length > 0 && (
         <section className="mb-8">
-          <h2 className="mb-3 text-[13px] font-medium text-ink-soft">内置模板（只读）</h2>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-[13px] font-medium text-ink-soft">
+              内置模板
+              <span className="ml-1.5 text-2xs font-normal text-ink-faint">
+                {builtins.length} 个 · 只读
+              </span>
+            </h2>
+            <p className="text-2xs text-ink-faint">
+              内置模板不可修改：需要改就先「用这个模板」创建 Agent，再另存为自己的模板。
+            </p>
+          </div>
           <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {builtins.map((t) => (
               <TemplateCard
@@ -193,7 +261,14 @@ export function AgentTemplatesPage() {
 
       {mine.length > 0 && (
         <section>
-          <h2 className="mb-3 text-[13px] font-medium text-ink-soft">我的模板</h2>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-[13px] font-medium text-ink-soft">
+              我的模板
+              <span className="ml-1.5 text-2xs font-normal text-ink-faint">
+                {mine.length} 个 · 可编辑
+              </span>
+            </h2>
+          </div>
           <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {mine.map((t) => (
               <TemplateCard
@@ -283,7 +358,6 @@ function TemplateCard({
   onEdit: (() => void) | null
   onDelete: (() => void) | null
 }) {
-  const readOnly = onEdit === null && onDelete === null
   return (
     <Card padding="none" className="overflow-hidden">
       <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
@@ -335,12 +409,6 @@ function TemplateCard({
           {template.max_run_seconds}s
         </span>
       </div>
-
-      {readOnly && (
-        <p className="border-t border-line-subtle px-4 py-2 text-2xs text-ink-faint">
-          内置模板不可修改；需要改就先「用这个模板」创建 Agent，再另存为自己的模板。
-        </p>
-      )}
     </Card>
   )
 }

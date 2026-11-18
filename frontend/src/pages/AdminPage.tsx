@@ -276,16 +276,16 @@ export function AdminPage() {
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-line bg-surface-muted/80">
-                <th className="whitespace-nowrap px-4 py-2.5 text-left text-2xs font-semibold uppercase tracking-wide text-ink-muted">
+                <th className="w-[152px] whitespace-nowrap px-4 py-2.5 text-left text-2xs font-semibold uppercase tracking-wide text-ink-muted">
                   时间
                 </th>
-                <th className="whitespace-nowrap px-4 py-2.5 text-left text-2xs font-semibold uppercase tracking-wide text-ink-muted">
+                <th className="w-[118px] whitespace-nowrap px-4 py-2.5 text-left text-2xs font-semibold uppercase tracking-wide text-ink-muted">
                   用户
                 </th>
-                <th className="whitespace-nowrap px-4 py-2.5 text-left text-2xs font-semibold uppercase tracking-wide text-ink-muted">
+                <th className="w-[150px] whitespace-nowrap px-4 py-2.5 text-left text-2xs font-semibold uppercase tracking-wide text-ink-muted">
                   动作
                 </th>
-                <th className="whitespace-nowrap px-4 py-2.5 text-left text-2xs font-semibold uppercase tracking-wide text-ink-muted">
+                <th className="w-[172px] whitespace-nowrap px-4 py-2.5 text-left text-2xs font-semibold uppercase tracking-wide text-ink-muted">
                   目标
                 </th>
                 <th className="px-4 py-2.5 text-left text-2xs font-semibold uppercase tracking-wide text-ink-muted">
@@ -370,7 +370,7 @@ export function AdminPage() {
                         <span className="text-ink-faint">—</span>
                       )}
                     </td>
-                    <td className="max-w-[280px] px-4 py-2.5">
+                    <td className="px-4 py-2.5">
                       <span
                         className="block truncate font-mono text-2xs text-ink-muted"
                         title={item.detail ? JSON.stringify(item.detail) : undefined}

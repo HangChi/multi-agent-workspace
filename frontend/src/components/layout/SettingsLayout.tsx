@@ -35,7 +35,7 @@ export function SettingsLayout() {
                 to={item.to}
                 className={({ isActive }) =>
                   cn(
-                    'group relative flex items-start gap-2.5 rounded-lg px-2.5 py-2 transition-colors duration-150',
+                    'group relative flex items-start gap-2.5 rounded-lg px-2.5 py-[7px] transition-colors duration-150',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 focus-visible:ring-offset-2',
                     isActive
                       ? 'bg-surface text-ink shadow-card ring-1 ring-inset ring-line/80'
@@ -55,7 +55,7 @@ export function SettingsLayout() {
                     <span className="min-w-0">
                       <span className="block truncate text-[13.5px] font-medium">{item.label}</span>
                       {item.description && (
-                        <span className="mt-0.5 block text-2xs leading-snug text-ink-faint">
+                        <span className="mt-0.5 block truncate text-2xs leading-snug text-ink-faint">
                           {item.description}
                         </span>
                       )}
