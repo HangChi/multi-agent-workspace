@@ -71,6 +71,9 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   /** 渲染为路由链接而非按钮（跳转型操作）；须同时传 to */
   as?: 'button' | 'link'
   to?: string
+  /** 危险色调（配 variant="ghost"）：列表行内的删除/移除入口。
+   *  此前各组页/模板页手抄一整套 rose 类，收口到这里。 */
+  tone?: 'default' | 'danger'
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
@@ -83,6 +86,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     fullWidth,
     as = 'button',
     to,
+    tone = 'default',
     className,
     children,
     disabled,
@@ -91,7 +95,18 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   },
   ref
 ) {
-  const classes = cn(BASE, VARIANTS[variant], SIZES[size], fullWidth && 'w-full', className)
+  const dangerGhost =
+    tone === 'danger'
+      ? 'text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-300 dark:hover:bg-rose-500/15'
+      : null
+  const classes = cn(
+    BASE,
+    VARIANTS[variant],
+    SIZES[size],
+    dangerGhost,
+    fullWidth && 'w-full',
+    className
+  )
 
   // 跳转型按钮：Link 渲染，视觉与交互（含 focus 环）与 button 完全一致
   if (as === 'link' && to) {

@@ -406,13 +406,7 @@ function TemplateCard({
             </Button>
           )}
           {onDelete && (
-            <Button
-              size="sm"
-              variant="ghost"
-              leftIcon="trash"
-              onClick={onDelete}
-              className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-300 dark:hover:bg-rose-500/15"
-            >
+            <Button size="sm" variant="ghost" tone="danger" leftIcon="trash" onClick={onDelete}>
               删除
             </Button>
           )}

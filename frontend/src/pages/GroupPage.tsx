@@ -65,7 +65,7 @@ function MemberFlow({
             />
           )}
           <span className="inline-flex h-6 max-w-[10rem] items-center gap-1.5 rounded-md border border-line bg-surface px-1.5 text-micro font-medium text-ink-soft shadow-card">
-            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-gradient-to-br from-sky-500 to-brand-600 text-[8px] font-semibold text-white">
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-gradient-to-br from-sky-500 to-brand-600 text-2xs font-semibold text-white">
               {m.name.slice(0, 1)}
             </span>
             <span className="truncate">{m.name}</span>
@@ -147,6 +147,8 @@ export function GroupPage() {
   const [editing, setEditing] = useState<Group | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [page, setPage] = useState(1)
+  /** 组名筛选（后端 /groups 无 q 参数——只过滤当前页，文案说清范围） */
+  const [q, setQ] = useState('')
 
   const { data: groups, isLoading } = useQuery({
     queryKey: ['groups', 'list', page],
@@ -162,6 +164,15 @@ export function GroupPage() {
 
   const activeAgents = agents?.items ?? []
   const groupsTotal = groups?.total ?? 0
+
+  /** 本页筛选（后端 /groups 无 q 参数；范围写进 placeholder，不误导） */
+  const pageKeyword = q.trim().toLowerCase()
+  const shownGroups = (groups?.items ?? []).filter(
+    (g) =>
+      !pageKeyword ||
+      g.name.toLowerCase().includes(pageKeyword) ||
+      (g.description ?? '').toLowerCase().includes(pageKeyword)
+  )
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['groups'] })
@@ -247,6 +258,21 @@ export function GroupPage() {
     reorderMut.mutate({ groupId: group.id, positions })
   }
 
+  /**
+   * 表单开关互斥：新建与编辑是同一个 GroupEditor 组件，两个 state 同时
+   * 为真时会渲染出两个叠在一起的表单（字段还会互相串）。
+   */
+  const openCreate = () => {
+    setEditing(null)
+    setShowForm(true)
+    setError(null)
+  }
+  const openEdit = (group: Group) => {
+    setShowForm(false)
+    setEditing(group)
+    setError(null)
+  }
+
   const onSubmitCreate = (values: GroupPayload) => createMut.mutate(values)
 
   const onDelete = async (group: Group) => {
@@ -277,17 +303,16 @@ export function GroupPage() {
         description="把多个 Agent 编成一组，按路由策略协调执行。"
         icon={<Icon name="users" />}
         actions={
-          <Button
-            variant={showForm ? 'secondary' : 'primary'}
-            leftIcon={showForm ? 'chevron-up' : 'plus'}
-            onClick={() => {
-              setEditing(null)
-              setShowForm((v) => !v)
-              setError(null)
-            }}
-          >
-            {showForm ? '收起' : '新建组'}
-          </Button>
+          <div className="flex items-center gap-2">
+            {showForm && (
+              <Button variant="secondary" leftIcon="chevron-up" onClick={() => setShowForm(false)}>
+                收起
+              </Button>
+            )}
+            <Button variant="primary" leftIcon="plus" onClick={openCreate}>
+              新建组
+            </Button>
+          </div>
         }
       />
 
@@ -295,6 +320,7 @@ export function GroupPage() {
 
       {showForm && (
         <GroupEditor
+          key="new"
           onSubmit={onSubmitCreate}
           onCancel={() => setShowForm(false)}
           submitting={createMut.isPending}
@@ -303,6 +329,9 @@ export function GroupPage() {
 
       {editing && (
         <GroupEditor
+          // key 按编辑对象走：连点两个「编辑」不会把 A 的字段留给 B
+          // （组件不卸载、useState 初始化器不重跑——静默数据覆盖）
+          key={editing.id}
           group={editing}
           onSubmit={(payload) => updateMut.mutate({ id: editing.id, payload })}
           onCancel={() => setEditing(null)}
@@ -311,12 +340,31 @@ export function GroupPage() {
       )}
 
       {!isLoading && groupsTotal > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-micro text-ink-faint">
             共 <span className="font-medium text-ink-soft">{groupsTotal}</span> 个组 · 每张卡片上
             <span className="text-ink-soft">成员流程</span>按当前策略从左到右执行
           </p>
-          <p className="text-micro text-ink-faint">展开「管理成员」可调整顺序与路由策略</p>
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="筛选本页组…"
+            leftIcon="search"
+            controlSize="sm"
+            aria-label="筛选本页组"
+            wrapperClassName="w-full sm:w-56"
+            rightSlot={
+              q ? (
+                <IconButton
+                  icon="x"
+                  label="清除筛选"
+                  size="xs"
+                  onClick={() => setQ('')}
+                  className="mr-0.5"
+                />
+              ) : undefined
+            }
+          />
         </div>
       )}
 
@@ -338,7 +386,7 @@ export function GroupPage() {
         />
       ) : (
         <div className="space-y-3">
-          {groups?.items.map((group) => {
+          {shownGroups.map((group) => {
             const isExpanded = expanded === group.id
             const sortedMembers = [...group.members].sort((a, b) => a.position - b.position)
             const availableAgents = activeAgents.filter(
@@ -355,7 +403,7 @@ export function GroupPage() {
                     </IconTile>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="truncate text-[15px] font-semibold text-ink">
+                        <h3 className="truncate text-body font-semibold text-ink">
                           {group.name}
                         </h3>
                         <Badge tone="sky" dot>
@@ -392,16 +440,16 @@ export function GroupPage() {
                       size="sm"
                       variant="ghost"
                       leftIcon="edit"
-                      onClick={() => setEditing(group)}
+                      onClick={() => openEdit(group)}
                     >
                       编辑
                     </Button>
                     <Button
                       size="sm"
                       variant="ghost"
+                      tone="danger"
                       leftIcon="trash"
                       onClick={() => void onDelete(group)}
-                      className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-300 dark:hover:bg-rose-500/15"
                     >
                       删除
                     </Button>
@@ -427,7 +475,7 @@ export function GroupPage() {
                         size="xs"
                         variant="ghost"
                         className="ml-auto shrink-0 text-sky-700 hover:bg-sky-100"
-                        onClick={() => setEditing(group)}
+                        onClick={() => openEdit(group)}
                       >
                         修改策略
                       </Button>
@@ -523,9 +571,18 @@ export function GroupPage() {
             page={page}
             pageSize={PAGE_SIZE}
             total={groupsTotal}
-            onChange={setPage}
+            // 翻页后收起展开态：上一页的 expanded id 在新页面没有意义
+            onChange={(p) => {
+              setExpanded(null)
+              setPage(p)
+            }}
             loading={isLoading}
           />
+          {shownGroups.length === 0 && pageKeyword && (
+            <p className="py-6 text-center text-ui text-ink-faint">
+              本页没有匹配「{q.trim()}」的组——筛选只覆盖当前页，换个关键词或清空筛选试试。
+            </p>
+          )}
         </div>
       )}
     </Page>
