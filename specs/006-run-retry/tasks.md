@@ -25,40 +25,40 @@
 
 ### 2.1 失败分类与退避（纯函数，先测后写）
 
-- [ ] T006 [P] [US1] Unit: `backend/tests/unit/test_retry_policy.py` — assert `classify_failure` 把连接类/超时/5xx 判为 `TRANSIENT`，把配额/成本/步数/超时/取消/策略拒绝判为 `PERMANENT`，把**未知异常**判为 `PERMANENT`（research R-05 的保守原则）。
-- [ ] T007 [P] [US1] Unit: 同上文件 — assert `backoff_seconds` 是指数增长（`base×2^attempt`）、带 full jitter（结果落在 `[0, 计算值]` 内、且同 attempt 多次调用结果不同）、不超过 `cap`、attempt 为 0 时等于基准。
-- [ ] T008 [US1] Write `backend/app/orchestrator/retry_policy.py`: `FailureKind` 枚举、`classify_failure(exc)`、`backoff_seconds(attempt, base, cap)`。纯函数，不 import IO 模块。
+- [X] T006 [P] [US1] Unit: `backend/tests/unit/test_retry_policy.py` — assert `classify_failure` 把连接类/超时/5xx 判为 `TRANSIENT`，把配额/成本/步数/超时/取消/策略拒绝判为 `PERMANENT`，把**未知异常**判为 `PERMANENT`（research R-05 的保守原则）。
+- [X] T007 [P] [US1] Unit: 同上文件 — assert `backoff_seconds` 是指数增长（`base×2^attempt`）、带 full jitter（结果落在 `[0, 计算值]` 内、且同 attempt 多次调用结果不同）、不超过 `cap`、attempt 为 0 时等于基准。
+- [X] T008 [US1] Write `backend/app/orchestrator/retry_policy.py`: `FailureKind` 枚举、`classify_failure(exc)`、`backoff_seconds(attempt, base, cap)`。纯函数，不 import IO 模块。
 
 ### 2.2 状态机与迁移
 
-- [ ] T009 [P] [US1] Unit: 扩充 `backend/tests/unit/test_state_machine.py` — assert `running → retrying`、`retrying → running`、`retrying → failed` 合法；`retrying → completed` 非法；`retrying` 不在终态集合；`retrying` 时迁移幂等。
-- [ ] T010 [US1] Modify `backend/app/orchestrator/state_machine.py`: 新增 `RunStatus.RETRYING` 与三条迁移；`_RETRYABLE_TERMINAL` 逻辑保持（手动重试仍从 failed/timeout 出发）。
-- [ ] T011 [US1] Write `backend/alembic/versions/0010_run_retry_fields.py`: `runs` 加 `attempt`(int, default 1)、`next_retry_at`(timestamptz, null)、`retry_history`(jsonb, default `[]`)；`run_status` 枚举 `ADD VALUE IF NOT EXISTS 'retrying'`（注意 PG 的 `ALTER TYPE` 事务限制，见 data-model §3）；downgrade 删列（枚举值不删，PG 不支持安全删除且旧代码可能仍引用）。
+- [X] T009 [P] [US1] Unit: 扩充 `backend/tests/unit/test_state_machine.py` — assert `running → retrying`、`retrying → running`、`retrying → failed` 合法；`retrying → completed` 非法；`retrying` 不在终态集合；`retrying` 时迁移幂等。
+- [X] T010 [US1] Modify `backend/app/orchestrator/state_machine.py`: 新增 `RunStatus.RETRYING` 与三条迁移；`_RETRYABLE_TERMINAL` 逻辑保持（手动重试仍从 failed/timeout 出发）。
+- [X] T011 [US1] Write `backend/alembic/versions/0010_run_retry_fields.py`: `runs` 加 `attempt`(int, default 1)、`next_retry_at`(timestamptz, null)、`retry_history`(jsonb, default `[]`)；`run_status` 枚举 `ADD VALUE IF NOT EXISTS 'retrying'`（注意 PG 的 `ALTER TYPE` 事务限制，见 data-model §3）；downgrade 删列（枚举值不删，PG 不支持安全删除且旧代码可能仍引用）。
 
 ### 2.3 执行链路
 
-- [ ] T012 [P] [US1] Integration: `backend/tests/integration/test_run_retry.py` — 瞬时失败（LLM 连接错误）→ Run 变 `retrying`、`attempt=1`、`next_retry_at` 非空、`retry_history` 有一条记录、WS 推 `run_retrying`、审计有 `run_auto_retry`。
-- [ ] T013 [P] [US1] Integration: 同上 — 重试到点后执行成功 → `attempt=2`、状态 `completed`、成本 = 两次之和（SC-003）。
-- [ ] T014 [P] [US1] Integration: 同上 — 业务类失败（配额超限）→ 直接 `failed`，`attempt` 不变，**不**投递重试任务。
-- [ ] T015 [P] [US1] Integration: 同上 — 3 次尝试全部瞬时失败 → 终态 `failed`，`retry_history` 有 2 条，第 3 次后不再投递。
-- [ ] T016 [US2] Integration: 同上 — 锁占用时再次触发（模拟并发）→ 后到者 `busy`，不产生第二次执行、成本不加倍。
-- [ ] T017 [US2] Integration: 同上 — Run 已 `completed` 后延迟的重试消息到点 → 被丢弃，状态与成本不变（FR-011）。
-- [ ] T018 [US3] Integration: 同上 — 累计成本达到上限时第 3 次尝试被熔断（`cost_micros > limit×1M`），不会超支。
-- [ ] T019 [US1] Modify `backend/app/tasks/execute_run.py`: 失败分类 → 瞬时且 `attempt < max` 时写 `retry_history`/`next_retry_at`、`transition(RETRYING)`、发事件、写审计、`apply_async(countdown=wait)`、`return "retrying"`；耗尽或业务类走既有终态路径。重试任务消费时校验 `status == retrying`。
-- [ ] T020 [US1] Modify `backend/app/core/config.py`: 新增 `run_max_attempts` / `run_retry_base_seconds` / `run_retry_cap_seconds`，默认 3 / 2 / 60；同步 `deploy/.env.example`。
-- [ ] T021 [P] [US1] Modify `backend/app/core/audit.py`: 新增 `RUN_AUTO_RETRY = "run_auto_retry"` 并入动作集合。
-- [ ] T022 [P] [US4] Modify WS 事件模块：新增 `run_retrying` 事件（字段见 contracts §3）。
+- [X] T012 [P] [US1] Integration: `backend/tests/integration/test_run_retry.py` — 瞬时失败（LLM 连接错误）→ Run 变 `retrying`、`attempt=1`、`next_retry_at` 非空、`retry_history` 有一条记录、WS 推 `run_retrying`、审计有 `run_auto_retry`。
+- [X] T013 [P] [US1] Integration: 同上 — 重试到点后执行成功 → `attempt=2`、状态 `completed`、成本 = 两次之和（SC-003）。
+- [X] T014 [P] [US1] Integration: 同上 — 业务类失败（配额超限）→ 直接 `failed`，`attempt` 不变，**不**投递重试任务。
+- [X] T015 [P] [US1] Integration: 同上 — 3 次尝试全部瞬时失败 → 终态 `failed`，`retry_history` 有 2 条，第 3 次后不再投递。
+- [X] T016 [US2] Integration: 同上 — 锁占用时再次触发（模拟并发）→ 后到者 `busy`，不产生第二次执行、成本不加倍。
+- [X] T017 [US2] Integration: 同上 — Run 已 `completed` 后延迟的重试消息到点 → 被丢弃，状态与成本不变（FR-011）。
+- [X] T018 [US3] Integration: 同上 — 累计成本达到上限时第 3 次尝试被熔断（`cost_micros > limit×1M`），不会超支。
+- [X] T019 [US1] Modify `backend/app/tasks/execute_run.py`: 失败分类 → 瞬时且 `attempt < max` 时写 `retry_history`/`next_retry_at`、`transition(RETRYING)`、发事件、写审计、`apply_async(countdown=wait)`、`return "retrying"`；耗尽或业务类走既有终态路径。重试任务消费时校验 `status == retrying`。
+- [X] T020 [US1] Modify `backend/app/core/config.py`: 新增 `run_max_attempts` / `run_retry_base_seconds` / `run_retry_cap_seconds`，默认 3 / 2 / 60；同步 `deploy/.env.example`。
+- [X] T021 [P] [US1] Modify `backend/app/core/audit.py`: 新增 `RUN_AUTO_RETRY = "run_auto_retry"` 并入动作集合。
+- [X] T022 [P] [US4] Modify WS 事件模块：新增 `run_retrying` 事件（字段见 contracts §3）。
 
 ### 2.4 成本口径与手动重试
 
-- [ ] T023 [US3] Modify `backend/app/api/v1/runs.py`: 手动重试不再重置 `cost_cents` / `cost_micros`，改为递增 `attempt`；`error` / `current_step` 仍重置。
-- [ ] T024 [US3] Integration: 扩充 `backend/tests/integration/test_execution_flow.py` 的既有重试用例 — assert 重试后成本**累计**而非归零（SC-006：契约不变、口径变更）。
-- [ ] T025 [US1] Integration: reaper 不误杀 — 构造 `status=retrying` 且 `updated_at` 超阈值的 Run，assert reaper 不回收它（FR-012）。
+- [X] T023 [US3] Modify `backend/app/api/v1/runs.py`: 手动重试不再重置 `cost_cents` / `cost_micros`，改为递增 `attempt`；`error` / `current_step` 仍重置。
+- [X] T024 [US3] Integration: 扩充 `backend/tests/integration/test_execution_flow.py` 的既有重试用例 — assert 重试后成本**累计**而非归零（SC-006：契约不变、口径变更）。
+- [X] T025 [US1] Integration: reaper 不误杀 — 构造 `status=retrying` 且 `updated_at` 超阈值的 Run，assert reaper 不回收它（FR-012）。
 
 ### 2.5 查询面
 
-- [ ] T026 [P] [US4] Modify `backend/app/schemas/run.py` 与 `GET /runs/{id}`: 响应体加 `attempt` / `next_retry_at` / `retry_history`；对旧数据有默认值。
-- [ ] T027 [P] [US4] Integration: assert `GET /runs/{id}` 返回三个新字段且类型正确；旧 Run（迁移前创建）返回 `1` / `null` / `[]`。
+- [X] T026 [P] [US4] Modify `backend/app/schemas/run.py` 与 `GET /runs/{id}`: 响应体加 `attempt` / `next_retry_at` / `retry_history`；对旧数据有默认值。
+- [X] T027 [P] [US4] Integration: assert `GET /runs/{id}` 返回三个新字段且类型正确；旧 Run（迁移前创建）返回 `1` / `null` / `[]`。
 
 **Checkpoint 2**: `pytest` 全绿 + `ruff check` + `ruff format --check` + `mypy app` 全绿。
 
