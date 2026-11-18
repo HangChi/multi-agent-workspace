@@ -1,4 +1,9 @@
-/** 下拉菜单：点击外部 / ESC 自动收起，用于顶栏用户菜单等。 */
+/** 下拉菜单：点击外部 / ESC 自动收起，用于顶栏用户菜单等。
+ *
+ * 键盘交互遵循 WAI-ARIA menu 模式：打开后焦点移入第一项，↑↓ 在项间移动，
+ * Home/End 跳首尾，ESC 或选中后焦点归还触发按钮 —— 否则焦点一直挂在
+ * trigger 上，屏幕阅读器不会念出菜单内容，键盘用户也只能盲 Tab。
+ */
 
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -32,6 +37,8 @@ export function Dropdown({
 }: DropdownProps) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -39,7 +46,11 @@ export function Dropdown({
       if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
     }
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') {
+        setOpen(false)
+        // 焦点归还触发按钮：否则面板卸载后焦点坠回 body，键盘用户迷路
+        triggerRef.current?.focus()
+      }
     }
     document.addEventListener('mousedown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
@@ -49,9 +60,39 @@ export function Dropdown({
     }
   }, [open])
 
+  // 打开后焦点移入面板第一项。等一帧：面板刚挂载，同帧 focus 会被浏览器吞掉
+  useEffect(() => {
+    if (!open) return
+    const timer = window.setTimeout(() => {
+      panelRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [open])
+
+  /** 菜单内方向键导航（WAI-ARIA menu 模式）：↑↓ 循环、Home/End 跳首尾 */
+  const onPanelKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
+    const items = Array.from(
+      panelRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []
+    )
+    if (items.length === 0) return
+    e.preventDefault()
+    const current = items.indexOf(document.activeElement as HTMLElement)
+    const next =
+      e.key === 'ArrowDown'
+        ? (current + 1) % items.length
+        : e.key === 'ArrowUp'
+          ? (current - 1 + items.length) % items.length
+          : e.key === 'Home'
+            ? 0
+            : items.length - 1
+    items[next].focus()
+  }
+
   return (
     <div className="relative" ref={rootRef}>
       <button
+        ref={triggerRef}
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -67,8 +108,14 @@ export function Dropdown({
       </button>
       {open && (
         <div
+          ref={panelRef}
           role="menu"
-          onClick={() => setOpen(false)}
+          onKeyDown={onPanelKeyDown}
+          onClick={() => {
+            setOpen(false)
+            // 选中后焦点归还 trigger，保持「从哪里来回到哪里去」
+            triggerRef.current?.focus()
+          }}
           className={cn(
             'absolute z-50 min-w-[12rem] rounded-xl border border-line bg-surface p-1.5 shadow-pop animate-pop-in',
             placement === 'top' ? 'bottom-full mb-2' : 'top-full mt-2',

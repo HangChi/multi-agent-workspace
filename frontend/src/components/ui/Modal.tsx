@@ -3,6 +3,10 @@
  *
  * 细节：ESC 关闭、点击遮罩关闭、打开时锁定页面滚动、右上角关闭按钮、
  * 打开后焦点落到面板，保证键盘用户不会「丢焦点」。
+ *
+ * 焦点陷阱（WCAG 2.1 SC 2.1.2）：Tab / Shift+Tab 在面板内循环，不泄漏到
+ * 背景页面 —— 读屏用户顺着焦点走，否则会「走出对话框还在念背后的内容」。
+ * 关闭时焦点归还触发元素，避免下次 Tab 从文档开头开始。
  */
 
 import { useEffect, useId, useRef } from 'react'
@@ -45,11 +49,41 @@ export function Modal({
   const panelRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
 
-  // ESC 关闭 + 背景滚动锁定
+  // ESC 关闭 + 背景滚动锁定 + 焦点陷阱 + 焦点归还
   useEffect(() => {
     if (!open) return
+
+    const FOCUSABLE =
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    /** 打开前的焦点持有者：关闭时还回去，避免下次 Tab 从文档开头开始 */
+    const previouslyFocused = document.activeElement as HTMLElement | null
+
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab') return
+      const panel = panelRef.current
+      if (!panel) return
+      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+        (el) => el.offsetParent !== null || el.getClientRects().length > 0
+      )
+      if (focusable.length === 0) {
+        e.preventDefault()
+        return
+      }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement
+      const inside = panel.contains(active)
+      if (!e.shiftKey && (!inside || active === last)) {
+        e.preventDefault()
+        first.focus()
+      } else if (e.shiftKey && (!inside || active === first || active === panel)) {
+        e.preventDefault()
+        last.focus()
+      }
     }
     document.addEventListener('keydown', onKeyDown)
     const prevOverflow = document.body.style.overflow
@@ -60,6 +94,8 @@ export function Modal({
       document.removeEventListener('keydown', onKeyDown)
       document.body.style.overflow = prevOverflow
       window.clearTimeout(timer)
+      // 焦点归还：仅当触发元素仍在文档中才还，避免抢走用户已主动转移的焦点
+      if (previouslyFocused?.isConnected) previouslyFocused.focus()
     }
   }, [open, onClose])
 
