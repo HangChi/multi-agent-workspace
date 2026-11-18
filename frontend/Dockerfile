@@ -11,7 +11,9 @@ WORKDIR /app
 
 # 先复制锁文件与 package.json，利用层缓存
 COPY package.json package-lock.json* ./
-RUN npm ci || npm install
+# 不加 `|| npm install` 回退：lock 与 package.json 漂移时必须让构建失败，
+# 而不是静默解析出一套没验证过的依赖树 —— 后者正是「本地好好的、镜像里不一样」的来源
+RUN npm ci
 
 COPY . .
 RUN npm run build
