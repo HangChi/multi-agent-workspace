@@ -130,14 +130,12 @@ export function AgentForm({ initial, onSubmit, onCancel, submitting }: Props) {
             它不在 MODELS 里时受控 select 会显示成空白。把当前值补到第一项，
             让用户至少看到「它现在是什么」，再决定要不要改。
           */}
-          {(MODELS.includes(values.model) ? MODELS : [values.model, ...MODELS]).map(
-            (m) => (
-              <option key={m} value={m}>
-                {m}
-                {MODELS.includes(m) ? '' : '（不在预设列表）'}
-              </option>
-            ),
-          )}
+          {(MODELS.includes(values.model) ? MODELS : [values.model, ...MODELS]).map((m) => (
+            <option key={m} value={m}>
+              {m}
+              {MODELS.includes(m) ? '' : '（不在预设列表）'}
+            </option>
+          ))}
         </Select>
       </div>
 

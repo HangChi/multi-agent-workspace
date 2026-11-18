@@ -56,9 +56,7 @@ describe('authStore.init', () => {
 
   it('access 过期：先 /me 失败，再用 cookie 刷新一次', async () => {
     useAuthStore.setState({ accessToken: 'stale' })
-    vi.spyOn(api, 'fetchMe')
-      .mockRejectedValueOnce(new Error('401'))
-      .mockResolvedValue(USER)
+    vi.spyOn(api, 'fetchMe').mockRejectedValueOnce(new Error('401')).mockResolvedValue(USER)
     const refresh = vi
       .spyOn(api, 'refreshToken')
       .mockResolvedValue({ access: 'access-3', refresh: 'ignored' })

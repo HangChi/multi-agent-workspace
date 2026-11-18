@@ -59,9 +59,7 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => {
         // 服务端撤销 refresh 并清 cookie；失败不影响本地登出
-        void axios
-          .post('/api/v1/auth/logout', {}, { withCredentials: true })
-          .catch(() => undefined)
+        void axios.post('/api/v1/auth/logout', {}, { withCredentials: true }).catch(() => undefined)
         set({ user: null, accessToken: null })
       },
 
