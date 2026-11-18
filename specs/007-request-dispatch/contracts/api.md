@@ -155,7 +155,8 @@
 |---|---|---|
 | `GET /requests` | 默认 scope `relevant`；status 枚举 +2 | FR-007 |
 | `POST /requests/{id}/assign` | `assignee_type` +`user`；agent/group 分支准入状态 +`accepted`；配额入参改 owner | FR-001/003/009 |
-| `GET /requests/{id}` | 响应体加 `assignee`（`{id,email}|null`）+ `dispatch_history`（最近 N 条） | US1/US2 详情可见 |
+| `GET /requests/{id}` | 响应体加 `assignee`（`{id,email}|null`）+ `dispatch_history`（最近 N 条） |
+| `GET /runs/{id}`（及 cancel/retry/reply/artifacts/WS 订阅） | 归属谓词扩展为「Run owner 或需求当前 assignee」（FR-016）——执行人 ≠ Run.owner_id，经手人必须能查看进度与回复 | US1/US2 详情可见 |
 | `schemas/request.py` | `RequestStatus` +2；`AssigneeType` +`user`；新 schema `AcceptOut/RejectIn/NotificationOut…` | — |
 | `services/request_service.py` | `get_request` 谓词 owner-or-assignee；`list_requests` scope | FR-007/008 |
 | `services/assignment_service.py` | `_ASSIGNABLE_STATUSES` +`accepted`；`assert_user_quota(owner)`；拆出 user 分支（不建 Run） | R-03/R-07 |

@@ -77,7 +77,10 @@ def _authorize(token: str | None) -> str | None:
 
 
 async def _can_access_run(run_id: str, user_id: str) -> bool:
-    """Run 归属校验：owner 或 admin 可订阅，其余拒绝。
+    """Run 归属校验：owner（需求创建者）或**需求当前接收人**或 admin 可订阅。
+
+    007：分派后执行人 ≠ Run.owner_id（成本恒记 owner，research R-03），
+    经手人必须能订阅执行事件，否则「实时可见」（US3）对分派链路失效。
 
     用一次性的 NullPool engine 并在 finally dispose：
     WS 端点可能运行在任意事件循环中（生产是 uvicorn 主 loop，测试是 TestClient
@@ -91,6 +94,9 @@ async def _can_access_run(run_id: str, user_id: str) -> bool:
             if run is None:
                 return False
             if run.owner_id == user_id:
+                return True
+            request = await db.get(Request, run.request_id)
+            if request is not None and request.assignee_id == user_id:
                 return True
             user = await db.get(User, user_id)
             return user is not None and user.role == "admin"

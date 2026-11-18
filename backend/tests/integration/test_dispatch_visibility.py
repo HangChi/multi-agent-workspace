@@ -324,3 +324,44 @@ async def test_concurrent_dispatch_single_winner(db_session, client, make_header
     assert body["assignee_id"] in (w1.id, w2.id)
     # 最终接收人与最后一条历史一致（无丢失更新）
     assert body["assignee_id"] == body["dispatch_history"][-1]["to_assignee_id"]
+
+
+# ---------- Run 访问权扩展（US3「实时可见」对经手人生效） ----------
+
+
+async def test_assignee_can_view_run_of_dispatched_request(
+    db_session, client, make_headers
+):
+    """US3：接收人执行分派需求后，Run 详情对接收人可见（进度/回复/取消）。"""
+    owner = await _user(db_session)
+    worker = await _user(db_session)
+    stranger = await _user(db_session)
+    agent = await _agent(db_session, worker)
+    req = await _request(db_session, owner)
+    await _dispatch_via_api(client, await make_headers(owner), req, worker)
+    await client.post(
+        f"/api/v1/requests/{req.id}/accept", headers=await make_headers(worker)
+    )
+    resp = await client.post(
+        f"/api/v1/requests/{req.id}/assign",
+        json={"assignee_type": "agent", "assignee_id": agent.id},
+        headers=await make_headers(worker),
+    )
+    assert resp.status_code == 202
+    run_id = resp.json()["run_id"]
+
+    # 接收人（执行人）可查 Run 详情
+    detail = await client.get(
+        f"/api/v1/runs/{run_id}", headers=await make_headers(worker)
+    )
+    assert detail.status_code == 200
+    # 创建者（Run.owner）当然也可查
+    owner_view = await client.get(
+        f"/api/v1/runs/{run_id}", headers=await make_headers(owner)
+    )
+    assert owner_view.status_code == 200
+    # 陌生人仍 404（不暴露存在性）
+    stranger_view = await client.get(
+        f"/api/v1/runs/{run_id}", headers=await make_headers(stranger)
+    )
+    assert stranger_view.status_code == 404

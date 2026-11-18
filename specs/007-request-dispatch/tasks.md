@@ -89,7 +89,7 @@
 
 ## Phase 6：验收与合并
 
-- [ ] T036 Write `deploy/verify/s8_request_dispatch.py`：quickstart §1 八场景
+- [X] T036 Write `deploy/verify/s8_request_dispatch.py`：quickstart §1 八场景
       （A–H），退出码非零即失败。
 - [ ] T037 Run 全量门禁（后端 pytest + ruff/format/mypy；前端五件套）+
       s1–s4/strategy 回归（FR-014 零行为变更证据）+ 填 quickstart 实测记录。

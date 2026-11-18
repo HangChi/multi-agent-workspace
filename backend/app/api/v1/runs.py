@@ -24,6 +24,7 @@ from app.api.errors import AppError
 from app.core.audit import write_audit
 from app.models.artifact import Artifact
 from app.models.egress import EgressAccess
+from app.models.request import Request
 from app.models.run import Run
 from app.models.sandbox_execution import SandboxExecution
 from app.models.step import Step
@@ -40,10 +41,20 @@ router = APIRouter(prefix="/runs", tags=["runs"])
 
 
 async def _get_owned_run(db: DB, run_id: str, user: CurrentUser) -> Run:
-    """归属校验：Run 必须存在且 owner 是当前用户，否则 404（信息隐藏，不暴露存在性）。"""
+    """归属校验（007 扩展）：Run 的 owner（需求创建者）**或需求的当前接收人**
+    可访问，否则 404（信息隐藏，不暴露存在性）。
+
+    为什么扩展：分派后执行人（接收人）≠ Run.owner_id（恒记需求创建者，
+    research R-03），员工把自己接收的需求拖给 Agent 后，必须能查看进度、
+    回复 needs_input、取消/重试——否则「实时可见」（US3）对经手人失效。
+    """
     run = await db.get(Run, run_id)
-    if run is None or run.owner_id != user.id:
+    if run is None:
         raise AppError("NOT_FOUND", "运行不存在")
+    if run.owner_id != user.id:
+        request = await db.get(Request, run.request_id)
+        if request is None or request.assignee_id != user.id:
+            raise AppError("NOT_FOUND", "运行不存在")
     return run
 
 
