@@ -18,6 +18,7 @@
 | **项目容器（008）** | 项目是需求的业务容器（单人归属）：建需求时可归类，看板按项目筛选；项目可改名（快照同步）/ 归档（只拦新建）/ 删除（需求保留、归属清空） |
 | **需求依赖（009）** | 需求间有向「先后」边：前置未完成时拖给 Agent/组被 409 挡下（逐条列出阻塞项），前置终态后通知「可以启动了」；拒绝成环，边可增删 |
 | **项目共享（010）** | 项目从单人篮子变成团队工作区：owner 全权 + 成员项目内读写协作；成员可见彼此项目与需求，加人/移出即时生效并有通知 |
+| **浏览器走查（011）** | 一条命令用真实 Chromium 跑完 008/009/010 的前端走查清单（15 项逐条 ✅/❌ + 失败截图产物）；首轮即抓出 4 类前端 bug（详见各特性 quickstart 的 ⏳ 记录） |
 | **拖拽分配** | 需求卡片用 dnd-kit 拖到 Agent 卡或组卡，落点弹窗选策略，`POST /requests/{id}/assign` 毫秒级受理，重活交给 Celery |
 | **四种编排策略** | `direct` 单 Agent · `fan_out` 并行分发 · `pipeline` 顺序串联 · `router` 模型选成员，父子 Run 通过 `parent_run_id` 关联 |
 | **ReAct 执行引擎** | 自研状态机 + 工具循环：LLM 推理 → 工具调用 → 结果回填 → 直到出最终答案；每步落库，可展开查看输入输出 |
@@ -380,7 +381,8 @@ Agent 可挂载的工具由执行器注册表提供，当前实现 5 个：
 ## 测试与质量门禁
 
 当前套件规模：后端 **1462 个用例**（unit + integration，真实 PostgreSQL 16）、
-前端 **137 例 / 25 文件**。CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在每次
+前端 **137 例 / 25 文件**、浏览器走查 **15 项**（`deploy/verify/s12_browser_walkthrough.py`，
+真实 Chromium）。CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在每次
 push / PR 跑以下流水线：
 
 - **后端**：`ruff check` → `ruff format --check` → `mypy app` → `alembic upgrade head`
@@ -428,6 +430,7 @@ backend/.venv/bin/python deploy/verify/s5_scenarios.py    --base http://localhos
 backend/.venv/bin/python deploy/verify/strategy_scenarios.py --base http://localhost:8080 --invite <INVITE>
 backend/.venv/bin/python deploy/verify/s6_agent_templates.py --base http://localhost:8080 --invite <INVITE>
 backend/.venv/bin/python deploy/verify/s8_request_dispatch.py --base http://localhost:8080 --invite <INVITE>
+backend/.venv/bin/python deploy/verify/s12_browser_walkthrough.py --base http://localhost:8080 --invite <INVITE> [--viewer-invite <INVITE>]
 node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（需 playwright）
 ```
 
@@ -439,7 +442,8 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 [007 分派收件箱](specs/007-request-dispatch/quickstart.md) ·
 [008 项目容器](specs/008-project-entity/quickstart.md) ·
 [009 需求依赖](specs/009-request-dependency/quickstart.md) ·
-[010 项目共享](specs/010-project-sharing/quickstart.md)。
+[010 项目共享](specs/010-project-sharing/quickstart.md) ·
+[011 浏览器走查](specs/011-browser-walkthrough/quickstart.md)。
 
 已记录的关键实测数据：分配受理 12ms、WS 推送滞后 0.25s 内、20 并发全量完成 1.71s、
 失败重试成功率 5/5；压测 100 并发 818 req/s、200 并发 0 错误（P95 受 2 vCPU 开发机限制）。
@@ -477,6 +481,7 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 | [008-project-entity](specs/008-project-entity/spec.md) | 项目容器：需求归类 + 看板按项目筛选 + 项目 CRUD | ✅ 30/30（s9 真实栈 5/5） |
 | [009-request-dependency](specs/009-request-dependency/spec.md) | 需求依赖：有向边 + 硬门禁 + 解锁通知 | ✅ 29/29（s10 真实栈 4/4） |
 | [010-project-sharing](specs/010-project-sharing/spec.md) | 项目共享：成员管理 + 共享可见性 + 协作谓词 | ✅ 26/26（s11 真实栈 4/4） |
+| [011-browser-walkthrough](specs/011-browser-walkthrough/spec.md) | 浏览器走查基建：s12 脚本把 008/009/010 的前端清单自动化 | ✅ 20/21（s12 实测 8/15，7 项失败全部是精确发现） |
 
 分支约定：特性开发走 `feat/<name>`，每个 Phase 一次提交，完成后 fast-forward 合并回
 `master` 并删除特性分支。宪法见 [.specify/memory/constitution.md](.specify/memory/constitution.md)。

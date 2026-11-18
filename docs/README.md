@@ -19,7 +19,7 @@
 
 ## 功能规格（Spec Kit，`../specs/`）
 
-十个特性都按 SDD + TDD 走完，每个目录结构一致：
+十一个特性都按 SDD + TDD 走完，每个目录结构一致：
 `spec.md`（WHAT/WHY）→ `plan.md` / `research.md` / `data-model.md` /
 `contracts/api.md` → `checklists/requirements.md` → `tasks.md`（逐条勾选 + 实测记录）
 → `quickstart.md`（真实栈验收）。
@@ -36,6 +36,7 @@
 | [008-project-entity](../specs/008-project-entity/spec.md) | 项目容器：需求归类、看板项目筛选、项目 CRUD/归档/删除 | ✅ 30/30（s9 真实栈 5/5） |
 | [009-request-dependency](../specs/009-request-dependency/spec.md) | 需求依赖：有向边、硬门禁（409 逐条）、解锁通知、成环拒绝 | ✅ 29/29（s10 真实栈 4/4） |
 | [010-project-sharing](../specs/010-project-sharing/spec.md) | 项目共享：成员管理、共享可见性、协作谓词（owner+成员两层） | ✅ 26/26（s11 真实栈 4/4） |
+| [011-browser-walkthrough](../specs/011-browser-walkthrough/spec.md) | 浏览器走查基建：s12 脚本自动化三份前端清单，零应用改动 | ✅ 20/21（s12：8 过 / 7 精确发现） |
 
 > `research.md` 是每个特性里最值得先读的文件：它记录每个关键决策「为什么更简单的做法不行」，
 > 例如 005 的「内置模板唯一性必须用部分唯一索引」（PostgreSQL 唯一约束遇 NULL 不生效）。
