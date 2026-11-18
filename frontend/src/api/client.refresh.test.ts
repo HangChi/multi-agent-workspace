@@ -2,7 +2,10 @@
  *
  * 背景：access token 仅 30 分钟，401 直接 logout 会把用户踢回登录页。
  * refresh token 现在放在 HttpOnly cookie 里（前端读不到），所以这里断言：
- * 请求体为空、带 withCredentials，且成功后只写回 access。
+ * **不带请求体**、带 withCredentials，且成功后只写回 access。
+ *
+ * 为什么强调「不带」：后端 body 是 `RefreshRequest | None` 且 refresh_token 必填，
+ * 发 `{}` 会被校验成 422，读 cookie 的分支进不去 —— 表现为一刷新就掉线。
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -32,13 +35,15 @@ beforeEach(() => {
 })
 
 describe('refreshAccessToken', () => {
-  it('用 cookie 刷新：请求体为空、带 withCredentials', async () => {
+  it('用 cookie 刷新：不带请求体、带 withCredentials', async () => {
     setSession('expired-access')
     postMock.mockResolvedValue({ data: { tokens: NEW_TOKENS } })
 
     await expect(refreshAccessToken()).resolves.toBe('new-access')
 
-    expect(postMock).toHaveBeenCalledWith('/api/v1/auth/refresh', {}, { withCredentials: true })
+    expect(postMock).toHaveBeenCalledWith('/api/v1/auth/refresh', undefined, {
+      withCredentials: true,
+    })
     expect(useAuthStore.getState().accessToken).toBe('new-access')
   })
 

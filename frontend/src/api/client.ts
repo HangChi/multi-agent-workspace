@@ -35,10 +35,12 @@ async function requestNewAccessToken(): Promise<string | null> {
   const { setTokens, logout } = useAuthStore.getState()
   try {
     // 走裸 axios（不经 apiClient）：否则刷新失败又触发拦截器 → 递归。
-    // refresh token 在 HttpOnly cookie 里，请求体留空即可（withCredentials 让 cookie 随行）。
+    // refresh token 在 HttpOnly cookie 里，所以**必须不带 body**：
+    // 后端 body 是 `RefreshRequest | None` 且 `refresh_token` 必填，传 `{}` 会被
+    // FastAPI 直接判 422，读 cookie 的分支根本进不去 —— 结果是 401 一次就登出。
     const { data } = await axios.post<{ tokens: { access: string; refresh: string } }>(
       `/api/v1${REFRESH_URL}`,
-      {},
+      undefined,
       { withCredentials: true }
     )
     setTokens(data.tokens)

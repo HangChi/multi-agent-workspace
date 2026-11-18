@@ -58,8 +58,13 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
-        // 服务端撤销 refresh 并清 cookie；失败不影响本地登出
-        void axios.post('/api/v1/auth/logout', {}, { withCredentials: true }).catch(() => undefined)
+        // 服务端撤销 refresh 并清 cookie；失败不影响本地登出。
+        // ⚠️ 不能发 `{}`：/auth/logout 的 body 是 `RefreshRequest | None` 且
+        // refresh_token 必填，发空对象会 422，撤销与清 cookie 都不会执行 ——
+        // 结果是「点了退出，刷新页面又自动登回来」。
+        void axios
+          .post('/api/v1/auth/logout', undefined, { withCredentials: true })
+          .catch(() => undefined)
         set({ user: null, accessToken: null })
       },
 
