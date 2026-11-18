@@ -35,6 +35,7 @@ from app.orchestrator.strategies import (
     StrategyResolver,
     Target,
 )
+from app.services import dependency_service
 from app.services.external_invocation_service import snapshot_external_grants
 from app.services.quota_service import assert_user_quota
 from app.services.request_service import get_request
@@ -177,6 +178,14 @@ async def assign(
     # 2. 幂等校验（FR-012）
     if request.status not in _ASSIGNABLE_STATUSES:
         raise AppError("CONFLICT", "需求已在执行，不可重复分配")
+
+    # 2.5 依赖门禁（009，FR-004）：有未完成前置 → 409 且消息逐条。
+    # 位置在目标校验之前——「被挡住」与「目标错」是两个独立错误，先报更
+    # 根本的那个；也省掉一次无谓的目标解析。查询是一次带索引的半连接
+    # （ix_request_dependencies_request_id），SC-003 的 RT 预算靠它。
+    # user 落点（拖员工转交）不查——责任流转与执行启动是两个关注点（FR-005）。
+    if assignee_type in ("agent", "group"):
+        await dependency_service.assert_not_blocked(db, request.id)
 
     # 3. 目标校验 + 默认策略
     group = None

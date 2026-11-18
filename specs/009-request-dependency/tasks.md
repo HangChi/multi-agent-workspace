@@ -23,12 +23,12 @@
 
 ## Phase 3b — 门禁与通知（改既有，提交点：`feat(assign): 009 硬门禁与解锁通知`）
 
-- [ ] T013 [P] Integration: `backend/tests/integration/test_dependency_gate.py` — 先写红（未完成前置 assign 409 逐条；completed/failed/cancelled 解锁；user 落点不查；调度撞门禁建单不分配）
-- [ ] T014 Modify `backend/app/services/assignment_service.py`：assign 在目标校验前插 `assert_not_blocked`（一次半连接）；409 消息逐条（>5 截断）；user 落点与重试路径不查
-- [ ] T015 Modify `backend/app/services/request_service.py`：`get_request` 详情派生 `dependencies` + `blocked`；`list_requests` 两查询算法补 `blocked`（data-model §4）
-- [ ] T016 Modify `backend/app/services/request_service.py`：`settle_request_status` 终态后反查后续方、逐条判「其余前置均终态」→ 发 `dependency_ready`（owner+assignee 去重；后续已终态/running 跳过）
-- [ ] T017 Modify `backend/app/services/schedule_service.py`：`_fire_and_assign` 调 assign 前查门禁；未满足则跳过分配（trigger=fired + reason 注明，需求留 created）——**不走** AppError→failed 路径（R-07）
-- [ ] T018 跑 T013 转绿 + 既有测试全量回归（重点：test_assign/test_dispatch_*/test_schedules 一条断言不改）
+- [X] T013 [P] Integration: `backend/tests/integration/test_dependency_gate.py` — 先写红（未完成前置 assign 409 逐条；completed/failed/cancelled 解锁；user 落点不查；调度撞门禁建单不分配）
+- [X] T014 Modify `backend/app/services/assignment_service.py`：assign 在目标校验前插 `assert_not_blocked`（一次半连接）；409 消息逐条（>5 截断）；user 落点与重试路径不查
+- [X] T015 Modify `backend/app/services/request_service.py`：`get_request` 详情派生 `dependencies` + `blocked`；`list_requests` 两查询算法补 `blocked`（data-model §4）
+- [X] T016 Modify `backend/app/services/request_service.py`：`settle_request_status` 终态后反查后续方、逐条判「其余前置均终态」→ 发 `dependency_ready`（owner+assignee 去重；后续已终态/running 跳过）
+- [X] T017 Modify `backend/app/services/schedule_service.py`：`_fire_and_assign` 调 assign 前查门禁；未满足则跳过分配（trigger=fired + reason 注明，需求留 created）——**不走** AppError→failed 路径（R-07）
+- [X] T018 跑 T013 转绿 + 既有测试全量回归（重点：test_assign/test_dispatch_*/test_schedules 一条断言不改）
 
 ## Phase 4 — 前端（提交点：`feat(ui): 009 依赖前端`）
 

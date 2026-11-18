@@ -47,6 +47,8 @@ class Notification(Base):
             "request_rejected",
             "request_reassigned",
             "run_completed",
+            # 009：解锁通知（前置终态 → 后续方「可以启动了」）
+            "dependency_ready",
             name="notification_type",
         ),
         nullable=False,

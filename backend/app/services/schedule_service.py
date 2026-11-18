@@ -34,6 +34,7 @@ from app.schemas.schedule import (
     TargetStatus,
 )
 from app.services import assignment_service
+from app.services.dependency_service import DependencyBlockedError
 from app.services.quota_service import assert_user_quota
 from app.services.schedule_cron import (
     CronExpressionError,
@@ -725,6 +726,31 @@ async def _fire_and_assign(
             assignee_type=schedule.target_type,
             assignee_id=schedule.target_id,
             strategy=schedule.target_strategy,
+        )
+    except DependencyBlockedError:
+        # 009 依赖门禁（FR-009/R-07）：前置未完成 → **建单但不分配**。
+        # 刻意不 rollback（下面的 failed 路径会连需求一起回滚），也不记
+        # failed（会累积连续失败、最终 auto-disable 规则）——一个正常的
+        # 「前置还没好」不该丢需求、不该停规则。需求已 flush 在事务里，
+        # 直接落地 + 记 fired + reason 注明。
+        await db.commit()
+        logger.info(
+            "schedule_gate_skipped_assign",
+            schedule_id=schedule.id,
+            request_id=request.id,
+        )
+        return await _finish_trigger(
+            db,
+            schedule,
+            planned,
+            result="fired",
+            fired_at=datetime.now(UTC),
+            request_id=request.id,
+            run_id=None,
+            next_run=next_after(
+                parse_cron(schedule.cron_expr, schedule.timezone), planned
+            ),
+            reason="前置未完成，未自动分配",
         )
     except AppError as exc:
         # assign 失败 → 整个事务（含占位行）回滚 → 换新事务写失败记录。

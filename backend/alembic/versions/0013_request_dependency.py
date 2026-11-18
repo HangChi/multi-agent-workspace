@@ -83,6 +83,14 @@ def upgrade() -> None:
         "request_dependencies",
         ["dependency_id"],
     )
+    # 枚举新值（autocommit_block：同事务不能使用新值，同 0011/0010）。
+    # dependency_ready 是 009 解锁通知的类型；downgrade 不删枚举值
+    # （PG 不能安全删，旧 worker 可能还在引用，同 0011 纪律）。
+    with op.get_context().autocommit_block():
+        op.execute(
+            "ALTER TYPE notification_type ADD VALUE IF NOT EXISTS "
+            "'dependency_ready'"
+        )
 
 
 def downgrade() -> None:

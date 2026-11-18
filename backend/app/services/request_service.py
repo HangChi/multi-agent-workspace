@@ -16,7 +16,7 @@ from app.models.request_dispatch import RequestDispatch
 from app.models.run import Run
 from app.models.user import User
 from app.schemas.request import RequestCreate, RequestUpdate, RunOutcomeSummary
-from app.services import project_service
+from app.services import dependency_service, project_service
 
 logger = structlog.get_logger(__name__)
 
@@ -59,6 +59,11 @@ async def settle_request_status(db: AsyncSession, request_id: str) -> str | None
 
     007：收敛到终态时给**创建者**发一条 `run_completed` 通知（FR-010）——
     经手人（接收人）可能不是创建者，执行结果要回到需求方眼前。
+
+    009：收敛到终态后反查「谁在等这条需求」（依赖边），对**其余前置均已
+    终态**的后续方发 `dependency_ready`（FR-007）。落点选这里而不是
+    execute_run 各完成分支：settle 是终态唯一汇聚点，且 running 门禁
+    天然保证幂等（R-02）。
     """
     request = await db.get(Request, request_id)
     if request is None or request.status != "running":
@@ -96,7 +101,50 @@ async def settle_request_status(db: AsyncSession, request_id: str) -> str | None
         )
     )
     metrics.NOTIFICATIONS_CREATED.inc(type="run_completed")
+    # 009 FR-007/008：解锁通知（同事务；幂等由上面的 running 门禁保证）
+    await _notify_ready_dependents(db, request)
     return request.status
+
+
+async def _notify_ready_dependents(db: AsyncSession, request: Request) -> None:
+    """给「等这条需求且其余前置均已终态」的后续方发 dependency_ready。
+
+    受众 = 后续方 owner + assignee（非同一人时两条，同人去重）——「可以
+    启动了」对经手人同样重要（他才是拖给 Agent 的人）。后续方已终态或
+    在 running 时跳过（FR-007 场景 4/5；running 本不该有未完成前置，
+    门禁保证，这里是防御）。
+    """
+    from app.core import metrics
+    from app.models.notification import Notification
+
+    dependents = await dependency_service.ready_dependents(db, request.id)
+    for dependent in dependents:
+        recipients = {dependent.owner_id}
+        if dependent.assignee_id:
+            recipients.add(dependent.assignee_id)
+        for user_id in recipients:
+            db.add(
+                Notification(
+                    user_id=user_id,
+                    type="dependency_ready",
+                    request_id=dependent.id,
+                    title=dependent.title,
+                    payload={
+                        "dependency_id": request.id,
+                        "dependency_title": request.title,
+                        # 前端按实际终态渲染三种措辞（completed/failed/
+                        # cancelled），不拆三种通知类型
+                        "dependency_status": request.status,
+                    },
+                )
+            )
+            metrics.NOTIFICATIONS_CREATED.inc(type="dependency_ready")
+    if dependents:
+        logger.info(
+            "dependency_ready_notified",
+            dependency_id=request.id,
+            dependents=[d.id for d in dependents],
+        )
 
 
 async def run_outcome_summaries(

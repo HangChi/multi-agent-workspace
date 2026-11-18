@@ -69,8 +69,8 @@ class RequestDependency(Base):
     # 两侧关系（Request 上两个 relationship 的另一半）。必须放在列定义之后——
     # foreign_keys 引用类属性，类体执行时列还没存在会 NameError。
     request = relationship(
-        "Request", foreign_keys=[request_id], back_populates="dependencies"
+        "Request", foreign_keys=[request_id], back_populates="dependency_edges"
     )
     dependency = relationship(
-        "Request", foreign_keys=[dependency_id], back_populates="dependents"
+        "Request", foreign_keys=[dependency_id], back_populates="dependent_edges"
     )

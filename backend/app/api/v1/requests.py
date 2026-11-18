@@ -34,6 +34,7 @@ from app.schemas.request import (
     AssignRequest,
     AttachmentListOut,
     AttachmentMeta,
+    DependencyBrief,
     DispatchActionOut,
     DispatchRecordOut,
     RejectIn,
@@ -124,6 +125,8 @@ async def list_requests(
     emails = await request_service.assignee_emails(
         db, [row.assignee_id for row in rows if row.assignee_id]
     )
+    # 009：blocked 批量（一次 IN 查询，不逐条查边——data-model §4）
+    blocked_ids = await dependency_service.blocked_flags(db, [row.id for row in rows])
     return {
         "items": [
             RequestOut.model_validate(row).model_copy(
@@ -132,6 +135,7 @@ async def list_requests(
                     "assignee_email": emails.get(row.assignee_id)
                     if row.assignee_id
                     else None,
+                    "blocked": blocked_ids.get(row.id, False),
                 }
             )
             for row in rows
@@ -256,9 +260,23 @@ async def get_request(request_id: ResourceId, user: CurrentUser, db: DB):
     for h in history:
         involved_ids.update({h.actor_id, h.from_assignee_id, h.to_assignee_id} - {None})
     emails = await request_service.assignee_emails(db, [i for i in involved_ids if i])
+    # 009：依赖概要（详情端才有；列表端只给 blocked 布尔，避免 N+1）
+    dep_pairs = await dependency_service.list_dependency_edges(db, request.id)
+    briefs = [
+        DependencyBrief(
+            id=edge.id,
+            request_id=target.id,
+            title=target.title,
+            status=target.status,
+            terminal=target.status in dependency_service.TERMINAL_STATUSES,
+        )
+        for edge, target in dep_pairs
+    ]
     return RequestOut.model_validate(request).model_copy(
         update={
             "runs_summary": summaries.get(request.id),
+            "dependencies": briefs,
+            "blocked": any(not b.terminal for b in briefs),
             "source_schedule_id": request.source_schedule_id,
             "source_schedule_name": schedule_name,
             "assignee_email": assignee_email,

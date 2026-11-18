@@ -23,9 +23,24 @@ from app.models.user import User
 
 logger = structlog.get_logger(__name__)
 
-# 终态集合：门禁看「是否终态」而非「是否成功」（FR-006/R-01）——
+# 终态集合（**需求**状态，FR-006/R-01）：门禁看「是否终态」而非「是否成功」——
 # failed/cancelled 的前置同样解锁，成败判断交给人（通知说明实际终态）。
-TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled", "timeout"})
+# 注意不含 timeout：那是 Run 状态，settle 已把超时收敛为需求的 failed
+# （0010 迁移的枚举里没有 timeout，塞进来会让 NOT IN 绑定直接报错）。
+TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
+
+
+class DependencyBlockedError(AppError):
+    """门禁异常（009）：assign 被未完成前置挡下。
+
+    为什么是子类而不是新错误码：HTTP 层仍按父类 code=CONFLICT 映射 409
+    （契约不变），但调度分支要区分「正常门禁」与「真失败」——前者建单
+    不分配（FR-009），后者走回滚记 failed。用字符串匹配 message 太脆，
+    用类型匹配。
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__("CONFLICT", message)
 
 
 def would_create_cycle(
@@ -234,7 +249,7 @@ async def assert_not_blocked(db: AsyncSession, request_id: str) -> None:
     listed = "、".join(f"{b.title}（{b.status}）" for b in blockers[:5])
     if len(blockers) > 5:
         listed += f" 等 {len(blockers)} 个"
-    raise AppError("CONFLICT", f"有 {len(blockers)} 个前置需求未完成：{listed}")
+    raise DependencyBlockedError(f"有 {len(blockers)} 个前置需求未完成：{listed}")
 
 
 async def is_blocked(db: AsyncSession, request_id: str) -> bool:

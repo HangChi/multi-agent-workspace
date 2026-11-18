@@ -118,19 +118,22 @@ class Request(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    # 009：依赖边。dependencies = 我依赖谁（我是被依赖方，request_id 侧）；
-    # dependents = 谁依赖我（我是前置，dependency_id 侧）。两个 FK 指向
+    # 009：依赖边。dependency_edges = 我依赖谁（我是被依赖方，request_id 侧）；
+    # dependent_edges = 谁依赖我（我是前置，dependency_id 侧）。两个 FK 指向
     # 同一张表，必须显式 foreign_keys——否则 SQLAlchemy 无法判断映射方向。
     # passive_deletes=True：删需求时边由 DB 级联删，ORM 不逐条 SELECT
     # （同 dispatches/notifications 纪律）。
-    dependencies = relationship(
+    # ⚠️ 关系名刻意不叫 dependencies/dependents：与 RequestOut 的
+    # `dependencies` 派生字段同名会让 pydantic from_attributes 读到关系、
+    # 触发惰性载入（MissingGreenlet，009 Phase 3b 实测）。
+    dependency_edges = relationship(
         "RequestDependency",
         foreign_keys=[RequestDependency.request_id],
         back_populates="request",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    dependents = relationship(
+    dependent_edges = relationship(
         "RequestDependency",
         foreign_keys=[RequestDependency.dependency_id],
         back_populates="dependency",

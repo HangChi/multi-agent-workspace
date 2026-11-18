@@ -61,6 +61,19 @@ class AttachmentListOut(BaseModel):
     attachments: list[AttachmentUploadOut]
 
 
+class DependencyBrief(BaseModel):
+    """详情端依赖概要的一条：前置的 id/标题/状态/是否终态。
+
+    终态判定与服务端 TERMINAL_STATUSES 同源（completed/failed/cancelled）。
+    """
+
+    id: str
+    request_id: str
+    title: str
+    status: str
+    terminal: bool
+
+
 class RequestCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str | None = None
@@ -160,6 +173,10 @@ class RequestOut(BaseModel):
     # 未归类两者皆 null——既有字段一个不改，SC-006 零回归据此判定。
     project_id: str | None = None
     project_name: str | None = None
+    # 009：依赖派生字段。dependencies 仅**详情端**返回（列表端只给 blocked
+    # 布尔——逐条查边是 N+1，data-model §4）；blocked = 有未完成前置。
+    dependencies: list["DependencyBrief"] | None = None
+    blocked: bool = False
     #: 经手链（dispatch/reassign/accept/reject 正序）。仅详情端点填充——
     #: 列表端点保持 None，避免每条需求都带一圈历史查询。
     dispatch_history: list[DispatchRecordOut] | None = None
