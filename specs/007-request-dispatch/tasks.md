@@ -91,11 +91,11 @@
 
 - [X] T036 Write `deploy/verify/s8_request_dispatch.py`：quickstart §1 八场景
       （A–H），退出码非零即失败。
-- [ ] T037 Run 全量门禁（后端 pytest + ruff/format/mypy；前端五件套）+
+- [X] T037 Run 全量门禁（后端 pytest + ruff/format/mypy；前端五件套）+
       s1–s4/strategy 回归（FR-014 零行为变更证据）+ 填 quickstart 实测记录。
-- [ ] T038 Update `README.md`：页面表（收件箱/铃铛）、API 概览（新端点 + scope
+- [X] T038 Update `README.md`：页面表（收件箱/铃铛）、API 概览（新端点 + scope
       默认值 + 配额口径变更）、已知限制（通知仅站内）。
-- [ ] T039 Update `docs/architecture.md`：需求状态机图（pending/accepted 分支）+
+- [X] T039 Update `docs/architecture.md`：需求状态机图（pending/accepted 分支）+
       分派链路一节（引用 research R-02/R-03）。
 - [ ] T040 ff 合并 `feat/007-request-dispatch` → `master`，删分支，
       `git status` 确认干净（宪法：无密钥/临时文件）。

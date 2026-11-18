@@ -35,9 +35,13 @@ class Result:
 
 
 class StrategyVerifier:
-    def __init__(self, base: str, invite: str) -> None:
+    def __init__(self, base: str, invite: str, model: str = "Deepseek-V4.1-Flash") -> None:
         self.base = base.rstrip("/")
         self.invite = invite
+        # 模型必须与所打栈的 LLM 端点匹配（默认取当前部署的 LLM_MODEL）；
+        # 用 mock 网关时传 gpt-4o-mini。写错的症状是 Run 秒失败
+        # No available channel for model ...（006 换端点时踩过同款坑）。
+        self.model = model
         self.token: str | None = None
         self.results: list[Result] = []
         self._http = httpx.AsyncClient(timeout=30.0)
@@ -64,7 +68,7 @@ class StrategyVerifier:
                 "name": name,
                 "description": description,
                 "system_prompt": f"你是{name}。{description}",
-                "model": "gpt-4o-mini",
+                "model": self.model,
                 "max_steps": 6,
                 "cost_limit_cents": 10000,
                 "tools": ["web_search"],
@@ -204,9 +208,14 @@ async def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="http://localhost:8080")
     parser.add_argument("--invite", default="TEST-ADMIN-CODE-123")
+    parser.add_argument(
+        "--model",
+        default="Deepseek-V4.1-Flash",
+        help="验收 Agent 使用的模型（必须与所打栈的 LLM 端点匹配）",
+    )
     args = parser.parse_args()
 
-    verifier = StrategyVerifier(args.base, args.invite)
+    verifier = StrategyVerifier(args.base, args.invite, model=args.model)
     try:
         await verifier.setup()
         await verifier.pipeline_scenario()

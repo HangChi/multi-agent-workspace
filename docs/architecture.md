@@ -156,6 +156,31 @@ User 1─N Schedule ─N Request(模板化)
 - `completed` / `failed` / `cancelled` / `timeout`：终态。
 - `failed` 可手动或自动重试（重新入队，幂等）。
 
+### 5.1.1 需求责任链状态机（007）
+
+与 Run 状态机分工：Run 管「一次执行的生死」，需求管「一件需求的責任歸屬」；
+需求跨多次 Run（重试/多 agent），两者刻意不合并——合并后「需求已完成但还有
+retrying 的 Run」无法表达。
+
+```
+created ──拖到员工──▶ pending ──接收──▶ accepted ──拖到 Agent/组──▶ running ──► 终态
+   ▲                     │                  │                        （settle_request_status 收敛）
+   └──── 退回（原因必填）──┴──────────────────┘
+```
+
+- 实现：`app/orchestrator/request_state_machine.py`（迁移表 + 幂等 `transition()`
+  + 不变量校验 `assert_dispatch_invariants`），与 Run 状态机同构；非法迁移 → 409。
+- 经手链：`request_dispatches` append-only（dispatch/reassign/accept/reject），
+  按每需求单调 `seq` 排序——**不能用 created_at**：PG 的 `now()` 是事务开始时间，
+  行锁等待会让后插入者持有更早时间戳（007 Phase 3b 实测翻转后改为 seq）。
+- 访问权：需求的创建者或当前接收人（`_check_owner` 谓词扩展）；Run 同构
+  （`_get_owned_run` / WS `_can_access_run`）——执行人 ≠ Run.owner_id。
+- 成本口径：`Run.owner_id` 恒继承需求创建者，配额断言入参为 `request.owner_id`
+  （research R-03）——分派后经手人 ≠ owner，按操作人扣配额会吃爆员工月额度。
+- 通知：分派/接收/退回/转交在 `dispatch_service` 各产生一条；执行完成在
+  `settle_request_status`（终态收敛唯一汇聚点，幂等）产生 `run_completed` 给创建者；
+  未读计数走轮询（≤30s），不建用户级 WS（research R-06）。
+
 ### 5.2 单 Agent 执行循环（ReAct 风格）
 
 ```
@@ -246,16 +271,26 @@ GET|POST   /api/v1/mcp-servers      PATCH|DELETE /api/v1/mcp-servers/{id}
 
 # 需求与分配（核心交互）
 POST       /api/v1/requests                    # 创建需求（含附件上传）
-GET        /api/v1/requests?status=&q=         # 看板列表
-POST       /api/v1/requests/{id}/assign        # 拖拽落点：{assignee_type: agent|group, assignee_id, strategy?}
+GET        /api/v1/requests?scope=relevant|mine&status=&q=   # 看板列表（007：relevant=我创建的+分派给我的，默认）
+POST       /api/v1/requests/{id}/assign        # 拖拽落点：{assignee_type: user|agent|group, assignee_id, strategy?, note?}
+                                                  # user = 仅转交责任（不建 Run）；agent/group = 建 Run 执行
+POST       /api/v1/requests/{id}/accept        # 007：接收（pending → accepted，仅当前接收人）
+POST       /api/v1/requests/{id}/reject         # 007：退回（pending|accepted → created，reason 必填）
 POST       /api/v1/requests/{id}/attachments   # 附件上传（预签名 URL → MinIO）
 
+# 人员与通知（007）
+GET        /api/v1/users/options               # 在职用户最小投影（分派选人；viewer 403）
+GET        /api/v1/notifications?unread_only=  # 我的通知（倒序）
+GET        /api/v1/notifications/unread-count  # 未读数（铃铛轮询 ≤30s）
+POST       /api/v1/notifications/read          # 批量已读（ids 缺省 = 全部）
+
 # 运行
-GET        /api/v1/runs/{id}                   # 详情（状态、步骤、成本、错误）
+GET        /api/v1/runs/{id}                   # 详情（状态、步骤、成本、错误；创建者或当前接收人可读）
 POST       /api/v1/runs/{id}/cancel
 POST       /api/v1/runs/{id}/retry
 GET        /api/v1/runs/{id}/artifacts         # 制品下载（预签名）
 WS         /api/v1/ws/runs/{id}                # 实时状态 + 分步日志流
+WS         /api/v1/ws/requests/{id}            # 007：分派类状态变更（创建者/当前接收人可订阅）
 
 # 调度 / 统计
 GET|POST   /api/v1/schedules      PATCH|DELETE /api/v1/schedules/{id}
@@ -274,7 +309,7 @@ GET        /api/v1/stats/overview              # 仪表盘：运行中/队列深
 | `agents` | id, name, description, system_prompt, model, temperature, max_steps, tools(jsonb), parent_id, cost_limit, owner_id | 角色 Agent |
 | `agent_groups` | id, name, description, routing_strategy, owner_id | 组 + 默认策略 |
 | `group_members` | group_id, agent_id, position | 组成员有序（pipeline 用） |
-| `requests` | id, title, description, priority, deadline, attachments(jsonb), expected_output, owner_id, status | 需求卡片 |
+| `requests` | id, title, description, priority, deadline, attachments(jsonb), expected_output, owner_id, status, **assignee_id, dispatched_at, accepted_at（007）** | 需求卡片 |
 | `runs` | id, request_id, parent_run_id, assignee_type, assignee_id, strategy, status, current_step, result(jsonb), error, cost, timestamps | 执行实例 |
 | `steps` | id, run_id, seq, kind, input, output, tool_name, duration_ms, cost, status, error | 分步记录 |
 | `tools` | id, name, kind, config_encrypted, sandbox_level, owner_id | 工具定义 |
@@ -283,9 +318,11 @@ GET        /api/v1/stats/overview              # 仪表盘：运行中/队列深
 | `schedules` | id, owner_id, name, cron_expr, timezone, template_*(title/description/expected_output/priority), target_type, target_id, target_strategy, enabled, next_run_at, last_run_at, last_result, consecutive_failures, auto_disabled_reason | 定时规则 |
 | `schedule_triggers` | id, schedule_id, planned_at, fired_at, result(fired/missed/skipped_busy/failed), reason, missed_count, window_start, window_end, request_id, run_id · UNIQUE(schedule_id, planned_at) | 触发事实（不可变） |
 | `agent_templates` | id, owner_id(可空=NULL 即内置), name, description, system_prompt, model, temperature, max_steps, max_run_seconds, tools(jsonb), cost_limit_cents, egress_mode, created_at, updated_at · UNIQUE(owner_id, name) + 部分唯一索引 name WHERE owner_id IS NULL | Agent 配置快照（005） |
+| `request_dispatches` | id, request_id, action(dispatch/reassign/accept/reject), actor_id, from_assignee_id, to_assignee_id, reason, **seq**, created_at | 经手链（007，append-only） |
+| `notifications` | id, user_id, type, request_id, title(标题快照), payload(jsonb), read_at, created_at | 站内通知（007） |
 | `audit_logs` | id, user_id, action, target_type, target_id, detail, created_at | 审计 |
 
-索引要点：`runs(status, created_at)`、`runs(request_id)`、`steps(run_id, seq)`、`requests(status, priority)`、`schedules(next_run_at) WHERE enabled`（部分索引，扫描只走启用的规则）、`schedule_triggers(schedule_id, planned_at DESC, id DESC)`、`agent_templates(owner_id, created_at)`、`agent_templates(name) WHERE owner_id IS NULL`（内置唯一性）、`agents(source_template_id)`、`agents(source_agent_id)`（来源反查）。
+索引要点：`runs(status, created_at)`、`runs(request_id)`、`steps(run_id, seq)`、`requests(status, priority)`、`schedules(next_run_at) WHERE enabled`（部分索引，扫描只走启用的规则）、`schedule_triggers(schedule_id, planned_at DESC, id DESC)`、`agent_templates(owner_id, created_at)`、`agent_templates(name) WHERE owner_id IS NULL`（内置唯一性）、`agents(source_template_id)`、`agents(source_agent_id)`（来源反查）、`requests(assignee_id, status)`（007 收件箱）、`request_dispatches(request_id, seq)`（007 经手链正序）、`notifications(user_id, created_at DESC) WHERE read_at IS NULL`（007 未读部分索引）。
 
 **模板的三个语义要点**（完整论证见 `specs/005-agent-templates/`）：
 
@@ -303,6 +340,20 @@ GET        /api/v1/stats/overview              # 仪表盘：运行中/队列深
    投递一个全新任务，靠既有 Redis 锁保证同一时刻只有一个执行体。
 3. **成本跨次累计。** 重试不清零 `cost_micros`：清零会让看板成本系统性低于网关账单，
    且熔断可被「每次各花 490 分、上限 500 分」绕过。这是 001 手动重试行为的一处刻意变更。
+
+**分派链路的四个语义要点**（完整论证见 `specs/007-request-dispatch/research.md`）：
+
+1. **拖到人 ≠ 拖到 Agent。** `assignee_type=user` 只转交责任（改 requests 的责任指针 +
+   历史 + 通知），不建 Run、不入队——受理路径因此比 agent 分支更短（实测 15ms）。
+   首次分派与转交同入口，由「当前有无接收人」区分，历史里 action 不同。
+2. **成本与配额恒记需求创建者。** `Run.owner_id` 继承 + `assert_user_quota` 入参都是
+   `request.owner_id`。分派后经手人 ≠ owner，按操作人扣配额会让员工的月额度被
+   别人派来的活吃爆，且与 Run 归属分裂成双口径。
+3. **经手链按 seq 不按时间。** PG 的 `now()` 是事务开始时间：行锁等待会让「后插入」
+   的事务持有更早的时间戳（并发双分派实测历史顺序颠倒），叙事链说反「谁先谁后」。
+   `seq` 在请求行锁下取 max+1，与锁串行化天然一致。
+4. **通知落库 + 轮询，不建用户级 WS。** 为铃铛小红点引入用户级长连接，就要配套
+   在线状态、多标签页去重、重连补发；`refetchInterval ≤30s` 满足验收且零基建。
 
 **调度的两个语义要点**（完整论证见 `specs/004-scheduled-requests/`）：
 
@@ -396,9 +447,12 @@ Prometheus/Grafana 监控告警 · 审计日志完善 · 备份演练 · CI/CD�
 
 **验收**：系统稳定运行、故障可发现可回溯、扩容操作文档化。
 
-**当前状态（2026-11-18）**：Phase 1 / Phase 2 / Phase 3 主体已完成，五个特性全部落地
+**当前状态（2026-11-18）**：Phase 1 / Phase 2 / Phase 3 主体已完成，七个特性全部落地
 （001 核心闭环 84/84、002 沙箱与出网 76/76、003 外部 MCP 65/65、004 定时调度 65/65、
-005 Agent 模板与克隆 39/39），均有 CI 门禁与真实栈验收。Phase 3 进展：
+005 Agent 模板与克隆 39/39、006 运行自动重试 39/39、007 需求分派与收件箱 41/41），
+均有 CI 门禁与真实栈验收。007 补齐了系统设计动机的最后一环——「需求分派给员工，
+员工接收后拖给 Agent」（此前只有「谁建需求谁拖给 Agent」，见 §5.1.1）。
+Phase 3 进展：
 - ✅ CI（lint + 测试 + 镜像构建）+ 手动触发的部署 job + `deploy/deploy.sh`（健康门禁/回滚）
 - ✅ Prometheus 指标（`/metrics`，含 Worker 侧跨进程合并）与 8 条告警规则（阈值待在真实流量下校准）
 - ✅ 备份脚本 + 恢复演练脚本（演练只在开发机验证）
@@ -407,7 +461,9 @@ Prometheus/Grafana 监控告警 · 审计日志完善 · 备份演练 · CI/CD�
   以及 `worker` 挂载 `docker.sock`（≈宿主 root）的安全加固复核
 
 各特性的设计取舍论证在对应 `specs/NNN-*/research.md`；本文第 5–8 节的状态机、策略、
-数据表与索引仍与实现一致（005 之后补了 `agent_templates` 表与两个来源外键，见第 8 节）。
+数据表与索引仍与实现一致（005 之后补了 `agent_templates` 表与两个来源外键；
+006 之后补了 `runs` 重试三字段；007 之后补了 `requests` 分派三列与
+`request_dispatches` / `notifications` 两表，见第 8 节）。
 
 ---
 

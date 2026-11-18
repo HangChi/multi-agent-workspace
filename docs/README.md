@@ -19,7 +19,7 @@
 
 ## 功能规格（Spec Kit，`../specs/`）
 
-五个特性都按 SDD + TDD 走完，每个目录结构一致：
+七个特性都按 SDD + TDD 走完，每个目录结构一致：
 `spec.md`（WHAT/WHY）→ `plan.md` / `research.md` / `data-model.md` /
 `contracts/api.md` → `checklists/requirements.md` → `tasks.md`（逐条勾选 + 实测记录）
 → `quickstart.md`（真实栈验收）。
@@ -31,6 +31,8 @@
 | [003-mcp-tool-market](../specs/003-mcp-tool-market/spec.md) | 外部 MCP 工具：注册、审批、按 Agent 授权、调用留证 | ✅ 65/65 |
 | [004-scheduled-requests](../specs/004-scheduled-requests/spec.md) | 定时调度：cron 规则自动建单分配，错过不补跑 | ✅ 65/65 |
 | [005-agent-templates](../specs/005-agent-templates/spec.md) | Agent 模板、一键克隆、另存为模板、内置模板 | ✅ 39/39 |
+| [006-run-retry](../specs/006-run-retry/spec.md) | 运行自动重试：瞬时失败重试、不重复执行、成本跨次累计 | ✅ 39/39 |
+| [007-request-dispatch](../specs/007-request-dispatch/spec.md) | 需求分派给员工、收件箱、站内通知、经手链 | ✅ 41/41（s8 真实栈 7/7） |
 
 > `research.md` 是每个特性里最值得先读的文件：它记录每个关键决策「为什么更简单的做法不行」，
 > 例如 005 的「内置模板唯一性必须用部分唯一索引」（PostgreSQL 唯一约束遇 NULL 不生效）。

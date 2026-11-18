@@ -19,10 +19,15 @@ owner / worker / other，覆盖「创建者/接收人/陌生人」三种身份�
 - **H 回归**：不在本脚本——由 s1–s4 与 strategy 脚本覆盖（FR-014 零行为变更）。
 
 依赖：真实 LLM 端点或 mock 网关任一（场景 E 需要一次真实执行）。
+**模型名必须与所打栈的 LLM 端点匹配**——`--model` 默认取当前部署的
+`Deepseek-V4.1-Flash`（`deploy/.env` 的 `LLM_MODEL`）；用 mock 网关的栈传
+`--model gpt-4o-mini`。写错模型名的症状是 Run 秒失败
+`No available channel for model …`（006 换端点时踩过同款坑）。
 注册走邀请码（系统无开放注册）。
 
 用法：
     python deploy/verify/s8_request_dispatch.py --base http://localhost:8080 --invite <INVITE>
+    python deploy/verify/s8_request_dispatch.py --base http://localhost:8080 --invite <INVITE> --model gpt-4o-mini
 """
 
 import argparse
@@ -48,9 +53,10 @@ class Result:
 
 
 class DispatchVerifier:
-    def __init__(self, base: str, invite: str) -> None:
+    def __init__(self, base: str, invite: str, model: str = "Deepseek-V4.1-Flash") -> None:
         self.base = base.rstrip("/")
         self.invite = invite
+        self.model = model
         self.results: list[Result] = []
         self._http = httpx.AsyncClient(timeout=60.0)
         # 三个身份的 token
@@ -102,7 +108,7 @@ class DispatchVerifier:
             json={
                 "name": f"分派验收 {uuid.uuid4().hex[:6]}",
                 "system_prompt": "你是验收助手，请简短回答。",
-                "model": "gpt-4o-mini",
+                "model": self.model,
                 "max_steps": 4,
                 "cost_limit_cents": 10000,
                 "tools": [],
@@ -151,7 +157,7 @@ class DispatchVerifier:
                 "note": "请这周内给初稿",
             },
         )
-       accept_ms = (time.monotonic() - t0) * 1000
+        accept_ms = (time.monotonic() - t0) * 1000
 
         ok = resp.status_code == 202 and resp.json().get("status") == "pending"
         detail = f"assign(user) → {resp.status_code} {resp.json().get('status', '')}，受理 {accept_ms:.0f}ms"
@@ -440,8 +446,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="007 需求分派真实栈验收")
     parser.add_argument("--base", default="http://localhost:8080")
     parser.add_argument("--invite", required=True, help="邀请码（系统无开放注册）")
+    parser.add_argument(
+        "--model",
+        default="Deepseek-V4.1-Flash",
+        help="验收 Agent 使用的模型（必须与所打栈的 LLM 端点匹配）",
+    )
     args = parser.parse_args()
-    raise SystemExit(asyncio.run(DispatchVerifier(args.base, args.invite).run()))
+    verifier = DispatchVerifier(args.base, args.invite, model=args.model)
+    raise SystemExit(asyncio.run(verifier.run()))
 
 
 if __name__ == "__main__":
