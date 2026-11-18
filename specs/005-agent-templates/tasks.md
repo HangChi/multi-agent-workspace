@@ -90,7 +90,7 @@ description: "Implementation tasks for agent templates and one-click clone: snap
 - [X] T016 Implement `backend/app/services/agent_template_service.py`: CRUD + `save_as_template(db, *, agent, name, description)` (snapshot the 10 fields; no status). Flush only — commit stays in the endpoint layer (Note #7).
 - [X] T017 [P] Integration: `backend/tests/integration/test_agent_templates_api.py` — `GET /agent-templates` (scope/q/pagination, builtins always visible), `GET/PATCH/DELETE /agent-templates/{id}`: own 200/204, foreign 404 with identical body, builtin 403, duplicate name 409, viewer 403. Assert audit rows for all three actions with `strict` semantics.
 - [X] T018 Implement `backend/app/api/v1/agent_templates.py` (contracts §1) and register it in `backend/app/main.py`.
-- [ ] T019 Integration: snapshot isolation (FR-002) — create template from agent A, then mutate A and mutate the template, and assert **zero** cross-contamination in both directions; also assert an agent created from the template is unchanged when the template is later edited (SC-004).
+- [X] T019 Integration: snapshot isolation (FR-002) — create template from agent A, then mutate A and mutate the template, and assert **zero** cross-contamination in both directions; also assert an agent created from the template is unchanged when the template is later edited (SC-004). **实现位置**：落在 `tests/integration/test_agent_template_service.py::test_snapshot_isolation_both_directions`（与模板服务同文件，未单开文件）；真实栈侧由 `deploy/verify/s6_agent_templates.py` 的 S3-a / S3-b 覆盖。
 
 **Checkpoint**: US3（另存为模板的服务侧）+ US4 完成；Phase 3 提交。
 
@@ -193,7 +193,7 @@ description: "Implementation tasks for agent templates and one-click clone: snap
 - [X] T036 Write `deploy/verify/s5_agent_templates.py`: scenarios S1 (from-template create, field equality + offline-tool filtering), S2 (clone of a group-referenced agent, instance-level zeros + source untouched), S3 (save-as-template then mutate both sides), S4 (template CRUD + builtin 403 + foreign 404 identical body), S5 (fresh DB: seed → builtins ≥3, seed twice → no growth). Register usage in `deploy/README.md`.
 - [X] T037 Run full backend gates: `ruff check app tests` / `ruff format --check .` / `mypy app` / `pytest` (with `fail_under` coverage gate) and full frontend gates: `eslint` / `prettier --check` / `tsc --noEmit` / `vitest run` / `vite build`. Fix any failure before ticking.
 - [X] T038 [P] Update `README.md` (pages table + API overview + 已知限制: 模板为个人私有、无共享市场), `docs/architecture.md` (data model: one table + two nullable columns), `deploy/README.md` (seed script invocation), and record real-stack acceptance results in `specs/005-agent-templates/quickstart.md`.
-- [ ] T039 Merge `feat/005-agent-templates` into `master` (fast-forward), delete the branch, and verify `git status` is clean (constitution: no stray keys/temp files).
+- [X] T039 Merge `feat/005-agent-templates` into `master` (fast-forward), delete the branch, and verify `git status` is clean (constitution: no stray keys/temp files). **实测**：`bfe41d4` ff 合并、分支已删、`git status` 干净、`git show --stat` 复查无 `.env`/密钥/临时文件。
 
 ## Dependencies and Execution Order
 

@@ -1,6 +1,6 @@
 # API Contracts: Agent 模板与一键克隆
 
-**Branch**: `feat/005-agent-templates` | **Date**: 2026-11-18 | **Spec**: [spec.md](spec.md)
+**Branch**: `feat/005-agent-templates` | **Date**: 2026-11-18 | **Spec**: [spec.md](../spec.md)
 
 所有接口前缀 `/api/v1`，除注册/登录外均需 `Authorization: Bearer <access_token>`。
 错误体统一为 `{"error": {"code": "...", "message": "..."}}}`（既有约定，见 `app/api/errors.py`）。

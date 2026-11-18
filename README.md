@@ -31,6 +31,8 @@
 | `/agents` | Agent 管理 | 名称、描述、系统提示词、模型、温度、最大步数、工具集、成本上限；「从模板创建」一键预填，「克隆」复制配置，「存为模板」沉淀配置 |
 | `/agent-templates` | Agent 模板 | 内置模板（只读）+ 自己的模板：查看/编辑/删除/用模板创建（仅 member/admin） |
 | `/groups` | Agent 组 | 成员增删排序 + 默认路由策略 |
+| `/schedules` | 定时调度 | cron 周期规则 + 目标（Agent/组）+ 建单模板；触发历史与错过记录（仅 member/admin） |
+| `/marketplace` | 工具市场 | 外部 MCP 工具的发布列表与我的安装（003） |
 | `/runs/:runId` | 运行详情 | 状态时间线、分步日志、成本、制品下载、取消/重试/回复 |
 | `/admin` | 管理后台 | 审计日志（仅 admin，前端有角色守卫 + 后端 403 双保险） |
 
@@ -120,7 +122,7 @@ flowchart TB
     subgraph Engine["执行引擎 Celery"]
         Orch["编排器：状态机 + 策略"]
         React["ReAct 循环 + 工具"]
-        Beat["Beat：僵尸 Run 回收"]
+        Beat["Beat：僵尸 Run 回收 + 调度扫描"]
     end
 
     subgraph Infra["基础设施"]
@@ -175,27 +177,27 @@ created → assigned → queued → running → completed
 ```
 backend/
   app/
-    api/v1/         # 路由：auth/agents/groups/requests/runs/ws/stats/admin
+    api/v1/         # 路由：auth/agents/agent-templates/groups/schedules/marketplace/external-tool-*/requests/runs/ws/stats/admin
     core/           # 配置、DB、JWT、token 存储、日志、审计
     models/         # SQLAlchemy 模型
     schemas/        # Pydantic v2 模型
-    services/       # 业务逻辑：分配、配额、统计、僵尸回收
+    services/       # 业务逻辑：分配、配额、统计、调度、模板、沙箱、僵尸回收
     orchestrator/   # state_machine / strategies / runner / router
-    executors/      # 工具执行器：calculate / read_url / web_search
+    executors/      # 工具执行器：calculate / read_url / web_search / run_python / run_shell / mcp
     tasks/          # Celery 任务与 Beat 调度
   alembic/          # 数据库迁移
   tests/            # unit + integration
-  scripts/          # bootstrap 引导脚本
+  scripts/          # bootstrap 引导脚本 + seed_agent_templates 内置模板注入
 frontend/
   src/
     api/            # axios 客户端 + 全部端点封装
     components/     # ui 基础组件 / board / agent / run / layout
-    pages/          # 看板 / 仪表盘 / Agent / 组 / 运行详情 / 管理
+    pages/          # 看板 / 仪表盘 / Agent / 模板 / 组 / 调度 / 市场 / 运行详情 / 管理
     stores/         # Zustand：auth / theme / board
     hooks/          # useAuth / useRequests / useRunSocket
 deploy/             # docker-compose / Caddyfile / .env.example / mock-llm / verify
-docs/               # 架构文档
-specs/              # Spec Kit 规格（SDD + TDD 工作流）
+docs/               # 架构文档（入口见 docs/README.md）
+specs/              # Spec Kit 规格（001–005，SDD + TDD 工作流）
 ```
 
 ---
@@ -221,11 +223,44 @@ GET           /agent-templates             模板列表（内置 + 自己的，?
 GET           /agent-templates/{id}        模板详情
 PATCH|DELETE  /agent-templates/{id}        编辑 / 删除自己的（内置 403）
 
+GET           /tools                       工具目录（启用态由 002 治理）
+
+GET|POST      /schedules                   调度规则列表 / 创建
+POST          /schedules/preview           周期表达式预览（下次触发时刻）
+GET           /schedules/{id}              规则详情
+PATCH|DELETE  /schedules/{id}              编辑 / 删除
+GET           /schedules/{id}/triggers     触发历史（?result= 过滤）
+
+GET           /marketplace/tools            外部工具市场列表（?category=&q=）
+GET           /marketplace/tools/{lid}     市场工具详情
+POST          /marketplace/tools/{lid}/install   安装
+POST          /marketplace/tools/{lid}/pause     暂停
+POST          /marketplace/tools/{lid}/resume    恢复
+POST          /marketplace/tools/{lid}/revoke    撤销
+GET           /marketplace/installations   我的安装
+POST          /marketplace/installations/{iid}/upgrade   升级安装
+
 GET|POST      /groups                      Agent 组
 PATCH|DELETE  /groups/{id}
 POST          /groups/{id}/members         添加成员
 PATCH         /groups/{id}/members         批量改顺序
 DELETE        /groups/{id}/members/{aid}   移除成员
+
+POST|GET      /external-tool-servers       外部 MCP 服务器注册 / 列表
+GET|PATCH     /external-tool-servers/{id}  详情 / 编辑
+POST          /external-tool-servers/{id}/validate          连通性校验
+POST          /external-tool-servers/{id}/credentials/rotate  凭证轮换
+POST          /external-tool-servers/{id}/tools/{vid}/approve  审批工具版本
+POST          /external-tool-servers/{id}/tools/{vid}/reject   拒绝工具版本
+POST|GET      /agents/{id}/external-tool-grants              授权 / 列表
+DELETE        /agents/{id}/external-tool-grants/{gid}        撤销授权
+GET|POST      /agents/{id}/egress-rules                     出站规则列表 / 新增
+DELETE        /agents/{id}/egress-rules/{rid}               删除出站规则
+GET           /external-tools/observability                 调用观测（管理员）
+
+GET|POST      /admin/egress-blacklist                       全局黑名单（仅 admin）
+DELETE        /admin/egress-blacklist/{domain}              移除黑名单条目
+GET           /admin/egress-accesses                        出站访问查询（仅 admin）
 
 GET|POST      /requests                    看板列表（?status=&q=&priority=&page=）/ 创建
 GET           /requests/{id}
@@ -247,15 +282,23 @@ GET           /health, /health/ready       存活 / 就绪探针
 **认证细节**：access token 默认 30 分钟，refresh 一次性消费（真轮换，旧 token 立即失效）；
 `REFRESH_GRACE_SECONDS` 给多标签页并发刷新留宽限期，避免互相踢下线。
 
+> 以上是概览。完整的请求/响应 schema、错误码与边界语义在各特性的
+> `specs/NNN-*/contracts/api.md`（001–005 五份），运行时以 `/docs` 的 OpenAPI 为准。
+
 ### 内置工具
 
-Agent 可挂载的工具由执行器注册表提供，当前实现 3 个：
+Agent 可挂载的工具由执行器注册表提供，当前实现 5 个：
 
 | 工具 | 说明 |
 |---|---|
 | `web_search` | 联网搜索，需配置 `SEARCH_API_URL` / `SEARCH_API_KEY`，未配置时返回可读降级结果 |
 | `read_url` | 抓取网页正文，带 SSRF 防护：私网 IP 拦截、重定向逐跳校验、2MB 上限 |
 | `calculate` | 四则运算，AST 白名单求值（禁 `eval`，限制幂指数防计算爆炸） |
+| `run_python` | Docker 一次性容器内跑 Python：超时、取消、资源限制、输出截断、制品回收 |
+| `run_shell` | 同上，跑 shell 命令；两者共用沙箱边界（002） |
+
+另有**外部 MCP 工具**（003）：由管理员注册服务器、审批工具版本，成员按 Agent 授权后使用，
+与内置工具走同一条执行循环，但凭证在服务端保管、调用全程留证。
 
 ---
 
@@ -282,7 +325,9 @@ Agent 可挂载的工具由执行器注册表提供，当前实现 3 个：
 
 ## 测试与质量门禁
 
-CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在每次 push / PR 跑以下流水线：
+当前套件规模：后端 **1224 个用例**（unit + integration，真实 PostgreSQL 16）、
+前端 **107 例 / 20 文件**。CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在每次
+push / PR 跑以下流水线：
 
 - **后端**：`ruff check` → `ruff format --check` → `mypy app` → `alembic upgrade head`
   （空库可达性）→ `pytest --cov`（带覆盖率门禁）
@@ -327,11 +372,18 @@ docker build -t aw-backend:local backend
 backend/.venv/bin/python deploy/verify/s1_s4_scenarios.py --base http://localhost:8080
 backend/.venv/bin/python deploy/verify/s5_scenarios.py    --base http://localhost:8080 --invite <INVITE>
 backend/.venv/bin/python deploy/verify/strategy_scenarios.py --base http://localhost:8080 --invite <INVITE>
+backend/.venv/bin/python deploy/verify/s6_agent_templates.py --base http://localhost:8080 --invite <INVITE>
 node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（需 playwright）
 ```
 
-已记录的关键实测数据（详见 [specs/001-core-workflow/quickstart.md](specs/001-core-workflow/quickstart.md)）：
-分配受理 12ms、WS 推送滞后 0.25s 内、20 并发全量完成 1.71s、失败重试成功率 5/5。
+各脚本覆盖的场景与实测记录在对应特性的 `quickstart.md` 里：
+[s1–s4](specs/001-core-workflow/quickstart.md) ·
+[s5 域名/出网](specs/002-sandboxed-tools/quickstart.md) ·
+[003 外部工具](specs/003-mcp-tool-market/quickstart.md) ·
+[005 模板与克隆](specs/005-agent-templates/quickstart.md)。
+
+已记录的关键实测数据：分配受理 12ms、WS 推送滞后 0.25s 内、20 并发全量完成 1.71s、
+失败重试成功率 5/5；压测 100 并发 818 req/s、200 并发 0 错误（P95 受 2 vCPU 开发机限制）。
 
 ---
 
@@ -349,13 +401,22 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 
 ## 开发流程
 
-本项目按 **Spec Kit** 的 SDD + TDD 工作流推进，规格先行：
+本项目按 **Spec Kit** 的 SDD + TDD 工作流推进，规格先行：每个特性一份
+`specs/NNN-<name>/`，内含 `spec.md`（WHAT/WHY + 用户故事 + FR/SC）、`plan.md`、
+`research.md`（关键决策与「为什么更简单的做法不行」）、`data-model.md`、
+`contracts/api.md`、`checklists/requirements.md`、`tasks.md`（实现后逐条勾选 +
+实测记录）、`quickstart.md`（真实栈验收）。
 
-- `specs/001-core-workflow/spec.md` — 5 个用户故事 / 21 条功能需求 / 8 条成功标准
-- `specs/001-core-workflow/plan.md`、`research.md`、`data-model.md`、`contracts/api.md`
-- `specs/001-core-workflow/tasks.md` — 84 个任务，**全部完成**
+| 特性 | 内容 | 状态 |
+|---|---|---|
+| [001-core-workflow](specs/001-core-workflow/spec.md) | 拖拽分配 + 四种编排 + ReAct 引擎 + 实时反馈 | ✅ 84/84 |
+| [002-sandboxed-tools](specs/002-sandboxed-tools/spec.md) | 代码沙箱（Docker 一次性容器）+ 出网治理 + 工具目录 | ✅ 76/76 |
+| [003-mcp-tool-market](specs/003-mcp-tool-market/spec.md) | 外部 MCP 工具：注册/审批/授权/调用留证 | ✅ 65/65 |
+| [004-scheduled-requests](specs/004-scheduled-requests/spec.md) | 定时调度：cron 规则 → 自动建单分配 + 错过不补跑 | ✅ 65/65 |
+| [005-agent-templates](specs/005-agent-templates/spec.md) | Agent 模板 + 一键克隆 + 另存为模板 + 内置模板 | ✅ 39/39 |
 
-分支约定：特性开发走 `feat/<name>`，完成后 fast-forward 合并回 `master` 并删除特性分支。
+分支约定：特性开发走 `feat/<name>`，每个 Phase 一次提交，完成后 fast-forward 合并回
+`master` 并删除特性分支。宪法见 [.specify/memory/constitution.md](.specify/memory/constitution.md)。
 
 ---
 
@@ -377,7 +438,7 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 - **尚未实现**：Sentry 异常上报、Grafana 面板、PITR（时间点恢复）。
 - **压力验证**：`deploy/verify/load_test.py` 实测 100 并发 818 req/s、200 并发 0 错误，
   但 P95 在 100 并发下突破 500ms（2 vCPU 开发机），详见 `docs/load-test-2026-11-17.md`。
-- 前端单测覆盖页面、store 与组件（17 文件 / 93 例）；真实浏览器的端到端验证依靠人工或按需脚本，仓库内没有 Playwright e2e。
+- 前端单测覆盖页面、store 与组件（20 文件 / 107 例）；真实浏览器的端到端验证依靠人工或按需脚本，仓库内没有 Playwright e2e。
 - 未指定开源许可证；仓库为私有自用。
 
 ---
@@ -386,7 +447,11 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 
 | 文档 | 内容 |
 |---|---|
+| [docs/README.md](docs/README.md) | **文档索引**：全部文档的位置与用途 |
 | [docs/architecture.md](docs/architecture.md) | 完整设计文档：领域模型、技术选型理由、执行引擎、安全设计、数据表 |
 | [deploy/README.md](deploy/README.md) | 部署、生产注意、日志排查、备份与升级 |
-| [specs/001-core-workflow/quickstart.md](specs/001-core-workflow/quickstart.md) | 端到端验证场景与实测记录 |
-| [docs/README.md](docs/README.md) | 文档索引 |
+| [docs/llm-pricing.md](docs/llm-pricing.md) | LLM 单价表口径（成本核算与熔断的基准） |
+| [docs/load-test-2026-11-17.md](docs/load-test-2026-11-17.md) | 100/200 并发压测记录 |
+| [docs/code-audit-2026-11-17.md](docs/code-audit-2026-11-17.md) | 2026-11-17 全量代码审查报告（含修复进度） |
+| [specs/](specs/) | 001–005 五个特性的规格四件套 + 任务清单 + 实测记录 |
+| [.specify/memory/constitution.md](.specify/memory/constitution.md) | 项目宪法（SDD + TDD、质量门禁、安全边界） |

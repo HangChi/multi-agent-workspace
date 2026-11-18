@@ -1,6 +1,6 @@
 # Requirements Checklist: Agent 模板与一键克隆
 
-**Branch**: `feat/005-agent-templates` | **Date**: 2026-11-18 | **Spec**: [spec.md](spec.md)
+**Branch**: `feat/005-agent-templates` | **Date**: 2026-11-18 | **Spec**: [spec.md](../spec.md)
 
 ## Content Quality
 
