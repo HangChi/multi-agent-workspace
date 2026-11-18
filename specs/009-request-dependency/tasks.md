@@ -42,9 +42,9 @@
 
 ## Phase 5 — 验收与合并（每项一次提交）
 
-- [ ] T026 Write `deploy/verify/s10_request_dependency.py` — 四场景（A 连边成环 / B 硬门禁 / C 解锁通知 / D 调度+s9/s8/s1–s4 回归）
-- [ ] T027 部署 + 跑 s10 四场景全过 + assign RT 计时（SC-003）+ 回填 quickstart §1/§4
-- [ ] T028 回归：s9 5/5、s8 7/7、s1–s4 29/29、strategy 3/3 原样重跑
+- [X] T026 Write `deploy/verify/s10_request_dependency.py` — 四场景（A 连边成环 / B 硬门禁 / C 解锁通知 / D 调度+s9/s8/s1–s4 回归）
+- [X] T027 部署 + 跑 s10 四场景全过 + assign RT 计时（SC-003）+ 回填 quickstart §1/§4
+- [X] T028 回归：s9 5/5、s8 7/7、s1–s4 29/29、strategy 3/3 原样重跑
 - [ ] T029 前端浏览器走查逐条标 ⏳/✅（quickstart §2 清单，未验的写原因不勾）
 - [ ] T030 README（核心能力/页面表/API 概览/已知限制）+ `docs/architecture.md`（§8 表 + 索引要点 + 语义要点）+ docs/README 特性表 + ff 合并 master 删分支
 
