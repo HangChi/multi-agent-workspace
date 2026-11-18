@@ -45,32 +45,47 @@ export function useAssignRequest(onSettled?: (error: string | null) => void) {
   const qc = useQueryClient()
 
   const mutate = useMutation({
-    mutationFn: ({ requestId, payload }: { requestId: string; payload: AssignRequestPayload }) =>
-      assignRequest(requestId, payload),
-    onMutate: async ({ requestId, payload }) => {
+    mutationFn: ({
+      requestId,
+      payload,
+    }: {
+      requestId: string
+      payload: AssignRequestPayload
+      /** 落点展示名（Agent 名 / 组名 / 同事邮箱）——乐观更新里补上，
+       *  否则 DispatchPanel 在 refetch 前显示「未知用户」 */
+      assigneeLabel?: string
+    }) => assignRequest(requestId, payload),
+    onMutate: async ({ requestId, payload, assigneeLabel }) => {
       await qc.cancelQueries({ queryKey: ['requests'] })
-      const prev = qc.getQueryData<{ items: WorkRequest[] }>(['requests', 'relevant'])
+      /**
+       * 快照**所有**在看的需求列表缓存（['requests', scope, project] 的
+       * 每种组合）。此前只读写 ['requests', 'relevant']：scope=mine 或带了
+       * 项目筛选时，可见看板得不到乐观反馈，而不可见的 relevant 键反被
+       * 写入陈旧数据——乐观更新必须按实际 query key 走。
+       */
+      const prevEntries = qc.getQueriesData<{ items: WorkRequest[] }>({ queryKey: ['requests'] })
       const optimisticStatus = payload.assignee_type === 'user' ? 'pending' : 'assigned'
-      if (prev) {
-        qc.setQueryData<{ items: WorkRequest[] }>(['requests', 'relevant'], {
-          ...prev,
-          items: prev.items.map((r) =>
+      for (const [key, data] of prevEntries) {
+        if (!data) continue
+        qc.setQueryData<{ items: WorkRequest[] }>(key, {
+          ...data,
+          items: data.items.map((r) =>
             r.id === requestId
               ? ({
                   ...r,
                   status: optimisticStatus,
-                  ...(payload.assignee_type === 'user' ? { assignee_id: payload.assignee_id } : {}),
+                  assignee_id: payload.assignee_id,
+                  assignee_email: assigneeLabel ?? r.assignee_email,
                 } as WorkRequest)
               : r
           ),
         })
       }
-      return { prev }
+      return { prevEntries }
     },
     onError: (err, _vars, context) => {
-      if (context?.prev) {
-        qc.setQueryData(['requests', 'relevant'], context.prev)
-      }
+      // 回滚同一批快照，一个不漏
+      context?.prevEntries?.forEach(([key, data]) => qc.setQueryData(key, data))
       onSettled?.(extractError(err))
     },
     onSuccess: (data, vars) => {

@@ -13,9 +13,10 @@
  */
 
 import { useDroppable } from '@dnd-kit/core'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Agent, Group, RoutingStrategy, UserOption } from '../../api/endpoints'
+import { IconButton } from '../ui/Button'
 import { Icon } from '../ui/Icons'
 import { cn } from '../ui/cn'
 
@@ -96,6 +97,17 @@ function TargetRow({
   const shown = expanded ? items : items.slice(0, VISIBLE_CAP)
   const hidden = items.length - shown.length
 
+  // 右侧渐隐只在「真的还能横滑」时出现：常驻渐隐会在不可滚时也挡一片内容
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [scrollable, setScrollable] = useState(false)
+  const checkScrollable = () => {
+    const el = scrollRef.current
+    if (!el) return
+    setScrollable(el.scrollWidth > el.clientWidth && el.scrollLeft < el.scrollWidth - el.clientWidth - 1)
+  }
+  // 挂载 / 展开收起 / 条目变化时各量一次：只靠 onScroll 会漏掉初始态
+  useEffect(checkScrollable, [items.length, expanded])
+
   return (
     <div className="flex items-center gap-2">
       <span className="flex w-[5.5rem] shrink-0 items-center gap-1 text-micro font-medium text-ink-faint">
@@ -104,7 +116,13 @@ function TargetRow({
       </span>
       {filter}
       <div className="relative min-w-0 flex-1">
-        <div className="scrollbar-none flex items-center gap-1.5 overflow-x-auto py-0.5 pr-6">
+        <div
+          ref={scrollRef}
+          onScroll={checkScrollable}
+          role="group"
+          aria-label={`${label}拖放目标`}
+          className="scrollbar-none flex items-center gap-1.5 overflow-x-auto py-0.5 pr-6"
+        >
           {items.length === 0 ? <span className="text-micro text-ink-faint">{hint}</span> : shown}
           {hidden > 0 && (
             <button
@@ -125,11 +143,13 @@ function TargetRow({
             </button>
           )}
         </div>
-        {/* 右侧渐隐：提示这一排还能横向滑 */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-gradient-to-l from-canvas to-transparent"
-        />
+        {/* 右侧渐隐：提示这一排还能横向滑（仅可滑时） */}
+        {scrollable && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-gradient-to-l from-canvas to-transparent"
+          />
+        )}
       </div>
     </div>
   )
@@ -178,6 +198,14 @@ export function AssignTargets({ agents, groups, users }: Props) {
               aria-label="筛选分配同事"
               className="w-24 bg-transparent text-ui text-ink outline-none placeholder:text-ink-faint"
             />
+            {userFilter && (
+              <IconButton
+                icon="x"
+                label="清除同事筛选"
+                size="xs"
+                onClick={() => setUserFilter('')}
+              />
+            )}
           </span>
         }
       />

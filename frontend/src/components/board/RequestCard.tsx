@@ -5,7 +5,9 @@
  *   一屏只能看五六张，而描述在详情弹层里一字不少；
  * - 优先级用左侧 3px 色条表达，不再占一行彩色标签；
  * - 元信息行 12px 灰色：附件数、创建日期、运行入口；
- *   「详情」按钮只在 hover / focus 时出现，不占常驻视觉空间。
+ * - 「详情」入口两条路：整卡点击（PointerSensor 6px 激活约束区分点击与
+ *   拖拽）+ 显式按钮。按钮在触屏常驻可见（没有 hover 的设备不能把
+ *   唯一入口藏在 hover 里），桌面仍只在 hover/focus 时出现。
  */
 
 import { useDraggable } from '@dnd-kit/core'
@@ -25,7 +27,7 @@ const PRIORITY_ACCENT: Record<string, string> = {
 
 interface Props {
   request: WorkRequest
-  /** 是否可拖拽（仅待分配/已分配可分配）。 */
+  /** 是否可拖拽（created/pending/accepted/assigned 可转交或分配）。 */
   draggable?: boolean
   /** 打开详情弹层 */
   onOpen?: () => void
@@ -46,6 +48,8 @@ export function RequestCard({ request, draggable = true, onOpen }: Props) {
 
   /** 卡片内的按钮/链接不参与拖拽，避免「想点却拖起来」。 */
   const stopDrag = (e: React.PointerEvent) => e.stopPropagation()
+  /** 卡片内链接/按钮的点击不冒泡到整卡（否则会同时打开详情）。 */
+  const stopClick = (e: React.MouseEvent) => e.stopPropagation()
 
   return (
     <article
@@ -53,6 +57,9 @@ export function RequestCard({ request, draggable = true, onOpen }: Props) {
       style={style}
       {...attributes}
       {...listeners}
+      // 整卡点击开详情：拖拽有 6px 激活约束兜底，不会误触。
+      // 卡片内的链接/按钮各自 stopClick，导航与开详情不打架。
+      onClick={onOpen && !isDragging ? () => onOpen() : undefined}
       className={cn(
         'group relative overflow-hidden rounded-lg border border-line/80 bg-surface transition-[border-color,box-shadow,opacity] duration-150',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 focus-visible:ring-offset-1',
@@ -83,7 +90,7 @@ export function RequestCard({ request, draggable = true, onOpen }: Props) {
           <Link
             to={`/?project=${request.project_id}`}
             onPointerDown={stopDrag}
-            onClick={(e) => e.stopPropagation()}
+            onClick={stopClick}
             className="mt-1 inline-flex max-w-full items-center gap-1 rounded-md bg-surface-muted px-1.5 py-0.5 text-micro text-ink-muted transition-colors hover:bg-brand-50 hover:text-accent dark:hover:bg-brand-500/10"
             title={`按项目「${request.project_name}」筛选`}
           >
@@ -159,6 +166,7 @@ export function RequestCard({ request, draggable = true, onOpen }: Props) {
               <Link
                 to={`/runs/${runId}`}
                 onPointerDown={stopDrag}
+                onClick={stopClick}
                 className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-micro font-medium text-accent transition-colors hover:bg-brand-50 dark:hover:bg-brand-500/10"
               >
                 <Icon name="play" className="h-2.5 w-2.5" />
@@ -177,7 +185,7 @@ export function RequestCard({ request, draggable = true, onOpen }: Props) {
                   e.stopPropagation()
                   onOpen()
                 }}
-                className="ml-auto rounded px-1.5 py-0.5 text-micro text-ink-muted opacity-0 transition-all hover:bg-surface-subtle hover:text-ink focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 group-hover:opacity-100"
+                className="ml-auto rounded px-1.5 py-0.5 text-micro text-ink-muted transition-all hover:bg-surface-subtle hover:text-ink focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 group-hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
               >
                 详情
               </button>

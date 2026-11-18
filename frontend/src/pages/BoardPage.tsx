@@ -117,7 +117,12 @@ export function BoardPage() {
 
   // 007：看板范围（relevant 默认 = 我创建的 + 分派给我的；mine = 仅我创建的）
   const [scope, setScope] = useState<'relevant' | 'mine'>('relevant')
-  const { data, isLoading } = useQuery({
+  const {
+    data,
+    isLoading,
+    isError: listError,
+    refetch: refetchRequests,
+  } = useQuery({
     queryKey: ['requests', scope, project],
     queryFn: () =>
       fetchRequests({
@@ -203,7 +208,10 @@ export function BoardPage() {
    * 表现为「深链有时候管用有时候不管用」。
    */
   const inList = deepLinkId ? requests.find((r) => r.id === deepLinkId) : undefined
-  const { data: deepLinkRequest } = useQuery({
+  const {
+    data: deepLinkRequest,
+    isError: deepLinkError,
+  } = useQuery({
     queryKey: ['requests', 'detail', deepLinkId],
     queryFn: () => fetchRequest(deepLinkId!),
     enabled: !!deepLinkId && !inList,
@@ -305,6 +313,25 @@ export function BoardPage() {
 
       {error && !pending && <ErrorBanner error={error} onDismiss={() => setError(null)} />}
 
+      {/* 列表拉取失败 ≠ 空看板：失败时明确告知并可重试，
+          否则每列「暂无需求」会把故障伪装成空数据 */}
+      {listError && (
+        <ErrorBanner
+          error="需求列表加载失败，可能是网络或服务暂时不可用"
+          retry={() => void refetchRequests()}
+          className="mb-3"
+        />
+      )}
+
+      {/* 深链目标既不在列表、单独也取不到：说明白，别让页面一片安静 */}
+      {deepLinkError && (
+        <ErrorBanner
+          error={`未找到请求查看的需求（${deepLinkId}），它可能已被删除或你没有访问权限`}
+          onDismiss={closeDetail}
+          className="mb-3"
+        />
+      )}
+
       {showForm && (
         <RequestForm
           onSubmit={(values: RequestFormValues) =>
@@ -330,17 +357,30 @@ export function BoardPage() {
         project={project}
         onProjectChange={onProjectChange}
         isLoading={isLoading}
-        onAssignStart={openAssign}
+        onAssignStart={(r, t) => {
+          // 新开一次分配先清掉上一次的失败错误：否则新弹窗一打开
+          // 就挂着旧的错误文案，用户会误以为是当前这次失败
+          setError(null)
+          openAssign(r, t)
+        }}
         onOpenDetail={(r) => {
           // 先用列表数据秒开弹层，再拉完整详情补经手链（失败则降级为列表数据）
           setDetail(r)
           void refreshDetail(r.id)
         }}
+        emptyAction={
+          <Button variant="primary" leftIcon="plus" onClick={() => setShowForm(true)}>
+            新建第一张需求
+          </Button>
+        }
       />
 
       {/* 分配 / 分派确认弹窗 */}
       {pending && (
         <AssignModal
+          // key 按「需求 + 目标」走：换目标重挂载，策略初值才不会沿用
+          // 上一次的 state（组数据姗姗来迟时尤其明显）
+          key={`${pending.request.id}:${pending.target.kind}:${pending.target.id}`}
           request={pending.request}
           target={pending.target}
           agent={
@@ -370,6 +410,12 @@ export function BoardPage() {
                 strategy,
                 note,
               },
+              assigneeLabel:
+                pending.target.kind === 'agent'
+                  ? activeAgents.find((a) => a.id === pending.target.id)?.name
+                  : pending.target.kind === 'group'
+                    ? allGroups.find((g) => g.id === pending.target.id)?.name
+                    : userOptions?.items.find((u) => u.id === pending.target.id)?.email,
             })
           }}
           onCancel={closeAssign}
@@ -534,7 +580,12 @@ export function BoardPage() {
 
               <AttachmentUploader
                 requestId={currentDetail.id}
-                onUploaded={() => toast.success('附件已上传')}
+                onUploaded={() => {
+                  toast.success('附件已上传')
+                  // 弹层内容来自 state（detail），invalidate 不会更新它——
+                  // 不重拉的话 toast 说成功、列表里却看不到新文件
+                  refreshDetail(currentDetail.id)
+                }}
               />
             </div>
           </div>

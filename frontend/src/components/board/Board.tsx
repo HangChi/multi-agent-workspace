@@ -1,27 +1,44 @@
-/** 看板（T047 + T056 + 007）：状态列 + 筛选 + dnd-kit 拖拽分配/分派。
+/**
+ * 看板（T047 + T056 + 007）：状态列 + 筛选 + dnd-kit 拖拽分配/分派。
  *
  * 版式取舍（对齐 Trello / Linear 的看板密度）：
- * - 列宽固定 300px，横向滚动 + 吸附。不再让列「撑满」可用宽度：
- *    五列平分到 1000px 时每列只有 200px，卡片标题必然折成三四行；
- *    固定宽度 + 横向滚动是 Trello 验证过的答案，扫读效率更高。
+ * - 列宽固定 300px，横向滚动（snap-proximity 轻吸附，不强制）。
+ *   不再让列「撑满」可用宽度：五列平分到 1000px 时每列只有 200px，
+ *   卡片标题必然折成三四行；固定宽度 + 横向滚动是 Trello 验证过的答案。
  * - 「已取消」默认不占一列（终态且通常为空），有数据或主动筛选时才出现；
  * - 列头只留「名称 + 计数」，不用彩色徽章 —— 颜色留给优先级色条，
- *    一列之内再出现五六种彩色标签，眼睛反而找不到重点；
+ *   一列之内再出现五六种彩色标签，眼睛反而找不到重点；
  * - 拖放目标横条放在列上方，见 AssignTargets。
  *
  * 007：新增「待接收 / 已接收」两列（分派链路），员工卡成为拖放目标
  * （转交责任，不启动执行）。assigned 仍不占列——它是入队瞬态。
+ *
+ * 无障碍：PointerSensor + KeyboardSensor 双传感器——键盘用户也能分配
+ * （Tab 聚焦卡片 → 空格拾起 → 方向键移动 → 空格落下），
+ * screenReaderInstructions / announcements 全中文播报；
+ * 列是 role=list、卡片是 role=listitem，读屏可列表导航。
  */
 
-import { DndContext, DragOverlay, DragEndEvent, DragStartEvent } from '@dnd-kit/core'
+import {
+  DndContext,
+  DragOverlay,
+  DragEndEvent,
+  DragStartEvent,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
 import { useMemo, useState } from 'react'
 
 import { Agent, Group, Project, UserOption, WorkRequest } from '../../api/endpoints'
 import { IconButton } from '../ui/Button'
+import { EmptyState } from '../ui/EmptyState'
 import { Icon } from '../ui/Icons'
 import { Input, Select } from '../ui/Field'
 import { Skeleton } from '../ui/Skeleton'
 import { cn } from '../ui/cn'
+import { useToast } from '../ui/useToast'
 import { AssignTarget } from './AssignModal'
 import { AssignTargets } from './AssignTargets'
 import { RequestCard } from './RequestCard'
@@ -72,6 +89,13 @@ interface Props {
   onAssignStart: (request: WorkRequest, target: AssignTarget) => void
   /** 打开需求详情 */
   onOpenDetail?: (request: WorkRequest) => void
+  /** 空看板时的引导动作（通常是「新建需求」） */
+  emptyAction?: React.ReactNode
+}
+
+/** 键盘拖拽的中文播报：dnd-kit 默认英文，读屏用户听不懂。 */
+const SCREEN_READER_INSTRUCTIONS = {
+  draggable: '按空格键拾起需求卡片，用方向键在目标间移动，再按空格键放到高亮的目标上，按 Esc 取消。',
 }
 
 export function Board({
@@ -85,10 +109,21 @@ export function Board({
   isLoading,
   onAssignStart,
   onOpenDetail,
+  emptyAction,
 }: Props) {
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [active, setActive] = useState<WorkRequest | null>(null)
+  const toast = useToast()
+
+  /**
+   * 传感器：指针 6px 激活约束（区分点击与拖拽，卡片整卡可点开详情），
+   * 键盘传感器让分配对键盘/读屏用户可达（WCAG 2.1 SC 2.1.1）。
+   */
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor)
+  )
 
   const filtered = useMemo(() => {
     const like = q.trim().toLowerCase()
@@ -120,11 +155,22 @@ export function Board({
     setActive(requests.find((r) => r.id === id) ?? null)
   }
 
+  const handleDragCancel = () => {
+    // 指针取消 / 窗口失焦也会触发 onDragCancel：不清 active 的话，
+    // DragOverlay 的幻影卡片会悬在页面上，还可能污染下一次 onDragEnd 的目标判断
+    setActive(null)
+  }
+
   const handleDragEnd = (e: DragEndEvent) => {
     const over = e.over
     const activeReq = active
     setActive(null)
-    if (!over || !activeReq) return
+    if (!activeReq) return
+    if (!over) {
+      // 拖到空白处松手：没有反馈用户会以为系统坏了
+      toast.info('已取消', '没有放到有效目标上，需求保持原状')
+      return
+    }
     const overId = String(over.id)
     // 目标 id 形如 agent:<uuid> / group:<uuid> / user:<uuid>
     if (overId.startsWith('agent:')) {
@@ -141,11 +187,15 @@ export function Board({
     ...COLUMNS.map((c) => ({ value: c.status, label: c.label, count: countOf(c.status) })),
   ]
 
+  /** 真正的空看板：没有任何需求、没有搜索、没有筛选——给引导而不是七列空占位。 */
+  const trulyEmpty = requests.length === 0 && !q.trim() && filter === 'all' && !isLoading
+
   return (
     <div className="space-y-3">
       {/* 工具条：左筛选、右搜索。筛选做成带计数的分段控件，
-          比下拉少一次点击，也让各状态的积压量直接可见。 */}
-      <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+          比下拉少一次点击，也让各状态的积压量直接可见。
+          吸顶（Topbar 同款材质）：长看板滚动后筛选/搜索不离开视野。 */}
+      <div className="sticky top-14 z-header -mx-1 flex flex-col gap-2.5 bg-canvas/85 px-1 py-2 backdrop-blur-xl lg:flex-row lg:items-center lg:justify-between">
         <div
           role="group"
           aria-label="按状态筛选"
@@ -219,91 +269,113 @@ export function Board({
         />
       </div>
 
-      <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <AssignTargets agents={agents} groups={groups} users={users} />
+      {/* 空看板整体引导：七列「暂无需求」不告诉用户下一步干什么 */}
+      {trulyEmpty ? (
+        <EmptyState
+          icon="grid"
+          title="看板还是空的"
+          description="创建第一张需求卡片，然后把它拖到上方的 Agent、组或同事身上——拖到 Agent 是启动执行，拖到同事是转交处理责任。"
+          action={emptyAction}
+          className="mt-2"
+        />
+      ) : (
+        <DndContext
+          sensors={sensors}
+          accessibility={{ screenReaderInstructions: SCREEN_READER_INSTRUCTIONS }}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragCancel={handleDragCancel}
+        >
+          <AssignTargets agents={agents} groups={groups} users={users} />
 
-        <div className="relative mt-3">
-          <div className="scrollbar-none flex snap-x snap-mandatory items-stretch gap-3 overflow-x-auto pb-2">
-            {visibleColumns.map((col) => {
-              const items = filtered.filter((r) => r.status === col.status)
-              const isRunning = col.status === 'running'
-              return (
-                <section
-                  key={col.status}
-                  aria-label={col.label}
-                  className="flex w-[84vw] max-w-[340px] shrink-0 snap-start flex-col rounded-xl border border-line/70 bg-surface-subtle/50 p-2 sm:w-[300px] xl:min-w-[300px] xl:flex-1 xl:min-h-[calc(100vh-17rem)]"
-                >
-                  <header className="-mx-2 mb-2 flex items-center gap-2 border-b border-line/60 px-3.5 pb-2 pt-0.5">
-                    {isRunning && (
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500 animate-pulse-ring" />
-                    )}
-                    <h2 className="text-ui font-semibold text-ink">{col.label}</h2>
-                    <span
-                      className={cn(
-                        'rounded-full px-1.5 text-micro font-medium tabular-nums',
-                        items.length > 0
-                          ? 'bg-surface text-ink-muted ring-1 ring-inset ring-line'
-                          : 'text-ink-faint'
+          <div className="relative mt-3">
+            <div
+              role="list"
+              aria-label="看板列"
+              className="scrollbar-none flex snap-x snap-proximity items-stretch gap-3 overflow-x-auto pb-2"
+            >
+              {visibleColumns.map((col) => {
+                const items = filtered.filter((r) => r.status === col.status)
+                const isRunning = col.status === 'running'
+                return (
+                  <section
+                    key={col.status}
+                    aria-label={col.label}
+                    className="flex w-[84vw] max-w-[340px] shrink-0 snap-start flex-col rounded-xl border border-line/70 bg-surface-subtle/50 p-2 sm:w-[300px] xl:min-w-[300px] xl:flex-1 xl:min-h-[60vh]"
+                  >
+                    <header className="-mx-2 mb-2 flex items-center gap-2 border-b border-line/60 px-3.5 pb-2 pt-0.5">
+                      {isRunning && (
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500 animate-pulse-ring" />
                       )}
-                    >
-                      {isLoading ? '·' : items.length}
-                    </span>
-                  </header>
+                      <h2 className="text-ui font-semibold text-ink">{col.label}</h2>
+                      <span
+                        className={cn(
+                          'rounded-full px-1.5 text-micro font-medium tabular-nums',
+                          items.length > 0
+                            ? 'bg-surface text-ink-muted ring-1 ring-inset ring-line'
+                            : 'text-ink-faint'
+                        )}
+                      >
+                        {isLoading ? '·' : items.length}
+                      </span>
+                    </header>
 
-                  <div className="flex flex-1 flex-col gap-2.5">
-                    {isLoading ? (
-                      <>
-                        <Skeleton className="h-[64px] rounded-lg" />
-                        <Skeleton className="h-[64px] rounded-lg opacity-60" />
-                      </>
-                    ) : (
-                      items.map((r) => (
-                        <RequestCard
-                          key={r.id}
-                          request={r}
-                          draggable={DRAGGABLE_STATUSES.has(r.status)}
-                          onOpen={onOpenDetail ? () => onOpenDetail(r) : undefined}
-                        />
-                      ))
-                    )}
+                    <div role="list" aria-label={`${col.label}列的需求`} className="flex flex-1 flex-col gap-2.5">
+                      {isLoading ? (
+                        <>
+                          <Skeleton className="h-[64px] rounded-lg" />
+                          <Skeleton className="h-[64px] rounded-lg opacity-60" />
+                        </>
+                      ) : (
+                        items.map((r) => (
+                          <div role="listitem" key={r.id}>
+                            <RequestCard
+                              request={r}
+                              draggable={DRAGGABLE_STATUSES.has(r.status)}
+                              onOpen={onOpenDetail ? () => onOpenDetail(r) : undefined}
+                            />
+                          </div>
+                        ))
+                      )}
 
-                    {!isLoading && items.length === 0 && (
-                      <div className="flex min-h-[88px] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line-strong/70 px-3 text-center">
-                        <span className="text-micro font-medium text-ink-faint">暂无需求</span>
-                        <span className="text-micro leading-snug text-ink-faint/80">
-                          {col.hint}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </section>
-              )
-            })}
-          </div>
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-canvas to-transparent xl:hidden"
-          />
-        </div>
-
-        {/* 拖拽预览：脱离列容器渲染，避免被裁切/被侧栏遮挡 */}
-        <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }}>
-          {active && (
-            <div className="w-[268px] -translate-x-1 -translate-y-2 rotate-2 cursor-grabbing rounded-lg border border-brand-300 bg-surface p-3 shadow-pop ring-2 ring-brand-200/60">
-              <div className="mb-1.5 flex items-center justify-between gap-2">
-                <span className="text-micro font-medium text-ink-muted">
-                  {PRIORITY_LABEL[active.priority] ?? active.priority}
-                </span>
-                <Icon name="grip" className="h-3.5 w-3.5 text-ink-faint" />
-              </div>
-              <h4 className="line-clamp-2 text-body font-medium leading-snug text-ink">
-                {active.title}
-              </h4>
-              <p className="mt-1.5 text-micro text-ink-faint">松开即可放到目标上</p>
+                      {!isLoading && items.length === 0 && (
+                        <div className="flex min-h-[88px] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line-strong/70 px-3 text-center">
+                          <span className="text-micro font-medium text-ink-faint">暂无需求</span>
+                          <span className="text-micro leading-snug text-ink-faint/80">
+                            {col.hint}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                )
+              })}
             </div>
-          )}
-        </DragOverlay>
-      </DndContext>
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-canvas to-transparent xl:hidden"
+            />
+          </div>
+
+          {/* 拖拽预览：脱离列容器渲染，避免被裁切/被侧栏遮挡 */}
+          <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }}>
+            {active && (
+              <div className="w-[268px] -translate-x-1 -translate-y-2 rotate-2 cursor-grabbing rounded-lg border border-brand-300 bg-surface p-3 shadow-pop ring-2 ring-brand-200/60">
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <span className="text-micro font-medium text-ink-muted">
+                    {PRIORITY_LABEL[active.priority] ?? active.priority}
+                  </span>
+                  <Icon name="grip" className="h-3.5 w-3.5 text-ink-faint" />
+                </div>
+                <h4 className="line-clamp-2 text-body font-medium leading-snug text-ink">
+                  {active.title}
+                </h4>
+                <p className="mt-1.5 text-micro text-ink-faint">松开即可放到目标上</p>
+              </div>
+            )}
+          </DragOverlay>
+        </DndContext>
+      )}
     </div>
   )
 }
