@@ -309,7 +309,7 @@ GET        /api/v1/stats/overview              # 仪表盘：运行中/队列深
 | `agents` | id, name, description, system_prompt, model, temperature, max_steps, tools(jsonb), parent_id, cost_limit, owner_id | 角色 Agent |
 | `agent_groups` | id, name, description, routing_strategy, owner_id | 组 + 默认策略 |
 | `group_members` | group_id, agent_id, position | 组成员有序（pipeline 用） |
-| `requests` | id, title, description, priority, deadline, attachments(jsonb), expected_output, owner_id, status, **assignee_id, dispatched_at, accepted_at（007）** | 需求卡片 |
+| `requests` | id, title, description, priority, deadline, attachments(jsonb), expected_output, owner_id, status, **assignee_id, dispatched_at, accepted_at（007）**, **project_id, project_name（008）** | 需求卡片 |
 | `runs` | id, request_id, parent_run_id, assignee_type, assignee_id, strategy, status, current_step, result(jsonb), error, cost, timestamps | 执行实例 |
 | `steps` | id, run_id, seq, kind, input, output, tool_name, duration_ms, cost, status, error | 分步记录 |
 | `tools` | id, name, kind, config_encrypted, sandbox_level, owner_id | 工具定义 |
@@ -320,9 +320,10 @@ GET        /api/v1/stats/overview              # 仪表盘：运行中/队列深
 | `agent_templates` | id, owner_id(可空=NULL 即内置), name, description, system_prompt, model, temperature, max_steps, max_run_seconds, tools(jsonb), cost_limit_cents, egress_mode, created_at, updated_at · UNIQUE(owner_id, name) + 部分唯一索引 name WHERE owner_id IS NULL | Agent 配置快照（005） |
 | `request_dispatches` | id, request_id, action(dispatch/reassign/accept/reject), actor_id, from_assignee_id, to_assignee_id, reason, **seq**, created_at | 经手链（007，append-only） |
 | `notifications` | id, user_id, type, request_id, title(标题快照), payload(jsonb), read_at, created_at | 站内通知（007） |
+| `projects` | id, owner_id, name(≤100), description, status(active/archived), created_at, updated_at · UNIQUE(owner_id, name) | 需求的业务容器（008，单人归属） |
 | `audit_logs` | id, user_id, action, target_type, target_id, detail, created_at | 审计 |
 
-索引要点：`runs(status, created_at)`、`runs(request_id)`、`steps(run_id, seq)`、`requests(status, priority)`、`schedules(next_run_at) WHERE enabled`（部分索引，扫描只走启用的规则）、`schedule_triggers(schedule_id, planned_at DESC, id DESC)`、`agent_templates(owner_id, created_at)`、`agent_templates(name) WHERE owner_id IS NULL`（内置唯一性）、`agents(source_template_id)`、`agents(source_agent_id)`（来源反查）、`requests(assignee_id, status)`（007 收件箱）、`request_dispatches(request_id, seq)`（007 经手链正序）、`notifications(user_id, created_at DESC) WHERE read_at IS NULL`（007 未读部分索引）。
+索引要点：`runs(status, created_at)`、`runs(request_id)`、`steps(run_id, seq)`、`requests(status, priority)`、`schedules(next_run_at) WHERE enabled`（部分索引，扫描只走启用的规则）、`schedule_triggers(schedule_id, planned_at DESC, id DESC)`、`agent_templates(owner_id, created_at)`、`agent_templates(name) WHERE owner_id IS NULL`（内置唯一性）、`agents(source_template_id)`、`agents(source_agent_id)`（来源反查）、`requests(assignee_id, status)`（007 收件箱）、`request_dispatches(request_id, seq)`（007 经手链正序）、`notifications(user_id, created_at DESC) WHERE read_at IS NULL`（007 未读部分索引）、`projects(owner_id, status)`（008 列表）、`requests(project_id)`（008 项目筛选）。
 
 **模板的三个语义要点**（完整论证见 `specs/005-agent-templates/`）：
 
@@ -447,11 +448,12 @@ Prometheus/Grafana 监控告警 · 审计日志完善 · 备份演练 · CI/CD�
 
 **验收**：系统稳定运行、故障可发现可回溯、扩容操作文档化。
 
-**当前状态（2026-11-18）**：Phase 1 / Phase 2 / Phase 3 主体已完成，七个特性全部落地
+**当前状态（2026-11-18）**：Phase 1 / Phase 2 / Phase 3 主体已完成，八个特性全部落地
 （001 核心闭环 84/84、002 沙箱与出网 76/76、003 外部 MCP 65/65、004 定时调度 65/65、
-005 Agent 模板与克隆 39/39、006 运行自动重试 39/39、007 需求分派与收件箱 41/41），
-均有 CI 门禁与真实栈验收。007 补齐了系统设计动机的最后一环——「需求分派给员工，
-员工接收后拖给 Agent」（此前只有「谁建需求谁拖给 Agent」，见 §5.1.1）。
+005 Agent 模板与克隆 39/39、006 运行自动重试 39/39、007 需求分派与收件箱 41/41、
+008 项目实体与需求归属 30/30），均有 CI 门禁与真实栈验收。007 补齐了系统设计动机的
+最后一环——「需求分派给员工，员工接收后拖给 Agent」（见 §5.1.1）；008 给需求加了
+业务容器（项目），看板可按项目筛选。**需求间依赖/DAG 明确未做**（用户确认留后续）。
 Phase 3 进展：
 - ✅ CI（lint + 测试 + 镜像构建）+ 手动触发的部署 job + `deploy/deploy.sh`（健康门禁/回滚）
 - ✅ Prometheus 指标（`/metrics`，含 Worker 侧跨进程合并）与 8 条告警规则（阈值待在真实流量下校准）
@@ -463,7 +465,22 @@ Phase 3 进展：
 各特性的设计取舍论证在对应 `specs/NNN-*/research.md`；本文第 5–8 节的状态机、策略、
 数据表与索引仍与实现一致（005 之后补了 `agent_templates` 表与两个来源外键；
 006 之后补了 `runs` 重试三字段；007 之后补了 `requests` 分派三列与
-`request_dispatches` / `notifications` 两表，见第 8 节）。
+`request_dispatches` / `notifications` 两表；008 之后补了 `projects` 表与
+`requests` 归属两列，见第 8 节）。
+
+**项目容器的四个语义要点**（完整论证见 `specs/008-project-entity/research.md`）：
+
+1. **单人归属，无成员表。** 路线图把组织形态（共享项目/部门/矩阵）后置到 P2；
+   实测 5 个用户各 2–6 条需求，无跨用户归因先例——先按「每人管自己的项目」
+   验证容器价值，成员模型等真实数据说话。
+2. **删除项目 = SET NULL，不 CASCADE 不 RESTRICT。** RESTRICT 会让 20 条需求的
+   项目永远删不掉（先改 20 条归属）；CASCADE 会一次销毁 Run/经手链/通知。
+   同 004「规则删了、需求还在」的纪律。
+3. **归档只拦新建。** 已归档项目里的进行中需求照常分派/执行——归档是
+   「别再往里面加」，不是「给我停下」；后者是停止业务，必须显式操作。
+4. **归属变更仅限创建者（字段级权限）。** 经手人把需求挪去自己项目会让创建者的
+   项目视图**静默**丢活——没有通知、没有历史。这是 007「可见性变更必须可解释」
+   在编辑路径上的延续。
 
 ---
 
