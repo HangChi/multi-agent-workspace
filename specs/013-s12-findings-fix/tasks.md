@@ -10,4 +10,4 @@
 - [X] T008 部署 + s12 复跑 15/15（二跑一致）（FR-007）
 - [X] T009 前端五件套 + 后端全量（SC-002）
 - [X] T010 三份 quickstart + 011 §5 回填（SC-003）
-- [ ] T011 README/docs/architecture 同步 + ff 合并
+- [X] T011 README/docs/architecture 同步 + ff 合并
