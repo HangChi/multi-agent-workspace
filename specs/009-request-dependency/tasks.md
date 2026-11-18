@@ -5,12 +5,12 @@
 
 ## Phase 2 — 数据模型（提交点：`feat(db): 009 request_dependencies 表`）
 
-- [ ] T001 [P] Write `backend/app/models/request_dependency.py`：`RequestDependency` 模型（request_id/dependency_id/created_by/created_at）+ `UNIQUE(request_id, dependency_id)` + `CHECK (request_id <> dependency_id)` + 两个方向索引
-- [ ] T002 Modify `backend/app/models/request.py`：`dependencies` / `dependents` 两个 relationship（`cascade="all, delete-orphan"`, `passive_deletes=True`，同 dispatches 纪律）；**不加列**
-- [ ] T003 Write `backend/alembic/versions/0013_request_dependency.py`：建表 + 约束 + 索引
-- [ ] T004 [P] Integration: `backend/tests/integration/test_dependency_schema.py` — 迁移后断言（列/UNIQUE/CHECK/两索引；删需求→其边 CASCADE；删用户→created_by CASCADE）
-- [ ] T005 Integration: 空库复跑 `alembic upgrade head` → `0013` + downgrade 冒烟（quickstart §4 回填）
-- [ ] T006 [P] Unit: `backend/tests/unit/test_dependency_bfs.py` — 成环检测纯函数（无环/自环/二跳环/菱形非环/深链），BFS 可脱离 DB 测（R-04）
+- [X] T001 [P] Write `backend/app/models/request_dependency.py`：`RequestDependency` 模型（request_id/dependency_id/created_by/created_at）+ `UNIQUE(request_id, dependency_id)` + `CHECK (request_id <> dependency_id)` + 两个方向索引
+- [X] T002 Modify `backend/app/models/request.py`：`dependencies` / `dependents` 两个 relationship（`cascade="all, delete-orphan"`, `passive_deletes=True`，同 dispatches 纪律）；**不加列**
+- [X] T003 Write `backend/alembic/versions/0013_request_dependency.py`：建表 + 约束 + 索引
+- [X] T004 [P] Integration: `backend/tests/integration/test_dependency_schema.py` — 迁移后断言（列/UNIQUE/CHECK/两索引；删需求→其边 CASCADE；删用户→created_by CASCADE）
+- [X] T005 Integration: 空库复跑 `alembic upgrade head` → `0013` + downgrade 冒烟（quickstart §4 回填）
+- [X] T006 [P] Unit: `backend/tests/unit/test_dependency_bfs.py` — 成环检测纯函数（无环/自环/二跳环/菱形非环/深链），BFS 可脱离 DB 测（R-04）
 
 ## Phase 3a — 依赖边纯增量（提交点：`feat(dependency): 009 依赖边 CRUD`）
 

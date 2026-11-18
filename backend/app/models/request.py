@@ -16,6 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
+from app.models.request_dependency import RequestDependency
 from app.models.user import new_uuid
 
 
@@ -114,6 +115,25 @@ class Request(Base):
     notifications = relationship(
         "Notification",
         back_populates="request",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    # 009：依赖边。dependencies = 我依赖谁（我是被依赖方，request_id 侧）；
+    # dependents = 谁依赖我（我是前置，dependency_id 侧）。两个 FK 指向
+    # 同一张表，必须显式 foreign_keys——否则 SQLAlchemy 无法判断映射方向。
+    # passive_deletes=True：删需求时边由 DB 级联删，ORM 不逐条 SELECT
+    # （同 dispatches/notifications 纪律）。
+    dependencies = relationship(
+        "RequestDependency",
+        foreign_keys=[RequestDependency.request_id],
+        back_populates="request",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    dependents = relationship(
+        "RequestDependency",
+        foreign_keys=[RequestDependency.dependency_id],
+        back_populates="dependency",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
