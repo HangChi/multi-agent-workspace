@@ -40,4 +40,19 @@ describe('ErrorBanner', () => {
     fireEvent.click(screen.getByText('重试'))
     expect(retry).toHaveBeenCalledTimes(1)
   })
+
+  // 012：调用方的既有模式是「setError(extractError(err))」——传入的已是
+  // 提取好的消息字符串。组件必须原样渲染它（曾经二次提取落兜底，
+  // 用户永远看不到后端消息——011 的 s12 B4 现场）。
+  it('传入已提取的消息字符串时原样渲染', () => {
+    render(<ErrorBanner error="有 1 个前置需求未完成：官网改版（created）" />)
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      '有 1 个前置需求未完成：官网改版（created）'
+    )
+  })
+
+  it('空字符串按无错误处理（不渲染）', () => {
+    const { container } = render(<ErrorBanner error="" />)
+    expect(container.innerHTML).toBe('')
+  })
 })

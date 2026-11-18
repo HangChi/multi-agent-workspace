@@ -4,13 +4,13 @@
 
 ## Phase 2 — 修复（提交点：`fix(ui): ErrorBanner 字符串直通`）
 
-- [ ] T001 [P] `ErrorBanner.test.tsx` 新增两条用例（先红）：字符串原样渲染 / 空字符串不渲染
-- [ ] T002 `ErrorBanner.tsx`：`typeof error === 'string' ? error : extractError(error)` + docstring 写明两种入参形态（各给示例）
-- [ ] T003 跑 T001 转绿 + 既有五条全绿（vitest ErrorBanner.test.tsx 7 例）
+- [X] T001 [P] `ErrorBanner.test.tsx` 新增两条用例（先红）：字符串原样渲染 / 空字符串不渲染
+- [X] T002 `ErrorBanner.tsx`：`typeof error === 'string' ? error : extractError(error)` + docstring 写明两种入参形态（各给示例）
+- [X] T003 跑 T001 转绿 + 既有五条全绿（vitest ErrorBanner.test.tsx 7 例）
 
 ## Phase 3 — 验证（提交点：`test(verify): s12 复跑 B4 转绿`）
 
-- [ ] T004 前端五件套全绿（lint/format:check/typecheck/test/build）
+- [X] T004 前端五件套全绿（lint/format:check/typecheck/test/build）
 - [ ] T005 s12 复跑：B4 ❌ → ✅；记录输出
 - [ ] T006 s12 三组回归：其余 14 项零新增失败（仍是 6 项已知发现，B4 移除）
 

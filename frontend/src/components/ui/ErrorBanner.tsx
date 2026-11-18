@@ -7,7 +7,13 @@
  *   <ErrorBanner error={error} retry={refetch} />
  *
  * 设计约定：
- * - 错误消息统一经 extractError() 提取（适配后端 `{"error": {code, message}}`）
+ * - `error` 接受两种形态（012 起明确）：
+ *   1) **原始错误对象**（axios 错误等）——组件负责 extractError() 提取，
+ *      适配后端 `{"error": {code, message}}`；
+ *   2) **已提取的消息字符串**——原样渲染，不再提取。调用方的既有模式是
+ *      `setError(extractError(err))` 把消息存进 state，传进来的就是字符串；
+ *      对字符串二次提取只会落兜底文案（用户永远看不到后端消息——
+ *      011 的 s12 抓到的系统性 bug，本组件修复）。
  * - 默认 banner 变体：玫红底警示条 + 图标 + 可选重试/关闭
  * - inline 变体：紧凑红字，用于表单字段旁
  */
@@ -35,7 +41,9 @@ export function ErrorBanner({
   className = '',
 }: ErrorBannerProps) {
   if (!error) return null
-  const message = extractError(error)
+  // 字符串直通：调用方多已 extractError 过（state 里存的就是消息文本）；
+  // 对字符串再提取一次只会得到兜底文案——012 修的就是这个（19 处调用点全中）
+  const message = typeof error === 'string' ? error : extractError(error)
 
   if (variant === 'inline') {
     return (
