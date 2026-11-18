@@ -2,7 +2,7 @@
 
 **Feature**: `009-request-dependency` | **Date**: 2026-11-18 | **Branch**: `feat/009-request-dependency`
 
-> 本文所有 ✅ 均为**真实 docker compose 栈**上的实测结果。§1 是验收设计，§3 待 P5 回填。
+> 本文所有 ✅ 均为**真实 docker compose 栈**上的实测结果（2026-11-18，部署后一轮）。
 
 ## 0. 环境（与 s1–s9 同构）
 
@@ -11,7 +11,26 @@
 - 迁移：`alembic upgrade head` → `0012_project_entity` → **`0013_request_dependency`**
 - 邀请码：`VERIFY-008-MEMBER`（member，100 次）
 
-## 1. 真实栈验收脚本设计（`deploy/verify/s10_request_dependency.py`）
+## 1. 真实栈验收（`deploy/verify/s10_request_dependency.py`）
+
+```bash
+backend/.venv/bin/python deploy/verify/s10_request_dependency.py \
+  --base http://localhost:8080 --invite VERIFY-009-MEMBER
+```
+
+**实测结果：4/4 通过**：
+
+| 场景 | 结果 | 实测数据 |
+|---|---|---|
+| A 连边与成环 | ✅ | 加边 201（带标题状态）；自依赖 400；重复 409；直接/传递成环 409；删边 204 |
+| B 硬门禁 | ✅ | 409 逐条列出（终态前置不出现）；取消一个后剩余阻塞收敛；user 落点不查 |
+| C 解锁通知 | ✅ | 前置终态 → owner+worker 各一条 `dependency_ready`（payload 带 cancelled）；幂等不重发 |
+| D 回归 | ✅ | s9 5/5、s8 7/7、s1–s4 29/29（strategy 3/3 另跑） |
+
+> 解锁路径在 s10 走 cancelled（不依赖 LLM）；completed/failed 两态由
+> 集成测试 `test_dependency_gate.py` 的三终态参数化用例覆盖。
+
+## 2. 原验收设计（保留备查）
 
 | 场景 | 用例 | 断言 |
 |---|---|---|
