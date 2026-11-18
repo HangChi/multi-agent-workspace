@@ -167,3 +167,52 @@ async def test_notification_chain_order(db_session, client, make_headers):
     ).json()["items"]
     # 分派通知只发给接收人；退回者是 worker 自己，不会再收自己的通知
     assert [n["type"] for n in worker_n] == ["request_dispatched"]
+
+
+# ---------- FR-010：执行完成通知创建者 ----------
+
+
+async def _notif_count(db, user_id: str, *, type_: str | None = None) -> int:
+    """某用户的未读/指定类型通知数（按 user_id 过滤——API 提交的数据不随
+    db_session 回滚，全局计数会漏进别的测试的数据）。"""
+    stmt = (
+        select(func.count())
+        .select_from(Notification)
+        .where(Notification.user_id == user_id)
+    )
+    if type_:
+        stmt = stmt.where(Notification.type == type_)
+    return int((await db.execute(stmt)).scalar())
+
+
+async def test_run_completed_notifies_owner_on_settle(db_session):
+    """需求收敛终态时创建者收到 run_completed；重复 settle 不重复发。"""
+    from app.models.run import Run
+    from app.services.request_service import settle_request_status
+
+    owner = await _user(db_session)
+    req = Request(owner_id=owner.id, title="执行完成通知", status="running")
+    db_session.add(req)
+    await db_session.flush()
+    db_session.add(
+        Run(
+            request_id=req.id,
+            owner_id=owner.id,
+            assignee_type="agent",
+            assignee_id=str(uuid.uuid4()),
+            strategy="direct",
+            status="completed",
+            cost_cents=10,
+        )
+    )
+    await db_session.commit()
+
+    before = await _notif_count(db_session, owner.id, type_="run_completed")
+    assert await settle_request_status(db_session, req.id) == "completed"
+    await db_session.commit()
+    assert await _notif_count(db_session, owner.id, type_="run_completed") == before + 1
+
+    # 幂等：需求已终态，再次 settle 直接返回 None，不再发通知
+    assert await settle_request_status(db_session, req.id) is None
+    await db_session.commit()
+    assert await _notif_count(db_session, owner.id, type_="run_completed") == before + 1

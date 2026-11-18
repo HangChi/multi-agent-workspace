@@ -55,6 +55,9 @@ async def settle_request_status(db: AsyncSession, request_id: str) -> str | None
     整体失败，用户取消过就显示已取消）。
 
     只处理 running 的需求，不覆盖 reaper 的判定，也不把 created/assigned 提前收口。
+
+    007：收敛到终态时给**创建者**发一条 `run_completed` 通知（FR-010）——
+    经手人（接收人）可能不是创建者，执行结果要回到需求方眼前。
     """
     request = await db.get(Request, request_id)
     if request is None or request.status != "running":
@@ -78,6 +81,20 @@ async def settle_request_status(db: AsyncSession, request_id: str) -> str | None
         status=request.status,
         runs=len(statuses),
     )
+    # 007 FR-010：执行结果通知创建者（标题存需求标题快照，同分派通知纪律）
+    from app.core import metrics
+    from app.models.notification import Notification
+
+    db.add(
+        Notification(
+            user_id=request.owner_id,
+            type="run_completed",
+            request_id=request.id,
+            title=request.title,
+            payload={"status": request.status},
+        )
+    )
+    metrics.NOTIFICATIONS_CREATED.inc(type="run_completed")
     return request.status
 
 
