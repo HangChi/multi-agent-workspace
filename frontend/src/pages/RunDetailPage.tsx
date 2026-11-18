@@ -22,10 +22,11 @@ import { Icon } from '../components/ui/Icons'
 import { Input } from '../components/ui/Field'
 import { Page } from '../components/ui/Page'
 import { Skeleton } from '../components/ui/Skeleton'
+import { useConfirm } from '../components/ui/useConfirm'
 import { useToast } from '../components/ui/useToast'
+import { LogPanel } from '../components/run/LogPanel'
 import { formatCostYuan } from '../utils/formatCost'
 import { useRunSocket, type RunSocketEvent } from '../hooks/useRunSocket'
-import { cn } from '../components/ui/cn'
 import { formatBytes } from '../utils/formatBytes'
 
 /**
@@ -64,15 +65,6 @@ const STRATEGY_LABEL: Record<string, string> = {
 /** 终态：WS 连接已主动关闭，展示「已结束」而非「未连接」（后者看起来像故障） */
 const TERMINAL_STATUSES = new Set<api.RunStatus>(['completed', 'failed', 'cancelled', 'timeout'])
 
-/** 日志级别配色（深色底上的浅色字） */
-const LOG_LEVEL_CLASS: Record<string, string> = {
-  info: 'text-slate-300',
-  warn: 'text-amber-300',
-  warning: 'text-amber-300',
-  error: 'text-rose-300',
-  debug: 'text-slate-500',
-}
-
 /** 006：「第 2/3 次 · 约 4s 后重试」——重试等待中的进度提示。 */
 function RetryProgress({ attempt, nextRetryAt }: { attempt: number; nextRetryAt: string | null }) {
   const secondsLeft = useRetryCountdown(nextRetryAt)
@@ -99,6 +91,7 @@ function MetaTile({ label, children }: { label: string; children: React.ReactNod
 export function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>()
   const toast = useToast()
+  const confirm = useConfirm()
   const [run, setRun] = useState<api.RunDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -106,8 +99,7 @@ export function RunDetailPage() {
   const [replyMessage, setReplyMessage] = useState('')
   const [replying, setReplying] = useState(false)
   const [acting, setActing] = useState<'cancel' | 'retry' | null>(null)
-  const [logs, setLogs] = useState<{ line: string; level: string }[]>([])
-  const logBoxRef = useRef<HTMLDivElement>(null)
+  const [logs, setLogs] = useState<{ line: string; level: string; at: string }[]>([])
 
   const load = useCallback(async () => {
     if (!runId) return
@@ -115,6 +107,10 @@ export function RunDetailPage() {
     setError(null)
     try {
       setRun(await api.fetchRun(runId))
+      // 切 run（路由参数变化，组件复用）时必须清空上一 run 的日志与
+      // 回复草稿：否则旧日志会混在新 run 日志顶部，直到被挤出
+      setLogs([])
+      setReplyMessage('')
     } catch (e) {
       setError(extractError(e))
     } finally {
@@ -158,7 +154,7 @@ export function RunDetailPage() {
       case 'log_line':
         setLogs((prev) => [
           ...prev.slice(-199),
-          { line: event.line as string, level: (event.level as string) ?? 'info' },
+          { line: event.line as string, level: (event.level as string) ?? 'info', at: new Date().toISOString() },
         ])
         break
       case 'sandbox_started':
@@ -205,7 +201,11 @@ export function RunDetailPage() {
       case 'sandbox_output':
         setLogs((prev) => [
           ...prev.slice(-199),
-          { line: event.chunk as string, level: event.stream === 'stderr' ? 'error' : 'info' },
+          {
+            line: event.chunk as string,
+            level: event.stream === 'stderr' ? 'error' : 'info',
+            at: new Date().toISOString(),
+          },
         ])
         break
       case 'external_tool_call_started':
@@ -295,17 +295,43 @@ export function RunDetailPage() {
     }
   }, [])
 
-  const { connected } = useRunSocket(runId, onEvent, !!runId)
+  const { connected, status: socketStatus, retryCount, reconnect } = useRunSocket(
+    runId,
+    onEvent,
+    !!runId
+  )
 
-  // 日志自动滚到底部，跟随最新输出
+  /**
+   * 重连成功后补数：断线期间的 step/log 事件不会补发，connected 由
+   * false→true 的跳变就是「该重拉了」的信号。
+   */
+  const wasConnected = useRef(connected)
   useEffect(() => {
-    const box = logBoxRef.current
-    if (box) box.scrollTop = box.scrollHeight
-  }, [logs.length])
+    if (connected && !wasConnected.current) void load()
+    wasConnected.current = connected
+  }, [connected, load])
+
+  /**
+   * 重连耗尽后的降级轮询：连接彻底放弃时页面不能永久停留在过期状态
+   * （run 早已 completed，页面仍显示「执行中」是最糟的谎言）。
+   */
+  useEffect(() => {
+    if (socketStatus !== 'failed') return
+    const timer = window.setInterval(() => void load(), 10_000)
+    return () => window.clearInterval(timer)
+  }, [socketStatus, load])
 
   // 操作
   const handleCancel = async () => {
     if (!runId) return
+    // 取消会丢弃全部进行中的工作——破坏性操作，先确认
+    const ok = await confirm({
+      title: '取消该运行？',
+      description: '已执行的步骤与成本会保留，但任务不会继续。取消后如需重跑，可点「重试」重新入队。',
+      confirmText: '取消运行',
+      tone: 'warning',
+    })
+    if (!ok) return
     setActionError(null)
     setActing('cancel')
     try {
@@ -412,12 +438,9 @@ export function RunDetailPage() {
               <Button variant="secondary" leftIcon="refresh" onClick={() => void load()}>
                 重试
               </Button>
-              <Link
-                to="/"
-                className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-4 text-sm font-medium text-ink-soft shadow-card hover:bg-surface-muted"
-              >
+              <Button as="link" to="/" variant="secondary" leftIcon="arrow-left">
                 返回看板
-              </Link>
+              </Button>
             </div>
           }
         />
@@ -474,10 +497,10 @@ export function RunDetailPage() {
               <Button
                 size="sm"
                 variant="ghost"
+                tone="danger"
                 leftIcon="x-circle"
                 loading={acting === 'cancel'}
                 onClick={() => void handleCancel()}
-                className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-300 dark:hover:bg-rose-500/15"
               >
                 取消运行
               </Button>
@@ -506,17 +529,27 @@ export function RunDetailPage() {
           </MetaTile>
           {run.attempt > 1 && <MetaTile label="尝试次数">第 {run.attempt} 次</MetaTile>}
           <MetaTile label="实时连接">
-            {connected ? (
-              <span className="inline-flex items-center gap-1.5 text-emerald-600">
+            {socketStatus === 'connected' ? (
+              <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-300">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse-ring" />
                 已连接
               </span>
             ) : TERMINAL_STATUSES.has(run.status) ? (
               <span className="text-ink-faint">已结束</span>
+            ) : socketStatus === 'reconnecting' ? (
+              <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                重连中（第 {retryCount} 次）
+              </span>
+            ) : socketStatus === 'failed' ? (
+              <span className="inline-flex items-center gap-1.5 text-rose-600 dark:text-rose-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                连接中断（已降级轮询）
+              </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 text-ink-faint">
                 <span className="h-1.5 w-1.5 rounded-full bg-line-strong" />
-                未连接
+                连接中…
               </span>
             )}
           </MetaTile>
@@ -720,64 +753,32 @@ export function RunDetailPage() {
       )}
 
       {/* 日志 */}
-      <Card padding="none" tone="dark" className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
-          <div className="flex items-center gap-2">
-            <Icon name="file" className="h-3.5 w-3.5 text-slate-400" />
-            <span className="text-xs font-medium text-slate-200">运行日志</span>
-            <span className="rounded bg-white/10 px-1.5 py-0.5 text-micro tabular-nums text-slate-300">
-              {logs.length}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1.5 text-micro text-slate-500">
-              <span
-                className={cn(
-                  'h-1.5 w-1.5 rounded-full',
-                  connected ? 'bg-emerald-400' : 'bg-slate-600'
-                )}
-              />
-              {connected ? '实时接收中' : '未连接'}
-            </span>
-            {logs.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setLogs([])}
-                className="rounded px-1.5 py-0.5 text-micro text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-200"
-              >
-                清空
-              </button>
-            )}
-          </div>
+      <LogPanel
+        logs={logs}
+        socketLabel={
+          socketStatus === 'connected'
+            ? '实时接收中'
+            : socketStatus === 'connecting'
+              ? '连接中…'
+              : socketStatus === 'reconnecting'
+                ? `重连中（第 ${retryCount}/${5} 次）…`
+                : '连接已中断'
+        }
+        socketConnected={connected}
+        onClear={() => {
+          setLogs([])
+          toast.info('已清空日志显示', '仅清空当前页面缓冲，服务端日志不受影响')
+        }}
+      />
+      {socketStatus === 'failed' && !terminal && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
+          <Icon name="alert-triangle" className="h-3.5 w-3.5 shrink-0" />
+          实时连接多次重连失败，已切换为每 10 秒轮询（可能看不到最新进度）。
+          <Button size="xs" variant="warning" leftIcon="refresh" onClick={reconnect} className="ml-auto">
+            重新连接
+          </Button>
         </div>
-        <div
-          ref={logBoxRef}
-          className="max-h-72 overflow-y-auto px-3 py-2.5 font-mono text-xs leading-relaxed"
-        >
-          {logs.length === 0 ? (
-            <p className="py-4 text-center text-ink-muted">
-              {terminal ? '本次运行没有日志输出' : '等待日志…'}
-            </p>
-          ) : (
-            logs.map((log, i) => (
-              <p key={i} className="flex gap-2 py-0.5">
-                <span className="shrink-0 select-none text-slate-600">
-                  {String(i + 1).padStart(3, '0')}
-                </span>
-                <span className="shrink-0 uppercase opacity-70">{log.level.padEnd(5, ' ')}</span>
-                <span
-                  className={cn(
-                    'min-w-0 whitespace-pre-wrap break-words',
-                    LOG_LEVEL_CLASS[log.level] ?? 'text-slate-300'
-                  )}
-                >
-                  {log.line}
-                </span>
-              </p>
-            ))
-          )}
-        </div>
-      </Card>
+      )}
     </Page>
   )
 }

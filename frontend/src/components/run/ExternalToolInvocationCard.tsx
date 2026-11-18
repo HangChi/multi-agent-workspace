@@ -31,6 +31,8 @@ const STATUS_LABEL: Record<string, string> = {
 
 export function ExternalToolInvocationCard({ invocation }: { invocation: ExternalToolInvocation }) {
   const failed = invocation.status !== 'succeeded'
+  // running 时后端还没有 duration，显示「0 ms」是误导——改成「进行中」
+  const running = invocation.status === 'running'
   return (
     <Card className="border-brand-200/70 bg-brand-50/30 dark:border-brand-500/25 dark:bg-brand-500/5">
       <div className="flex flex-wrap items-center gap-2">
@@ -38,8 +40,10 @@ export function ExternalToolInvocationCard({ invocation }: { invocation: Externa
         <Badge tone={failed ? 'amber' : 'emerald'} dot>
           {STATUS_LABEL[invocation.status] ?? invocation.status}
         </Badge>
-        <span className="ml-auto text-xs tabular-nums text-ink-faint">
-          {invocation.duration_ms} ms
+        {/* 时间戳：步骤有时间而工具调用没有，时间线对不齐 */}
+        <span className="ml-auto flex items-center gap-2 text-micro tabular-nums text-ink-faint">
+          {new Date(invocation.created_at).toLocaleTimeString('zh-CN')}
+          {!running && <span>{invocation.duration_ms} ms</span>}
         </span>
       </div>
       <p className="mt-2 truncate font-mono text-xs text-ink-soft" title={invocation.stable_name}>

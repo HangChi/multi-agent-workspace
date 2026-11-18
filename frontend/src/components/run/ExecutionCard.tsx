@@ -121,16 +121,37 @@ export function ExecutionCard({
           </Button>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-2 text-xs text-ink-muted sm:grid-cols-4">
-        <span>退出码：{detail?.exit_code ?? execution.exit_code ?? '—'}</span>
-        <span>耗时：{detail?.duration_ms ?? execution.duration_ms} ms</span>
-        <span>制品：{detail?.artifacts.length ?? execution.artifacts}</span>
-        {detail?.cpu_ms != null && <span>CPU：{detail.cpu_ms} ms</span>}
-        {detail?.mem_peak_bytes != null && (
-          <span>内存峰值：{formatBytes(detail.mem_peak_bytes)}</span>
+      <dl className="mt-3 grid grid-cols-2 gap-2 text-xs text-ink-muted sm:grid-cols-4">
+        <span>
+          <dt className="inline text-ink-faint">退出码：</dt>
+          <dd className="inline">{detail?.exit_code ?? execution.exit_code ?? '—'}</dd>
+        </span>
+        <span>
+          <dt className="inline text-ink-faint">耗时：</dt>
+          <dd className="inline tabular-nums">
+            {detail?.duration_ms ?? execution.duration_ms} ms
+          </dd>
+        </span>
+        <span>
+          <dt className="inline text-ink-faint">制品：</dt>
+          <dd className="inline tabular-nums">{detail?.artifacts.length ?? execution.artifacts}</dd>
+        </span>
+        {detail?.cpu_ms != null && (
+          <span>
+            <dt className="inline text-ink-faint">CPU：</dt>
+            <dd className="inline tabular-nums">{detail.cpu_ms} ms</dd>
+          </span>
         )}
-        {execution.stdout_truncated && <span className="text-amber-600">输出已截断</span>}
-      </div>
+        {detail?.mem_peak_bytes != null && (
+          <span>
+            <dt className="inline text-ink-faint">内存峰值：</dt>
+            <dd className="inline">{formatBytes(detail.mem_peak_bytes)}</dd>
+          </span>
+        )}
+        {execution.stdout_truncated && (
+          <span className="text-amber-600 dark:text-amber-300">输出已截断</span>
+        )}
+      </dl>
       {expanded && (
         <div className="space-y-3 border-t border-line pt-3">
           {loading && !detail && <p className="text-xs text-ink-muted">正在加载执行详情…</p>}
@@ -212,13 +233,14 @@ function ArtifactList({
               {artifact.filename}
             </span>
             <span className="text-ink-faint">{formatBytes(artifact.size_bytes)}</span>
-            <button
-              type="button"
-              className="rounded border border-line-strong px-2 py-1 text-ink-soft hover:text-ink"
+            <Button
+              size="xs"
+              variant="secondary"
+              leftIcon="download"
               onClick={() => void download(artifact.id)}
             >
               下载
-            </button>
+            </Button>
           </li>
         ))}
       </ul>
@@ -259,11 +281,26 @@ function EgressList({ items }: { items: EgressAccess[] }) {
 }
 
 function CodePanel({ title, value }: { title: string; value: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try {
+      await window.navigator.clipboard.writeText(value)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // 剪贴板不可用：按钮状态不变，用户仍可手动选择
+    }
+  }
   return (
     <section className="min-w-0 overflow-hidden rounded-lg border border-line">
-      <h3 className="border-b border-line bg-surface-muted px-3 py-2 text-xs font-medium text-ink-soft">
-        {title}
-      </h3>
+      <div className="flex items-center justify-between border-b border-line bg-surface-muted pr-2">
+        <h3 className="px-3 py-2 text-xs font-medium text-ink-soft">{title}</h3>
+        {value && (
+          <Button size="xs" variant="ghost" leftIcon="copy" onClick={() => void copy()}>
+            {copied ? '已复制' : '复制'}
+          </Button>
+        )}
+      </div>
       <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-relaxed text-ink">
         {value || '（无输出）'}
       </pre>

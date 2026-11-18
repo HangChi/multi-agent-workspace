@@ -53,7 +53,9 @@ export function StepList({ steps }: { steps: RunStep[] }) {
 
             <span
               className={cn(
-                'relative z-10 mt-1 flex h-[27px] w-[27px] shrink-0 items-center justify-center rounded-full ring-4 ring-white',
+                // ring 用 surface 令牌而非写死 ring-white：深色主题下白环
+                // 在深底上非常突兀，也偏离了令牌体系
+                'relative z-10 mt-1 flex h-[27px] w-[27px] shrink-0 items-center justify-center rounded-full ring-4 ring-surface',
                 step.status === 'completed'
                   ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300'
                   : step.status === 'failed'
