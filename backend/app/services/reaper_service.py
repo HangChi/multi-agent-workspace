@@ -26,6 +26,11 @@ from app.orchestrator.state_machine import RunStatus, transition
 logger = structlog.get_logger(__name__)
 
 # 非终态：只要还有这些状态的 Run，需求就不该被回收
+# 006 注意：`retrying` **刻意不在此列**。重试等待中的 Run 有一个已计划的
+# `next_retry_at`，它既没卡住也没失败——reaper 把它回收成 failed 会直接杀掉
+# 一次本来会成功的重试（spec FR-012）。
+# 这条不变量由 tests/integration/test_run_retry.py::
+# test_reaper_does_not_reap_retrying_runs 固化：往后再加状态时必须复查这里。
 _ACTIVE_STATUSES = ("queued", "running", "needs_input")
 
 

@@ -54,6 +54,7 @@ class Run(Base):
             "queued",
             "running",
             "needs_input",
+            "retrying",
             "completed",
             "failed",
             "cancelled",
@@ -62,6 +63,20 @@ class Run(Base):
         ),
         nullable=False,
         default="queued",
+    )
+    # 006：第几次尝试（首次执行为 1，每次自动/手动重试 +1）
+    attempt: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    # 006：下次重试的计划时刻；非 NULL 表示正在等待重试。
+    # 与 status='retrying' 同真同假（冗余字段），用于 reaper 排除与前端倒计时。
+    next_retry_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # 006：历次失败原因 [{"attempt":1,"error":"...","at":"..."}]。
+    # 与 error 分开：error 是「当前最后一次」，重试成功后要清；历史必须留（FR-017）。
+    retry_history: Mapped[list] = mapped_column(
+        JSON(none_as_null=True), nullable=False, default=list, server_default="[]"
     )
     current_step: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # pipeline 策略下的阶段序号（1..N，按组内 position 顺序）；其他策略为 0
@@ -122,11 +137,34 @@ class Run(Base):
         self.finished_at = datetime.now(UTC)
 
     def clear_execution(self) -> None:
-        """failed/timeout → queued 重试时重置执行现场（FR-017）。"""
+        """failed/timeout → queued 手动重试时重置执行现场（FR-017）。
+
+        006 起**不清零成本**（FR-013）：重试花的 token 是真实发生的支出，
+        清零会让看板成本系统性低于网关账单、配额统计偏低，而且熔断可被
+        「每次各花 490 分、上限 500 分」绕过（FR-014）。
+        详见 specs/006-run-retry/research.md R-04。
+        """
         self.current_step = 0
-        self.cost_cents = 0
-        self.cost_micros = 0
         self.error = None
         self.result = None
         self.started_at = None
         self.finished_at = None
+
+    def bump_attempt(self) -> int:
+        """递增尝试计数并返回新值（自动与手动重试共用）。"""
+        self.attempt = (self.attempt or 1) + 1
+        return self.attempt
+
+    def record_failure(self, error: str) -> None:
+        """把一次失败追加进 retry_history（FR-017：每次尝试的原因可查）。"""
+        from datetime import datetime
+
+        history = list(self.retry_history or [])
+        history.append(
+            {
+                "attempt": self.attempt or 1,
+                "error": error,
+                "at": datetime.now(UTC).isoformat(),
+            }
+        )
+        self.retry_history = history

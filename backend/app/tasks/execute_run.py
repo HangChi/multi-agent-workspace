@@ -14,6 +14,7 @@
 import asyncio
 import os
 from dataclasses import asdict
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import redis
@@ -33,6 +34,10 @@ from app.models.run import Run
 from app.models.step import Step
 from app.models.tool import Tool
 from app.models.user import new_uuid
+from app.orchestrator.retry_policy import (
+    backoff_seconds,
+    is_retryable,
+)
 from app.orchestrator.router import route
 from app.orchestrator.runner import (
     CostLimitExceeded,
@@ -179,6 +184,28 @@ def _enqueue(run_ids: list[str]) -> None:
             logger.warning("celery_enqueue_failed", run_id=run_id, error=str(exc))
 
 
+def _enqueue_with_delay(run_id: str, delay_seconds: float) -> None:
+    """延迟入队（006 自动重试）。
+
+    用 `countdown` 而不是 Celery 的 `self.retry()`：见
+    `specs/006-run-retry/research.md` R-01——后者会重新抛出异常、让
+    `acks_late` 的消息在重试窗口内再次投递，与本次调度形成两个执行体，
+    正是要防的重复执行。这里投递的是一个**全新任务**，靠 Redis 锁保证
+    同一时刻只有一个执行体。
+
+    失败只告警： broker 不可用时 Run 已落在 `retrying` + `next_retry_at`，
+    reaper 不会回收它（FR-012），用户可手动重试——不会静默丢失。
+    """
+    try:
+        celery_app.send_task(
+            "app.tasks.execute_run.execute_run",
+            args=[run_id],
+            countdown=max(0.0, delay_seconds),
+        )
+    except (ConnectionError, OSError, ValueError) as exc:
+        logger.warning("celery_retry_enqueue_failed", run_id=run_id, error=str(exc))
+
+
 async def _previous_stage_output(db, run: Run) -> str | None:
     """pipeline：取上一阶段的产出文本（result.answer）。"""
     prev = (
@@ -258,6 +285,12 @@ async def _advance_pipeline(db, run: Run) -> None:
             _enqueue([next_stage.id])
         return
 
+    # 006：阶段进入重试等待时，链路保持原样——它还会回来，既不取消剩余阶段，
+    # 也不把父 Run 收敛成 failed（那会在瞬时抖动时误杀整条 pipeline）。
+    if run.status == "retrying":
+        run_events.log_line(run.id, f"第 {run.sequence} 阶段将自动重试，链路暂停等待")
+        return
+
     if run.status != "completed":
         cancelled = 0
         for pending in siblings:
@@ -296,6 +329,81 @@ async def _is_cancelled(db, run_id: str) -> bool:
     """Read committed state, never a stale object from the long-lived Worker session."""
     status = await db.scalar(select(Run.status).where(Run.id == run_id))
     return status == "cancelled"
+
+
+async def _schedule_auto_retry(db, run: Run, exc: BaseException) -> bool:
+    """瞬时失败时安排一次自动重试（006）。
+
+    返回 True 表示「已转入 retrying，调用方不要再标 failed」。
+
+    做的事（对应 spec FR-006..009 / FR-016..019）：
+    1. 分类失败：仅瞬时类且未到上限才重试（retry_policy.is_retryable）
+    2. 记录历史 + 计划时刻 + 迁移到 `retrying`
+    3. 发 WS 事件 + 写审计
+    4. 用 `countdown` 投递一个全新任务（不用 self.retry()，见 research R-01）
+
+    成本**不在此处触碰**：`run.cost_micros` 由 runner 增量累加，重试路径
+    不清零即自然形成跨次累计（research R-04）。
+
+    状态校验（FR-011）不在这里做——它属于「消费时」的防线，见
+    `execute_run` 里的 `_should_skip_execution`。
+    """
+    # 无论是否重试，这次失败都要进历史（FR-009：耗尽后仍要能看到每次败在哪）
+    run.record_failure(str(exc))
+
+    max_attempts = settings.run_max_attempts
+    if not is_retryable(exc, run.attempt or 1, max_attempts):
+        await db.commit()
+        return False
+
+    delay = backoff_seconds(
+        run.attempt or 1,
+        settings.run_retry_base_seconds,
+        settings.run_retry_cap_seconds,
+    )
+    now = datetime.now(UTC)
+    run.next_retry_at = now + timedelta(seconds=delay)
+
+    transition(run, RunStatus.RETRYING)
+    await db.commit()
+
+    run_events.run_retrying(
+        run.id,
+        attempt=(run.attempt or 1) + 1,
+        max_attempts=max_attempts,
+        wait_seconds=delay,
+        error=str(exc),
+        next_retry_at=run.next_retry_at.isoformat(),
+    )
+    run_events.log_line(
+        run.id,
+        f"第 {run.attempt} 次执行失败（{str(exc)[:80]}），"
+        f"{delay:.1f}s 后自动重试（第 {(run.attempt or 1) + 1}/{max_attempts} 次）",
+        level="warning",
+    )
+    try:
+        await write_audit(
+            db,
+            user_id=run.owner_id,
+            action="run_auto_retry",
+            target_type="run",
+            target_id=run.id,
+            detail={
+                "from_status": "running",
+                "attempt": run.attempt or 1,
+                "max_attempts": max_attempts,
+                "wait_seconds": round(delay, 2),
+                "error": str(exc)[:500],
+            },
+            strict=True,
+        )
+        await db.commit()
+    except Exception:
+        # 审计失败不能拦住重试：调度已经决定了，回滚比丢掉一次重试更糟
+        logger.exception("auto_retry_audit_failed", run_id=_run_id_for_log(run))
+
+    _enqueue_with_delay(run.id, delay)
+    return True
 
 
 async def _execute(db, run: Run, agent: Agent | None) -> None:
@@ -684,12 +792,20 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
         await db.commit()
         run_events.run_failed(run.id, run.error or str(exc))
     except LLMClientError as exc:
+        # 006：瞬时类失败先安排自动重试；不可重试才走终态
+        if await _schedule_auto_retry(db, run, exc):
+            return
         run.error = str(exc)
         transition(run, RunStatus.FAILED)
         await db.commit()
         run_events.run_failed(run.id, run.error)
     except Exception as exc:  # 兜底：任何异常都转为可读失败（FR-017）
         logger.exception("execute_run_unexpected", run_id=_run_id_for_log(run))
+        # 006：同上。未知异常按业务类处理（research R-05），因此这里
+        # 绝大多数情况会走到终态；保留入口是为了连接层异常（OSError 等）
+        # 也能享受自动重试。
+        if await _schedule_auto_retry(db, run, exc):
+            return
         run.error = f"执行异常: {exc}"
         transition(run, RunStatus.FAILED)
         await db.commit()
@@ -704,7 +820,10 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
         # 需求状态收敛：分配时置为 running，终态必须由这里推出去，否则看板永远停在
         # 「执行中」。放在 finally 里，失败/取消/超时同样收口。
         try:
-            if await settle_request_status(db, run.request_id):
+            # 006：重试等待中不收敛需求状态——它还没失败，看板该继续显示执行中
+            if run.status != RunStatus.RETRYING.value and await settle_request_status(
+                db, run.request_id
+            ):
                 await db.commit()
         except Exception:
             logger.exception("request_settle_failed", run_id=_run_id_for_log(run))
@@ -730,6 +849,26 @@ def execute_run(self, run_id: str) -> str:
             run, agent, _ = await _load_context(db, run_id)
             if run.status == "cancelled":
                 return "cancelled"
+            # 006 三道防线的第二道（FR-011）：终态后延迟的重试消息到点时丢弃。
+            # 判据用 status 而不是 next_retry_at——后者可能因时区/写入顺序偏差，
+            # 而 status 是状态机保证的唯一真相。
+            if run.status not in {"queued", "running", "retrying"}:
+                logger.info(
+                    "run_retry_discarded",
+                    run_id=run_id,
+                    status=run.status,
+                    reason="终态后到点的重试消息",
+                )
+                return f"discarded-{run.status}"
+            # 006：重试到点 → 递增 attempt 并进入 running。
+            # 在这里而不是调度时递增：attempt 的语义是「正在跑第几次」，
+            # 调度时递增会让「等待中的那次」也被算成一次尝试。
+            if run.status == "retrying":
+                run.bump_attempt()
+                run.next_retry_at = None
+                transition(run, RunStatus.RUNNING)
+                await db.commit()
+                run_events.log_line(run_id, f"第 {run.attempt} 次尝试开始（自动重试）")
             # T077 配额兜底：Worker 消费前再校验一次（分配后配额可能已变化）。
             # 已入队任务不因配额变化回滚（软约束），但防止越过配额执行。
             try:

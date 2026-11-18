@@ -1,11 +1,16 @@
-"""Run 状态机（T065，US5）：合法迁移表 + 幂等迁移函数（FR-015/FR-018/FR-021）。
+"""Run 状态机（T065，US5；006 扩展）：合法迁移表 + 幂等迁移函数（FR-015/FR-018/FR-021）。
 
 对齐 data-model.md 状态机：
 - queued → running → completed / failed / needs_input → running / cancelled / timeout
-- failed / timeout → queued（重试，FR-017；重置执行现场）
+- failed / timeout → queued（手动重试，FR-017；成本不清零，006 FR-013）
 - 终态（completed/failed/cancelled/timeout）不可迁移
 - needs_input → running（用户回复继续，FR-021）/ cancelled（用户放弃挂起任务，FR-018）
+- running → retrying → running / failed（006 自动重试；retrying 是中间态）
 - 迁移幂等：重复迁移 no-op
+
+`retrying` 为什么是独立状态而不是 `failed` + 角标：见
+`specs/006-run-retry/research.md` R-03——复用 failed 会让看板筛选说谎、
+让 `failed → queued` 规则歧义，还要给 reaper 打一个容易漏的 WHERE 补丁。
 
 纯函数式实现：不依赖 DB，run 对象由调用方传入（ORM 或测试 dataclass）。
 """
@@ -24,6 +29,7 @@ class RunStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
     NEEDS_INPUT = "needs_input"
+    RETRYING = "retrying"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -42,11 +48,17 @@ _TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
             RunStatus.COMPLETED,
             RunStatus.FAILED,
             RunStatus.NEEDS_INPUT,
+            RunStatus.RETRYING,
             RunStatus.CANCELLED,
             RunStatus.TIMEOUT,
         }
     ),
     RunStatus.NEEDS_INPUT: frozenset({RunStatus.RUNNING, RunStatus.CANCELLED}),
+    # 006：瞬时失败进入重试等待；到点重新执行；次数耗尽转终态。
+    # 刻意不开放 retrying → completed（必须先 running，否则跳过了实际执行）、
+    # retrying → queued（那会绕过 attempt 计数与退避调度）、
+    # retrying → cancelled（取消入口一多，「谁撤销了重试」就说不清）。
+    RunStatus.RETRYING: frozenset({RunStatus.RUNNING, RunStatus.FAILED}),
     RunStatus.FAILED: frozenset({RunStatus.QUEUED}),
     RunStatus.TIMEOUT: frozenset({RunStatus.QUEUED}),
     RunStatus.COMPLETED: frozenset(),

@@ -17,7 +17,17 @@ from app.core.config import settings
 
 
 class LLMClientError(Exception):
-    """LLM 调用失败（连接/鉴权/限流等，转为可读错误）。"""
+    """LLM 调用失败（连接/鉴权/限流等，转为可读错误）。
+
+    `transient` 标记这次失败是否「确知会自愈」（006）：LiteLLM 把连接超时和
+    鉴权失败报成同一个异常类，但两者的重试价值完全相反——超时等一会儿可能好，
+    密钥错了等多久都不会好。调用点（本文件的两处 raise）最清楚是哪种，
+    所以由它标记，`app.orchestrator.retry_policy.classify_failure` 据此判定。
+    """
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient
 
 
 @dataclass
@@ -196,11 +206,14 @@ class LiteLLMClient:
         except TimeoutError as exc:
             metrics.LLM_CALLS.inc(model=self.model, outcome="timeout")
             raise LLMClientError(
-                f"LLM 调用超时（{self.timeout_seconds:.0f}s）"
+                f"LLM 调用超时（{self.timeout_seconds:.0f}s）", transient=True
             ) from exc
         except Exception as exc:  # 网络/鉴权/限流统一转可读错误
             metrics.LLM_CALLS.inc(model=self.model, outcome="error")
-            raise LLMClientError(f"LLM 调用失败: {exc}") from exc
+            # 连接类底层异常才算瞬时；鉴权/限流（AuthenticationError /
+            # RateLimitError 等）重试同一个请求不会好（006 / research R-05）
+            transient = isinstance(exc, (ConnectionError, TimeoutError, OSError))
+            raise LLMClientError(f"LLM 调用失败: {exc}", transient=transient) from exc
 
         metrics.LLM_CALLS.inc(model=self.model, outcome="ok")
         metrics.LLM_DURATION.observe(time.perf_counter() - started, model=self.model)

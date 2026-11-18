@@ -306,13 +306,21 @@ async def cancel_run(run_id: ResourceId, _m: MemberUser, user: CurrentUser, db: 
 
 @router.post("/{run_id}/retry", status_code=202)
 async def retry_run(run_id: ResourceId, _m: MemberUser, user: CurrentUser, db: DB):
-    """重试运行（FR-017）：failed/timeout → queued（重置执行现场）；其余 409。"""
+    """重试运行（FR-017）：failed/timeout → queued（重置执行现场）；其余 409。
+
+    006 起成本**不清零**（FR-013）：重试花的 token 是真实支出。清零会让看板
+    成本系统性低于网关账单，且熔断可被「每次各花 490 分、上限 500 分」绕过
+    （research R-04）。`attempt` 递增，与自动重试同一口径。
+    """
     run = await _get_owned_run(db, run_id, user)
     from_status = run.status
     # 显式前置校验：仅 failed/timeout 可重试（幂等分支会吞掉 queued→queued）
     if run.status not in {"failed", "timeout"}:
         raise _conflict("仅 failed/timeout 状态可重试")
+    run.bump_attempt()
+    run.next_retry_at = None
     transition(run, RunStatus.QUEUED)
+    run.clear_execution()
 
     await write_audit(
         db,
@@ -320,7 +328,7 @@ async def retry_run(run_id: ResourceId, _m: MemberUser, user: CurrentUser, db: D
         action="run_retry",
         target_type="run",
         target_id=run.id,
-        detail={"from_status": from_status},
+        detail={"from_status": from_status, "attempt": run.attempt},
     )
     await db.commit()
     # 重新入队（FR-017）：failed → queued 后必须让 Worker 再次消费

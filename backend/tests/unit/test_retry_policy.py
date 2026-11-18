@@ -1,0 +1,146 @@
+"""重试策略纯函数（T006/T007）。
+
+这里锁死三条**不可直觉化**的规则：
+
+1. **未知异常按业务类**（research R-05）：对代码 bug 重试 3 次只是 3 倍日志
+   噪声与 3 倍可能已产生的部分成本。瞬时故障的特征是明确的，白名单能列全。
+2. **full jitter 而非固定退避**（research R-02）：同时失败的任务如果在同一秒
+   一起重试，会把刚恢复的网关再次打挂。等待时长必须在 `[0, 计算值]` 内随机。
+3. **执行超时不算瞬时**：任务连自己的时间预算都没走完，重试一次大概率还是超。
+"""
+
+import random
+
+import pytest
+
+from app.executors.llm import LLMClientError
+from app.orchestrator.retry_policy import (
+    FailureKind,
+    backoff_seconds,
+    classify_failure,
+)
+from app.orchestrator.runner import (
+    CostLimitExceeded,
+    ExecutionTimeout,
+    MaxStepsExceeded,
+    NeedsInput,
+)
+from app.services.quota_service import QuotaExceeded
+
+# ---------- 瞬时类：确知会自愈的失败 ----------
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        ConnectionError("Connection refused by gateway"),
+        ConnectionResetError("Connection reset by peer"),
+        TimeoutError("read timeout"),
+        TimeoutError(),  # asyncio 超时在 3.11+ 即 TimeoutError
+        LLMClientError("LLM 调用超时（30s）", transient=True),
+        LLMClientError("LLM 调用失败: Connection error", transient=True),
+    ],
+)
+def test_transient_failures_are_classified_as_transient(exc):
+    assert classify_failure(exc) is FailureKind.TRANSIENT
+
+
+# ---------- 业务类：重试一次还是同样结果 ----------
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        QuotaExceeded("QUOTA_EXCEEDED", "月配额已用尽"),
+        CostLimitExceeded("超过成本上限"),
+        MaxStepsExceeded("超过最大步数"),
+        ExecutionTimeout("超过最大运行时长"),
+        NeedsInput("需要补充信息"),
+        # 鉴权/限流类：换密钥或等额度，重试同一个请求不会好
+        LLMClientError("LLM 调用失败: Invalid API key"),
+        LLMClientError("LLM 调用失败: Rate limit exceeded"),
+    ],
+)
+def test_business_failures_are_classified_as_permanent(exc):
+    assert classify_failure(exc) is FailureKind.PERMANENT
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        AttributeError("'NoneType' object has no attribute 'id'"),
+        ValueError("unexpected value"),
+        RuntimeError("boom"),
+        KeyError("missing"),
+        ZeroDivisionError("division by zero"),
+    ],
+)
+def test_unknown_failures_fall_back_to_permanent(exc):
+    """未知异常按业务类处理（research R-05 的保守原则）。"""
+    assert classify_failure(exc) is FailureKind.PERMANENT
+
+
+def test_none_exception_is_permanent():
+    """防御性分支：调用方误传 None 时不崩，按业务类处理。"""
+    assert classify_failure(None) is FailureKind.PERMANENT
+
+
+# ---------- 退避：指数 + full jitter + 封顶 ----------
+
+
+def test_backoff_grows_exponentially_with_attempt():
+    """上限随 attempt 指数增长：第 N 次尝试的理论最大值是 base × 2^(N-1)。"""
+    base, cap = 2.0, 60.0
+    expected_max = [2.0, 4.0, 8.0, 16.0]
+    for attempt, want in enumerate(expected_max, start=1):
+        # full jitter 的上界就是理论计算值；取满区间验证不超
+        samples = [backoff_seconds(attempt, base, cap) for _ in range(200)]
+        assert max(samples) <= want + 1e-9, f"attempt={attempt} 超过理论上界"
+        # 且有样本接近上界（否则可能是固定小值，没真做指数）
+        assert max(samples) > want * 0.5, f"attempt={attempt} 未体现指数增长"
+
+
+def test_backoff_uses_full_jitter_not_fixed_value():
+    """同一 attempt 多次调用结果必须不同（否则就是固定退避，会惊群）。"""
+    values = {backoff_seconds(2, 2.0, 60.0) for _ in range(50)}
+    assert len(values) > 1, "full jitter 失效：返回值恒定"
+
+
+def test_backoff_is_within_zero_and_computed_cap():
+    for attempt in range(1, 6):
+        value = backoff_seconds(attempt, 2.0, 60.0)
+        assert 0.0 <= value <= 60.0
+
+
+def test_backoff_respects_the_cap():
+    """attempt 很大时不得无限增长，必须被 cap 截断。"""
+    assert backoff_seconds(20, 2.0, 60.0) <= 60.0
+    assert backoff_seconds(100, 2.0, 60.0) <= 60.0
+
+
+def test_backoff_first_attempt_equals_base_at_the_upper_bound():
+    """第一次重试的理论等待就是基准值（不翻倍）。"""
+    assert max(backoff_seconds(1, 2.0, 60.0) for _ in range(200)) <= 2.0
+
+
+def test_backoff_is_deterministic_under_seeded_random():
+    """播种后可复现——测试与调试都需要这个性质。"""
+    random.seed(42)
+    first = backoff_seconds(3, 2.0, 60.0)
+    random.seed(42)
+    second = backoff_seconds(3, 2.0, 60.0)
+    assert first == second
+
+
+@pytest.mark.parametrize("attempt", [0, -1])
+def test_backoff_rejects_non_positive_attempt(attempt):
+    """attempt 从 1 开始计数；0 或负数是调用方 bug，直接炸而不是返回假值。"""
+    with pytest.raises(ValueError, match="attempt"):
+        backoff_seconds(attempt, 2.0, 60.0)
+
+
+@pytest.mark.parametrize("base,cap", [(0, 60), (-1, 60), (2, 0), (2, -5)])
+def test_backoff_rejects_invalid_config(base, cap):
+    """基准与封顶必须是正数，且封顶不小于基准——否则配置错了会静默退避成 0。"""
+    with pytest.raises(ValueError):
+        backoff_seconds(1, float(base), float(cap))

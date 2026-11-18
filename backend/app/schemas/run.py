@@ -76,6 +76,12 @@ class RunOut(BaseModel):
     strategy: str
     status: str
     current_step: int = 0
+    # 006：第几次尝试（首次为 1，每次自动/手动重试 +1）
+    attempt: int = 1
+    # 006：下次重试的计划时刻；非重试中为 None
+    next_retry_at: datetime | None = None
+    # 006：历次失败 [{"attempt":1,"error":"...","at":"..."}]；无则为 []
+    retry_history: list[dict[str, Any]] = []
     tool_grants_snapshot: list[str] | None = None
     result: dict[str, Any] | None = None
     error: str | None = None

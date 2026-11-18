@@ -22,6 +22,7 @@ from app.core.config import settings
 from app.executors.base import DeniedToolResult
 from app.executors.catalog import CATALOG
 from app.executors.external_tool import ExternalToolExecutionError
+from app.executors.llm import LLMClientError
 from app.orchestrator.state_machine import RunLike, RunStatus, transition
 
 
@@ -308,6 +309,11 @@ class ReActRunner:
             started = time.monotonic()
             try:
                 resp = await self.llm.chat(messages, tools=tools or None)
+            except LLMClientError:
+                # 006：已分类的 LLM 失败向上传播，由 `_execute` 决定「自动重试」
+                # 还是「终态」。在这里吞掉会让重试机制永远看不到原始异常——
+                # 而 `transient` 标记只有原始异常对象上才有（research R-01/R-05）。
+                raise
             except Exception as exc:  # noqa: BLE001 - LLM 兜底：任何异常转可读错误（FR-017）
                 # LLM 异常 → 可读错误（FR-017），正常返回
                 transition(run, RunStatus.FAILED)

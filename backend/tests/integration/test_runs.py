@@ -341,7 +341,13 @@ async def test_cancel_finished_fan_out_parent_still_stops_children(
 
 
 async def test_retry_failed_run(client, make_headers, db_session):
-    """failed 重试 → 202 queued（FR-017）。"""
+    """failed 重试 → 202 queued（FR-017）。
+
+    006 起成本**不清零**（FR-013）：重试花的 token 是真实支出，清零会让看板
+    成本系统性低于网关账单，且熔断可被「每次各花 490 分、上限 500 分」绕过。
+    详见 specs/006-run-retry/research.md R-04。外部契约（路径/状态码/响应体
+    结构）保持不变，只有成本数字的口径变了。
+    """
     headers = await make_headers()
     run = await _setup_run(client, headers, db_session, status="failed")
     run.error = "LLM 调用失败"
@@ -355,7 +361,9 @@ async def test_retry_failed_run(client, make_headers, db_session):
     await db_session.refresh(run)
     assert run.status == "queued"
     assert run.current_step == 0
-    assert run.cost_cents == 0
+    # 成本保留累计；attempt 递增（自动与手动重试同一口径）
+    assert run.cost_cents == 50
+    assert run.attempt == 2
     assert run.error is None
 
 

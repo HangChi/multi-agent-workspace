@@ -12,6 +12,13 @@ from app.models.audit_log import AuditLog
 
 logger = structlog.get_logger(__name__)
 
+# ===== 运行自动重试（006）的审计动作 =====
+# 与 005 的 agent_template_* 分开：自动重试是系统行为、手动重试（run_retry，001）
+# 是用户行为。混在一起会让「用户重试了多少次」这个统计失真。
+RUN_AUTO_RETRY = "run_auto_retry"
+
+RUN_RETRY_ACTIONS = frozenset({RUN_AUTO_RETRY})
+
 # ===== Agent 模板与克隆（005）的审计动作 =====
 # 集中定义的理由同 004：动作名写错会让审计覆盖率静默下降。
 # 005 要求「另存为模板 / 模板变更 / 模板删除 / 从模板创建 / 克隆」五类 100% 可审计。

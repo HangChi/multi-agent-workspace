@@ -79,6 +79,34 @@ def run_failed(run_id: str, error: str) -> None:
     _publish(run_id, {"type": "run_failed", "error": error})
 
 
+def run_retrying(
+    run_id: str,
+    *,
+    attempt: int,
+    max_attempts: int,
+    wait_seconds: float,
+    error: str,
+    next_retry_at: str,
+) -> None:
+    """006：一次执行失败且已安排自动重试。
+
+    与 `run_failed` 的关系：后者只在**终态**失败时推送；本事件是它的
+    「非终态前奏」。两者不会对同一次失败同时推送——前端据此把状态徽章
+    切成「重试中」并显示倒计时。
+    """
+    _publish(
+        run_id,
+        {
+            "type": "run_retrying",
+            "attempt": attempt,
+            "max_attempts": max_attempts,
+            "wait_seconds": round(wait_seconds, 2),
+            "error": error,
+            "next_retry_at": next_retry_at,
+        },
+    )
+
+
 def run_cancelled(run_id: str) -> None:
     _publish(run_id, {"type": "run_cancelled"})
 

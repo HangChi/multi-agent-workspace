@@ -16,6 +16,8 @@ from datetime import UTC, datetime
 import pytest
 
 from app.orchestrator.state_machine import (
+    _RETRYABLE_TERMINAL,
+    _TERMINAL,
     RunStatus,
     TransitionError,
     is_terminal,
@@ -55,11 +57,12 @@ class FakeRun:
 
 
 def test_run_status_enum_contains_all_states():
-    """RunStatus 枚举覆盖状态机全部 7 态。"""
+    """RunStatus 枚举覆盖状态机全部 8 态（006 增加 retrying）。"""
     assert {s.value for s in RunStatus} == {
         "queued",
         "running",
         "needs_input",
+        "retrying",
         "completed",
         "failed",
         "cancelled",
@@ -248,3 +251,61 @@ def test_transition_to_same_status_is_noop():
     transition(run, RunStatus.RUNNING)
     assert run.status == "running"
     assert run.finished_at == finished_before
+
+
+# ---------- retrying：自动重试的中间态（006） ----------
+
+
+def test_running_to_retrying_is_legal():
+    """瞬时失败 → 进入重试等待（006 / FR-016）。"""
+    run = FakeRun(status="running")
+    transition(run, RunStatus.RETRYING)
+    assert run.status == "retrying"
+
+
+def test_retrying_to_running_is_legal():
+    """重试到点 → 重新开始执行。"""
+    run = FakeRun(status="retrying")
+    transition(run, RunStatus.RUNNING)
+    assert run.status == "running"
+
+
+def test_retrying_to_failed_is_legal():
+    """重试次数耗尽 → 终态 failed（FR-009）。"""
+    run = FakeRun(status="retrying")
+    transition(run, RunStatus.FAILED)
+    assert run.status == "failed"
+
+
+def test_retrying_is_not_terminal():
+    """retrying 是中间态，必须允许继续迁移（否则重试机制整个失效）。"""
+    assert RunStatus.RETRYING not in _TERMINAL
+    assert RunStatus.RETRYING not in _RETRYABLE_TERMINAL
+
+
+def test_retrying_cannot_skip_to_completed():
+    """retrying 不能直接到 completed：必须先 running，否则跳过了实际执行。"""
+    run = FakeRun(status="retrying")
+    with pytest.raises(TransitionError):
+        transition(run, RunStatus.COMPLETED)
+
+
+def test_retrying_cannot_go_back_to_queued():
+    """retrying 不允许回 queued：那会绕过 attempt 计数与退避调度。"""
+    run = FakeRun(status="retrying")
+    with pytest.raises(TransitionError):
+        transition(run, RunStatus.QUEUED)
+
+
+def test_retrying_cannot_cancel():
+    """取消只能从 running/queued/needs_input 发起；等待重试中的任务
+    已经在终态路径上，再引入一条取消入口会让「谁撤销了重试」说不清。"""
+    run = FakeRun(status="retrying")
+    with pytest.raises(TransitionError):
+        transition(run, RunStatus.CANCELLED)
+
+
+def test_transition_to_retrying_is_idempotent():
+    run = FakeRun(status="retrying")
+    transition(run, RunStatus.RETRYING)
+    assert run.status == "retrying"
