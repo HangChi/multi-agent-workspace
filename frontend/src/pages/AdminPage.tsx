@@ -195,6 +195,7 @@ export function AdminPage() {
   return (
     <Page>
       <PageHeader
+        eyebrow="设置"
         title="管理后台"
         description="查看全站操作审计日志，支持按用户与动作筛选。"
         icon={

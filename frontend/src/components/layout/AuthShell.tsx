@@ -101,22 +101,32 @@ export function AuthShell({ title, subtitle, children, footer }: AuthShellProps)
         </div>
       </aside>
 
-      {/* 表单区：移动端靠上对齐（避免垂直居中把标题挤到屏幕中部），大屏再居中 */}
-      <main className="relative flex min-h-screen flex-col justify-start px-5 pb-10 pt-14 sm:px-8 lg:justify-center lg:py-10">
+      {/* 表单区：移动端靠上对齐（避免垂直居中把标题挤到屏幕中部），大屏再居中。
+          底色用 canvas + 极淡的冷色渐晕，与登录后的界面同源 ——
+          纯白会显得这里像另一套产品。 */}
+      <main className="relative flex min-h-screen flex-col justify-start bg-canvas px-5 pb-10 pt-14 sm:px-8 lg:justify-center lg:py-10">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 canvas-atmosphere"
+        />
         <div className="absolute right-4 top-4 sm:right-6 sm:top-6">
           <ThemeToggle />
         </div>
-        <div className="mx-auto w-full max-w-[400px]">
+        <div className="relative mx-auto w-full max-w-[400px]">
           <div className="mb-8 flex items-center gap-2.5 lg:hidden">
             <LogoWordmark size={34} />
           </div>
 
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">{title}</h1>
-          <p className="mt-1.5 text-sm text-ink-muted">{subtitle}</p>
+          <h1 className="text-page-title-sm font-semibold text-ink">{title}</h1>
+          <p className="mt-2 text-[13.5px] leading-relaxed text-ink-muted">{subtitle}</p>
 
           <div className="mt-7">{children}</div>
 
-          {footer && <div className="mt-6 text-center text-sm text-ink-muted">{footer}</div>}
+          {footer && (
+            <div className="mt-7 border-t border-line-subtle pt-5 text-center text-[13px] text-ink-muted">
+              {footer}
+            </div>
+          )}
         </div>
       </main>
     </div>

@@ -19,7 +19,7 @@ import type { AgentSaveResponse, AgentTemplate } from '../api/endpoints'
 import { AgentForm, AgentFormValues } from '../components/agent/AgentForm'
 import { TemplatePicker } from '../components/agent/TemplatePicker'
 import { AgentListItem } from '../components/agent/AgentListItem'
-import { Button } from '../components/ui/Button'
+import { Button, IconButton } from '../components/ui/Button'
 import { IconTile } from '../components/ui/Card'
 import { useConfirm } from '../components/ui/useConfirm'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -59,14 +59,18 @@ export function AgentPage() {
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
   const [page, setPage] = useState(1)
+  /** 名称/描述搜索（后端 q 参数，SQL 层完成，不分页失真） */
+  const [q, setQ] = useState('')
+  const search = q.trim()
 
   // 分页交给后端：status 过滤 + 分页在 SQL 层完成，
   // 前端不再「取全量再本地 slice」—— 那样数据一多首屏就会拖慢。
   const { data, isLoading } = useQuery({
-    queryKey: ['agents', 'list', filter, page],
+    queryKey: ['agents', 'list', filter, page, search],
     queryFn: () =>
       fetchAgents({
         status: filter === 'all' ? undefined : filter,
+        q: search || undefined,
         page,
         page_size: PAGE_SIZE,
       }),
@@ -172,6 +176,12 @@ export function AgentPage() {
     setPage(1)
   }
 
+  /** 搜索变化同样回到第 1 页：否则可能停在结果集里不存在的页码上。 */
+  const changeSearch = (next: string) => {
+    setQ(next)
+    setPage(1)
+  }
+
   const onSubmit = (values: AgentFormValues) => {
     if (editing) {
       updateMut.mutate({ id: editing.id, payload: values })
@@ -223,6 +233,7 @@ export function AgentPage() {
   return (
     <Page>
       <PageHeader
+        eyebrow="工作台"
         title="Agent 管理"
         description="创建可执行的 Agent：提示词、模型、工具集与成本上限。"
         icon={
@@ -310,22 +321,54 @@ export function AgentPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <SegmentedControl
-          options={FILTER_OPTIONS}
-          value={filter}
-          onChange={changeFilter}
-          ariaLabel="按状态筛选 Agent"
+      <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+        <Input
+          value={q}
+          onChange={(e) => changeSearch(e.target.value)}
+          placeholder="搜索名称或描述"
+          leftIcon="search"
+          controlSize="sm"
+          aria-label="搜索 Agent"
+          wrapperClassName="w-full lg:w-72"
+          rightSlot={
+            search ? (
+              <IconButton
+                icon="x"
+                label="清除搜索"
+                size="xs"
+                onClick={() => changeSearch('')}
+                className="mr-0.5"
+              />
+            ) : undefined
+          }
         />
-        <p className="text-xs text-ink-faint">
-          共 <span className="font-medium text-ink-soft">{total}</span> 个
-          {activeCount !== undefined && (
-            <>
-              {' '}
-              · 活跃 <span className="font-medium text-emerald-600">{activeCount}</span> 个
-            </>
-          )}
-        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <SegmentedControl
+            options={FILTER_OPTIONS}
+            value={filter}
+            onChange={changeFilter}
+            ariaLabel="按状态筛选 Agent"
+          />
+          <p className="text-xs text-ink-faint">
+            {search && (
+              <>
+                「<span className="text-ink-soft">{search}</span>」命中{' '}
+                <span className="font-medium text-ink-soft">{total}</span> 个
+              </>
+            )}
+            {!search && (
+              <>
+                共 <span className="font-medium text-ink-soft">{total}</span> 个
+                {activeCount !== undefined && (
+                  <>
+                    {' '}
+                    · 活跃 <span className="font-medium text-emerald-600">{activeCount}</span> 个
+                  </>
+                )}
+              </>
+            )}
+          </p>
+        </div>
       </div>
 
       {isLoading ? (
@@ -336,23 +379,31 @@ export function AgentPage() {
         </div>
       ) : items.length === 0 ? (
         <EmptyState
-          icon={filter === 'archived' ? 'archive' : 'bot'}
+          icon={search ? 'search' : filter === 'archived' ? 'archive' : 'bot'}
           title={
-            total === 0 && filter === 'all'
-              ? '还没有 Agent'
-              : filter === 'archived'
-                ? '没有已归档的 Agent'
-                : filter === 'active'
-                  ? '没有活跃的 Agent'
-                  : '没有 Agent'
+            search
+              ? `没有匹配「${search}」的 Agent`
+              : total === 0 && filter === 'all'
+                ? '还没有 Agent'
+                : filter === 'archived'
+                  ? '没有已归档的 Agent'
+                  : filter === 'active'
+                    ? '没有活跃的 Agent'
+                    : '没有 Agent'
           }
           description={
-            total === 0 && filter === 'all'
-              ? 'Agent 是可执行的最小单元：给它一段提示词、一个模型和一组工具，就能开始接需求。'
-              : '切换筛选条件查看其他状态的 Agent。'
+            search
+              ? '换个关键词，或清空搜索看看全部 Agent。'
+              : total === 0 && filter === 'all'
+                ? 'Agent 是可执行的最小单元：给它一段提示词、一个模型和一组工具，就能开始接需求。'
+                : '切换筛选条件查看其他状态的 Agent。'
           }
           action={
-            total === 0 && filter === 'all' ? (
+            search ? (
+              <Button variant="secondary" leftIcon="refresh" onClick={() => changeSearch('')}>
+                清空搜索
+              </Button>
+            ) : total === 0 && filter === 'all' ? (
               <Button variant="primary" leftIcon="plus" onClick={() => setShowForm(true)}>
                 新建第一个 Agent
               </Button>

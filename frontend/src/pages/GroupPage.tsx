@@ -33,6 +33,65 @@ import { CardSkeleton } from '../components/ui/Skeleton'
 import { useToast } from '../components/ui/useToast'
 import { cn } from '../components/ui/cn'
 
+/**
+ * 成员编排预览：把「策略 + 顺序」画成一行可扫读的流程图。
+ *
+ * 组页最容易说不清的一件事是「这几个 Agent 到底怎么配合」——
+ * 文字描述（见 STRATEGY_META.desc）是解释，这行图是结论。
+ * 流水线画成箭头、广播画成分叉、路由器画成分派，一眼就能对上是哪种。
+ */
+function MemberFlow({
+  strategy,
+  members,
+}: {
+  strategy: RoutingStrategy
+  members: { agent_id: string; name: string }[]
+}) {
+  if (members.length === 0) {
+    return <p className="text-2xs text-ink-faint">还没有成员 —— 展开「管理成员」加入 Agent。</p>
+  }
+
+  return (
+    <ol className="flex flex-wrap items-center gap-1.5">
+      {members.map((m, i) => (
+        <li key={m.agent_id} className="flex items-center gap-1.5">
+          {i > 0 && (
+            <Icon
+              name={strategy === 'pipeline' ? 'arrow-right' : 'plus'}
+              className={cn(
+                'h-3 w-3 shrink-0',
+                strategy === 'pipeline' ? 'text-brand-400' : 'text-ink-faint'
+              )}
+            />
+          )}
+          <span className="inline-flex h-6 max-w-[10rem] items-center gap-1.5 rounded-md border border-line bg-surface px-1.5 text-[11.5px] font-medium text-ink-soft shadow-card">
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-gradient-to-br from-sky-500 to-brand-600 text-[8px] font-semibold text-white">
+              {m.name.slice(0, 1)}
+            </span>
+            <span className="truncate">{m.name}</span>
+          </span>
+        </li>
+      ))}
+      {strategy === 'router' && (
+        <>
+          <Icon name="chevron-right" className="h-3 w-3 shrink-0 text-ink-faint" />
+          <span className="inline-flex h-6 items-center rounded-md border border-dashed border-line-strong px-1.5 text-[11px] text-ink-muted">
+            按内容选一个
+          </span>
+        </>
+      )}
+      {strategy === 'fan_out' && (
+        <>
+          <Icon name="chevron-right" className="h-3 w-3 shrink-0 text-ink-faint" />
+          <span className="inline-flex h-6 items-center rounded-md border border-dashed border-line-strong px-1.5 text-[11px] text-ink-muted">
+            汇总输出
+          </span>
+        </>
+      )}
+    </ol>
+  )
+}
+
 const STRATEGY_META: Record<
   RoutingStrategy,
   { label: string; desc: string; short: string; icon: IconName }
@@ -213,6 +272,7 @@ export function GroupPage() {
   return (
     <Page>
       <PageHeader
+        eyebrow="工作台"
         title="Agent 组管理"
         description="把多个 Agent 编成一组，按路由策略协调执行。"
         icon={
@@ -254,12 +314,15 @@ export function GroupPage() {
         />
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-ink-faint">
-          共 <span className="font-medium text-ink-soft">{groupsTotal}</span> 个组
-        </p>
-        <p className="text-xs text-ink-faint">展开「管理成员」可调整顺序与路由策略</p>
-      </div>
+      {!isLoading && groupsTotal > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-2xs text-ink-faint">
+            共 <span className="font-medium text-ink-soft">{groupsTotal}</span> 个组 · 每张卡片上
+            <span className="text-ink-soft">成员流程</span>按当前策略从左到右执行
+          </p>
+          <p className="text-2xs text-ink-faint">展开「管理成员」可调整顺序与路由策略</p>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="space-y-3">
@@ -312,6 +375,11 @@ export function GroupPage() {
                       >
                         {group.description || '暂无描述'}
                       </p>
+
+                      {/* 编排顺序：折叠态也能看懂这个组怎么跑 */}
+                      <div className="mt-2.5 overflow-hidden rounded-lg border border-line/70 bg-surface-muted/60 px-2 py-1.5">
+                        <MemberFlow strategy={group.routing_strategy} members={sortedMembers} />
+                      </div>
                     </div>
                   </div>
 

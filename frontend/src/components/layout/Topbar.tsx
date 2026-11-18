@@ -54,7 +54,10 @@ export function Topbar({ pathname, onOpenMenu }: Props) {
         <nav aria-label="面包屑" className="flex min-w-0 items-center gap-1.5 text-[13px]">
           <span className="hidden text-ink-faint sm:inline">{trail.module}</span>
           {trail.module && trail.page && (
-            <Icon name="chevron-right" className="hidden h-3 w-3 shrink-0 text-ink-faint sm:block" />
+            <Icon
+              name="chevron-right"
+              className="hidden h-3 w-3 shrink-0 text-ink-faint sm:block"
+            />
           )}
           <span className="truncate font-medium text-ink">{trail.page ?? '工作台'}</span>
         </nav>
@@ -114,7 +117,9 @@ export function ContentShell({
   className?: string
 }) {
   return (
-    <div className={cn('mx-auto w-full max-w-[1560px] px-4 py-6 sm:px-6 sm:py-7 lg:px-8', className)}>
+    <div
+      className={cn('mx-auto w-full max-w-[1560px] px-4 py-6 sm:px-6 sm:py-7 lg:px-8', className)}
+    >
       {children}
     </div>
   )

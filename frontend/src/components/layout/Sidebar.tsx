@@ -176,7 +176,9 @@ export function Sidebar({ open, onClose, collapsed, onToggleCollapsed }: Props) 
                 <span className="block truncate text-[14px] font-semibold leading-tight tracking-tight text-ink">
                   Agent 工作台
                 </span>
-                <span className="block truncate text-2xs text-ink-faint">Multi-Agent Workspace</span>
+                <span className="block truncate text-2xs text-ink-faint">
+                  Multi-Agent Workspace
+                </span>
               </span>
             )}
           </Link>
@@ -200,12 +202,7 @@ export function Sidebar({ open, onClose, collapsed, onToggleCollapsed }: Props) 
           {!isCollapsed && <p className="label-caps mb-1.5 px-2">工作台</p>}
           <div className={cn('flex flex-col gap-0.5', isCollapsed && 'items-center')}>
             {mainItems.map((item) => (
-              <NavEntry
-                key={item.to}
-                item={item}
-                collapsed={isCollapsed}
-                onNavigate={onClose}
-              />
+              <NavEntry key={item.to} item={item} collapsed={isCollapsed} onNavigate={onClose} />
             ))}
           </div>
 

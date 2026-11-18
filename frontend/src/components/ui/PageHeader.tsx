@@ -33,25 +33,27 @@ export function PageHeader({
 }: PageHeaderProps) {
   return (
     <div
-      className={cn(
-        'flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between',
-        className
-      )}
+      className={cn('flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between', className)}
     >
-      <div className="flex min-w-0 items-start gap-3.5">
-        {icon}
-        <div className="min-w-0">
-          {eyebrow && (
-            <div className="mb-1.5 flex items-center gap-1.5 text-2xs font-medium uppercase tracking-[0.12em] text-ink-faint">
-              {eyebrow}
-            </div>
-          )}
-          <h1 className="text-page-title-sm font-semibold text-ink sm:text-page-title">{title}</h1>
-          {description && (
-            <p className="mt-1.5 max-w-[68ch] text-[13.5px] leading-relaxed text-ink-muted">
-              {description}
-            </p>
-          )}
+      <div className="min-w-0">
+        {eyebrow && (
+          <div className="mb-1.5 flex items-center gap-1.5 text-2xs font-medium uppercase tracking-[0.12em] text-ink-faint">
+            {eyebrow}
+          </div>
+        )}
+        <div className="flex min-w-0 items-start gap-3.5">
+          {/* 图标与标题同排：有 eyebrow 时不会浮在小标题那一行上 */}
+          {icon}
+          <div className="min-w-0">
+            <h1 className="text-page-title-sm font-semibold text-ink sm:text-page-title">
+              {title}
+            </h1>
+            {description && (
+              <p className="mt-1.5 max-w-[68ch] text-[13.5px] leading-relaxed text-ink-muted">
+                {description}
+              </p>
+            )}
+          </div>
         </div>
       </div>
       {actions && (

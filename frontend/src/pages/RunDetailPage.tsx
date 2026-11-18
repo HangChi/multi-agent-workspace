@@ -428,21 +428,23 @@ export function RunDetailPage() {
   const terminal = TERMINAL_STATUSES.has(run.status)
 
   return (
-    <Page width="medium">
+    <Page width="wide">
       <div className="flex items-center justify-between gap-3">
         <Link
           to="/"
-          className="inline-flex items-center gap-1.5 text-sm text-ink-muted transition-colors hover:text-ink"
+          className="inline-flex h-9 items-center gap-1.5 rounded-lg px-1.5 text-[13px] text-ink-muted transition-colors hover:bg-surface-subtle hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45"
         >
           <Icon name="arrow-left" className="h-4 w-4" />
           返回看板
         </Link>
-        <Badge tone={STATUS_TONE[run.status]} dot pulse={run.status === 'running'} size="md">
-          {STATUS_LABEL[run.status]}
-        </Badge>
-        {run.status === 'retrying' && (
-          <RetryProgress attempt={run.attempt} nextRetryAt={run.next_retry_at} />
-        )}
+        <div className="flex items-center gap-2">
+          {run.status === 'retrying' && (
+            <RetryProgress attempt={run.attempt} nextRetryAt={run.next_retry_at} />
+          )}
+          <Badge tone={STATUS_TONE[run.status]} dot pulse={run.status === 'running'} size="md">
+            {STATUS_LABEL[run.status]}
+          </Badge>
+        </div>
       </div>
 
       {/* 概要 */}
@@ -453,8 +455,10 @@ export function RunDetailPage() {
               <Icon name="play" className="h-5 w-5" />
             </IconTile>
             <div className="min-w-0">
-              <h1 className="text-lg font-semibold tracking-tight text-ink">
-                运行 {run.id.slice(0, 8)}
+              <p className="label-caps mb-1">运行详情</p>
+              <h1 className="font-mono text-lg font-semibold tracking-tight text-ink">
+                {run.id.slice(0, 8)}
+                <span className="text-ink-faint">…{run.id.slice(-4)}</span>
               </h1>
               <p className="mt-0.5 text-xs text-ink-faint">
                 {run.assignee_type === 'agent' ? 'Agent' : '组'} {run.assignee_id.slice(0, 8)} ·
@@ -549,20 +553,6 @@ export function RunDetailPage() {
             <p className="mt-1 whitespace-pre-wrap break-words leading-relaxed">{run.error}</p>
           </div>
         )}
-
-        {run.result && (
-          <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 dark:border-emerald-500/25 dark:bg-emerald-500/10">
-            <div className="flex items-center justify-between">
-              <p className="flex items-center gap-1.5 text-sm font-medium text-emerald-800 dark:text-emerald-300">
-                <Icon name="check-circle" className="h-4 w-4" />
-                执行结果
-              </p>
-            </div>
-            <pre className="mt-1.5 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-emerald-900 dark:text-emerald-200">
-              {JSON.stringify(run.result, null, 2)}
-            </pre>
-          </div>
-        )}
       </Card>
 
       {/* 等待输入：把回复框做成独立卡片，比塞在标题栏更清晰 */}
@@ -640,6 +630,65 @@ export function RunDetailPage() {
         </Card>
       )}
 
+      {/* 结果与制品并排：一个运行最想先看到的两件事，别让用户翻两次 */}
+      {(run.result || run.artifacts.length > 0) && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {run.result && (
+            <Card padding="none" className="overflow-hidden">
+              <div className="flex items-center gap-2 border-b border-emerald-200/70 bg-emerald-50/70 px-4 py-2.5 dark:border-emerald-500/25 dark:bg-emerald-500/10">
+                <Icon
+                  name="check-circle"
+                  className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-300"
+                />
+                <span className="text-[13px] font-medium text-emerald-800 dark:text-emerald-300">
+                  执行结果
+                </span>
+              </div>
+              <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words px-4 py-3 font-mono text-xs leading-relaxed text-ink-soft">
+                {JSON.stringify(run.result, null, 2)}
+              </pre>
+            </Card>
+          )}
+
+          {run.artifacts.length > 0 && (
+            <Card padding="none" className="overflow-hidden">
+              <div className="flex items-center justify-between gap-2 border-b border-line-subtle px-4 py-2.5">
+                <span className="flex items-center gap-2">
+                  <Icon name="file" className="h-3.5 w-3.5 text-ink-faint" />
+                  <span className="text-[13px] font-medium text-ink">制品</span>
+                  <span className="text-2xs font-normal text-ink-faint">可直接下载</span>
+                </span>
+                <Badge tone="emerald">{run.artifacts.length}</Badge>
+              </div>
+              <ul className="divide-y divide-line-subtle">
+                {run.artifacts.map((art) => (
+                  <li
+                    key={art.id}
+                    className="flex items-center gap-2.5 px-4 py-2.5 transition-colors hover:bg-surface-muted/60"
+                  >
+                    <Icon name="file" className="h-4 w-4 shrink-0 text-ink-faint" />
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink-soft">
+                      {art.filename}
+                    </span>
+                    <span className="shrink-0 text-2xs tabular-nums text-ink-faint">
+                      {formatBytes(art.size_bytes)}
+                    </span>
+                    <Button
+                      size="xs"
+                      variant="secondary"
+                      leftIcon="download"
+                      onClick={() => void downloadArtifact(art.id)}
+                    >
+                      下载
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+        </div>
+      )}
+
       {/* 步骤 */}
       <Card>
         <CardHeader
@@ -670,47 +719,6 @@ export function RunDetailPage() {
             <ExternalToolInvocationCard key={invocation.id} invocation={invocation} />
           ))}
         </div>
-      )}
-
-      {/* 制品 */}
-      {run.artifacts.length > 0 && (
-        <Card>
-          <CardHeader
-            title="制品"
-            description="运行产出的文件，可直接下载"
-            icon={
-              <IconTile tone="emerald" size="sm">
-                <Icon name="file" className="h-3.5 w-3.5" />
-              </IconTile>
-            }
-            actions={<Badge tone="emerald">{run.artifacts.length}</Badge>}
-            className="mb-3"
-          />
-          <ul className="space-y-1.5">
-            {run.artifacts.map((art) => (
-              <li
-                key={art.id}
-                className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 transition-colors hover:border-line-strong hover:bg-surface-muted/60"
-              >
-                <Icon name="file" className="h-4 w-4 shrink-0 text-ink-faint" />
-                <span className="min-w-0 flex-1 truncate text-[13px] text-ink-soft">
-                  {art.filename}
-                </span>
-                <span className="shrink-0 text-2xs tabular-nums text-ink-faint">
-                  {formatBytes(art.size_bytes)}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => void downloadArtifact(art.id)}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-line-strong bg-surface px-2 py-1 text-2xs font-medium text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-                >
-                  <Icon name="download" className="h-3 w-3" />
-                  下载
-                </button>
-              </li>
-            ))}
-          </ul>
-        </Card>
       )}
 
       {/* 日志 */}

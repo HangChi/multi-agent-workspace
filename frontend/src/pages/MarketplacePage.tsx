@@ -52,6 +52,7 @@ export function MarketplacePage() {
   return (
     <Page>
       <PageHeader
+        eyebrow="设置"
         title="工具市场"
         description="浏览已审核、可安全安装的第三方 MCP 工具。"
         icon={

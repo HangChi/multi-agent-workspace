@@ -233,6 +233,7 @@ export function SchedulesPage() {
   return (
     <Page>
       <PageHeader
+        eyebrow="设置"
         title="定时调度"
         description="按周期自动创建需求并分配执行。错过的时间点会记录为「已错过」，不会补跑。"
         icon={

@@ -163,8 +163,9 @@ export function BoardPage() {
   return (
     <Page>
       <PageHeader
+        eyebrow="工作台"
         title="需求看板"
-        description="创建需求卡片，拖拽到右侧 Agent 或组即可分配执行。"
+        description="把需求写成卡片，拖到上方的 Agent 或组上即可开始执行。"
         icon={
           <IconTile tone="brand" size="lg">
             <Icon name="grid" className="h-5 w-5" />
@@ -172,16 +173,13 @@ export function BoardPage() {
         }
         actions={
           <>
-            <div className="hidden items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs shadow-card sm:flex">
-              <span className="text-ink-muted">待分配</span>
-              <span className="font-semibold tabular-nums text-ink">{counts.pending}</span>
-              <span className="mx-1 h-3 w-px bg-line" />
-              <span className="text-ink-muted">执行中</span>
-              <span className="font-semibold tabular-nums text-sky-600">{counts.running}</span>
-              <span className="mx-1 h-3 w-px bg-line" />
-              <span className="text-ink-muted">已完成</span>
-              <span className="font-semibold tabular-nums text-emerald-600">{counts.done}</span>
-            </div>
+            {counts.running > 0 && (
+              <span className="hidden items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs text-ink-muted shadow-card sm:flex">
+                <span className="h-1.5 w-1.5 rounded-full bg-sky-500 animate-pulse-ring" />
+                <span className="font-semibold tabular-nums text-ink">{counts.running}</span>
+                个正在执行
+              </span>
+            )}
             <Button
               variant={showForm ? 'secondary' : 'primary'}
               leftIcon={showForm ? 'chevron-up' : 'plus'}
@@ -190,7 +188,7 @@ export function BoardPage() {
                 setError(null)
               }}
             >
-              {showForm ? '收起' : '新建需求'}
+              {showForm ? '收起表单' : '新建需求'}
             </Button>
           </>
         }

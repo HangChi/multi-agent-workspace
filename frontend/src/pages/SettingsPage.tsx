@@ -54,10 +54,7 @@ function ThemePreview({ mode }: { mode: ThemeMode }) {
       )}
     >
       <span
-        className={cn(
-          'absolute inset-y-0 left-0 w-[22%]',
-          dark ? 'bg-slate-800' : 'bg-slate-100'
-        )}
+        className={cn('absolute inset-y-0 left-0 w-[22%]', dark ? 'bg-slate-800' : 'bg-slate-100')}
       />
       <span className="absolute left-[30%] right-3 top-2 space-y-1.5">
         <span
@@ -148,10 +145,7 @@ export function SettingsPage() {
                       className={cn('h-3.5 w-3.5', active ? 'text-accent' : 'text-ink-faint')}
                     />
                     <span
-                      className={cn(
-                        'text-[13px] font-medium',
-                        active ? 'text-accent' : 'text-ink'
-                      )}
+                      className={cn('text-[13px] font-medium', active ? 'text-accent' : 'text-ink')}
                     >
                       {opt.label}
                     </span>
@@ -171,9 +165,7 @@ export function SettingsPage() {
             </IconTile>
             <div className="min-w-0">
               <h2 className="text-sm font-semibold text-ink">账号</h2>
-              <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">
-                当前会话与权限范围。
-              </p>
+              <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">当前会话与权限范围。</p>
             </div>
           </div>
 

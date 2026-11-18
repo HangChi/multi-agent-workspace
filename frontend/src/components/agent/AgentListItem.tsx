@@ -4,6 +4,7 @@ import { Agent } from '../../api/endpoints'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
+import { Dropdown, DropdownItem, DropdownSeparator } from '../ui/Dropdown'
 import { Icon } from '../ui/Icons'
 import type { IconName } from '../ui/Icons'
 import { cn } from '../ui/cn'
@@ -90,42 +91,42 @@ export function AgentListItem({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1.5">
           <Button size="sm" variant="secondary" leftIcon="edit" onClick={onEdit}>
             编辑
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            leftIcon="copy"
-            onClick={onClone}
-            title="复制配置成一个新 Agent，不带历史运行与授权"
+          {/* 次要操作收进菜单：克隆/存模板/归档/删除是低频操作，
+              平铺成四个按钮会让「编辑」这个主操作失去视觉优先度 */}
+          <Dropdown
+            ariaLabel={`更多操作：${agent.name}`}
+            panelClassName="w-52"
+            triggerClassName="h-9 w-9 justify-center border border-line-strong bg-surface text-ink-muted hover:border-ink-faint hover:text-ink"
+            trigger={<Icon name="more-horizontal" className="h-4 w-4" />}
           >
-            克隆
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            leftIcon="layers"
-            onClick={onSaveAsTemplate}
-            title="把当前配置保存为模板，之后可一键复用"
-          >
-            存为模板
-          </Button>
-          {active && (
-            <Button size="sm" variant="ghost" leftIcon="archive" onClick={onArchive}>
-              归档
-            </Button>
-          )}
-          <Button
-            size="sm"
-            variant="ghost"
-            leftIcon="trash"
-            onClick={onDelete}
-            className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-300 dark:hover:bg-rose-500/15"
-          >
-            删除
-          </Button>
+            <DropdownItem
+              icon="copy"
+              onClick={onClone}
+              description="复制配置成新 Agent，不带历史运行与授权"
+            >
+              克隆
+            </DropdownItem>
+            <DropdownItem
+              icon="layers"
+              onClick={onSaveAsTemplate}
+              description="把当前配置保存为模板，之后可一键复用"
+            >
+              存为模板
+            </DropdownItem>
+            {active && (
+              <DropdownItem icon="archive" onClick={onArchive}>
+                归档
+              </DropdownItem>
+            )}
+            <DropdownSeparator />
+            <DropdownItem icon="trash" tone="danger" onClick={onDelete}>
+              删除
+            </DropdownItem>
+          </Dropdown>
         </div>
       </div>
 

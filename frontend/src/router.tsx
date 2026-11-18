@@ -165,10 +165,7 @@ export function AppRouter() {
           <Route path="settings" element={<SettingsLayout />}>
             <Route index element={<Navigate to="/settings/general" replace />} />
             <Route path="general" element={<Suspended element={<SettingsPage />} />} />
-            <Route
-              path="templates"
-              element={<Suspended element={<AgentTemplatesPage />} />}
-            />
+            <Route path="templates" element={<Suspended element={<AgentTemplatesPage />} />} />
             {/* 调度页/模板页自己处理 viewer 的 403（页面内文案比通用守卫更具体），
                 因此这里不再叠一层 RequireMember 守卫。 */}
             <Route path="schedules" element={<Suspended element={<SchedulesPage />} />} />

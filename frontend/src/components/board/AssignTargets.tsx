@@ -1,9 +1,14 @@
-/** 分配目标栏（T056）：Agent/组作为拖放目标（useDroppable），拖拽中高亮。 */
+/** 分配目标条（T056）：Agent / 组作为拖放目标，拖拽悬停时整块高亮。
+ *
+ * 从右侧 292px 的固定栏改成看板上方的横向条：
+ * 一列太窄会把卡片标题挤成三行，而看板的价值恰恰在「一眼扫完」。
+ * 改成横条后，列宽能稳定在 280px 左右，所有状态同屏可比。
+ * 每个目标是一枚可放置的胶囊（40px 高），悬停即高亮并给出松手提示。
+ */
 
 import { useDroppable } from '@dnd-kit/core'
 
 import { Agent, Group, RoutingStrategy } from '../../api/endpoints'
-import { Badge } from '../ui/Badge'
 import { Icon } from '../ui/Icons'
 import { cn } from '../ui/cn'
 
@@ -14,82 +19,52 @@ const STRATEGY_LABELS: Record<RoutingStrategy, string> = {
   router: '路由器',
 }
 
-/** 可放置的 Agent 卡。 */
-function AgentDropCard({ agent }: { agent: Agent }) {
-  const { setNodeRef, isOver } = useDroppable({
-    id: `agent:${agent.id}`,
-    data: { kind: 'agent', id: agent.id },
-  })
-  return (
-    <div
-      ref={setNodeRef}
-      className={cn(
-        'rounded-lg border p-2.5 transition-all duration-150',
-        isOver
-          ? 'border-brand-400 bg-brand-50 shadow-md ring-2 ring-brand-200'
-          : 'border-line bg-surface hover:border-line-strong hover:bg-surface-muted/70'
-      )}
-    >
-      <div className="flex items-center gap-2">
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-sky-500 to-brand-600 text-2xs font-semibold text-white">
-          {agent.name.slice(0, 1)}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-medium text-ink">{agent.name}</p>
-          <p className="truncate text-2xs text-ink-faint">
-            {agent.model} · {agent.tools.length} 个工具
-          </p>
-        </div>
-        <Icon
-          name={isOver ? 'arrow-down' : 'target'}
-          className={cn('h-3.5 w-3.5 shrink-0', isOver ? 'text-brand-500' : 'text-ink-faint')}
-        />
-      </div>
-      {isOver && (
-        <div className="mt-1.5 rounded-md bg-brand-600 py-1 text-center text-2xs font-medium text-white animate-fade-in">
-          松开即分配给此 Agent
-        </div>
-      )}
-    </div>
-  )
-}
+function TargetChip({
+  id,
+  kind,
+  name,
+  meta,
+  isGroup,
+  initials,
+}: {
+  id: string
+  kind: 'agent' | 'group'
+  name: string
+  meta: string
+  isGroup?: boolean
+  initials?: string
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `${kind}:${id}`, data: { kind, id } })
 
-/** 可放置的组卡。 */
-function GroupDropCard({ group }: { group: Group }) {
-  const { setNodeRef, isOver } = useDroppable({
-    id: `group:${group.id}`,
-    data: { kind: 'group', id: group.id },
-  })
   return (
     <div
       ref={setNodeRef}
+      title={`拖到这里分配给「${name}」`}
       className={cn(
-        'rounded-lg border p-2.5 transition-all duration-150',
+        'flex h-10 shrink-0 items-center gap-2 rounded-lg border px-2.5 transition-all duration-150',
         isOver
-          ? 'border-sky-400 bg-sky-50 shadow-md ring-2 ring-sky-200'
-          : 'border-line bg-surface hover:border-line-strong hover:bg-surface-muted/70'
+          ? 'border-brand-400 bg-brand-50 shadow-sm ring-2 ring-brand-200 dark:bg-brand-500/10 dark:ring-brand-500/30'
+          : 'border-line bg-surface hover:border-line-strong hover:bg-surface-muted'
       )}
     >
-      <div className="flex items-center gap-2">
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-sky-50 text-sky-600 ring-1 ring-inset ring-sky-100">
+      {isGroup ? (
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-sky-50 text-sky-600 ring-1 ring-inset ring-sky-100 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/25">
           <Icon name="users" className="h-3.5 w-3.5" />
         </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-medium text-ink">{group.name}</p>
-          <p className="truncate text-2xs text-ink-faint">
-            {STRATEGY_LABELS[group.routing_strategy]} · {group.members.length} 个成员
-          </p>
-        </div>
-        <Icon
-          name={isOver ? 'arrow-down' : 'target'}
-          className={cn('h-3.5 w-3.5 shrink-0', isOver ? 'text-sky-500' : 'text-ink-faint')}
-        />
-      </div>
-      {isOver && (
-        <div className="mt-1.5 rounded-md bg-sky-600 py-1 text-center text-2xs font-medium text-white animate-fade-in">
-          松开后选择路由策略
-        </div>
+      ) : (
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-sky-500 to-brand-600 text-[10px] font-semibold text-white">
+          {initials}
+        </span>
       )}
+      <span className="min-w-0">
+        <span className="block max-w-[9rem] truncate text-[12.5px] font-medium leading-tight text-ink">
+          {name}
+        </span>
+        <span className="block max-w-[9rem] truncate text-[10px] leading-tight text-ink-faint">
+          {meta}
+        </span>
+      </span>
+      {isOver && <Icon name="arrow-down" className="h-3.5 w-3.5 shrink-0 text-brand-500" />}
     </div>
   )
 }
@@ -101,62 +76,55 @@ interface Props {
 
 export function AssignTargets({ agents, groups }: Props) {
   return (
-    <aside className="w-full shrink-0 xl:sticky xl:top-[72px] xl:w-[292px]">
-      <div className="rounded-xl border border-line/90 bg-surface shadow-card">
-        <div className="flex items-start gap-2.5 border-b border-line-subtle px-3.5 py-3">
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-50 text-accent ring-1 ring-inset ring-brand-100">
-            <Icon name="target" className="h-4 w-4" />
+    <section
+      aria-label="分配目标"
+      className="rounded-xl border border-line/80 bg-surface/80 px-2.5 py-2 shadow-card backdrop-blur-sm"
+    >
+      <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-1.5 border-r border-line pr-3">
+          <Icon name="target" className="h-3.5 w-3.5 text-brand-500" />
+          <span className="text-2xs font-semibold uppercase tracking-[0.12em] text-ink-faint">
+            拖放目标
           </span>
-          <div className="min-w-0">
-            <p className="text-[13px] font-semibold text-ink">分配目标</p>
-            <p className="mt-0.5 text-2xs leading-relaxed text-ink-faint">
-              拖到这里 → Agent 直接分配 / 组选择策略
-            </p>
-          </div>
+          <span className="rounded-full bg-surface-subtle px-1.5 text-2xs font-medium tabular-nums text-ink-muted">
+            {agents.length + groups.length}
+          </span>
         </div>
 
-        <div className="max-h-[calc(100vh-260px)] space-y-3 overflow-y-auto p-3 xl:max-h-[calc(100vh-300px)]">
-          <div>
-            <div className="mb-1.5 flex items-center justify-between px-0.5">
-              <span className="text-2xs font-semibold uppercase tracking-wide text-ink-faint">
-                Agent
-              </span>
-              <Badge tone="emerald" dot>
-                {agents.length} 活跃
-              </Badge>
-            </div>
-            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 xl:grid-cols-1">
-              {agents.map((a) => (
-                <AgentDropCard key={a.id} agent={a} />
-              ))}
-              {agents.length === 0 && (
-                <p className="rounded-lg border border-dashed border-line py-3 text-center text-2xs text-ink-faint">
-                  暂无活跃 Agent
-                </p>
-              )}
-            </div>
-          </div>
+        <div className="scrollbar-none flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-0.5">
+          {agents.map((a) => (
+            <TargetChip
+              key={a.id}
+              id={a.id}
+              kind="agent"
+              name={a.name}
+              meta={`${a.model} · ${a.tools.length} 工具`}
+              initials={a.name.slice(0, 1)}
+            />
+          ))}
 
-          <div>
-            <div className="mb-1.5 flex items-center justify-between px-0.5">
-              <span className="text-2xs font-semibold uppercase tracking-wide text-ink-faint">
-                组
-              </span>
-              <Badge tone="sky">{groups.length} 个</Badge>
-            </div>
-            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 xl:grid-cols-1">
-              {groups.map((g) => (
-                <GroupDropCard key={g.id} group={g} />
-              ))}
-              {groups.length === 0 && (
-                <p className="rounded-lg border border-dashed border-line py-3 text-center text-2xs text-ink-faint">
-                  暂无 Agent 组
-                </p>
-              )}
-            </div>
-          </div>
+          {groups.length > 0 && (
+            <span className="mx-0.5 h-6 w-px shrink-0 bg-line" aria-hidden="true" />
+          )}
+
+          {groups.map((g) => (
+            <TargetChip
+              key={g.id}
+              id={g.id}
+              kind="group"
+              name={g.name}
+              meta={`${STRATEGY_LABELS[g.routing_strategy]} · ${g.members.length} 成员`}
+              isGroup
+            />
+          ))}
+
+          {agents.length === 0 && groups.length === 0 && (
+            <p className="py-2 text-2xs text-ink-faint">
+              还没有可分配的 Agent 或组，先到「Agent 管理」创建一个。
+            </p>
+          )}
         </div>
       </div>
-    </aside>
+    </section>
   )
 }
