@@ -9,6 +9,7 @@
  *   否则只有 4 个孤立数字，用户仍需自己算。
  */
 
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
@@ -24,8 +25,17 @@ import { PageHeader } from '../components/ui/PageHeader'
 import { Skeleton } from '../components/ui/Skeleton'
 import { cn } from '../components/ui/cn'
 
-/** 本月成本配额（分）：与后端配置保持一致 */
+/**
+ * 本月成本配额（分）。
+ *
+ * 与后端 settings.monthly_quota_cents 默认值一致（app/core/config.py，
+ * 默认 1_000_000 = ¥10,000）。统计接口暂不下发配额，前端只能镜像这个
+ * 常量——所有展示文案从它派生，不再有第二处写死的 ¥10,000.00。
+ */
 const MONTHLY_QUOTA_CENTS = 1_000_000
+
+/** 轮询间隔（ms）：页面文案与 useQuery 的 refetchInterval 共用一份。 */
+const REFRESH_MS = 15_000
 
 function formatCents(cents: number): string {
   return `¥${(cents / 100).toFixed(2)}`
@@ -83,7 +93,7 @@ function StatCard({
   )
 }
 
-/** 近 7 日成本趋势：柱子 + 网格 + hover 明细，不引入图表库。 */
+/** 近 7 日成本趋势：柱子 + 网格 + hover/点选明细，不引入图表库。 */
 function CostTrend({ data }: { data: number[] }) {
   const max = Math.max(...data, 1)
   const total = data.reduce((a, b) => a + b, 0)
@@ -93,6 +103,8 @@ function CostTrend({ data }: { data: number[] }) {
     return { day: `${d.getMonth() + 1}/${d.getDate()}`, weekday: '日一二三四五六'[d.getDay()] }
   })
   const todayIdx = data.length - 1
+  // 点选（触摸）：hover 提示在触屏上不可见，点一下柱子钉住数值
+  const [pinned, setPinned] = useState<number | null>(null)
 
   return (
     <Card padding="lg" className="flex h-full flex-col">
@@ -107,9 +119,26 @@ function CostTrend({ data }: { data: number[] }) {
         actions={<Badge tone="slate">单位：元</Badge>}
       />
 
+      {/* 读屏通道：柱子是图形，配一张等价的隐藏表格，
+          趋势信息不依赖视觉也能完整获取 */}
+      <table className="sr-only">
+        <caption>近 7 日每日成本（元）</caption>
+        <tbody>
+          {data.map((v, i) => (
+            <tr key={i}>
+              <th scope="row">{labels[i].day}</th>
+              <td>{(v / 100).toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
       <div className="mt-6 flex flex-1 items-stretch gap-3">
         {/* 纵轴刻度：只标最大与 0，避免一排数字把图压碎 */}
-        <div className="flex w-12 shrink-0 flex-col justify-between pb-6 text-right text-micro tabular-nums text-ink-faint">
+        <div
+          aria-hidden="true"
+          className="flex w-12 shrink-0 flex-col justify-between pb-6 text-right text-micro tabular-nums text-ink-faint"
+        >
           <span>{formatCents(max)}</span>
           <span>{formatCents(Math.round(max / 2))}</span>
           <span>¥0</span>
@@ -125,12 +154,18 @@ function CostTrend({ data }: { data: number[] }) {
             ))}
           </div>
 
-          <div className="relative flex h-full min-h-[168px] items-end gap-1.5 sm:gap-2.5">
+          <div aria-hidden="true" className="relative flex h-full min-h-[168px] items-end gap-1.5 sm:gap-2.5">
             {data.map((v, i) => {
               const pct = Math.max((v / max) * 100, v > 0 ? 10 : 2)
               const isToday = i === todayIdx
+              const showTip = pinned === i
               return (
-                <div key={i} className="group flex h-full flex-1 flex-col items-center justify-end">
+                <div
+                  key={i}
+                  className="group flex h-full flex-1 flex-col items-center justify-end"
+                  // 触摸设备没有 hover：点击柱子钉住/取消数值提示
+                  onClick={() => setPinned(showTip ? null : i)}
+                >
                   {/* 柱子限宽：只有一两天有数据时会变成几根巨柱，限宽后仍是「图」而不是「墙」 */}
                   <div className="relative flex h-full w-full max-w-[2.75rem] flex-1 items-end">
                     <div
@@ -146,8 +181,8 @@ function CostTrend({ data }: { data: number[] }) {
                     />
                     <span
                       className={cn(
-                        'pointer-events-none absolute -top-7 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-md px-1.5 py-0.5 text-micro font-medium shadow-lg transition-opacity',
-                        'bg-slate-900 text-white opacity-0 group-hover:opacity-100'
+                        'pointer-events-none absolute -top-7 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-md border border-line bg-surface px-1.5 py-0.5 text-micro font-medium text-ink shadow-pop transition-opacity',
+                        showTip ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                       )}
                     >
                       {formatCents(v)}
@@ -179,7 +214,8 @@ function QuotaRing({ pct }: { pct: number }) {
   const circumference = 2 * Math.PI * r
   // 最小留 0.8% 的弧长，避免「有数据却完全空白」
   const filled = (Math.min(Math.max(pct, 0.8), 100) / 100) * circumference
-  const color = pct >= 85 ? '#f43f5e' : pct >= 60 ? '#f59e0b' : '#3b82f6'
+  // 档位色走 Tailwind 令牌类（stroke-*），不写死 hex——两套主题都成立
+  const ringClass = pct >= 85 ? 'stroke-rose-500' : pct >= 60 ? 'stroke-amber-500' : 'stroke-brand-500'
 
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
@@ -189,8 +225,7 @@ function QuotaRing({ pct }: { pct: number }) {
           cy={size / 2}
           r={r}
           fill="none"
-          className="text-line"
-          stroke="currentColor"
+          className="stroke-line"
           strokeWidth={stroke}
         />
         <circle
@@ -198,18 +233,17 @@ function QuotaRing({ pct }: { pct: number }) {
           cy={size / 2}
           r={r}
           fill="none"
-          stroke={color}
           strokeWidth={stroke}
           strokeLinecap="round"
           strokeDasharray={`${filled} ${circumference}`}
-          className="transition-[stroke-dasharray] duration-500"
+          className={cn('transition-[stroke-dasharray] duration-500', ringClass)}
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-metric text-sm font-semibold text-ink">
           {pct < 1 ? pct.toFixed(2) : pct.toFixed(1)}%
         </span>
-        <span className="text-[9px] text-ink-faint">已用</span>
+        <span className="text-2xs text-ink-faint">已用</span>
       </div>
     </div>
   )
@@ -226,7 +260,7 @@ function CostCard({ cents, trend }: { cents: number; trend: number[] }) {
     <Card className="flex flex-col" padding="lg">
       <CardHeader
         title="今日成本"
-        description="本月配额 ¥10,000.00"
+        description={`本月配额 ${formatCents(MONTHLY_QUOTA_CENTS)}`}
         icon={
           <IconTile tone="amber" size="sm">
             <Icon name="coins" className="h-3.5 w-3.5" />
@@ -345,19 +379,19 @@ export function DashboardPage() {
   const { data, isLoading, error, refetch, isFetching, dataUpdatedAt } = useQuery({
     queryKey: ['stats', 'overview'],
     queryFn: fetchStatsOverview,
-    refetchInterval: 15_000, // 15s 轮询，成本/状态实时性
+    refetchInterval: REFRESH_MS, // 15s 轮询，成本/状态实时性
   })
 
   const header = (
     <PageHeader
       eyebrow="工作台"
       title="仪表盘"
-      description="我的工作负载与成本概览，每 15 秒自动刷新。"
+      description={`我的工作负载与成本概览，每 ${REFRESH_MS / 1000} 秒自动刷新。`}
       icon={<Icon name="activity" />}
       actions={
         <>
           {dataUpdatedAt > 0 && (
-            <span className="hidden text-xs text-ink-faint sm:block">
+            <span className="text-xs text-ink-faint sm:block">
               更新于 {new Date(dataUpdatedAt).toLocaleTimeString('zh-CN')}
             </span>
           )}
