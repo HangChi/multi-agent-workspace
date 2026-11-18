@@ -177,6 +177,10 @@ class RequestOut(BaseModel):
     # 布尔——逐条查边是 N+1，data-model §4）；blocked = 有未完成前置。
     dependencies: list["DependencyBrief"] | None = None
     blocked: bool = False
+    # 列表端填充：未完成前置的数量与标题（一次 GROUP BY 聚合带回，
+    # 供卡片徽章 hover；详情端不填——那里有完整 dependencies）
+    unmet_count: int = 0
+    unmet_titles: list[str] | None = None
     #: 经手链（dispatch/reassign/accept/reject 正序）。仅详情端点填充——
     #: 列表端点保持 None，避免每条需求都带一圈历史查询。
     dispatch_history: list[DispatchRecordOut] | None = None

@@ -21,6 +21,7 @@ import {
 import { Board } from '../components/board/Board'
 import { AssignModal } from '../components/board/AssignModal'
 import { DispatchPanel } from '../components/board/DispatchPanel'
+import { DependencySection } from '../components/request/DependencySection'
 import { RejectModal } from '../components/board/RejectModal'
 import { AttachmentUploader } from '../components/request/AttachmentUploader'
 import { RequestForm, RequestFormValues } from '../components/request/RequestForm'
@@ -402,6 +403,13 @@ export function BoardPage() {
           }
         >
           <div className="space-y-4">
+            {/* 009：前置依赖管理（区块自带 blocked 提示；增删失败走错误横幅） */}
+            <DependencySection
+              requestId={currentDetail.id}
+              blocked={currentDetail.blocked ?? false}
+              dependencies={currentDetail.dependencies ?? []}
+            />
+
             {/* 007：分派信息 + 接收/退回 + 经手时间线（有分派语义的需求才显示） */}
             {(currentDetail.assignee_id || (currentDetail.dispatch_history ?? []).length > 0) && (
               <DispatchPanel

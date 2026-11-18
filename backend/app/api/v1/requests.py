@@ -126,7 +126,8 @@ async def list_requests(
         db, [row.assignee_id for row in rows if row.assignee_id]
     )
     # 009：blocked 批量（一次 IN 查询，不逐条查边——data-model §4）
-    blocked_ids = await dependency_service.blocked_flags(db, [row.id for row in rows])
+    # 009：未完成前置概要批量（一次 GROUP BY，不逐条查边——data-model §4）
+    unmet = await dependency_service.blocked_summaries(db, [row.id for row in rows])
     return {
         "items": [
             RequestOut.model_validate(row).model_copy(
@@ -135,7 +136,9 @@ async def list_requests(
                     "assignee_email": emails.get(row.assignee_id)
                     if row.assignee_id
                     else None,
-                    "blocked": blocked_ids.get(row.id, False),
+                    "blocked": row.id in unmet,
+                    "unmet_count": unmet[row.id][0] if row.id in unmet else 0,
+                    "unmet_titles": unmet[row.id][1] if row.id in unmet else None,
                 }
             )
             for row in rows
@@ -277,6 +280,7 @@ async def get_request(request_id: ResourceId, user: CurrentUser, db: DB):
             "runs_summary": summaries.get(request.id),
             "dependencies": briefs,
             "blocked": any(not b.terminal for b in briefs),
+            "unmet_count": sum(1 for b in briefs if not b.terminal),
             "source_schedule_id": request.source_schedule_id,
             "source_schedule_name": schedule_name,
             "assignee_email": assignee_email,

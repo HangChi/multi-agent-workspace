@@ -32,13 +32,13 @@
 
 ## Phase 4 — 前端（提交点：`feat(ui): 009 依赖前端`）
 
-- [ ] T019 [P] `frontend/src/api/dependencies.ts`：add/remove/list/dependents 四个函数 + endpoints 挂载
-- [ ] T020 [P] Component: `frontend/src/components/request/DependencySection.tsx` — 详情弹层「前置需求」区块（边列表 + 添加器 + 移除 + 被挡提示）
-- [ ] T021 Modify `frontend/src/pages/BoardPage.tsx`：详情弹层挂 DependencySection；`blocked` 透传给卡片
-- [ ] T022 Modify `frontend/src/components/board/RequestCard.tsx`：未完成前置徽章（数量 + title 逐条），`blocked=false` 不渲染
-- [ ] T023 Modify `frontend/src/components/layout/NotificationBell.tsx`：TYPE_META 加 `dependency_ready`（图标 clock，标签「前置就绪」）
-- [ ] T024 [P] Unit: `frontend/src/tests/dependencies.test.tsx` — 契约级用例（徽章仅 blocked 渲染/通知类型元数据/详情区块空态）
-- [ ] T025 前端五件套（lint/format/typecheck/test/build）全绿
+- [X] T019 [P] `frontend/src/api/dependencies.ts`：add/remove/list/dependents 四个函数 + endpoints 挂载
+- [X] T020 [P] Component: `frontend/src/components/request/DependencySection.tsx` — 详情弹层「前置需求」区块（边列表 + 添加器 + 移除 + 被挡提示）
+- [X] T021 Modify `frontend/src/pages/BoardPage.tsx`：详情弹层挂 DependencySection；`blocked` 透传给卡片
+- [X] T022 Modify `frontend/src/components/board/RequestCard.tsx`：未完成前置徽章（数量 + title 逐条），`blocked=false` 不渲染
+- [X] T023 Modify `frontend/src/components/layout/NotificationBell.tsx`：TYPE_META 加 `dependency_ready`（图标 clock，标签「前置就绪」）
+- [X] T024 [P] Unit: `frontend/src/tests/dependencies.test.tsx` — 契约级用例（徽章仅 blocked 渲染/通知类型元数据/详情区块空态）
+- [X] T025 前端五件套（lint/format/typecheck/test/build）全绿
 
 ## Phase 5 — 验收与合并（每项一次提交）
 

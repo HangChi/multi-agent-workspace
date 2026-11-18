@@ -27,13 +27,19 @@ import { cn } from '../ui/cn'
 
 const TYPE_META: Record<
   NotificationType,
-  { label: string; icon: 'send' | 'check-circle' | 'x-circle' | 'users' | 'play' }
+  {
+    label: string
+    icon: 'send' | 'check-circle' | 'x-circle' | 'users' | 'play' | 'clock'
+  }
 > = {
   request_dispatched: { label: '新分派', icon: 'send' },
   request_accepted: { label: '已接收', icon: 'check-circle' },
   request_rejected: { label: '被退回', icon: 'x-circle' },
   request_reassigned: { label: '被转交', icon: 'users' },
   run_completed: { label: '执行完成', icon: 'play' },
+  // 009：前置终态 → 可以启动了（措辞按 payload.dependency_status 三分，
+  // 前端在通知项里渲染，这里只给图标与类型标签）
+  dependency_ready: { label: '前置就绪', icon: 'clock' },
 }
 
 function timeAgo(iso: string): string {

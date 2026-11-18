@@ -1,4 +1,5 @@
 import { apiClient } from './client'
+import type { DependencyBrief } from './dependencies'
 
 // ---------- 需求（T047/T048 + 007 分派）----------
 
@@ -72,6 +73,12 @@ export interface WorkRequest {
   /** 008：业务归属。project_name 是快照（随项目改名同步）。 */
   project_id?: string | null
   project_name?: string | null
+  /** 009：依赖派生字段。dependencies 仅详情端填充；blocked = 有未完成前置。 */
+  dependencies?: DependencyBrief[] | null
+  blocked?: boolean
+  /** 009：未完成前置的数量与标题（列表端聚合带回，卡片徽章 hover 用）。 */
+  unmet_count?: number
+  unmet_titles?: string[] | null
   created_at: string
   updated_at: string
 }

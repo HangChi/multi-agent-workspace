@@ -257,29 +257,40 @@ async def is_blocked(db: AsyncSession, request_id: str) -> bool:
     return len(await unmet_dependencies(db, request_id)) > 0
 
 
-async def blocked_flags(db: AsyncSession, request_ids: list[str]) -> dict[str, bool]:
-    """批量 blocked（列表端零 N+1：一次 IN 查询，data-model §4 的两查询算法）。
+async def blocked_summaries(
+    db: AsyncSession, request_ids: list[str]
+) -> dict[str, tuple[int, list[str]]]:
+    """批量未完成前置概要（列表端零 N+1：一次 GROUP BY 聚合，data-model §4）。
 
-    返回 {request_id: bool}；无依赖的 id 不出现在结果里（调用方 .get(id, False)）。
+    返回 {request_id: (未完成数, [标题...])}；无未完成前置的 id 不在结果里。
+    标题一并带回是为了卡片徽章的 hover 提示——逐条查才是 N+1，
+    一次聚合不是（标题数组只为被挡住的少量行付出体积）。
     """
     if not request_ids:
         return {}
     rows = (
         (
             await db.execute(
-                select(RequestDependency.request_id)
+                select(
+                    RequestDependency.request_id,
+                    Request.title,
+                )
                 .join(Request, Request.id == RequestDependency.dependency_id)
                 .where(
                     RequestDependency.request_id.in_(request_ids),
                     Request.status.not_in(TERMINAL_STATUSES),
                 )
-                .distinct()
+                .order_by(Request.created_at)
             )
         )
-        .scalars()
         .all()
     )
-    return {rid: True for rid in rows}
+    summaries: dict[str, tuple[int, list[str]]] = {}
+    for rid, title in rows:
+        count, titles = summaries.get(rid, (0, []))
+        titles.append(title)
+        summaries[rid] = (count + 1, titles)
+    return summaries
 
 
 async def ready_dependents(

@@ -92,6 +92,18 @@ export function RequestCard({ request, draggable = true, onOpen }: Props) {
           </Link>
         )}
 
+        {/* 009：未完成前置徽章。门禁的原因要前置可见——被挡下的需求拖不动，
+            卡片上直接说清，否则用户把 409 当成故障（US4）。hover 逐条标题。 */}
+        {(request.unmet_count ?? 0) > 0 && (
+          <span
+            className="mt-1 inline-flex items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-micro text-amber-700 ring-1 ring-inset ring-amber-200/70 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/25"
+            title={`前置未完成：${(request.unmet_titles ?? []).join('、')}——打开详情查看`}
+          >
+            <Icon name="clock" className="h-2.5 w-2.5 shrink-0" />
+            {request.unmet_count} 个前置未完成
+          </span>
+        )}
+
         <div className="mt-2 flex items-center gap-2">
           {/* 来源徽标放在卡片上而不是只在详情里：看板上要能一眼分辨
               「人建的」和「规则建的」，否则一堆自动需求看起来像是谁手动拖进来的 */}

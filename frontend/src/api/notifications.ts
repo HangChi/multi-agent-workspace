@@ -8,6 +8,8 @@ export type NotificationType =
   | 'request_rejected'
   | 'request_reassigned'
   | 'run_completed'
+  // 009：前置终态 → 后续方「可以启动了」
+  | 'dependency_ready'
 
 export interface Notification {
   id: string
