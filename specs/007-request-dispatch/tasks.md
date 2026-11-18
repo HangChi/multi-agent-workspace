@@ -97,7 +97,7 @@
       默认值 + 配额口径变更）、已知限制（通知仅站内）。
 - [X] T039 Update `docs/architecture.md`：需求状态机图（pending/accepted 分支）+
       分派链路一节（引用 research R-02/R-03）。
-- [ ] T040 ff 合并 `feat/007-request-dispatch` → `master`，删分支，
+- [X] T040 ff 合并 `feat/007-request-dispatch` → `master`，删分支，
       `git status` 确认干净（宪法：无密钥/临时文件）。
 
 ## 依赖与并行
