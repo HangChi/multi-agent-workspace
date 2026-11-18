@@ -5,12 +5,12 @@
 
 ## Phase 2 — 数据模型（提交点：`feat(db): 008 projects 表`）
 
-- [ ] T001 [P] Write `backend/app/models/project.py`：`Project` 模型（id/owner_id/name≤100/description/status active|archived/timestamps）+ `UNIQUE(owner_id, name)` + `ix_projects_owner_status`
-- [ ] T002 Write `backend/alembic/versions/0012_project_entity.py`：建 `projects` 表 + `requests` +`project_id`（FK SET NULL）+`project_name`
-- [ ] T003 [P] Integration: `backend/tests/integration/test_project_schema.py` — 迁移后断言（projects 列/唯一约束/索引；requests 两列 + FK 的 ON DELETE SET NULL 行为：删项目→需求列空）
-- [ ] T004 Integration: downgrade 冒烟（0012→0011：两列与表消失，requests 数据不受影响——注意 downgrade 前项目数据会丢，测试用临时库）
-- [ ] T005 Modify `backend/app/models/request.py`：`project_id`/`project_name` 两列 + relationship（如有）
-- [ ] T006 空库复跑 `alembic upgrade head` → `0012`，psql 核对列/约束/索引（quickstart §4 回填）
+- [X] T001 [P] Write `backend/app/models/project.py`：`Project` 模型（id/owner_id/name≤100/description/status active|archived/timestamps）+ `UNIQUE(owner_id, name)` + `ix_projects_owner_status`
+- [X] T002 Write `backend/alembic/versions/0012_project_entity.py`：建 `projects` 表 + `requests` +`project_id`（FK SET NULL）+`project_name`
+- [X] T003 [P] Integration: `backend/tests/integration/test_project_schema.py` — 迁移后断言（projects 列/唯一约束/索引；requests 两列 + FK 的 ON DELETE SET NULL 行为：删项目→需求列空）
+- [X] T004 Integration: downgrade 冒烟（0012→0011：两列与表消失，requests 数据不受影响——注意 downgrade 前项目数据会丢，测试用临时库）
+- [X] T005 Modify `backend/app/models/request.py`：`project_id`/`project_name` 两列 + relationship（如有）
+- [X] T006 空库复跑 `alembic upgrade head` → `0012`，psql 核对列/约束/索引（quickstart §4 回填）
 
 ## Phase 3a — 项目 CRUD 纯增量（提交点：`feat(project): 008 项目 CRUD`）
 

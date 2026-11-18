@@ -81,6 +81,16 @@ class Request(Base):
     source_schedule_id: Mapped[str | None] = mapped_column(
         ForeignKey("schedules.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # 008：业务归属（项目容器）。可空 = 未归类。ON DELETE SET NULL：
+    # 项目删了，归类过的事实记录还在（research R-02，同 source_schedule_id 纪律）。
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
+    )
+    # 008：项目名展示快照。物化而不 JOIN（research R-04，同 source_schedule_name
+    # 模式）：列表是「过滤 + count + 分页」三连，JOIN 会让三处都带上 projects。
+    # 写入点只有两处（service）：建/改需求、项目改名；删项目时 service 显式清空
+    # （外键 SET NULL 只动 project_id，不清它——不清会留下孤儿名字）。
+    project_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -111,4 +121,8 @@ class Request(Base):
     # 收件箱热点查询（分派给我且 pending/accepted）的覆盖索引。
     # 与迁移 0011 声明一致——测试库走 create_all，索引必须声明在模型侧，
     # 否则「迁移里有、测试里没有」会让 prod/test 静默分叉。
-    __table_args__ = (Index("ix_requests_assignee_status", "assignee_id", "status"),)
+    # 008：ix_requests_project_id 服务 GET /requests?project_id= 过滤。
+    __table_args__ = (
+        Index("ix_requests_assignee_status", "assignee_id", "status"),
+        Index("ix_requests_project_id", "project_id"),
+    )
