@@ -151,7 +151,9 @@ Redis 同时承担队列、事件 Pub/Sub、分布式锁与 refresh token 存储
 
 ```
 created → assigned → queued → running → completed
-                                  ├──→ failed ──→ retry
+                                  ├──→ failed ──→ retry（手动，成本不清零）
+                                  ├──→ retrying ──→ running（006 自动重试到点）
+                                  │      └──→ failed（次数耗尽）
                                   ├──→ needs_input ──→ running
                                   └──→ cancelled / timeout
 ```
@@ -320,6 +322,9 @@ Agent 可挂载的工具由执行器注册表提供，当前实现 5 个：
 | `MINIO_*` | `localhost:9000` | 附件与制品存储（S3 兼容） |
 | `MONTHLY_QUOTA_CENTS` | `1000000` | 每用户月成本上限（分），用尽后新分配返回 429 |
 | `CORS_ORIGINS` | `http://localhost:5173` | 本地开发前端地址 |
+| `RUN_MAX_ATTEMPTS` | `3` | 总尝试次数（含首次）；设为 1 等于关闭自动重试 |
+| `RUN_RETRY_BASE_SECONDS` | `2` | 重试退避基准（秒，full jitter 后实际值在 `[0, 基准]`） |
+| `RUN_RETRY_CAP_SECONDS` | `60` | 退避封顶（秒） |
 
 ---
 
@@ -426,6 +431,7 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 - `run_python` / `run_shell` 已接入 Docker 一次性容器，支持超时、取消、资源限制、输出截断与制品回收；原生 Linux 的 iptables/nftables 出网验收已在 CI 的原生 VM 上通过（`iptables-save` / `ip6tables-save` / `nft` 残留全 0，域名矩阵 18/18）。唯一例外是 `public HTTPS with DNS attribution`：它依赖宿主公网，按非门禁用例运行并在产物里留证。
 - 出网规则管理、Agent 限制模式和访问查询端点已接入；TLS 解密、URL 路径/请求体级记录仍不在范围内。
 - 定时调度已实现：`/schedules` 页面可建规则的周期（cron）、目标（Agent 或组）与建单模板，Celery Beat 每分钟扫描到期的规则自动建单并分配执行。错过的计划时刻**不补跑**，合并记一条 `missed` 并注明次数。周期表达式的「日期」与「星期」同时限定时按**交集**求值（`0 9 1 * 1` 只在既是 1 号又是周一那天触发），页面上已明示。beat 的资源限额按实测定（1.0 CPU / 512MB，峰值 268 MiB、无 `max` 事件、CPU 节流 12%）。
+- 运行自动重试已实现（`006`）：仅对**瞬时类失败**（网关 5xx、连接失败、超时、限流）自动重试，默认「首次 + 2 次重试」共 3 次尝试，指数退避 2s→4s 带 full jitter、60s 封顶；业务类失败（配额/成本/步数/超时/取消/策略拒绝）与未知异常一律不重试。重试等待中以 `retrying` 中间态呈现，僵尸回收不会误杀它。**成本跨重试累计**（手动重试同口径）：重试花的 token 照计入配额与熔断，不再因重试重置——这让看板数字对得上真实支出，也堵住了「每次各花 490 分、上限 500 分」绕过熔断的洞。重复执行由 Redis 锁 + 状态校验双重防线拦截。
 - Agent 模板与一键克隆已实现（`005`）：模板是**个人私有**的配置快照库，从模板创建、一键克隆、另存为模板三条路径；内置模板由 `scripts/seed_agent_templates.py` 幂等注入（模型跟随 `LLM_MODEL`）。**不含**跨用户共享/模板市场、版本历史、导入导出与使用统计。
 - 外部 MCP 工具已实现（`003`，65/65 任务）：仅支持 Streamable HTTP 传输，stdio 传输与工具市场之外的自定义 UI 不在范围内。
 - **指标与告警**：`/metrics`（Prometheus 文本格式，零依赖实现）已接入，覆盖 HTTP/WS/LLM/沙箱/队列深度/成本；

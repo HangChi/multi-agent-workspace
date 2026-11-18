@@ -30,6 +30,43 @@ class LLMClientError(Exception):
         self.transient = transient
 
 
+# litellm 侧「等一会儿会好」的错误类型（006 / spec FR-003：网关 5xx、连接、超时、
+# 限流）。用 try/except 包住：这些是 litellm 的公开异常，但不同版本的导出路径
+# 可能有差异；导入失败时退化成空集合——那时至少还有连接类异常的判定可用，
+# 不该让整个客户端起不来。
+try:
+    from litellm.exceptions import (
+        APIConnectionError as _ApiConn,
+    )
+    from litellm.exceptions import (
+        BadGatewayError as _BadGateway,
+    )
+    from litellm.exceptions import (
+        InternalServerError as _InternalServer,
+    )
+    from litellm.exceptions import (
+        RateLimitError as _RateLimit,
+    )
+    from litellm.exceptions import (
+        ServiceUnavailableError as _ServiceUnavailable,
+    )
+    from litellm.exceptions import (
+        Timeout as _LiteTimeout,
+    )
+
+    TRANSIENT_LITELLM_ERRORS: tuple[type[BaseException], ...] = (
+        _ApiConn,
+        _BadGateway,
+        _InternalServer,
+        _RateLimit,
+        _ServiceUnavailable,
+        _LiteTimeout,
+    )
+except Exception:  # noqa: BLE001  # pragma: no cover - 依赖版本差异
+    # 导入失败只降级（集合为空），不静默吞掉其他问题：上面已在注释说明理由
+    TRANSIENT_LITELLM_ERRORS = ()
+
+
 @dataclass
 class ToolCall:
     """一次 tool_call（OpenAI 格式）。"""
@@ -210,9 +247,15 @@ class LiteLLMClient:
             ) from exc
         except Exception as exc:  # 网络/鉴权/限流统一转可读错误
             metrics.LLM_CALLS.inc(model=self.model, outcome="error")
-            # 连接类底层异常才算瞬时；鉴权/限流（AuthenticationError /
-            # RateLimitError 等）重试同一个请求不会好（006 / research R-05）
-            transient = isinstance(exc, (ConnectionError, TimeoutError, OSError))
+            # 瞬时判定（006 / spec FR-003）：
+            # - 连接类底层异常（ConnectionError/TimeoutError/OSError）
+            # - litellm 的网关侧错误：5xx、连接、超时、限流（退避正好治它）
+            # 鉴权/权限/不存在/请求格式错误**不算**——重试同一个请求不会好
+            # （research R-05：只对确知会自愈的失败重试）。
+            transient = isinstance(
+                exc,
+                (ConnectionError, TimeoutError, OSError, *TRANSIENT_LITELLM_ERRORS),
+            )
             raise LLMClientError(f"LLM 调用失败: {exc}", transient=transient) from exc
 
         metrics.LLM_CALLS.inc(model=self.model, outcome="ok")

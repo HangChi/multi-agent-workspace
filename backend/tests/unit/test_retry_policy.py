@@ -13,7 +13,7 @@ import random
 
 import pytest
 
-from app.executors.llm import LLMClientError
+from app.executors.llm import TRANSIENT_LITELLM_ERRORS, LLMClientError
 from app.orchestrator.retry_policy import (
     FailureKind,
     backoff_seconds,
@@ -144,3 +144,69 @@ def test_backoff_rejects_invalid_config(base, cap):
     """基准与封顶必须是正数，且封顶不小于基准——否则配置错了会静默退避成 0。"""
     with pytest.raises(ValueError):
         backoff_seconds(1, float(base), float(cap))
+
+
+# ---------- litellm 网关侧错误的分类（006 实测缺口补测） ----------
+# 这条不是理论推演：真实栈验收时 mock LLM 返回 500，litellm 抛
+# InternalServerError，而最初的实现只认连接类异常，导致 5xx 被当成业务类
+# 直接终态——spec FR-003 明确要求「网关返回 5xx」是可重试的。
+
+
+def _litellm_exc(cls) -> BaseException:
+    """构造 litellm 异常实例。
+
+    用 `__new__` 绕过 `__init__`：这些异常的构造函数签名各版本不一致
+    （有的要 llm_provider/model，有的还要一个能访问 `.request` 的 response），
+    而本测试只关心**类型**是否被正确分类，不需要一个完整初始化的实例。
+    """
+    return cls.__new__(cls)
+
+
+@pytest.mark.parametrize(
+    "cls_name",
+    [
+        "InternalServerError",
+        "BadGatewayError",
+        "ServiceUnavailableError",
+        "APIConnectionError",
+        "Timeout",
+        "RateLimitError",
+    ],
+)
+def test_litellm_gateway_errors_are_transient(cls_name: str):
+    """网关 5xx / 连接 / 超时 / 限流 → 瞬时（等一会儿会好，退避正好治它）。"""
+    import litellm.exceptions as lite
+
+    exc = _litellm_exc(getattr(lite, cls_name))
+    wrapped = LLMClientError(
+        "LLM 调用失败", transient=isinstance(exc, TRANSIENT_LITELLM_ERRORS)
+    )
+    assert wrapped.transient is True, cls_name
+    assert classify_failure(wrapped) is FailureKind.TRANSIENT
+
+
+@pytest.mark.parametrize(
+    "cls_name",
+    [
+        "AuthenticationError",
+        "PermissionDeniedError",
+        "NotFoundError",
+        "BadRequestError",
+        "ContextWindowExceededError",
+    ],
+)
+def test_litellm_request_errors_are_permanent(cls_name: str):
+    """鉴权/权限/不存在/请求格式 → 业务类（重试同一个请求不会好）。"""
+    import litellm.exceptions as lite
+
+    exc = _litellm_exc(getattr(lite, cls_name))
+    wrapped = LLMClientError(
+        "LLM 调用失败", transient=isinstance(exc, TRANSIENT_LITELLM_ERRORS)
+    )
+    assert wrapped.transient is False, cls_name
+    assert classify_failure(wrapped) is FailureKind.PERMANENT
+
+
+def test_transient_litellm_errors_is_non_empty():
+    """导入失败时集合为空——那样 5xx 会被误判成业务类，必须被发现。"""
+    assert len(TRANSIENT_LITELLM_ERRORS) >= 5

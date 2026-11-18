@@ -148,6 +148,10 @@ services:
     restart: unless-stopped
     profiles: ['mock']
     command: python /app/server.py
+    # 仅 mock profile 暴露：验收脚本要能重置失败计数器（s7_run_retry.py）。
+    # 生产 profile 不起这个服务，因此不增加生产攻击面。
+    ports:
+      - "127.0.0.1:4000:4000"
     environment:
       PORT: '4000'
       MOCK_LLM_MODE: ${MOCK_LLM_MODE:-auto}

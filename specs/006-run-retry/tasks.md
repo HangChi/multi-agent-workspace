@@ -97,12 +97,12 @@
 
 ## Phase 4：验收与合并
 
-- [ ] T034 Write `deploy/verify/s7_run_retry.py`: 真实栈验收 —— ① 注入一个必然瞬时失败的 LLM 端点（mock 网关前两次连接拒绝、第三次成功）→ 断言 Run 自动重试后 completed 且 attempt=3；② 并发触发同一次重试 → 断言执行一次；③ 成本累计与熔断。
-- [ ] T035 Update `README.md`: 「已知限制」加一条（重试策略默认值与成本口径变更）；页面/API 若有状态枚举说明则同步。
-- [ ] T036 Update `docs/architecture.md`: 执行状态机图加 `retrying` 分支；§5 执行引擎补一段重试设计要点（引用 research）。
-- [ ] T037 Update `specs/006-run-retry/quickstart.md`: 验收记录 + 实测数据。
-- [ ] T038 Run 全量门禁: `pytest`（后端全量）+ 前端五件套 + 真实栈脚本；记录结果到 quickstart。
-- [ ] T039 Merge `feat/006-run-retry` into `master`（fast-forward），删除分支，`git status` 确认干净（宪法：无密钥/临时文件）。
+- [X] T034 Write `deploy/verify/s7_run_retry.py`: 真实栈验收 —— ① 注入一个必然瞬时失败的 LLM 端点（mock 网关前两次连接拒绝、第三次成功）→ 断言 Run 自动重试后 completed 且 attempt=3；② 并发触发同一次重试 → 断言执行一次；③ 成本累计与熔断。
+- [X] T035 Update `README.md`: 「已知限制」加一条（重试策略默认值与成本口径变更）；页面/API 若有状态枚举说明则同步。
+- [X] T036 Update `docs/architecture.md`: 执行状态机图加 `retrying` 分支；§5 执行引擎补一段重试设计要点（引用 research）。
+- [X] T037 Update `specs/006-run-retry/quickstart.md`: 验收记录 + 实测数据。
+- [X] T038 Run 全量门禁: `pytest`（后端全量）+ 前端五件套 + 真实栈脚本；记录结果到 quickstart。
+- [X] T039 Merge `feat/006-run-retry` into `master`（fast-forward），删除分支，`git status` 确认干净（宪法：无密钥/临时文件）。
 
 ---
 
@@ -127,3 +127,29 @@ T034..T039 依赖全部前置
 | 重试消息在终态后到点造成重复执行 | T017 集成测试固化状态校验防线 |
 | 累计成本使老任务更易熔断 | spec FR-014 的预期行为；T035 在已知限制明示 |
 | 前端把 `retrying` 当失败展示 | T028/T032 专用色调 + vitest 断言 |
+
+
+---
+
+## Phase 4 实测记录（2026-11-18）
+
+| 项 | 结果 |
+|---|---|
+| `deploy/verify/s7_run_retry.py` | **4/4 通过**（A 抖动后恢复 / B 耗尽终态 / C 成本熔断 / D retrying 可见） |
+| 后端全量 `pytest` | 1287 passed, 6 subtests |
+| `ruff check` / `format --check` / `mypy app` | 全绿 |
+| 前端五件套 | 全绿；vitest 115 passed / 21 files |
+| 文档同步 | README（配置表/已知限制/状态机图）、architecture（重试三要点）、quickstart |
+
+**实测发现并已固化**：
+1. LiteLLM 自带 `num_retries=1`，会在一次 run 级尝试内先消耗若干次网关失败，
+   所以场景 A 只有 1 次 run 级重试。验收断言因此不断言 attempt 精确值。
+2. mock LLM 的失败计数器跨请求累积，重复跑脚本会「预算已用完直接成功」，
+   看起来像重试失效。已加 `GET /__reset`，脚本 setup() 先重置。
+3. **真实缺口**：最初只把连接类异常判为瞬时，mock 返回 500 时 litellm 抛
+   `InternalServerError` 被当成业务类直接终态——spec FR-003 明确要求 5xx 可重试。
+   已补 `TRANSIENT_LITELLM_ERRORS`（5xx/连接/超时/限流）并加 11 例单测。
+
+**部署踩坑（已记入 quickstart「怎么重跑」）**：跑 pytest 时 export 的 `DATABASE_URL`
+会污染 compose 的变量替换，导致 migrate 容器连到测试库的 127.0.0.1 而失败。
+部署前用 `env -u DATABASE_URL` 清掉。

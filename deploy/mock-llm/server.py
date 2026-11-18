@@ -4,6 +4,8 @@ OpenAI 兼容 /v1/chat/completions，供 LiteLLMClient 真实调用：
 - 无工具调用请求 → 直接返回最终答案（一次完成，SC-004 简单执行）
 - 带 tools 的请求 → 首轮返回 web_search 工具调用，二轮返回最终答案（ReAct 两轮闭环）
 - 路径 /fail → 始终返回 500（验证失败→重试路径）
+- 关键词 RETRY_FAIL2 / RETRY_FAIL_ALL → 按计数器返回 500（006 自动重试验收：
+  前者前 2 次失败后恢复，后者一直失败；计数器按关键词隔离，不波及其他请求）
 - 路径 /needs-input → 返回 __NEEDS_INPUT__ 前缀（验证 needs_input 挂起）
 - usage 返回固定 token 数（成本累计验证，SC-006）
 - 显式 [sandbox:<scenario>] 标记驱动 002 验收；仅返回固定工具调用，不执行代码。
@@ -18,10 +20,22 @@ OpenAI 兼容 /v1/chat/completions，供 LiteLLMClient 真实调用：
 import json
 import os
 import re
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MODEL = os.getenv("MOCK_LLM_MODEL", "gpt-4o-mini")
 MODE = os.getenv("MOCK_LLM_MODE", "auto")  # auto | fail | needs_input
+
+# ---- 006：按关键词的「前 N 次失败后成功」计数器 ----
+# 验收自动重试需要「网关抖动几下然后恢复」，而 MODE=fail 是永远失败。
+# 用关键词把计数器限定在带标记的请求上：验收脚本只给一个 Agent 打标记，
+# 因此这个计数器实际上就是那个 Agent 的失败预算，不会波及其他请求。
+_FAIL_N_TIMES = {
+    "RETRY_FAIL2": 2,   # 前 2 次 500，之后正常
+    "RETRY_FAIL_ALL": 99,  # 一直失败（等价 MODE=fail，但可按关键词隔离）
+}
+_fail_seen: dict[str, int] = {}
+_fail_lock = threading.Lock()
 
 # These are model responses, never commands run by this HTTP gateway. Only the
 # application's normal authorization/executor path may run them in a sandbox.
@@ -237,6 +251,14 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        if self.path == "/__reset":
+            # 006：清空失败计数器。计数器跨请求累积，而验收脚本会反复跑；
+            # 不重置的话第二次跑 RETRY_FAIL2 时预算已用完，直接成功，
+            # 看起来像「重试机制没生效」——一个纯粹的夹具状态问题。
+            with _fail_lock:
+                _fail_seen.clear()
+            self._json(200, {"ok": True, "reset": list(_FAIL_N_TIMES)})
+            return
         if self.path == "/health":
             self._json(200, {"status": "ok"})
         elif self.path.split("?", 1)[0] == "/search":
@@ -291,8 +313,26 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         mode = MODE
+        # 006：带 RETRY_FAIL* 标记的请求按计数器失败（验收自动重试的成功路径）
+        retry_marker = next((m for m in _FAIL_N_TIMES if m in last_user.upper()), None)
+        if retry_marker:
+            with _fail_lock:
+                seen = _fail_seen.get(retry_marker, 0) + 1
+                _fail_seen[retry_marker] = seen
+            if seen <= _FAIL_N_TIMES[retry_marker]:
+                self._json(
+                    500,
+                    {
+                        "error": {
+                            "message": f"mock LLM 抖动中（{retry_marker} 第 {seen} 次）",
+                            "type": "server_error",
+                        }
+                    },
+                )
+                return
+            # 超过失败预算：走正常成功路径
         # 支持按需求关键词路由（验证不同场景）
-        if "FAIL" in last_user.upper() or "/fail" in last_user:
+        elif "FAIL" in last_user.upper() or "/fail" in last_user:
             mode = "fail"
         elif "补充信息" in last_user or "NEEDS_INPUT" in last_user.upper():
             mode = "needs_input"
