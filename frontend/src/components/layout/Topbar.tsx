@@ -4,9 +4,13 @@
  * 为什么从侧栏改回横栏：
  * - 侧栏常驻会吃掉 256px 内容宽度，看板列被压窄；而这个工作台的页面
  *   几乎都是「宽内容」（看板、列表、表格），横向导航更划算；
- * - 模块数量靠「设置」收敛后，横栏只放 5 个入口，不会重蹈 8 项挤一排的覆辙。
+ * - 于是横栏只放 4 个业务入口（看板、仪表盘、Agent、组）。
  *
- * 「系统正常」只在这里出现一次：侧栏、页脚、设置页各显示一遍没有意义，
+ * 设置不进横栏，全部收进右上角「个人菜单」（头像下拉）：账号信息 +
+ * 通用/模板/调度/工具市场/管理后台 + 退出。这是 Linear / GitHub 的做法——
+ * 设置是低频且属于「我自己」的操作，不该和业务入口抢导航位。
+ *
+ * 「系统正常」只在这里出现一次：页脚、设置页各显示一遍没有意义，
  * 顶栏是唯一合理的实时状态位；版本号收敛到设置 → 通用设置里。
  */
 
@@ -65,7 +69,7 @@ export function Topbar() {
           </span>
         </Link>
 
-        {/* 桌面横向导航 */}
+        {/* 桌面横向导航：只放业务入口，设置走头像菜单（见下方账号菜单） */}
         <nav className="hidden items-center gap-0.5 md:flex" aria-label="主导航">
           {mainItems.map((item) => (
             <NavLink key={item.to} to={item.to} end={item.end} className={navClass}>
@@ -73,13 +77,6 @@ export function Topbar() {
               {item.shortLabel ?? item.label}
             </NavLink>
           ))}
-
-          {settingsItems.length > 0 && (
-            <NavLink to="/settings/general" className={navClass}>
-              <Icon name="settings" className="h-3.5 w-3.5 opacity-80" />
-              设置
-            </NavLink>
-          )}
         </nav>
 
         <div className="ml-auto flex items-center gap-1.5">
@@ -105,8 +102,8 @@ export function Topbar() {
           <ThemeToggle className="h-9 w-9 rounded-lg" />
 
           <Dropdown
-            ariaLabel="账号菜单"
-            panelClassName="w-60"
+            ariaLabel="个人菜单"
+            panelClassName="w-64"
             triggerClassName="py-1 pl-1 pr-1.5 hover:bg-surface-subtle"
             trigger={
               <>
@@ -117,6 +114,8 @@ export function Topbar() {
               </>
             }
           >
+            {/* 个人模块：账号信息 + 全部设置入口 + 退出。
+                设置不再占顶栏，全部收在这里——这是 Linear / GitHub 的做法 */}
             <div className="px-2.5 pb-2 pt-1.5">
               <p className="truncate text-ui font-medium text-ink">{user?.email}</p>
               <div className="mt-1.5">
@@ -125,11 +124,20 @@ export function Topbar() {
                 </Badge>
               </div>
             </div>
+
+            {settingsItems.length > 0 && (
+              <>
+                <DropdownSeparator />
+                <DropdownLabel>设置</DropdownLabel>
+                {settingsItems.map((item) => (
+                  <Link key={item.to} to={item.to}>
+                    <DropdownItem icon={item.icon}>{item.label}</DropdownItem>
+                  </Link>
+                ))}
+              </>
+            )}
+
             <DropdownSeparator />
-            <DropdownLabel>账号</DropdownLabel>
-            <Link to="/settings/general">
-              <DropdownItem icon="settings">通用设置</DropdownItem>
-            </Link>
             <DropdownItem icon="log-out" tone="danger" onClick={logout}>
               退出登录
             </DropdownItem>
@@ -149,12 +157,6 @@ export function Topbar() {
               {item.shortLabel ?? item.label}
             </NavLink>
           ))}
-          {settingsItems.length > 0 && (
-            <NavLink to="/settings/general" className={navClass}>
-              <Icon name="settings" className="h-3.5 w-3.5 opacity-80" />
-              设置
-            </NavLink>
-          )}
         </nav>
         <div
           aria-hidden="true"
