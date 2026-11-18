@@ -85,11 +85,24 @@ export default {
           'monospace',
         ],
       },
+      /**
+       * 字阶（全站只允许这四档 + Tailwind 内置档）：
+       * micro 12px 元信息 / ui 13px 界面文字 / body 14px 卡片正文与标题 /
+       * page-title 20px 页面主标题。
+       *
+       * 此前页面里散落着 10/10.5/11/11.5/12.5/13/13.5px 七种随手写的字号，
+       * 层级互相打架，是「显得脏」的主要原因之一。收敛之后，
+       * 「这是标题 / 这是正文 / 这是元信息」不再需要靠颜色和加粗去猜。
+       */
       fontSize: {
+        micro: ['0.75rem', { lineHeight: '1.125rem' }],
+        ui: ['0.8125rem', { lineHeight: '1.25rem' }],
+        body: ['0.875rem', { lineHeight: '1.375rem' }],
         '2xs': ['0.6875rem', { lineHeight: '1rem' }],
-        /** 页面主标题：比旧版 20/24 再大一级，配合收紧字距形成层级 */
-        'page-title': ['1.75rem', { lineHeight: '2.125rem', letterSpacing: '-0.022em' }],
-        'page-title-sm': ['1.5rem', { lineHeight: '1.9rem', letterSpacing: '-0.02em' }],
+        /** 页面主标题：主流工作台（Linear / Vercel）用 20px 而非 28px，
+            标题抢戏会让内容区的信息密度显得更低 */
+        'page-title': ['1.25rem', { lineHeight: '1.75rem', letterSpacing: '-0.01em' }],
+        'page-title-sm': ['1.125rem', { lineHeight: '1.625rem', letterSpacing: '-0.01em' }],
       },
       boxShadow: {
         card: '0 1px 2px 0 rgb(var(--shadow) / 0.04), 0 1px 3px 0 rgb(var(--shadow) / 0.05)',
