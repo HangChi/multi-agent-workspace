@@ -11,7 +11,7 @@
  * 都渲染操作入口，失败时走错误横幅。
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { extractError } from '../../api/client'
@@ -20,7 +20,8 @@ import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { ErrorBanner } from '../ui/ErrorBanner'
 import { Icon } from '../ui/Icons'
-import { Select } from '../ui/Field'
+import { Input, Select } from '../ui/Field'
+import { useConfirm } from '../ui/useConfirm'
 import { useToast } from '../ui/useToast'
 
 const STATUS_TONE: Record<string, 'emerald' | 'rose' | 'slate' | 'sky' | 'amber'> = {
@@ -68,8 +69,17 @@ interface Props {
 export function DependencySection({ requestId, blocked, dependencies, onChanged }: Props) {
   const qc = useQueryClient()
   const toast = useToast()
+  const confirm = useConfirm()
   const [error, setError] = useState<string | null>(null)
   const [picked, setPicked] = useState('')
+  /** 候选搜索：服务端 q（候选可能几百条，本地过滤 page_size=100 会静默漏） */
+  const [candidateQ, setCandidateQ] = useState('')
+  const [candidateQDebounced, setCandidateQDebounced] = useState('')
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setCandidateQDebounced(candidateQ.trim()), 300)
+    return () => window.clearTimeout(timer)
+  }, [candidateQ])
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['requests'] })
@@ -78,8 +88,13 @@ export function DependencySection({ requestId, blocked, dependencies, onChanged 
 
   // 添加器的候选：当前用户可见范围（relevant）的需求，排除已连的
   const { data: candidates } = useQuery({
-    queryKey: ['dependencies', requestId, 'candidates'],
-    queryFn: () => fetchRequests({ scope: 'relevant', page_size: 100 }),
+    queryKey: ['dependencies', requestId, 'candidates', candidateQDebounced],
+    queryFn: () =>
+      fetchRequests({
+        scope: 'relevant',
+        page_size: 50,
+        q: candidateQDebounced || undefined,
+      }),
   })
   const linkedIds = new Set(dependencies.map((d) => d.request_id))
   const options = (candidates?.items ?? []).filter(
@@ -146,9 +161,17 @@ export function DependencySection({ requestId, blocked, dependencies, onChanged 
               </Badge>
               <button
                 type="button"
-                onClick={() => removeMut.mutate(dep.request_id)}
+                onClick={async () => {
+                  const ok = await confirm({
+                    title: '移除前置依赖？',
+                    description: `「${dep.title}」将不再作为本需求的前置条件——若它尚未完成，本需求会立即变为可分配。`,
+                    tone: 'warning',
+                    confirmText: '移除',
+                  })
+                  if (ok) removeMut.mutate(dep.request_id)
+                }}
                 aria-label={`移除前置 ${dep.title}`}
-                className="shrink-0 rounded-md p-1 text-ink-faint transition-colors hover:bg-surface-subtle hover:text-rose-500"
+                className="shrink-0 rounded-md p-1 text-ink-faint transition-colors hover:bg-surface-subtle hover:text-rose-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
               >
                 <Icon name="x" className="h-3.5 w-3.5" />
               </button>
@@ -157,32 +180,60 @@ export function DependencySection({ requestId, blocked, dependencies, onChanged 
         </ul>
       )}
 
-      {/* 添加器：下拉选需求（默认带出标题；排除自己与已连的） */}
-      <div className="flex items-center gap-2">
-        <Select
-          value={picked}
-          onChange={(e) => setPicked(e.target.value)}
+      {/* 添加器：先搜（服务端 q）再下拉选需求（默认带出标题；排除自己与已连的） */}
+      <div className="space-y-2">
+        <Input
+          value={candidateQ}
+          onChange={(e) => setCandidateQ(e.target.value)}
+          placeholder="搜索候选需求（标题 / 描述）"
+          leftIcon="search"
           controlSize="sm"
-          aria-label="选择前置需求"
-          wrapperClassName="flex-1"
-        >
-          <option value="">添加前置需求…</option>
-          {options.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.title}
-              {r.blocked ? '（有未完成前置）' : ''}
+          aria-label="搜索候选前置需求"
+          wrapperClassName="w-full"
+          rightSlot={
+            candidateQ ? (
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => setCandidateQ('')}
+                aria-label="清除候选搜索"
+              >
+                清除
+              </Button>
+            ) : undefined
+          }
+        />
+        <div className="flex items-center gap-2">
+          <Select
+            value={picked}
+            onChange={(e) => setPicked(e.target.value)}
+            controlSize="sm"
+            aria-label="选择前置需求"
+            wrapperClassName="flex-1"
+          >
+            <option value="">
+              {candidateQDebounced ? '搜索结果里选择前置需求…' : '添加前置需求…'}
             </option>
-          ))}
-        </Select>
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={!picked || addMut.isPending}
-          loading={addMut.isPending}
-          onClick={() => picked && addMut.mutate(picked)}
-        >
-          添加
-        </Button>
+            {options.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.title}
+                {r.blocked ? '（有未完成前置）' : ''}
+              </option>
+            ))}
+          </Select>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={!picked || addMut.isPending}
+            loading={addMut.isPending}
+            onClick={() => picked && addMut.mutate(picked)}
+          >
+            添加
+          </Button>
+        </div>
+        {candidateQDebounced && options.length === 0 && (
+          <p className="text-micro text-ink-faint">没有匹配「{candidateQDebounced}」的需求</p>
+        )}
       </div>
 
       {error && <ErrorBanner error={error} onDismiss={() => setError(null)} />}

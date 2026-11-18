@@ -14,3 +14,13 @@ export const MOD_KEY_LABEL = IS_MAC ? '⌘' : 'Ctrl'
 export function modCombo(key: string): string {
   return IS_MAC ? `${MOD_KEY_LABEL}${key}` : `${MOD_KEY_LABEL} ${key}`
 }
+
+/**
+ * 是否精确指针（鼠标/触控板）。用于「要不要 autoFocus」：
+ * 触屏设备一进页面就弹键盘会把标题和 CTA 顶出首屏。
+ * jsdom 等环境没有 matchMedia，按「非精确指针」处理。
+ */
+export function hasFinePointer(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
+  return window.matchMedia('(pointer: fine)').matches
+}

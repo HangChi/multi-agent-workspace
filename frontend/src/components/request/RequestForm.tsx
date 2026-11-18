@@ -15,6 +15,7 @@ import { Icon } from '../ui/Icons'
 import { Input, Select, Textarea } from '../ui/Field'
 import { SegmentedControl } from '../ui/Segmented'
 import { cn } from '../ui/cn'
+import { hasFinePointer } from '../../utils/platform'
 
 export interface RequestFormValues {
   title: string
@@ -73,7 +74,11 @@ export function RequestForm({ onSubmit, onCancel, submitting }: Props) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setTouched(true)
-    if (!values.title.trim()) return
+    if (!values.title.trim()) {
+      // 校验失败聚焦标题框：读屏用户与键盘用户不必自己找错误
+      document.getElementById('request-form-title')?.focus()
+      return
+    }
     onSubmit({
       ...values,
       title: values.title.trim(),
@@ -85,6 +90,16 @@ export function RequestForm({ onSubmit, onCancel, submitting }: Props) {
   return (
     <form
       onSubmit={handleSubmit}
+      // noValidate：校验统一走自定义路径（Field 的 role=alert + aria-invalid
+      // 已完备），浏览器原生气泡的语言随 locale 漂移，两条路径会打架
+      noValidate
+      // Esc 收起（与弹层契约一致）：表单是看板上方的临时面板，不是页面
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation()
+          onCancel()
+        }
+      }}
       className="mb-4 rounded-xl border border-line/90 bg-surface shadow-card animate-fade-in-up"
     >
       <div className="flex items-start gap-3 border-b border-line-subtle px-5 py-4">
@@ -109,6 +124,7 @@ export function RequestForm({ onSubmit, onCancel, submitting }: Props) {
 
       <div className="space-y-4 px-5 py-4">
         <Input
+          id="request-form-title"
           label="标题"
           required
           value={values.title}
@@ -117,6 +133,8 @@ export function RequestForm({ onSubmit, onCancel, submitting }: Props) {
           error={titleError}
           placeholder="例如：生成 2026 Q1 销售分析报表"
           maxLength={120}
+          // 精确指针设备才自动聚焦：触屏一进页面就弹键盘会把 CTA 顶出首屏
+          autoFocus={hasFinePointer()}
         />
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -170,7 +188,7 @@ export function RequestForm({ onSubmit, onCancel, submitting }: Props) {
               onChange={(v) => set('priority', v)}
               ariaLabel="优先级"
               className={cn(
-                values.priority === 'high' && '[&_button[aria-pressed=true]]:text-rose-700'
+                values.priority === 'high' && '[&_button[aria-checked=true]]:text-rose-700'
               )}
             />
             <span className="text-xs text-ink-faint">

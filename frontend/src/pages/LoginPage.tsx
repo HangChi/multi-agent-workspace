@@ -17,11 +17,8 @@ import { Button, IconButton } from '../components/ui/Button'
 import { ErrorBanner } from '../components/ui/ErrorBanner'
 import { Input } from '../components/ui/Field'
 import { useAuth } from '../hooks/useAuth'
+import { hasFinePointer } from '../utils/platform'
 import { isEmail } from '../utils/validation'
-
-/** 触屏设备进页面就弹键盘是负体验；精确指针（鼠标/触控板）才自动聚焦。 */
-const FINE_POINTER =
-  typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches
 
 interface FieldErrors {
   email?: string
@@ -101,7 +98,7 @@ export function LoginPage() {
           leftIcon="mail"
           placeholder="you@example.com"
           autoComplete="email"
-          autoFocus={FINE_POINTER}
+          autoFocus={hasFinePointer()}
         />
 
         <Input

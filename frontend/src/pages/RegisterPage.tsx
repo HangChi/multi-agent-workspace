@@ -15,15 +15,12 @@ import { ErrorBanner } from '../components/ui/ErrorBanner'
 import { Input } from '../components/ui/Field'
 import { useAuth } from '../hooks/useAuth'
 import { cn } from '../components/ui/cn'
+import { hasFinePointer } from '../utils/platform'
 import { isEmail } from '../utils/validation'
 
 const STRENGTH_STYLE = ['bg-line', 'bg-rose-400', 'bg-amber-400', 'bg-emerald-500']
 const STRENGTH_LABEL = ['', '偏弱', '中等', '较强']
 const STRENGTH_TEXT = ['', 'text-rose-600', 'text-amber-600', 'text-emerald-600']
-
-/** 触屏设备进页面就弹键盘是负体验；精确指针（鼠标/触控板）才自动聚焦。 */
-const FINE_POINTER =
-  typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches
 
 /** 0~3 分：长度、字母+数字组合、额外复杂度。 */
 function scorePassword(pwd: string): number {
@@ -122,7 +119,7 @@ export function RegisterPage() {
           leftIcon="mail"
           placeholder="you@example.com"
           autoComplete="email"
-          autoFocus={FINE_POINTER}
+          autoFocus={hasFinePointer()}
         />
 
         <div>
