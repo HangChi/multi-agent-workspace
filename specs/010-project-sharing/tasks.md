@@ -21,12 +21,12 @@
 
 ## Phase 3b — 口径与谓词扩展（改既有，提交点：`feat(scope): 010 共享可见性与协作谓词`）
 
-- [ ] T011 [P] Integration: `backend/tests/integration/test_sharing_scope.py` — 先写红（成员 relevant 列表含项目与需求/详情 200/移除后 404；成员协作链建→改→分配→连边；改归属 403；accept 仍仅 assignee；陌生人维持 403/404）
-- [ ] T012 Modify `backend/app/services/project_service.py`：`_load_owned_project` → 可见性版本（owner ∪ 成员，用于详情/成员列表读）；`load_active_owned_project` → active 且（owner ∪ 成员）（建需求校验）；`project_visible_to_user` 加「成员」一肢；`_visible_request_counts` 口径扩展
-- [ ] T013 Modify `backend/app/services/project_service.py`：`list_projects` relevant 口径加「我是成员的」；`get_project` 返回 member_count
-- [ ] T014 Modify `backend/app/services/request_service.py`：`_check_owner` **不动**；新增 `_can_edit_request(request, user_id, is_member)` 第二判据，update/assign/dependency 调用方加一肢；`list_requests` relevant 加项目成员半连接；`update_request` 的 project_id 分流改为「创建者或该项目 owner」（R-03）
-- [ ] T015 Modify `backend/app/api/v1/projects.py`：详情/列表响应带 member_count；`GET /projects/{id}` 谓词走 service 新可见性
-- [ ] T016 跑 T011 转绿 + **既有测试全量回归**（重点：test_dispatch_visibility/test_requests 的陌生人 403 一条不改）
+- [X] T011 [P] Integration: `backend/tests/integration/test_sharing_scope.py` — 先写红（成员 relevant 列表含项目与需求/详情 200/移除后 404；成员协作链建→改→分配→连边；改归属 403；accept 仍仅 assignee；陌生人维持 403/404）
+- [X] T012 Modify `backend/app/services/project_service.py`：`_load_owned_project` → 可见性版本（owner ∪ 成员，用于详情/成员列表读）；`load_active_owned_project` → active 且（owner ∪ 成员）（建需求校验）；`project_visible_to_user` 加「成员」一肢；`_visible_request_counts` 口径扩展
+- [X] T013 Modify `backend/app/services/project_service.py`：`list_projects` relevant 口径加「我是成员的」；`get_project` 返回 member_count
+- [X] T014 Modify `backend/app/services/request_service.py`：`_check_owner` **不动**；新增 `_can_edit_request(request, user_id, is_member)` 第二判据，update/assign/dependency 调用方加一肢；`list_requests` relevant 加项目成员半连接；`update_request` 的 project_id 分流改为「创建者或该项目 owner」（R-03）
+- [X] T015 Modify `backend/app/api/v1/projects.py`：详情/列表响应带 member_count；`GET /projects/{id}` 谓词走 service 新可见性
+- [X] T016 跑 T011 转绿 + **既有测试全量回归**（重点：test_dispatch_visibility/test_requests 的陌生人 403 一条不改）
 
 ## Phase 4 — 前端（提交点：`feat(ui): 010 共享前端`）
 

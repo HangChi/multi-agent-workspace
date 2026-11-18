@@ -20,6 +20,7 @@ from app.api.errors import AppError
 from app.models.request import Request
 from app.models.request_dependency import RequestDependency
 from app.models.user import User
+from app.services import project_member_service
 
 logger = structlog.get_logger(__name__)
 
@@ -96,13 +97,19 @@ async def _load_editable_request(
     刻意不借 request_service.get_request——那个函数对「存在但非属主」抛
     403（006 锁定契约，既有需求端点不能动）；009 的边端点是新端点，
     按 007 立下的「新端点不暴露存在性」纪律一律 404（contracts §1.2 步 3）。
+
+    010：谓词加一肢「项目成员」——成员管理共享项目里的依赖边。
     """
     request = await db.get(Request, request_id)
-    if request is None or not (
-        request.owner_id == user_id or request.assignee_id == user_id
-    ):
+    if request is None:
         raise AppError("NOT_FOUND", "需求不存在")
-    return request
+    if request.owner_id == user_id or request.assignee_id == user_id:
+        return request
+    if request.project_id and await project_member_service.is_participant(
+        db, request.project_id, user_id
+    ):
+        return request
+    raise AppError("NOT_FOUND", "需求不存在")
 
 
 async def add_dependency(

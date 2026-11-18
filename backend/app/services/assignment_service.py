@@ -35,7 +35,7 @@ from app.orchestrator.strategies import (
     StrategyResolver,
     Target,
 )
-from app.services import dependency_service
+from app.services import dependency_service, project_member_service
 from app.services.external_invocation_service import snapshot_external_grants
 from app.services.quota_service import assert_user_quota
 from app.services.request_service import get_request
@@ -48,25 +48,51 @@ logger = structlog.get_logger(__name__)
 _ASSIGNABLE_STATUSES = frozenset(s.value for s in AGENT_ASSIGNABLE_STATUSES)
 
 
-async def _load_agent(db: AsyncSession, agent_id: str, user_id: str) -> Agent:
-    """目标 Agent 校验：不存在/无权限 → 404；已归档 → 400。"""
+async def _load_agent(
+    db: AsyncSession,
+    agent_id: str,
+    user_id: str,
+    allowed_owner_ids: set[str] | None = None,
+) -> Agent:
+    """目标 Agent 校验：不存在/无权限 → 404；已归档 → 400。
+
+    allowed_owner_ids（010）：项目参与者集合——共享项目里的 agent 对
+    参与者开放，否则成员拖执行时用不了 owner 建的 agent，协作链断在
+    分配那一步（US3 场景 3）。非共享场景不传，行为逐字节不变。
+    """
     agent = await db.get(Agent, agent_id)
-    if agent is None or agent.owner_id != user_id:
+    if agent is None:
+        raise AppError("NOT_FOUND", "Agent 不存在")
+    if agent.owner_id != user_id and (
+        allowed_owner_ids is None or agent.owner_id not in allowed_owner_ids
+    ):
         raise AppError("NOT_FOUND", "Agent 不存在")
     if agent.status != "active":
         raise AppError("INVALID_INPUT", "归档 Agent 不可分配")
     return agent
 
 
-async def _load_group(db: AsyncSession, group_id: str, user_id: str) -> AgentGroup:
-    """目标组校验（预加载有序成员）：不存在/无权限 → 404；已归档 → 400。"""
+async def _load_group(
+    db: AsyncSession,
+    group_id: str,
+    user_id: str,
+    allowed_owner_ids: set[str] | None = None,
+) -> AgentGroup:
+    """目标组校验（预加载有序成员）：不存在/无权限 → 404；已归档 → 400。
+
+    allowed_owner_ids（010）：同 _load_agent——共享项目的组对参与者开放。
+    """
     stmt = (
         select(AgentGroup)
         .options(selectinload(AgentGroup.members).selectinload(GroupMember.agent))
         .where(AgentGroup.id == group_id)
     )
     group = (await db.execute(stmt)).scalars().first()
-    if group is None or group.owner_id != user_id:
+    if group is None:
+        raise AppError("NOT_FOUND", "组不存在")
+    if group.owner_id != user_id and (
+        allowed_owner_ids is None or group.owner_id not in allowed_owner_ids
+    ):
         raise AppError("NOT_FOUND", "组不存在")
     if group.status != "active":
         raise AppError("INVALID_INPUT", "归档组不可分配")
@@ -166,8 +192,12 @@ async def assign(
     """
     # 1. 需求归属 + 存在性（行级锁：状态检查与迁移必须原子，防并发重复分配）
     #    007：谓词为 owner-or-assignee（request_service._check_owner），员工可
-    #    以执行分派给自己且已接收的需求。
-    request = await get_request(db, request_id, user_id, for_update=True)
+    #    以执行分派给自己且已接收的需求。010：再加一肢「项目成员」——成员
+    #    拖共享项目里的需求执行是核心协作动作（allow_member 快路，
+    #    _check_owner 本身不动）。
+    request = await get_request(
+        db, request_id, user_id, for_update=True, allow_member=True
+    )
 
     # 1.5 配额熔断（T077 + 007）：月用量 >= 上限 → 429 RATE_LIMITED（宪法「每个用户有月配额」）
     # 入参是 request.owner_id 而非操作人——分派后经手人 ≠ owner，成本恒记
@@ -187,14 +217,22 @@ async def assign(
     if assignee_type in ("agent", "group"):
         await dependency_service.assert_not_blocked(db, request.id)
 
+    # 2.7 010 共享：需求在共享项目里时，目标池 = 项目参与者（owner+成员）
+    # 的 agent/组——成员用 owner 建的 agent 执行，协作链才不断。
+    allowed_owner_ids: set[str] | None = None
+    if request.project_id:
+        allowed_owner_ids = set(
+            await project_member_service.participant_user_ids(db, request.project_id)
+        )
+
     # 3. 目标校验 + 默认策略
     group = None
     if assignee_type == "agent":
-        await _load_agent(db, assignee_id, user_id)
+        await _load_agent(db, assignee_id, user_id, allowed_owner_ids)
         if strategy is None:
             strategy = "direct"
     elif assignee_type == "group":
-        group = await _load_group(db, assignee_id, user_id)
+        group = await _load_group(db, assignee_id, user_id, allowed_owner_ids)
         if strategy is None:
             strategy = group.routing_strategy
     else:

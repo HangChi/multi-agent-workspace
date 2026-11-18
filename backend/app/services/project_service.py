@@ -19,6 +19,7 @@ from app.models.project import Project
 from app.models.request import Request
 from app.models.user import User
 from app.schemas.project import ProjectCreate, ProjectUpdate
+from app.services import project_member_service
 
 logger = structlog.get_logger(__name__)
 
@@ -26,10 +27,35 @@ logger = structlog.get_logger(__name__)
 async def _load_owned_project(
     db: AsyncSession, project_id: str, user_id: str
 ) -> Project:
-    """行级锁加载：不存在或非本人 → 404（不暴露存在性）。"""
+    """行级锁加载：不存在或非**owner** → 404（不暴露存在性）。
+
+    010 共享：写操作（改名/归档/删除）仍仅 owner——这里**保持 owner only**
+    （放宽会让「成员改项目名」漏过去），给 PATCH/DELETE 用；读路径
+    （详情/成员列表）用 `_load_visible_project`（owner ∪ 成员）。
+    """
     stmt = select(Project).where(Project.id == project_id).with_for_update()
     project = (await db.execute(stmt)).scalars().first()
     if project is None or project.owner_id != user_id:
+        raise AppError("NOT_FOUND", "项目不存在")
+    return project
+
+
+async def _load_visible_project(
+    db: AsyncSession, project_id: str, user_id: str
+) -> Project:
+    """读路径加载（010）：不存在或非**相关人员**（owner ∪ 成员）→ 404。
+
+    用 select 而非 db.get：调用方（如 PATCH 后的回读）拿到的是刚被 flush
+    过期属性的同一对象，select 会顺带刷新——db.get 直接返回身份映射里的
+    陈旧对象，随后 model_validate 触发惰性载入（MissingGreenlet）。
+    """
+    stmt = select(Project).where(Project.id == project_id)
+    project = (await db.execute(stmt)).scalars().first()
+    if project is None:
+        raise AppError("NOT_FOUND", "项目不存在")
+    if project.owner_id != user_id and not await project_member_service.is_member(
+        db, project_id, user_id
+    ):
         raise AppError("NOT_FOUND", "项目不存在")
     return project
 
@@ -89,9 +115,10 @@ async def list_projects(
     """项目列表 + 每个项目的可见需求数。
 
     scope=mine（管理页默认）：仅我创建的项目。
-    scope=relevant（看板筛选下拉）：我创建的 ∪ **派给我需求所属的项目**——
-    接收人的下拉里必须能看到「派给你那件活属于哪个项目」，否则他的看板
-    按项目筛选时该项目不可见（007 scope=relevant 的同款理由）。
+    scope=relevant（看板筛选下拉）：我创建的 ∪ **我是成员的** ∪
+    派给我需求所属的项目——接收人的下拉里必须能看到「派给你那件活
+    属于哪个项目」，否则他的看板按项目筛选时该项目不可见
+    （007 scope=relevant 的同款理由；010 再加成员一肢）。
     """
     if scope == "relevant":
         # 可见需求所属的项目 id（我创建的 + 分派给我的）
@@ -110,8 +137,21 @@ async def list_projects(
             .scalars()
             .all()
         )
+        # 010：我是成员的项目（共享的一肢）
+        member_project_ids = await project_member_service.member_project_ids(
+            db, user_id
+        )
         owned = list(
-            (await db.execute(select(Project).where(Project.owner_id == user_id)))
+            (
+                await db.execute(
+                    select(Project).where(
+                        or_(
+                            Project.owner_id == user_id,
+                            Project.id.in_(member_project_ids),
+                        )
+                    )
+                )
+            )
             .scalars()
             .all()
         )
@@ -141,11 +181,12 @@ async def list_projects(
 
 async def get_project(
     db: AsyncSession, project_id: str, user_id: str
-) -> tuple[Project, int]:
-    """单个项目 + 可见需求数。"""
-    project = await _load_owned_project(db, project_id, user_id)
+) -> tuple[Project, int, int]:
+    """单个项目 + 可见需求数 + 成员数（010：读路径 owner ∪ 成员）。"""
+    project = await _load_visible_project(db, project_id, user_id)
     counts = await _visible_request_counts(db, [user_id], [project.id])
-    return project, counts.get(project.id, 0)
+    member_count = await project_member_service.member_count(db, project.id)
+    return project, counts.get(project.id, 0), member_count
 
 
 async def create_project(
@@ -228,12 +269,19 @@ async def delete_project(db: AsyncSession, *, project_id: str, user_id: str) -> 
 async def load_active_owned_project(
     db: AsyncSession, project_id: str, user_id: str
 ) -> Project:
-    """建/改需求时的项目校验（contracts §2.1）：存在 + 属本人 + active。
+    """建/改需求时的项目校验（contracts §2.7）：存在 + **我是 owner 或成员**
+    + active。
 
-    不存在/属他人 → 404（归属纪律）；已归档 → 400（看得见但不能用，R-03）。
+    不存在/非相关人员 → 404（归属纪律）；已归档 → 400（看得见但不能用，
+    R-03）。010 共享把「属本人」放宽为「owner ∪ 成员」——成员往共享项目
+    里建需求是核心协作动作（FR-007）。
     """
     project = await db.get(Project, project_id)
-    if project is None or project.owner_id != user_id:
+    if project is None:
+        raise AppError("NOT_FOUND", "项目不存在")
+    if project.owner_id != user_id and not await project_member_service.is_member(
+        db, project_id, user_id
+    ):
         raise AppError("NOT_FOUND", "项目不存在")
     if project.status != "active":
         raise AppError("INVALID_INPUT", "项目已归档，不能作为新需求归属")
@@ -254,6 +302,9 @@ async def project_visible_to_user(
     if project is None:
         return False
     if project.owner_id == user_id:
+        return True
+    # 010：成员也看得见（下拉/过滤口径与详情一致，防 s9 场景 C 式分叉）
+    if await project_member_service.is_member(db, project_id, user_id):
         return True
     visible = (
         await db.execute(

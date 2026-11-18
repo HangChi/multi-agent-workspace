@@ -1,7 +1,8 @@
 """项目 schema（008）：CRUD 出入参 + 计数展示字段。
 
 ProjectOut 带 `request_count`——筛选下拉要「每个项目几件活」，
-前端逐个项目发一次 /requests 数数是 N+1（FR-010 的后端兑现）。
+前端逐个项目发一次 /requests 数数是 N+1（FR-010 的后端兑现）；
+010 再加 `member_count`（含 owner）。
 """
 
 from datetime import datetime
@@ -48,6 +49,8 @@ class ProjectOut(BaseModel):
     status: str
     # 该项目下、当前调用人可见范围内的需求数（我创建的 + 分派给我的）
     request_count: int = 0
+    # 010：成员数（含 owner——「这个项目有几个人」的自然口径，FR-009）
+    member_count: int = 1
     created_at: datetime
     updated_at: datetime
 

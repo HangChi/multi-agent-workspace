@@ -181,7 +181,10 @@ async def update_request(
     （经手人 403——他把需求挪去自己项目会让创建者的视图静默丢活）；
     其余字段维持 007 的 owner-or-assignee 谓词。
     """
-    before = await request_service.get_request(db, request_id, user.id)
+    # allow_member：010 项目成员也可编辑（与 service 内同一快路）
+    before = await request_service.get_request(
+        db, request_id, user.id, allow_member=True
+    )
     request = await request_service.update_request(
         db, request_id=request_id, user_id=user.id, payload=payload
     )
@@ -246,7 +249,10 @@ async def get_request(request_id: ResourceId, user: CurrentUser, db: DB):
     007 新增：`assignee_*` 分派指针 + `dispatch_history` 经手链
     （dispatch/reassign/accept/reject 正序，详情页时间线）。
     """
-    request = await request_service.get_request(db, request_id, user.id)
+    # 010：项目成员也可看详情（allow_member 快路；_check_owner 不动）
+    request = await request_service.get_request(
+        db, request_id, user.id, allow_member=True
+    )
     summaries = await request_service.run_outcome_summaries(db, [request.id])
     schedule_name = None
     if request.source_schedule_id:

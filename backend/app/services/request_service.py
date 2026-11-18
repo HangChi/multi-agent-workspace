@@ -11,12 +11,13 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.models.project import Project
 from app.models.request import Request
 from app.models.request_dispatch import RequestDispatch
 from app.models.run import Run
 from app.models.user import User
 from app.schemas.request import RequestCreate, RequestUpdate, RunOutcomeSummary
-from app.services import dependency_service, project_service
+from app.services import dependency_service, project_member_service, project_service
 
 logger = structlog.get_logger(__name__)
 
@@ -222,14 +223,23 @@ async def create_request(
 
 
 async def get_request(
-    db: AsyncSession, request_id: str, user_id: str, *, for_update: bool = False
+    db: AsyncSession,
+    request_id: str,
+    user_id: str,
+    *,
+    for_update: bool = False,
+    allow_member: bool = False,
 ) -> Request:
     """取单个需求（归属校验）。
 
     Args:
-        for_update: 加行级写锁（SELECT ... FOR UPDATE）。用于「读状态 → 改状态」
+        for_update: 加行级锁（SELECT ... FOR UPDATE）。用于「读状态 → 改状态」
             必须原子的场景：分配时若不加锁，两个并发请求会同时读到 created，
             各自建一组 Run（同一需求被执行两次、成本翻倍）。
+        allow_member: 010 共享——**项目成员**也放行（owner ∪ assignee ∪
+            成员）。默认 False：既有调用方行为逐字节不变（零回归的关键）。
+            成员快路在 `_check_owner` **之前**判——那个函数对非相关人员
+            抛 403，不先让成员过就会误伤。
     """
     if for_update:
         stmt = select(Request).where(Request.id == request_id).with_for_update()
@@ -238,6 +248,12 @@ async def get_request(
         request = await db.get(Request, request_id)
     if request is None:
         raise AppError("NOT_FOUND", "需求不存在")
+    if (
+        allow_member
+        and request.project_id
+        and await project_member_service.is_participant(db, request.project_id, user_id)
+    ):
+        return request
     _check_owner(request, user_id)
     return request
 
@@ -268,7 +284,19 @@ async def list_requests(
     if scope == "mine":
         conditions = [Request.owner_id == user_id]
     else:  # relevant：并集
-        conditions = [or_(Request.owner_id == user_id, Request.assignee_id == user_id)]
+        # 010：再加一肢「其项目的参与者（owner ∪ 成员）」——共享项目里的
+        # 全部需求对所有参与者可见。参与项目 id 一次取出（owned ∪ 成员行），
+        # 不逐条 EXISTS。
+        participating = await project_member_service.participating_project_ids(
+            db, user_id
+        )
+        conditions = [
+            or_(
+                Request.owner_id == user_id,
+                Request.assignee_id == user_id,
+                Request.project_id.in_(participating),
+            )
+        ]
     if project_id:
         # 过滤目标必须先校验：不存在/他人 → 404，不是静默空列表
         # （空列表会让人以为项目被清空了——SC 之外的可用性纪律）
@@ -307,6 +335,22 @@ async def list_requests(
     return rows, total
 
 
+async def _can_change_project(db: AsyncSession, request: Request, user_id: str) -> bool:
+    """010/R-03：谁可以改需求的 project_id——创建者 **或该项目 owner**。
+
+    008 立此规则防「经手人把需求挪去自己项目，创建者视图静默丢活」。
+    共享场景下同一个担忧放大到整个成员集合；收敛解：两个对项目结构
+    负有责任的角色（建它的人、管这个项目的人）可以改，其余人不行。
+    """
+    if request.owner_id == user_id:
+        return True
+    if request.project_id:
+        project = await db.get(Project, request.project_id)
+        if project is not None and project.owner_id == user_id:
+            return True
+    return False
+
+
 async def update_request(
     db: AsyncSession, *, request_id: str, user_id: str, payload: RequestUpdate
 ) -> Request:
@@ -316,11 +360,11 @@ async def update_request(
     （403），其余字段维持 007 的 owner-or-assignee 谓词。判定用「键是否存在」
     而不是「值是否变化」——显式传同值也要 403，客户端才能预判行为。
     """
-    request = await get_request(db, request_id, user_id)
+    request = await get_request(db, request_id, user_id, allow_member=True)
     data = payload.model_dump(exclude_unset=True)
 
-    if "project_id" in data and request.owner_id != user_id:
-        raise AppError("FORBIDDEN", "仅创建者可变更需求的项目归属")
+    if "project_id" in data and not await _can_change_project(db, request, user_id):
+        raise AppError("FORBIDDEN", "仅创建者或项目创建者可变更需求的项目归属")
     if "project_id" in data:
         if data["project_id"]:
             project = await project_service.load_active_owned_project(

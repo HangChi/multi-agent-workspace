@@ -6,9 +6,11 @@
 """
 
 from fastapi import APIRouter, Query, status
+from sqlalchemy import func, select
 
 from app.api.deps import DB, CurrentUser, MemberUser, ResourceId
 from app.core.audit import PROJECT_CREATE, PROJECT_DELETE, PROJECT_UPDATE, write_audit
+from app.models.project_member import ProjectMember
 from app.schemas.project import (
     ProjectCreate,
     ProjectList,
@@ -52,9 +54,29 @@ async def list_projects(
 ):
     """项目列表 + 每个项目的可见需求数。"""
     rows = await project_service.list_projects(db, user.id, scope=scope)
+    # 010：成员数一次批量（GROUP BY project_id），不逐项目查
+    member_counts = (
+        dict(
+            (
+                await db.execute(
+                    select(ProjectMember.project_id, func.count())
+                    .where(ProjectMember.project_id.in_([p.id for p, _ in rows]))
+                    .group_by(ProjectMember.project_id)
+                )
+            ).all()
+        )
+        if rows
+        else {}
+    )
     return {
         "items": [
-            ProjectOut.model_validate(p).model_copy(update={"request_count": count})
+            ProjectOut.model_validate(p).model_copy(
+                update={
+                    "request_count": count,
+                    # 含 owner（+1）——「这个项目有几个人」的自然口径
+                    "member_count": member_counts.get(p.id, 0) + 1,
+                }
+            )
             for p, count in rows
         ],
         "total": len(rows),
@@ -65,10 +87,12 @@ async def list_projects(
 async def get_project(
     project_id: ResourceId, user: CurrentUser, _m: MemberUser, db: DB
 ):
-    """项目详情 + 可见需求数。"""
-    project, count = await project_service.get_project(db, project_id, user.id)
+    """项目详情 + 可见需求数 + 成员数（010：owner ∪ 成员可读）。"""
+    project, count, member_count = await project_service.get_project(
+        db, project_id, user.id
+    )
     return ProjectOut.model_validate(project).model_copy(
-        update={"request_count": count}
+        update={"request_count": count, "member_count": member_count}
     )
 
 
@@ -94,9 +118,9 @@ async def update_project(
         strict=True,
     )
     await db.commit()
-    _, count = await project_service.get_project(db, project.id, user.id)
+    _, count, member_count = await project_service.get_project(db, project.id, user.id)
     return ProjectOut.model_validate(project).model_copy(
-        update={"request_count": count}
+        update={"request_count": count, "member_count": member_count}
     )
 
 

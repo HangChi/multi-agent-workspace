@@ -74,6 +74,37 @@ async def member_project_ids(db: AsyncSession, user_id: str) -> list[str]:
     )
 
 
+async def participating_project_ids(db: AsyncSession, user_id: str) -> list[str]:
+    """我**参与**的项目（010）：我创建的 ∪ 我是成员的。
+
+    与 member_project_ids 的差异是刻意存在的：项目 owner 不在成员表里
+    （owner 恒为 projects.owner_id，R-01），所以任何「按成员行反查」的
+    口径都会把 owner 本人漏掉——而 owner 恰恰是最该看到自己项目里全部
+    需求的人。**所有需求/项目可见性口径用本函数，不要用成员行版本。**
+    """
+    owned = list(
+        (await db.execute(select(Project.id).where(Project.owner_id == user_id)))
+        .scalars()
+        .all()
+    )
+    member_of = await member_project_ids(db, user_id)
+    return list({*owned, *member_of})
+
+
+async def is_participant(db: AsyncSession, project_id: str, user_id: str) -> bool:
+    """我是否参与该项目（010）：owner ∪ 成员。
+
+    与 is_member 的差异同上——成员行版本对 owner 返回 False，
+    可见性快路必须用本函数。
+    """
+    project = await db.get(Project, project_id)
+    if project is None:
+        return False
+    if project.owner_id == user_id:
+        return True
+    return await is_member(db, project_id, user_id)
+
+
 async def add_member(
     db: AsyncSession, *, project_id: str, user_id: str, member_user_id: str
 ) -> ProjectMember:
@@ -223,3 +254,26 @@ async def member_count(db: AsyncSession, project_id: str) -> int:
         ).scalar_one()
     )
     return count + 1  # + owner
+
+
+async def participant_user_ids(db: AsyncSession, project_id: str) -> list[str]:
+    """项目的全部参与者 user_id（010）：owner + 成员行。
+
+    用途：assign 的目标池——共享项目里的 agent/组对参与者开放
+    （成员拖执行时用 owner 建的 agent，否则协作链断在分配那一步）。
+    """
+    project = await db.get(Project, project_id)
+    if project is None:
+        return []
+    member_ids = list(
+        (
+            await db.execute(
+                select(ProjectMember.user_id).where(
+                    ProjectMember.project_id == project_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list({project.owner_id, *member_ids})
