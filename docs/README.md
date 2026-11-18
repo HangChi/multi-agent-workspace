@@ -19,7 +19,7 @@
 
 ## 功能规格（Spec Kit，`../specs/`）
 
-十二个特性都按 SDD + TDD 走完，每个目录结构一致：
+十三个特性都按 SDD + TDD 走完，每个目录结构一致：
 `spec.md`（WHAT/WHY）→ `plan.md` / `research.md` / `data-model.md` /
 `contracts/api.md` → `checklists/requirements.md` → `tasks.md`（逐条勾选 + 实测记录）
 → `quickstart.md`（真实栈验收）。
@@ -38,6 +38,7 @@
 | [010-project-sharing](../specs/010-project-sharing/spec.md) | 项目共享：成员管理、共享可见性、协作谓词（owner+成员两层） | ✅ 26/26（s11 真实栈 4/4） |
 | [011-browser-walkthrough](../specs/011-browser-walkthrough/spec.md) | 浏览器走查基建：s12 脚本自动化三份前端清单，零应用改动 | ✅ 20/21（s12：9 过 / 6 已知发现） |
 | [012-error-message-passthrough](../specs/012-error-message-passthrough/spec.md) | ErrorBanner 字符串直通：修 011 抓出的「后端错误消息全被兜底文案吃掉」 | ✅ 10/10（s12 B4 复跑转 ✅） |
+| [013-s12-findings-fix](../specs/013-s12-findings-fix/spec.md) | s12 挂账三项：viewer 入口/共享项目可见/依赖弹层刷新 | ✅ 11/11（s12 15/15） |
 
 > `research.md` 是每个特性里最值得先读的文件：它记录每个关键决策「为什么更简单的做法不行」，
 > 例如 005 的「内置模板唯一性必须用部分唯一索引」（PostgreSQL 唯一约束遇 NULL 不生效）。

@@ -18,7 +18,7 @@
 | **项目容器（008）** | 项目是需求的业务容器（单人归属）：建需求时可归类，看板按项目筛选；项目可改名（快照同步）/ 归档（只拦新建）/ 删除（需求保留、归属清空） |
 | **需求依赖（009）** | 需求间有向「先后」边：前置未完成时拖给 Agent/组被 409 挡下（逐条列出阻塞项），前置终态后通知「可以启动了」；拒绝成环，边可增删 |
 | **项目共享（010）** | 项目从单人篮子变成团队工作区：owner 全权 + 成员项目内读写协作；成员可见彼此项目与需求，加人/移出即时生效并有通知 |
-| **浏览器走查（011）** | 一条命令用真实 Chromium 跑完 008/009/010 的前端走查清单（15 项逐条 ✅/❌ + 失败截图产物）；首轮即抓出 4 类前端 bug（详见各特性 quickstart 的 ⏳ 记录） |
+| **浏览器走查（011）** | 一条命令用真实 Chromium 跑完 008/009/010 的前端走查清单（15 项逐条 ✅/❌ + 失败截图产物）；首轮抓出的 4 类前端 bug 已由 012/013 全部修掉，s12 终态 **15/15** |
 | **拖拽分配** | 需求卡片用 dnd-kit 拖到 Agent 卡或组卡，落点弹窗选策略，`POST /requests/{id}/assign` 毫秒级受理，重活交给 Celery |
 | **四种编排策略** | `direct` 单 Agent · `fan_out` 并行分发 · `pipeline` 顺序串联 · `router` 模型选成员，父子 Run 通过 `parent_run_id` 关联 |
 | **ReAct 执行引擎** | 自研状态机 + 工具循环：LLM 推理 → 工具调用 → 结果回填 → 直到出最终答案；每步落库，可展开查看输入输出 |
@@ -483,6 +483,7 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 | [010-project-sharing](specs/010-project-sharing/spec.md) | 项目共享：成员管理 + 共享可见性 + 协作谓词 | ✅ 26/26（s11 真实栈 4/4） |
 | [011-browser-walkthrough](specs/011-browser-walkthrough/spec.md) | 浏览器走查基建：s12 脚本把 008/009/010 的前端清单自动化 | ✅ 20/21（s12 实测 9/15，6 项失败是已知发现） |
 | [012-error-message-passthrough](specs/012-error-message-passthrough/spec.md) | ErrorBanner 字符串直通：后端错误消息直达用户（修 011 抓出的系统性 bug） | ✅ 10/10（s12 B4 复跑转 ✅） |
+| [013-s12-findings-fix](specs/013-s12-findings-fix/spec.md) | s12 挂账三项全修：viewer 项目入口/共享项目前端可见/依赖弹层刷新 | ✅ 11/11（s12 **15/15** 全绿） |
 
 分支约定：特性开发走 `feat/<name>`，每个 Phase 一次提交，完成后 fast-forward 合并回
 `master` 并删除特性分支。宪法见 [.specify/memory/constitution.md](.specify/memory/constitution.md)。
