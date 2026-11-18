@@ -180,7 +180,7 @@ export function Board({ requests, agents, groups, isLoading, onAssignStart, onOp
                 <section
                   key={col.status}
                   aria-label={col.label}
-                  className="flex w-[84vw] max-w-[300px] shrink-0 snap-start flex-col rounded-xl border border-line/70 bg-surface-subtle/50 p-2 sm:w-[272px] lg:min-h-[calc(100vh-19rem)]"
+                  className="flex w-[84vw] max-w-[340px] shrink-0 snap-start flex-col rounded-xl border border-line/70 bg-surface-subtle/50 p-2 sm:w-[300px] xl:min-w-[300px] xl:flex-1 xl:min-h-[calc(100vh-17rem)]"
                 >
                   <header className="-mx-2 mb-2 flex items-center gap-2 border-b border-line/60 px-3.5 pb-2 pt-0.5">
                     {isRunning && (

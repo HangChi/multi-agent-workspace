@@ -239,8 +239,9 @@ export function SettingsPage() {
             </IconTile>
             <div className="min-w-0">
               <h2 className="text-sm font-semibold text-ink">系统信息</h2>
-              <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">
-                前端 v0.1.0 · 时区 Asia/Shanghai · 构建产物经 Nginx 提供静态服务
+              <p className="mt-0.5 text-ui leading-relaxed text-ink-muted">
+                前端 v0.1.0 · 时区 Asia/Shanghai · 构建产物经 Nginx 提供静态服务。
+                运行状态只在顶栏显示，这里放不会随状态变化的信息。
               </p>
             </div>
           </div>

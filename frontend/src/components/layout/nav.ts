@@ -92,32 +92,6 @@ export function filterNav(items: NavItem[], role: Role): NavItem[] {
   return items.filter((item) => canSee(item, role))
 }
 
-/** 面包屑：返回「模块 / 页面」两段，找不到时退化为当前段为空。 */
-export function resolveTrail(
-  pathname: string,
-  role: Role
-): { module: string | null; page: string | null } {
-  const inSettings = pathname.startsWith('/settings')
-  const source = inSettings ? SETTINGS_NAV : MAIN_NAV
-  const pool = filterNav(source, role)
-
-  // 最长前缀优先：/agents/xxx 归到「Agent」，不会被 '/' 抢走
-  let matched: NavItem | null = null
-  for (const item of pool) {
-    const hit = item.end ? pathname === item.to : pathname.startsWith(item.to)
-    if (hit && (!matched || item.to.length > matched.to.length)) matched = item
-  }
-
-  if (pathname.startsWith('/runs/')) {
-    return { module: '看板', page: '运行详情' }
-  }
-
-  return {
-    module: inSettings ? '设置' : '工作台',
-    page: matched ? (matched.shortLabel ?? matched.label) : null,
-  }
-}
-
 /** 当前路径命中的设置条目（设置页内部二级导航高亮用）。 */
 export function activeSettingsItem(pathname: string): NavItem | undefined {
   return SETTINGS_NAV.find((item) => pathname.startsWith(item.to))
