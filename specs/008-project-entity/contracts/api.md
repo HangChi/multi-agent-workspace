@@ -69,7 +69,10 @@ body 新增可选 `project_id: uuid | null`。
    - 已归档 → **400 INVALID_INPUT**（看得见但不能用，R-03）；
    - 通过则同时写 `project_id` 与 `project_name`（快照，R-04）。
 
-### 2.2 `PATCH /requests/{id}`（编辑）
+### 2.2 `PATCH /requests/{id}`（编辑，**008 首次接线**）
+
+> 该路由在 001 写了 `update_request` service 但从未暴露（前端也没有编辑流）。
+> 008 的归属变更（FR-005）需要编辑路径，故首次接线；既有端点一个没动。
 
 body 新增可选 `project_id`。**字段级权限分流**（R-05）：
 

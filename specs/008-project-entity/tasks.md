@@ -23,12 +23,12 @@
 
 ## Phase 3b — 需求归属（改既有，提交点：`feat(request): 008 需求归属`）
 
-- [ ] T013 [P] Integration: `backend/tests/integration/test_request_project_link.py` — 先写红（建需求带项目 201/他人 404/归档 400；经手人改 project_id 403 但改标题 202；`?project_id=`/`?project=none` 过滤；删除项目后置空）
-- [ ] T014 Modify `backend/app/schemas/request.py`：`RequestCreate/RequestUpdate` +可选 `project_id`；`RequestOut` +`project_id`/`project_name`（可空默认 null——SC-006 零回归据此判）
-- [ ] T015 Modify `backend/app/services/request_service.py`：创建/编辑时的项目校验（存在+属本人+active）；编辑按「是否含 project_id 键」分流权限（R-05）；`list_requests` +`project_id`/`project=none` 过滤（与 scope 正交）
-- [ ] T016 Modify `backend/app/api/v1/requests.py`：list 加 query 参数；create/update 走 service 新校验；detail 无需改（schema 自带）
-- [ ] T017 跑 T013 转绿 + 既有测试全量回归（重点：test_requests/test_dispatch_visibility 的 403/404/202 断言不变）
-- [ ] T018 [P] 前端 api 层先行：`frontend/src/api/projects.ts`（CRUD）+ `requests.ts` 类型扩展（T029 的测试会消费）
+- [X] T013 [P] Integration: `backend/tests/integration/test_request_project_link.py` — 先写红（建需求带项目 201/他人 404/归档 400；经手人改 project_id 403 但改标题 202；`?project_id=`/`?project=none` 过滤；删除项目后置空）
+- [X] T014 Modify `backend/app/schemas/request.py`：`RequestCreate/RequestUpdate` +可选 `project_id`；`RequestOut` +`project_id`/`project_name`（可空默认 null——SC-006 零回归据此判）
+- [X] T015 Modify `backend/app/services/request_service.py`：创建/编辑时的项目校验（存在+属本人+active）；编辑按「是否含 project_id 键」分流权限（R-05）；`list_requests` +`project_id`/`project=none` 过滤（与 scope 正交）
+- [X] T016 Modify `backend/app/api/v1/requests.py`：list 加 query 参数；create/update 走 service 新校验；detail 无需改（schema 自带）
+- [X] T017 跑 T013 转绿 + 既有测试全量回归（重点：test_requests/test_dispatch_visibility 的 403/404/202 断言不变）
+- [ ] T018 [P] 前端 api 层先行：`frontend/src/api/projects.ts`（CRUD）+ `requests.ts` 类型扩展（T029 的测试会消费）——**挪到 Phase 4 与页面同批做**（独立文件无依赖，放 3b 提交里反而拆散前端改动）
 
 ## Phase 4 — 前端（提交点：`feat(ui): 008 项目容器前端`）
 

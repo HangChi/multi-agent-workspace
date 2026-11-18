@@ -16,6 +16,7 @@ from app.models.request_dispatch import RequestDispatch
 from app.models.run import Run
 from app.models.user import User
 from app.schemas.request import RequestCreate, RequestUpdate, RunOutcomeSummary
+from app.services import project_service
 
 logger = structlog.get_logger(__name__)
 
@@ -147,13 +148,25 @@ def _check_owner(request: Request, user_id: str) -> None:
 async def create_request(
     db: AsyncSession, *, user_id: str, payload: RequestCreate
 ) -> Request:
-    """创建需求（member/admin 已由路由层校验）。"""
+    """创建需求（member/admin 已由路由层校验）。
+
+    008：`project_id` 非空时校验「存在 + 属本人 + active」，并双写
+    `project_name` 快照（快照的两个写入点之一，另一个是项目改名）。
+    """
+    project_name: str | None = None
+    if payload.project_id:
+        project = await project_service.load_active_owned_project(
+            db, payload.project_id, user_id
+        )
+        project_name = project.name
     request = Request(
         owner_id=user_id,
         title=payload.title,
         description=payload.description,
         expected_output=payload.expected_output,
         priority=payload.priority.value,
+        project_id=payload.project_id,
+        project_name=project_name,
     )
     db.add(request)
     await db.flush()
@@ -186,6 +199,8 @@ async def list_requests(
     *,
     user_id: str,
     scope: str = "relevant",
+    project_id: str | None = None,
+    project: str | None = None,
     status: str | None = None,
     q: str | None = None,
     priority: str | None = None,
@@ -198,11 +213,21 @@ async def list_requests(
     这是**只扩大不缩小**的契约变更（spec Assumptions 2）：不传 scope 的旧
     调用方从「只看自己的」变为「自己的 + 派给我的」，没有人因此看不到原来
     能看的东西。mine 保持 006 及以前逐字段一致（回归测试钉住）。
+
+    008：`project_id`（具体项目，含归档——回看不拦）/ `project=none`
+    （未归属）两个维度参数与 scope/status/q/priority 正交叠加。
     """
     if scope == "mine":
         conditions = [Request.owner_id == user_id]
     else:  # relevant：并集
         conditions = [or_(Request.owner_id == user_id, Request.assignee_id == user_id)]
+    if project_id:
+        # 过滤目标必须先校验：不存在/他人 → 404，不是静默空列表
+        # （空列表会让人以为项目被清空了——SC 之外的可用性纪律）
+        await project_service.project_exists_for_filter(db, project_id, user_id)
+        conditions.append(Request.project_id == project_id)
+    elif project == "none":
+        conditions.append(Request.project_id.is_(None))
     if status:
         conditions.append(Request.status == status)
     if priority:
@@ -237,9 +262,32 @@ async def list_requests(
 async def update_request(
     db: AsyncSession, *, request_id: str, user_id: str, payload: RequestUpdate
 ) -> Request:
-    """编辑需求（归属校验）。"""
+    """编辑需求（归属校验）。
+
+    008 字段级权限分流（R-05）：请求体**含** `project_id` 键时要求创建者
+    （403），其余字段维持 007 的 owner-or-assignee 谓词。判定用「键是否存在」
+    而不是「值是否变化」——显式传同值也要 403，客户端才能预判行为。
+    """
     request = await get_request(db, request_id, user_id)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+
+    if "project_id" in data and request.owner_id != user_id:
+        raise AppError("FORBIDDEN", "仅创建者可变更需求的项目归属")
+    if "project_id" in data:
+        if data["project_id"]:
+            project = await project_service.load_active_owned_project(
+                db, data["project_id"], user_id
+            )
+            request.project_id = project.id
+            request.project_name = project.name
+        else:
+            # 显式 null = 解除归属（两列一起清：留 name 是孤儿名字）
+            request.project_id = None
+            request.project_name = None
+
+    for field, value in data.items():
+        if field == "project_id":
+            continue  # 上面已单独处理（含权限与快照）
         if value is None and field in ("description", "expected_output"):
             setattr(request, field, None)
         elif value is not None:

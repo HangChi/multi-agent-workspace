@@ -39,6 +39,7 @@ from app.schemas.request import (
     RequestCreate,
     RequestList,
     RequestOut,
+    RequestUpdate,
 )
 from app.services import (
     artifact_service,
@@ -78,6 +79,16 @@ async def list_requests(
         pattern="^(relevant|mine)$",
         description="relevant=我创建的+分派给我的（默认）；mine=仅我创建的",
     ),
+    # 008：项目维度过滤。project_id=具体项目（含归档，回看不拦）；
+    # project=none=未归属。两者互斥（都传以 project_id 为准）。
+    project_id: str | None = Query(
+        default=None, description="按项目过滤（uuid；不存在/他人 → 404）"
+    ),
+    project: str | None = Query(
+        default=None,
+        pattern="^none$",
+        description="未归属需求（project_id IS NULL）",
+    ),
     status: str | None = Query(
         default=None,
         pattern="^(created|pending|accepted|assigned|running|completed|failed|cancelled)$",
@@ -96,6 +107,8 @@ async def list_requests(
         db,
         user_id=user.id,
         scope=scope,
+        project_id=project_id,
+        project=project,
         status=status,
         q=q,
         priority=priority,
@@ -139,6 +152,53 @@ async def create_request(
         target_type="request",
         target_id=request.id,
         detail={"title": request.title, "priority": request.priority},
+        strict=True,
+    )
+    await db.commit()
+    return RequestOut.model_validate(request)
+
+
+@router.patch("/{request_id}", response_model=RequestOut)
+async def update_request(
+    request_id: ResourceId,
+    payload: RequestUpdate,
+    _m: MemberUser,
+    user: CurrentUser,
+    db: DB,
+):
+    """编辑需求（008 首次接线：该路由在 001 写了 service 但从未暴露）。
+
+    字段级权限分流（FR-005/R-05）：含 `project_id` 键时仅创建者可改
+    （经手人 403——他把需求挪去自己项目会让创建者的视图静默丢活）；
+    其余字段维持 007 的 owner-or-assignee 谓词。
+    """
+    before = await request_service.get_request(db, request_id, user.id)
+    request = await request_service.update_request(
+        db, request_id=request_id, user_id=user.id, payload=payload
+    )
+    # refresh 必须显式：service 的 flush 会让 ORM 属性过期，随后
+    # model_validate 读 updated_at 会触发惰性载入（MissingGreenlet，
+    # create 端点同款处理）
+    await db.refresh(request)
+    await write_audit(
+        db,
+        user_id=user.id,
+        action="request_update",
+        target_type="request",
+        target_id=request_id,
+        detail={
+            "fields": sorted(payload.model_dump(exclude_unset=True).keys()),
+            # 归属变更单独记 from/to：「这件活什么时候换了项目」是项目视图
+            # 排查的高频问题，混在 fields 里要翻旧值
+            **(
+                {
+                    "from_project": before.project_id,
+                    "to_project": request.project_id,
+                }
+                if "project_id" in payload.model_dump(exclude_unset=True)
+                else {}
+            ),
+        },
         strict=True,
     )
     await db.commit()

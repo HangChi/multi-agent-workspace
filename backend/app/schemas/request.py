@@ -66,6 +66,9 @@ class RequestCreate(BaseModel):
     description: str | None = None
     expected_output: str | None = None
     priority: Priority = Priority.normal
+    # 008：业务归属。可空 = 不归类。取值必须是「本人名下 active 项目」
+    # （service 校验：他人/不存在 404，已归档 400）。
+    project_id: str | None = None
 
     @field_validator("title")
     @classmethod
@@ -81,6 +84,9 @@ class RequestUpdate(BaseModel):
     description: str | None = None
     expected_output: str | None = None
     priority: Priority | None = None
+    # 008：业务归属。字段级权限：仅创建者可改（service 分流，R-05）；
+    # 显式传 null = 解除归属（创建者特权）。
+    project_id: str | None = None
 
     @field_validator("title")
     @classmethod
@@ -150,6 +156,10 @@ class RequestOut(BaseModel):
     assignee_email: str | None = None
     dispatched_at: datetime | None = None
     accepted_at: datetime | None = None
+    # 008：业务归属。project_name 是快照（随项目改名同步，research R-04），
+    # 未归类两者皆 null——既有字段一个不改，SC-006 零回归据此判定。
+    project_id: str | None = None
+    project_name: str | None = None
     #: 经手链（dispatch/reassign/accept/reject 正序）。仅详情端点填充——
     #: 列表端点保持 None，避免每条需求都带一圈历史查询。
     dispatch_history: list[DispatchRecordOut] | None = None
