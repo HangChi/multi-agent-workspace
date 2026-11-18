@@ -117,7 +117,7 @@ export function Dropdown({
             triggerRef.current?.focus()
           }}
           className={cn(
-            'absolute z-50 min-w-[12rem] rounded-xl border border-line bg-surface p-1.5 shadow-pop animate-pop-in',
+            'absolute z-dropdown min-w-[12rem] rounded-xl border border-line bg-surface p-1.5 shadow-pop animate-pop-in',
             placement === 'top' ? 'bottom-full mb-2' : 'top-full mt-2',
             align === 'end' ? 'right-0' : 'left-0',
             panelClassName
@@ -170,12 +170,4 @@ export function DropdownItem({
 
 export function DropdownSeparator() {
   return <div className="my-1 h-px bg-surface-subtle" />
-}
-
-export function DropdownLabel({ children }: { children: ReactNode }) {
-  return (
-    <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-ink-faint">
-      {children}
-    </p>
-  )
 }

@@ -203,7 +203,7 @@ export function CommandPalette({ open, onClose }: Props) {
   let flatIndex = -1
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center px-4 pt-[12vh]">
+    <div className="fixed inset-0 z-palette flex items-start justify-center px-4 pt-[12vh]">
       <div
         className="absolute inset-0 backdrop-tint animate-fade-in"
         onClick={onClose}

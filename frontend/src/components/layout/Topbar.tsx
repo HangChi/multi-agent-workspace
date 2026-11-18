@@ -64,7 +64,7 @@ export function Topbar() {
   const initial = (user?.email ?? '?').slice(0, 1).toUpperCase()
 
   return (
-    <header className="sticky top-0 z-40 border-b border-line/70 bg-canvas/85 backdrop-blur-xl">
+    <header className="sticky top-0 z-header border-b border-line/70 bg-canvas/85 backdrop-blur-xl">
       <div className="mx-auto flex h-14 w-full max-w-[1560px] items-center gap-2 px-3 sm:gap-3 sm:px-6 lg:px-8">
         <Link
           to="/"

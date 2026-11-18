@@ -26,13 +26,6 @@ const PATHS = {
   'arrow-right': <path d="M5 12h14M12 5l7 7-7 7" />,
   'arrow-up': <path d="M12 19V5M5 12l7-7 7 7" />,
   'arrow-down': <path d="M12 5v14M19 12l-7 7-7-7" />,
-  /** 侧栏开关：一条竖线 + 左侧面板 */
-  'panel-left': (
-    <>
-      <rect x="3" y="4" width="18" height="16" rx="2.5" />
-      <path d="M9 4v16" />
-    </>
-  ),
   /** 设置：齿轮（外圈 8 齿用短线段，内圈同心圆） */
   settings: (
     <>
@@ -73,9 +66,6 @@ const PATHS = {
       <circle cx="19" cy="12" r="1.1" />
     </>
   ),
-  /** 收起的侧栏箭头 */
-  'chevrons-left': <path d="m11 17-5-5 5-5M18 17l-5-5 5-5" />,
-  'chevrons-right': <path d="m13 17 5-5-5-5M6 17l5-5-5-5" />,
   edit: (
     <>
       <path d="M12 20h9" />

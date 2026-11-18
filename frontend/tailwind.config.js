@@ -121,6 +121,30 @@ export default {
         '2xl': '1.125rem',
         '3xl': '1.5rem',
       },
+      /**
+       * 全局层级（唯一真实来源）：
+       * header 吸顶导航 / dropdown 浮层菜单 / palette 命令面板 /
+       * skip 跳转链接（聚焦时）/ modal 模态 / toast 轻提示。
+       * 此前 Modal z-[80]、Toast z-[90]、面板 z-[60] 散落四处，
+       * 任何新浮层都要先考古一遍数字；收敛后按语义取用。
+       */
+      zIndex: {
+        header: '40',
+        dropdown: '50',
+        palette: '60',
+        skip: '60',
+        modal: '80',
+        toast: '90',
+      },
+      /**
+       * focus-visible 的 ring offset 色缺省是纯白，深色主题下焦点环外
+       * 会挂一圈白边（与「切主题不写 dark:」的令牌承诺相悖）。
+       * 这里把默认 offset 收口到 surface，Button 之外各处的
+       * ring-offset-2 不再需要逐个补 ring-offset-surface。
+       */
+      ringOffsetColor: {
+        DEFAULT: 'rgb(var(--surface) / <alpha-value>)',
+      },
       spacing: {
         /** 侧栏宽度（展开 / 收起），布局与内容偏移共用一份真实来源 */
         rail: '4.75rem',
