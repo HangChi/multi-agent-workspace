@@ -148,7 +148,7 @@ export function RegisterPage() {
                   />
                 ))}
               </div>
-              <span className={cn('text-2xs font-medium', STRENGTH_TEXT[strength])}>
+              <span className={cn('text-micro font-medium', STRENGTH_TEXT[strength])}>
                 {STRENGTH_LABEL[strength]}
               </span>
             </div>

@@ -145,13 +145,13 @@ export function SettingsPage() {
                       className={cn('h-3.5 w-3.5', active ? 'text-accent' : 'text-ink-faint')}
                     />
                     <span
-                      className={cn('text-[13px] font-medium', active ? 'text-accent' : 'text-ink')}
+                      className={cn('text-ui font-medium', active ? 'text-accent' : 'text-ink')}
                     >
                       {opt.label}
                     </span>
                     {active && <Icon name="check" className="ml-auto h-3.5 w-3.5 text-brand-500" />}
                   </span>
-                  <span className="mt-0.5 block text-2xs text-ink-faint">{opt.hint}</span>
+                  <span className="mt-0.5 block text-micro text-ink-faint">{opt.hint}</span>
                 </button>
               )
             })}
@@ -174,7 +174,7 @@ export function SettingsPage() {
               {(user?.email ?? '?').slice(0, 1).toUpperCase()}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[13.5px] font-medium text-ink">{user?.email}</p>
+              <p className="truncate text-ui font-medium text-ink">{user?.email}</p>
               <div className="mt-1">
                 <Badge tone={ROLE_TONE[user?.role ?? 'member'] ?? 'slate'} dot>
                   {ROLE_LABEL[user?.role ?? 'member'] ?? user?.role}
@@ -188,7 +188,7 @@ export function SettingsPage() {
           </p>
 
           <div className="mt-4 flex items-center justify-between gap-3 border-t border-line-subtle pt-3.5">
-            <p className="text-2xs leading-relaxed text-ink-faint">
+            <p className="text-micro leading-relaxed text-ink-faint">
               登出会撤销刷新凭证并清除浏览器 cookie。
             </p>
             <Button variant="secondary" size="sm" leftIcon="log-out" onClick={logout}>
@@ -214,7 +214,7 @@ export function SettingsPage() {
                   <Icon name={item.icon} className="h-4 w-4" />
                 </IconTile>
                 <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1 text-[13.5px] font-medium text-ink">
+                  <span className="flex items-center gap-1 text-ui font-medium text-ink">
                     {item.label}
                     <Icon
                       name="arrow-right"
@@ -246,7 +246,7 @@ export function SettingsPage() {
           </div>
           <Link
             to="/dashboard"
-            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 text-[13px] font-medium text-ink-soft shadow-card transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45"
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 text-ui font-medium text-ink-soft shadow-card transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45"
           >
             <Icon name="activity" className="h-4 w-4" />
             查看运行状态

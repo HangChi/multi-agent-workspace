@@ -53,9 +53,9 @@ export function SettingsLayout() {
                       )}
                     />
                     <span className="min-w-0">
-                      <span className="block truncate text-[13.5px] font-medium">{item.label}</span>
+                      <span className="block truncate text-ui font-medium">{item.label}</span>
                       {item.description && (
-                        <span className="mt-0.5 block truncate text-2xs leading-snug text-ink-faint">
+                        <span className="mt-0.5 block truncate text-micro leading-snug text-ink-faint">
                           {item.description}
                         </span>
                       )}
@@ -78,7 +78,7 @@ export function SettingsLayout() {
                   to={item.to}
                   className={({ isActive }) =>
                     cn(
-                      'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium transition-colors',
+                      'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-ui font-medium transition-colors',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45',
                       isActive
                         ? 'border-brand-200 bg-brand-50 text-accent'
@@ -98,7 +98,7 @@ export function SettingsLayout() {
           </div>
 
           {current?.description && (
-            <p className="mt-4 hidden rounded-lg border border-dashed border-line px-2.5 py-2 text-2xs leading-relaxed text-ink-faint lg:block">
+            <p className="mt-4 hidden rounded-lg border border-dashed border-line px-2.5 py-2 text-micro leading-relaxed text-ink-faint lg:block">
               {current.description}
             </p>
           )}

@@ -105,7 +105,7 @@ export function AttachmentUploader({ requestId, onUploaded }: Props) {
         <span className="text-xs font-medium text-ink-soft">
           {dragOver ? '松开即可上传' : '点击选择文件，或拖拽到此处'}
         </span>
-        <span className="mt-0.5 text-2xs text-ink-faint">单个文件不超过 20MB</span>
+        <span className="mt-0.5 text-micro text-ink-faint">单个文件不超过 20MB</span>
       </label>
 
       {uploadMut.isPending && (
@@ -113,7 +113,7 @@ export function AttachmentUploader({ requestId, onUploaded }: Props) {
           <div className="h-1 overflow-hidden rounded-full bg-line">
             <div className="h-full w-1/3 rounded-full bg-brand-500 animate-indeterminate" />
           </div>
-          <p className="mt-1 text-2xs text-ink-muted">正在上传…</p>
+          <p className="mt-1 text-micro text-ink-muted">正在上传…</p>
         </div>
       )}
 

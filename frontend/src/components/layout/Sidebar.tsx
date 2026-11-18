@@ -44,7 +44,7 @@ interface Props {
 function navItemClass(collapsed: boolean) {
   return ({ isActive }: { isActive: boolean }) =>
     cn(
-      'group relative flex items-center rounded-lg text-[13.5px] font-medium transition-all duration-150',
+      'group relative flex items-center rounded-lg text-ui font-medium transition-all duration-150',
       collapsed ? 'h-11 w-11 justify-center' : 'h-10 gap-2.5 px-2.5',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 focus-visible:ring-offset-2',
       isActive
@@ -122,10 +122,8 @@ export function Sidebar({ open, onClose, collapsed, onToggleCollapsed }: Props) 
           {!collapsed && (
             <>
               <span className="min-w-0 flex-1 text-left">
-                <span className="block truncate text-[13px] font-medium text-ink">
-                  {user?.email}
-                </span>
-                <span className="block text-2xs text-ink-faint">
+                <span className="block truncate text-ui font-medium text-ink">{user?.email}</span>
+                <span className="block text-micro text-ink-faint">
                   {ROLE_LABEL[user?.role ?? 'member'] ?? user?.role}
                 </span>
               </span>
@@ -136,7 +134,7 @@ export function Sidebar({ open, onClose, collapsed, onToggleCollapsed }: Props) 
       }
     >
       <div className="px-2.5 pb-2 pt-1.5">
-        <p className="truncate text-[13px] font-medium text-ink">{user?.email}</p>
+        <p className="truncate text-ui font-medium text-ink">{user?.email}</p>
         <div className="mt-1.5">
           <Badge tone={ROLE_TONE[user?.role ?? 'member'] ?? 'slate'} dot>
             {ROLE_LABEL[user?.role ?? 'member'] ?? user?.role}
@@ -176,7 +174,7 @@ export function Sidebar({ open, onClose, collapsed, onToggleCollapsed }: Props) 
                 <span className="block truncate text-[14px] font-semibold leading-tight tracking-tight text-ink">
                   Agent 工作台
                 </span>
-                <span className="block truncate text-2xs text-ink-faint">
+                <span className="block truncate text-micro text-ink-faint">
                   Multi-Agent Workspace
                 </span>
               </span>
@@ -240,7 +238,7 @@ export function Sidebar({ open, onClose, collapsed, onToggleCollapsed }: Props) 
                       {!isCollapsed && (
                         <>
                           <span className="truncate">设置</span>
-                          <span className="ml-auto rounded-md bg-surface px-1.5 py-0.5 text-[10px] font-medium text-ink-faint ring-1 ring-inset ring-line/80">
+                          <span className="ml-auto rounded-md bg-surface px-1.5 py-0.5 text-micro font-medium text-ink-faint ring-1 ring-inset ring-line/80">
                             {settingsItems.length}
                           </span>
                         </>
@@ -279,8 +277,8 @@ export function Sidebar({ open, onClose, collapsed, onToggleCollapsed }: Props) 
                   <span className="absolute inset-0 animate-ping rounded-full bg-emerald-500/60" />
                   <span className="relative h-2 w-2 rounded-full bg-emerald-500" />
                 </span>
-                <span className="text-2xs font-medium text-ink-soft">系统正常</span>
-                <span className="ml-auto font-mono text-[10px] text-ink-faint">v0.1.0</span>
+                <span className="text-micro font-medium text-ink-soft">系统正常</span>
+                <span className="ml-auto font-mono text-micro text-ink-faint">v0.1.0</span>
               </div>
               {accountMenu}
             </>

@@ -162,7 +162,7 @@ export function TriggerHistory({ open, onClose, scheduleId, scheduleName }: Prop
                       计划 {formatTime(trigger.planned_at)}
                     </span>
                     {trigger.fired_at && (
-                      <span className="text-2xs tabular-nums text-ink-faint">
+                      <span className="text-micro tabular-nums text-ink-faint">
                         实际 {formatTime(trigger.fired_at)}
                       </span>
                     )}
@@ -170,7 +170,7 @@ export function TriggerHistory({ open, onClose, scheduleId, scheduleName }: Prop
                       {trigger.request_id && (
                         <Link
                           to={`/?request=${trigger.request_id}`}
-                          className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-1.5 py-0.5 text-2xs font-medium text-accent transition-colors hover:bg-brand-100"
+                          className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-1.5 py-0.5 text-micro font-medium text-accent transition-colors hover:bg-brand-100"
                         >
                           <Icon name="external-link" className="h-2.5 w-2.5" />
                           查看需求
@@ -179,7 +179,7 @@ export function TriggerHistory({ open, onClose, scheduleId, scheduleName }: Prop
                       {trigger.run_id && (
                         <Link
                           to={`/runs/${trigger.run_id}`}
-                          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-2xs font-medium text-ink-muted transition-colors hover:bg-surface-subtle hover:text-ink-soft"
+                          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-micro font-medium text-ink-muted transition-colors hover:bg-surface-subtle hover:text-ink-soft"
                         >
                           <Icon name="play" className="h-2.5 w-2.5" />
                           运行

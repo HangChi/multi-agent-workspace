@@ -47,7 +47,7 @@ function controlTone(error?: string | null) {
 }
 
 const HEIGHTS = {
-  sm: 'h-9 px-2.5 text-[13px]',
+  sm: 'h-9 px-2.5 text-ui',
   md: 'h-10 px-3',
 } as const
 
@@ -90,7 +90,7 @@ function FieldShell({
       {(label || labelExtra) && (
         <div className="mb-1.5 flex items-baseline justify-between gap-2">
           {label ? (
-            <label htmlFor={id} className="text-[13px] font-medium text-ink-soft">
+            <label htmlFor={id} className="text-ui font-medium text-ink-soft">
               {label}
               {required && (
                 <span className="ml-0.5 text-rose-500" aria-hidden="true">
@@ -102,7 +102,7 @@ function FieldShell({
             <span />
           )}
           {labelExtra && (
-            <span className="shrink-0 text-2xs tabular-nums text-ink-faint">{labelExtra}</span>
+            <span className="shrink-0 text-micro tabular-nums text-ink-faint">{labelExtra}</span>
           )}
         </div>
       )}
@@ -474,7 +474,7 @@ export function Slider({
     <div className={wrapperClassName}>
       <div className="mb-2 flex items-baseline justify-between gap-2">
         {label ? (
-          <label htmlFor={fieldId} className="text-[13px] font-medium text-ink-soft">
+          <label htmlFor={fieldId} className="text-ui font-medium text-ink-soft">
             {label}
           </label>
         ) : (
@@ -497,7 +497,7 @@ export function Slider({
         }}
         className="range-brand"
       />
-      <div className="mt-1 flex justify-between text-2xs text-ink-faint">
+      <div className="mt-1 flex justify-between text-micro text-ink-faint">
         <span>{min}</span>
         <span>{max}</span>
       </div>

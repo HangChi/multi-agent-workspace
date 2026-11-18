@@ -134,7 +134,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         </p>
 
         {detail && (
-          <pre className="mt-3 max-h-40 w-full overflow-auto rounded-lg bg-surface-inset/80 p-3 text-left text-2xs leading-relaxed text-ink-muted">
+          <pre className="mt-3 max-h-40 w-full overflow-auto rounded-lg bg-surface-inset/80 p-3 text-left text-micro leading-relaxed text-ink-muted">
             {detail}
           </pre>
         )}

@@ -77,7 +77,7 @@ function StatCard({
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1">
         {badge}
-        {sub && <p className="text-2xs leading-relaxed text-ink-faint">{sub}</p>}
+        {sub && <p className="text-micro leading-relaxed text-ink-faint">{sub}</p>}
       </div>
     </Card>
   )
@@ -109,7 +109,7 @@ function CostTrend({ data }: { data: number[] }) {
 
       <div className="mt-6 flex flex-1 items-stretch gap-3">
         {/* 纵轴刻度：只标最大与 0，避免一排数字把图压碎 */}
-        <div className="flex w-12 shrink-0 flex-col justify-between pb-6 text-right text-[10px] tabular-nums text-ink-faint">
+        <div className="flex w-12 shrink-0 flex-col justify-between pb-6 text-right text-micro tabular-nums text-ink-faint">
           <span>{formatCents(max)}</span>
           <span>{formatCents(Math.round(max / 2))}</span>
           <span>¥0</span>
@@ -131,7 +131,8 @@ function CostTrend({ data }: { data: number[] }) {
               const isToday = i === todayIdx
               return (
                 <div key={i} className="group flex h-full flex-1 flex-col items-center justify-end">
-                  <div className="relative flex w-full flex-1 items-end">
+                  {/* 柱子限宽：只有一两天有数据时会变成几根巨柱，限宽后仍是「图」而不是「墙」 */}
+                  <div className="relative flex h-full w-full max-w-[2.75rem] flex-1 items-end">
                     <div
                       className={cn(
                         'w-full rounded-t-[5px] transition-all duration-200',
@@ -145,7 +146,7 @@ function CostTrend({ data }: { data: number[] }) {
                     />
                     <span
                       className={cn(
-                        'pointer-events-none absolute -top-7 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-md px-1.5 py-0.5 text-2xs font-medium shadow-lg transition-opacity',
+                        'pointer-events-none absolute -top-7 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-md px-1.5 py-0.5 text-micro font-medium shadow-lg transition-opacity',
                         'bg-slate-900 text-white opacity-0 group-hover:opacity-100'
                       )}
                     >
@@ -154,7 +155,7 @@ function CostTrend({ data }: { data: number[] }) {
                   </div>
                   <span
                     className={cn(
-                      'mt-1.5 text-[10px] tabular-nums',
+                      'mt-1.5 text-micro tabular-nums',
                       isToday ? 'font-semibold text-accent' : 'text-ink-faint'
                     )}
                   >
@@ -259,13 +260,13 @@ function CostCard({ cents, trend }: { cents: number; trend: number[] }) {
         <QuotaRing pct={pct} />
       </div>
 
-      <div className="mt-auto flex items-center justify-between border-t border-line-subtle pt-3 text-2xs text-ink-faint">
+      <div className="mt-auto flex items-center justify-between border-t border-line-subtle pt-3 text-micro text-ink-faint">
         <span>剩余配额 {formatCents(remaining)}</span>
         <span className="tabular-nums">额度 ¥{MONTHLY_QUOTA_CENTS / 100}</span>
       </div>
 
       {danger && (
-        <p className="mt-2 flex items-center gap-1 text-2xs font-medium text-rose-600 dark:text-rose-300">
+        <p className="mt-2 flex items-center gap-1 text-micro font-medium text-rose-600 dark:text-rose-300">
           <Icon name="alert-triangle" className="h-3 w-3" />
           配额即将用尽，请联系管理员调整
         </p>
@@ -314,7 +315,7 @@ function HealthCard({
             成功 {completed} · 失败 {failed}
           </p>
         </div>
-        <div className="text-right text-2xs text-ink-faint">
+        <div className="text-right text-micro text-ink-faint">
           <p>近 7 日成功率</p>
           <p className="text-metric mt-0.5 text-base font-semibold text-ink-soft">
             {(rate * 100).toFixed(1)}%
@@ -521,10 +522,8 @@ export function DashboardPage() {
                 <Icon name={item.icon} className="h-3.5 w-3.5" />
               </IconTile>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] font-medium text-ink">
-                  {item.label}
-                </span>
-                <span className="block truncate text-[10.5px] text-ink-faint">{item.hint}</span>
+                <span className="block truncate text-ui font-medium text-ink">{item.label}</span>
+                <span className="block truncate text-micro text-ink-faint">{item.hint}</span>
               </span>
               <Icon
                 name="arrow-right"

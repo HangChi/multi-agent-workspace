@@ -73,15 +73,15 @@ export function StepList({ steps }: { steps: RunStep[] }) {
 
             <div className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-2.5 shadow-card transition-colors hover:border-line-strong">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-2xs font-medium tabular-nums text-ink-faint">
+                <span className="text-micro font-medium tabular-nums text-ink-faint">
                   #{step.seq}
                 </span>
-                <span className="inline-flex items-center gap-1 text-[13px] font-medium text-ink">
+                <span className="inline-flex items-center gap-1 text-ui font-medium text-ink">
                   <Icon name={kind.icon} className="h-3.5 w-3.5 text-ink-faint" />
                   {kind.label}
                 </span>
                 {step.tool_name && (
-                  <span className="rounded bg-surface-subtle px-1.5 py-0.5 font-mono text-2xs text-ink-soft">
+                  <span className="rounded bg-surface-subtle px-1.5 py-0.5 font-mono text-micro text-ink-soft">
                     {step.tool_name}
                   </span>
                 )}
@@ -92,7 +92,7 @@ export function StepList({ steps }: { steps: RunStep[] }) {
                 </span>
               </div>
 
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-ink-faint">
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-micro text-ink-faint">
                 <span className="inline-flex items-center gap-1">
                   <Icon name="clock" className="h-3 w-3" />
                   {formatDuration(step.duration_ms)}

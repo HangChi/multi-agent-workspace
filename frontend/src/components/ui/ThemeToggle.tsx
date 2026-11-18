@@ -47,7 +47,7 @@ export function ThemeToggle({ className }: { className?: string }) {
             <Icon name={m.icon} className="h-4 w-4 shrink-0 opacity-80" />
             <span className="min-w-0 flex-1">
               <span className="block truncate">{m.label}</span>
-              <span className="mt-0.5 block truncate text-2xs font-normal text-ink-faint">
+              <span className="mt-0.5 block truncate text-micro font-normal text-ink-faint">
                 {m.hint}
               </span>
             </span>

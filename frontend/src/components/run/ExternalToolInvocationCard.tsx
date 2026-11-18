@@ -45,7 +45,7 @@ export function ExternalToolInvocationCard({ invocation }: { invocation: Externa
       <p className="mt-2 truncate font-mono text-xs text-ink-soft" title={invocation.stable_name}>
         {invocation.server_name} / {invocation.tool_name} · v{invocation.version}
       </p>
-      <div className="mt-2 flex flex-wrap gap-1.5 text-2xs text-ink-muted">
+      <div className="mt-2 flex flex-wrap gap-1.5 text-micro text-ink-muted">
         <Badge tone="sky">{invocation.stable_name}</Badge>
         {invocation.error_category && <Badge tone="rose">{invocation.error_category}</Badge>}
         {invocation.result_truncated && <Badge tone="orange">输出已截断</Badge>}

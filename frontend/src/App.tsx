@@ -4,6 +4,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { BrowserRouter } from 'react-router-dom'
 
+import { CommandPalette } from './components/command/CommandPalette'
+import { CommandProvider } from './components/command/CommandProvider'
+import { useCommandPalette } from './components/command/useCommandPalette'
 import { ConfirmProvider } from './components/ui/ConfirmDialog'
 import { ErrorBoundary } from './components/ui/ErrorBoundary'
 import { ToastProvider } from './components/ui/Toast'
@@ -16,6 +19,12 @@ const queryClient = new QueryClient({
     queries: { retry: 1, refetchOnWindowFocus: false },
   },
 })
+
+/** 命令面板挂在 Provider 内层：它需要读同一个 open 状态 */
+function CommandLayer() {
+  const { open, setOpen } = useCommandPalette()
+  return <CommandPalette open={open} onClose={() => setOpen(false)} />
+}
 
 export default function App() {
   // 启动时恢复会话。必须放在 effect 里：写在 render body 里会每次渲染都执行，
@@ -33,9 +42,14 @@ export default function App() {
           {/* 根级兜底：放在最外层，连 Router 自身崩了也能给出一张可交互的错误页
               （所以内部只用 <a> 不用 <Link>）。区块级兜底在 AppLayout 里。 */}
           <ErrorBoundary variant="page">
-            <BrowserRouter>
-              <AppRouter />
-            </BrowserRouter>
+            <CommandProvider>
+              <BrowserRouter>
+                <AppRouter />
+                {/* 命令面板要读 Provider 的开关、又要用 Router 的 navigate，
+                    所以放在两者之内、Routes 之外 */}
+                <CommandLayer />
+              </BrowserRouter>
+            </CommandProvider>
           </ErrorBoundary>
         </ConfirmProvider>
       </ToastProvider>

@@ -127,7 +127,7 @@ export function DropdownSeparator() {
 
 export function DropdownLabel({ children }: { children: ReactNode }) {
   return (
-    <p className="px-2.5 pb-1 pt-1.5 text-2xs font-semibold uppercase tracking-wide text-ink-faint">
+    <p className="px-2.5 pb-1 pt-1.5 text-micro font-semibold uppercase tracking-wide text-ink-faint">
       {children}
     </p>
   )

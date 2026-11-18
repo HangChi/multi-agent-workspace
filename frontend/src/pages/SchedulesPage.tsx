@@ -272,7 +272,7 @@ export function SchedulesPage() {
               {editing ? `编辑规则「${editing.name}」` : '新建调度规则'}
             </h2>
             {editing && (
-              <span className="ml-auto text-2xs text-ink-faint">
+              <span className="ml-auto text-micro text-ink-faint">
                 修改周期或时区会重算下次触发时间
               </span>
             )}

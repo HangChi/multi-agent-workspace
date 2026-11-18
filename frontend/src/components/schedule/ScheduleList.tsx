@@ -124,7 +124,7 @@ export function ScheduleList({
               </Badge>
             )}
             {schedule.owner_email && (
-              <span className="text-2xs text-ink-faint">{schedule.owner_email}</span>
+              <span className="text-micro text-ink-faint">{schedule.owner_email}</span>
             )}
           </div>
 
@@ -137,7 +137,7 @@ export function ScheduleList({
           <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-ink-muted">
             <span className="inline-flex items-center gap-1">
               <Icon name="clock" className="h-3 w-3 text-ink-faint" />
-              <code className="rounded bg-surface-subtle px-1 py-0.5 font-mono text-2xs text-ink-soft">
+              <code className="rounded bg-surface-subtle px-1 py-0.5 font-mono text-micro text-ink-soft">
                 {schedule.cron_expr}
               </code>
               <span className="text-ink-faint">{schedule.timezone}</span>

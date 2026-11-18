@@ -151,7 +151,7 @@ export function ExecutionCard({
                 <CodePanel title="stdout" value={detail.stdout ?? ''} />
                 <CodePanel title="stderr" value={detail.stderr ?? ''} />
               </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-2xs text-ink-faint">
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-micro text-ink-faint">
                 <span>镜像：{detail.image}</span>
                 <span>CPU：{detail.cpu_ms == null ? '未采集' : `${detail.cpu_ms} ms`}</span>
                 <span>

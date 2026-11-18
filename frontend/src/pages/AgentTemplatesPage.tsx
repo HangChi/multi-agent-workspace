@@ -218,7 +218,7 @@ export function AgentTemplatesPage() {
             ) : undefined
           }
         />
-        <p className="text-2xs text-ink-faint">
+        <p className="text-micro text-ink-faint">
           {q.trim() ? (
             <>
               「<span className="text-ink-soft">{q.trim()}</span>」命中{' '}
@@ -235,13 +235,13 @@ export function AgentTemplatesPage() {
       {builtins.length > 0 && (
         <section className="mb-8">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-[13px] font-medium text-ink-soft">
+            <h2 className="text-ui font-medium text-ink-soft">
               内置模板
-              <span className="ml-1.5 text-2xs font-normal text-ink-faint">
+              <span className="ml-1.5 text-micro font-normal text-ink-faint">
                 {builtins.length} 个 · 只读
               </span>
             </h2>
-            <p className="text-2xs text-ink-faint">
+            <p className="text-micro text-ink-faint">
               内置模板不可修改：需要改就先「用这个模板」创建 Agent，再另存为自己的模板。
             </p>
           </div>
@@ -262,9 +262,9 @@ export function AgentTemplatesPage() {
       {mine.length > 0 && (
         <section>
           <div className="mb-3 flex items-center justify-between gap-2">
-            <h2 className="text-[13px] font-medium text-ink-soft">
+            <h2 className="text-ui font-medium text-ink-soft">
               我的模板
-              <span className="ml-1.5 text-2xs font-normal text-ink-faint">
+              <span className="ml-1.5 text-micro font-normal text-ink-faint">
                 {mine.length} 个 · 可编辑
               </span>
             </h2>
@@ -366,7 +366,7 @@ function TemplateCard({
             <h3 className="truncate text-[15px] font-semibold text-ink">{template.name}</h3>
             {template.is_builtin && <Badge tone="slate">内置</Badge>}
           </div>
-          <p className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-ink-muted">
+          <p className="mt-1 line-clamp-2 text-ui leading-relaxed text-ink-muted">
             {template.description || '暂无描述'}
           </p>
         </div>
@@ -394,17 +394,17 @@ function TemplateCard({
       </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line-subtle bg-surface-muted/60 px-4 py-2.5">
-        <span className="inline-flex items-center gap-1.5 rounded-md bg-surface px-1.5 py-0.5 font-mono text-2xs text-ink-soft ring-1 ring-inset ring-line">
+        <span className="inline-flex items-center gap-1.5 rounded-md bg-surface px-1.5 py-0.5 font-mono text-micro text-ink-soft ring-1 ring-inset ring-line">
           {template.model}
         </span>
-        <span className="inline-flex items-center gap-1.5 text-2xs text-ink-muted">
+        <span className="inline-flex items-center gap-1.5 text-micro text-ink-muted">
           <Icon name="layers" className="h-3.5 w-3.5 text-ink-faint" />
           {template.tools.length > 0 ? template.tools.join(' · ') : '无工具'}
         </span>
-        <span className="text-2xs text-ink-muted">
+        <span className="text-micro text-ink-muted">
           上限 ¥{(template.cost_limit_cents / 100).toFixed(2)}
         </span>
-        <span className="ml-auto hidden text-2xs text-ink-faint sm:block">
+        <span className="ml-auto hidden text-micro text-ink-faint sm:block">
           温度 {template.temperature.toFixed(1)} · 最多 {template.max_steps} 步 · 超时{' '}
           {template.max_run_seconds}s
         </span>

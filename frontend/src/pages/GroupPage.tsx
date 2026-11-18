@@ -48,7 +48,7 @@ function MemberFlow({
   members: { agent_id: string; name: string }[]
 }) {
   if (members.length === 0) {
-    return <p className="text-2xs text-ink-faint">还没有成员 —— 展开「管理成员」加入 Agent。</p>
+    return <p className="text-micro text-ink-faint">还没有成员 —— 展开「管理成员」加入 Agent。</p>
   }
 
   return (
@@ -64,7 +64,7 @@ function MemberFlow({
               )}
             />
           )}
-          <span className="inline-flex h-6 max-w-[10rem] items-center gap-1.5 rounded-md border border-line bg-surface px-1.5 text-[11.5px] font-medium text-ink-soft shadow-card">
+          <span className="inline-flex h-6 max-w-[10rem] items-center gap-1.5 rounded-md border border-line bg-surface px-1.5 text-micro font-medium text-ink-soft shadow-card">
             <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-gradient-to-br from-sky-500 to-brand-600 text-[8px] font-semibold text-white">
               {m.name.slice(0, 1)}
             </span>
@@ -75,7 +75,7 @@ function MemberFlow({
       {strategy === 'router' && (
         <>
           <Icon name="chevron-right" className="h-3 w-3 shrink-0 text-ink-faint" />
-          <span className="inline-flex h-6 items-center rounded-md border border-dashed border-line-strong px-1.5 text-[11px] text-ink-muted">
+          <span className="inline-flex h-6 items-center rounded-md border border-dashed border-line-strong px-1.5 text-micro text-ink-muted">
             按内容选一个
           </span>
         </>
@@ -83,7 +83,7 @@ function MemberFlow({
       {strategy === 'fan_out' && (
         <>
           <Icon name="chevron-right" className="h-3 w-3 shrink-0 text-ink-faint" />
-          <span className="inline-flex h-6 items-center rounded-md border border-dashed border-line-strong px-1.5 text-[11px] text-ink-muted">
+          <span className="inline-flex h-6 items-center rounded-md border border-dashed border-line-strong px-1.5 text-micro text-ink-muted">
             汇总输出
           </span>
         </>
@@ -316,11 +316,11 @@ export function GroupPage() {
 
       {!isLoading && groupsTotal > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-2xs text-ink-faint">
+          <p className="text-micro text-ink-faint">
             共 <span className="font-medium text-ink-soft">{groupsTotal}</span> 个组 · 每张卡片上
             <span className="text-ink-soft">成员流程</span>按当前策略从左到右执行
           </p>
-          <p className="text-2xs text-ink-faint">展开「管理成员」可调整顺序与路由策略</p>
+          <p className="text-micro text-ink-faint">展开「管理成员」可调整顺序与路由策略</p>
         </div>
       )}
 
@@ -369,7 +369,7 @@ export function GroupPage() {
                       </div>
                       <p
                         className={cn(
-                          'mt-1 line-clamp-2 text-[13px] leading-relaxed',
+                          'mt-1 line-clamp-2 text-ui leading-relaxed',
                           group.description ? 'text-ink-muted' : 'text-ink-faint'
                         )}
                       >
@@ -417,7 +417,7 @@ export function GroupPage() {
                     <div className="mb-3 flex items-start gap-2.5 rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2.5 dark:border-sky-500/25 dark:bg-sky-500/10">
                       <Icon name={meta.icon} className="mt-0.5 h-4 w-4 shrink-0 text-sky-500" />
                       <div className="min-w-0">
-                        <p className="text-[13px] font-medium text-sky-900 dark:text-sky-200">
+                        <p className="text-ui font-medium text-sky-900 dark:text-sky-200">
                           {meta.label}
                           <span className="ml-1.5 font-normal text-sky-600/80 dark:text-sky-300/80">
                             {group.members.length} 个成员
@@ -448,13 +448,13 @@ export function GroupPage() {
                             key={m.agent_id}
                             className="flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 transition-colors hover:border-line-strong"
                           >
-                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-surface-subtle text-2xs font-medium tabular-nums text-ink-muted">
+                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-surface-subtle text-micro font-medium tabular-nums text-ink-muted">
                               {i + 1}
                             </span>
-                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-sky-500 to-brand-600 text-2xs font-semibold text-white">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-sky-500 to-brand-600 text-micro font-semibold text-white">
                               {m.name.slice(0, 1)}
                             </span>
-                            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink-soft">
+                            <span className="min-w-0 flex-1 truncate text-ui font-medium text-ink-soft">
                               {m.name}
                             </span>
                             <div className="flex shrink-0 items-center">
@@ -516,7 +516,7 @@ export function GroupPage() {
                           </option>
                         ))}
                       </Select>
-                      <p className="shrink-0 text-2xs text-ink-faint">顺序 = 流水线执行顺序</p>
+                      <p className="shrink-0 text-micro text-ink-faint">顺序 = 流水线执行顺序</p>
                     </div>
                   </div>
                 )}
@@ -602,7 +602,7 @@ function GroupEditor({
 
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <span className="text-[13px] font-medium text-ink-soft">路由策略</span>
+            <span className="text-ui font-medium text-ink-soft">路由策略</span>
             <span className="text-xs text-ink-faint">决定组成员如何协作</span>
           </div>
           <OptionCards

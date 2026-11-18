@@ -121,7 +121,7 @@ export function RequestForm({ onSubmit, onCancel, submitting }: Props) {
 
         <div>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-[13px] font-medium text-ink-soft">优先级</span>
+            <span className="text-ui font-medium text-ink-soft">优先级</span>
             <span className="text-xs text-ink-faint">{PRIORITY_HINT[values.priority]}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2">

@@ -278,7 +278,7 @@ export function ScheduleForm({
                 type="button"
                 onClick={() => set('cron_expr', preset.value)}
                 className={cn(
-                  'rounded-md border px-2 py-1 text-2xs font-medium transition-colors',
+                  'rounded-md border px-2 py-1 text-micro font-medium transition-colors',
                   values.cron_expr === preset.value
                     ? 'border-brand-200 bg-brand-50 text-accent'
                     : 'border-line bg-surface text-ink-muted hover:bg-surface-muted hover:text-ink-soft'
@@ -333,7 +333,7 @@ export function ScheduleForm({
 
       {/* ---------------- 建单模板 ---------------- */}
       <div className="rounded-xl border border-line/80 bg-surface-muted/40 p-4">
-        <p className="mb-3 flex items-center gap-1.5 text-[13px] font-semibold text-ink">
+        <p className="mb-3 flex items-center gap-1.5 text-ui font-semibold text-ink">
           <Icon name="file" className="h-3.5 w-3.5 text-ink-muted" />
           每次触发时创建的需求
         </p>

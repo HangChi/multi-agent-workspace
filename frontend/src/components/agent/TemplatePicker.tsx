@@ -109,7 +109,7 @@ export function TemplatePicker({ open, onClose, onPick }: Props) {
 
         {builtins.length > 0 && (
           <section>
-            <h4 className="mb-2 text-[13px] font-medium text-ink-soft">内置模板（只读）</h4>
+            <h4 className="mb-2 text-ui font-medium text-ink-soft">内置模板（只读）</h4>
             <ul className="space-y-2">
               {builtins.map((t) => (
                 <TemplateRow
@@ -125,7 +125,7 @@ export function TemplatePicker({ open, onClose, onPick }: Props) {
 
         {mine.length > 0 && (
           <section>
-            <h4 className="mb-2 text-[13px] font-medium text-ink-soft">我的模板</h4>
+            <h4 className="mb-2 text-ui font-medium text-ink-soft">我的模板</h4>
             <ul className="space-y-2">
               {mine.map((t) => (
                 <TemplateRow
@@ -173,14 +173,14 @@ function TemplateRow({
               内置
             </Badge>
           )}
-          <span className="ml-auto shrink-0 font-mono text-2xs text-ink-faint">
+          <span className="ml-auto shrink-0 font-mono text-micro text-ink-faint">
             {template.model}
           </span>
         </div>
-        <p className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-ink-muted">
+        <p className="mt-1 line-clamp-2 text-ui leading-relaxed text-ink-muted">
           {template.description || '暂无描述'}
         </p>
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-ink-faint">
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-micro text-ink-faint">
           <span className="inline-flex items-center gap-1">
             <Icon name="layers" className="h-3 w-3" />
             {template.tools.length > 0 ? template.tools.join(' · ') : '无工具'}

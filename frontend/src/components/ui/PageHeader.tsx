@@ -1,11 +1,14 @@
 /**
- * 页头：标题 + 说明 + 右侧操作区，全站统一间距与层级。
+ * 页头：紧凑式，对齐 Linear / Vercel / Height 这类工作台的做法。
  *
- * 版式取舍：
- * - 标题从 20/24px 抬到 24/28px 并收紧字距，让「我在哪一页」一眼可见；
- * - 说明文字限制在 ~68ch，长描述不会拉出一条难读的长行；
- * - 小标题（eyebrow）用于放归属信息，例如「设置 / 定时调度」，
- *   这样面包屑只出现在页头一处，顶栏可以更干净。
+ * 为什么把大图标底板和 28px 标题去掉：
+ * - 主图标 + 大标题 + 两行描述会占掉近 110px 的纵向空间，
+ *   看板、列表这类「内容即界面」的页面会被推得很低；
+ * - 主流工作台的页头是 20px 标题 + 一行说明 + 右侧操作，
+ *   层级靠字重和灰度区分，不靠色块；
+ * - 于是每屏能多出两三行真实内容，信息密度立刻不一样。
+ *
+ * 小屏仍然纵向堆叠，操作区换行到第二行且右对齐。
  */
 
 import type { ReactNode } from 'react'
@@ -15,7 +18,7 @@ import { cn } from './cn'
 interface PageHeaderProps {
   title: string
   description?: ReactNode
-  /** 标题左侧图标底板 */
+  /** 标题左侧的小图标（20px，与标题同排，不再做大底板） */
   icon?: ReactNode
   actions?: ReactNode
   /** 标题上方的小字（归属 / 分类） */
@@ -33,27 +36,25 @@ export function PageHeader({
 }: PageHeaderProps) {
   return (
     <div
-      className={cn('flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between', className)}
+      className={cn(
+        'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between',
+        className
+      )}
     >
-      <div className="min-w-0">
-        {eyebrow && (
-          <div className="mb-1.5 flex items-center gap-1.5 text-2xs font-medium uppercase tracking-[0.12em] text-ink-faint">
-            {eyebrow}
-          </div>
-        )}
-        <div className="flex min-w-0 items-start gap-3.5">
-          {/* 图标与标题同排：有 eyebrow 时不会浮在小标题那一行上 */}
-          {icon}
-          <div className="min-w-0">
-            <h1 className="text-page-title-sm font-semibold text-ink sm:text-page-title">
-              {title}
-            </h1>
-            {description && (
-              <p className="mt-1.5 max-w-[68ch] text-[13.5px] leading-relaxed text-ink-muted">
-                {description}
-              </p>
-            )}
-          </div>
+      <div className="flex min-w-0 items-center gap-2.5">
+        {icon && <span className="shrink-0 text-ink-faint [&>svg]:h-5 [&>svg]:w-5">{icon}</span>}
+        <div className="min-w-0">
+          {eyebrow && (
+            <div className="mb-0.5 flex items-center gap-1.5 text-micro font-medium uppercase tracking-[0.1em] text-ink-faint">
+              {eyebrow}
+            </div>
+          )}
+          <h1 className="text-page-title-sm font-semibold text-ink sm:text-page-title">{title}</h1>
+          {description && (
+            <p className="mt-1 max-w-[72ch] text-ui leading-relaxed text-ink-muted">
+              {description}
+            </p>
+          )}
         </div>
       </div>
       {actions && (

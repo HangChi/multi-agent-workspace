@@ -286,7 +286,7 @@ export function BoardPage() {
           <div className="space-y-4">
             {currentDetail.runs_summary && currentDetail.runs_summary.total > 0 && (
               <div>
-                <p className="mb-1 text-[13px] font-medium text-ink-soft">运行结果</p>
+                <p className="mb-1 text-ui font-medium text-ink-soft">运行结果</p>
                 <p className="rounded-lg bg-surface-muted px-3 py-2.5 text-sm text-ink-soft">
                   {[
                     `${currentDetail.runs_summary.completed} 完成`,
@@ -312,7 +312,7 @@ export function BoardPage() {
 
             {currentDetail.source_schedule_id && (
               <div>
-                <p className="mb-1 text-[13px] font-medium text-ink-soft">来源</p>
+                <p className="mb-1 text-ui font-medium text-ink-soft">来源</p>
                 <p className="flex flex-wrap items-center gap-1.5 rounded-lg bg-surface-muted px-3 py-2.5 text-sm text-ink-soft">
                   <Icon name="clock" className="h-3.5 w-3.5 text-ink-faint" />
                   由定时规则
@@ -334,7 +334,7 @@ export function BoardPage() {
 
             {currentDetail.description && (
               <div>
-                <p className="mb-1 text-[13px] font-medium text-ink-soft">描述</p>
+                <p className="mb-1 text-ui font-medium text-ink-soft">描述</p>
                 <p className="whitespace-pre-wrap rounded-lg bg-surface-muted px-3 py-2.5 text-sm leading-relaxed text-ink-soft">
                   {currentDetail.description}
                 </p>
@@ -343,7 +343,7 @@ export function BoardPage() {
 
             {currentDetail.expected_output && (
               <div>
-                <p className="mb-1 text-[13px] font-medium text-ink-soft">期望产出</p>
+                <p className="mb-1 text-ui font-medium text-ink-soft">期望产出</p>
                 <p className="rounded-lg border border-brand-100 bg-brand-50/60 px-3 py-2.5 text-sm leading-relaxed text-accent">
                   {currentDetail.expected_output}
                 </p>
@@ -352,13 +352,13 @@ export function BoardPage() {
 
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <p className="text-[13px] font-medium text-ink-soft">
+                <p className="text-ui font-medium text-ink-soft">
                   附件
                   <span className="ml-1 text-xs font-normal text-ink-faint">
                     {currentDetail.attachments.length} 个
                   </span>
                 </p>
-                <span className="text-2xs text-ink-faint">支持拖拽上传</span>
+                <span className="text-micro text-ink-faint">支持拖拽上传</span>
               </div>
 
               {currentDetail.attachments.length > 0 && (
@@ -369,10 +369,10 @@ export function BoardPage() {
                       className="group flex items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-2 transition-colors hover:border-line-strong"
                     >
                       <Icon name="file" className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
-                      <span className="min-w-0 flex-1 truncate text-[13px] text-ink-soft">
+                      <span className="min-w-0 flex-1 truncate text-ui text-ink-soft">
                         {att.name}
                       </span>
-                      <span className="shrink-0 text-2xs tabular-nums text-ink-faint">
+                      <span className="shrink-0 text-micro tabular-nums text-ink-faint">
                         {(att.size / 1024).toFixed(1)} KB
                       </span>
                       <button

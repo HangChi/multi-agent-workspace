@@ -155,7 +155,7 @@ export function TemplateForm({ initial, onSubmit, onCancel, submitting }: Props)
           '你是一个专业的代码审查助手。\n请从可读性、边界条件、安全隐患三个角度审查代码…'
         }
         hint="提示词里写清角色、输入输出格式与禁止事项，执行稳定性会明显提升"
-        className="font-mono text-[13px] leading-relaxed"
+        className="font-mono text-ui leading-relaxed"
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -184,7 +184,7 @@ export function TemplateForm({ initial, onSubmit, onCancel, submitting }: Props)
       </div>
 
       <fieldset className="rounded-xl border border-line bg-surface-muted/60 p-4">
-        <legend className="px-1.5 text-[13px] font-medium text-ink-soft">运行参数</legend>
+        <legend className="px-1.5 text-ui font-medium text-ink-soft">运行参数</legend>
 
         <Slider
           label="温度"
@@ -233,7 +233,7 @@ export function TemplateForm({ initial, onSubmit, onCancel, submitting }: Props)
 
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-[13px] font-medium text-ink-soft">工具白名单</span>
+          <span className="text-ui font-medium text-ink-soft">工具白名单</span>
           <span className="text-xs text-ink-faint">
             {toolsLoading ? '加载中…' : `已选 ${values.tools.length} 个`}
           </span>
@@ -259,7 +259,10 @@ export function TemplateForm({ initial, onSubmit, onCancel, submitting }: Props)
                 <Icon name={active ? 'check' : 'plus'} className="h-3 w-3" />
                 <span className="font-mono">{tool.name}</span>
                 <span
-                  className={cn('font-sans text-2xs', active ? 'text-brand-400' : 'text-ink-faint')}
+                  className={cn(
+                    'font-sans text-micro',
+                    active ? 'text-brand-400' : 'text-ink-faint'
+                  )}
                 >
                   {tool.display_name}
                 </span>

@@ -93,7 +93,7 @@ export function AppLayout() {
         </main>
 
         <footer className="mt-auto border-t border-line/60">
-          <ContentShell className="flex flex-col gap-1 py-4 text-2xs text-ink-faint sm:flex-row sm:items-center sm:justify-between">
+          <ContentShell className="flex flex-col gap-1 py-4 text-micro text-ink-faint sm:flex-row sm:items-center sm:justify-between">
             <span>Agent 工作台 · 内部协作平台</span>
             <span className="font-mono">v0.1.0 · {new Date().getFullYear()}</span>
           </ContentShell>

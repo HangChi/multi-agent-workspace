@@ -15,6 +15,7 @@ import { Dropdown, DropdownItem, DropdownLabel, DropdownSeparator } from '../ui/
 import { Icon } from '../ui/Icons'
 import { ThemeToggle } from '../ui/ThemeToggle'
 import { cn } from '../ui/cn'
+import { useCommandPalette } from '../command/useCommandPalette'
 import { resolveTrail } from './nav'
 
 const ROLE_LABEL: Record<string, string> = {
@@ -36,6 +37,7 @@ interface Props {
 
 export function Topbar({ pathname, onOpenMenu }: Props) {
   const { user, logout } = useAuth()
+  const { toggle } = useCommandPalette()
   const trail = resolveTrail(pathname, user?.role)
   const initial = (user?.email ?? '?').slice(0, 1).toUpperCase()
 
@@ -51,7 +53,7 @@ export function Topbar({ pathname, onOpenMenu }: Props) {
           <Icon name="menu" className="h-[18px] w-[18px]" />
         </button>
 
-        <nav aria-label="面包屑" className="flex min-w-0 items-center gap-1.5 text-[13px]">
+        <nav aria-label="面包屑" className="flex min-w-0 items-center gap-1.5 text-ui">
           <span className="hidden text-ink-faint sm:inline">{trail.module}</span>
           {trail.module && trail.page && (
             <Icon
@@ -62,8 +64,23 @@ export function Topbar({ pathname, onOpenMenu }: Props) {
           <span className="truncate font-medium text-ink">{trail.page ?? '工作台'}</span>
         </nav>
 
-        <div className="ml-auto flex items-center gap-1.5">
-          <span className="mr-1 hidden items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-2xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200/70 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/25 md:flex">
+        {/* 全局搜索：主流工作台把「去哪」收敛成一个 ⌘K 入口，
+            比在顶栏堆一排入口更省空间，也更快 */}
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label="打开命令面板"
+          className="ml-auto hidden h-9 items-center gap-2 rounded-lg border border-line bg-surface pl-2.5 pr-2 text-ui text-ink-faint shadow-card transition-colors hover:border-line-strong hover:text-ink-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 sm:flex"
+        >
+          <Icon name="search" className="h-3.5 w-3.5" />
+          <span className="w-24 text-left">搜索或跳转…</span>
+          <kbd className="rounded border border-line bg-surface-muted px-1 py-0.5 text-micro font-medium">
+            ⌘K
+          </kbd>
+        </button>
+
+        <div className="ml-auto flex items-center gap-1.5 sm:ml-0">
+          <span className="mr-1 hidden items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-micro font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200/70 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/25 md:flex">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse-ring" />
             系统正常
           </span>
@@ -77,7 +94,7 @@ export function Topbar({ pathname, onOpenMenu }: Props) {
               triggerClassName="py-1 pl-1 pr-1.5 hover:bg-surface-subtle"
               trigger={
                 <>
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-[11px] font-semibold text-white">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-micro font-semibold text-white">
                     {initial}
                   </span>
                   <Icon name="chevron-down" className="h-3.5 w-3.5 text-ink-faint" />
@@ -85,7 +102,7 @@ export function Topbar({ pathname, onOpenMenu }: Props) {
               }
             >
               <div className="px-2.5 pb-2 pt-1.5">
-                <p className="truncate text-[13px] font-medium text-ink">{user?.email}</p>
+                <p className="truncate text-ui font-medium text-ink">{user?.email}</p>
                 <div className="mt-1.5">
                   <Badge tone={ROLE_TONE[user?.role ?? 'member'] ?? 'slate'} dot>
                     {ROLE_LABEL[user?.role ?? 'member'] ?? user?.role}

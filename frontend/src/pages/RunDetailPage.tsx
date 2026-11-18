@@ -90,8 +90,8 @@ function RetryProgress({ attempt, nextRetryAt }: { attempt: number; nextRetryAt:
 function MetaTile({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-line/80 bg-surface-muted/70 px-3 py-2">
-      <dt className="text-2xs text-ink-faint">{label}</dt>
-      <dd className="mt-0.5 truncate text-[13px] font-medium text-ink">{children}</dd>
+      <dt className="text-micro text-ink-faint">{label}</dt>
+      <dd className="mt-0.5 truncate text-ui font-medium text-ink">{children}</dd>
     </div>
   )
 }
@@ -432,7 +432,7 @@ export function RunDetailPage() {
       <div className="flex items-center justify-between gap-3">
         <Link
           to="/"
-          className="inline-flex h-9 items-center gap-1.5 rounded-lg px-1.5 text-[13px] text-ink-muted transition-colors hover:bg-surface-subtle hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45"
+          className="inline-flex h-9 items-center gap-1.5 rounded-lg px-1.5 text-ui text-ink-muted transition-colors hover:bg-surface-subtle hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45"
         >
           <Icon name="arrow-left" className="h-4 w-4" />
           返回看板
@@ -613,14 +613,14 @@ export function RunDetailPage() {
 
                 className="flex items-start gap-2.5 rounded-lg border border-line-subtle bg-surface-muted/60 p-3"
               >
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-100 text-2xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-100 text-micro font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
                   {entry.attempt}
                 </span>
 
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13px] leading-relaxed text-ink">{entry.error}</p>
+                  <p className="text-ui leading-relaxed text-ink">{entry.error}</p>
 
-                  <p className="mt-1 text-2xs text-ink-faint">
+                  <p className="mt-1 text-micro text-ink-faint">
                     {new Date(entry.at).toLocaleString('zh-CN')}
                   </p>
                 </div>
@@ -640,7 +640,7 @@ export function RunDetailPage() {
                   name="check-circle"
                   className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-300"
                 />
-                <span className="text-[13px] font-medium text-emerald-800 dark:text-emerald-300">
+                <span className="text-ui font-medium text-emerald-800 dark:text-emerald-300">
                   执行结果
                 </span>
               </div>
@@ -655,8 +655,8 @@ export function RunDetailPage() {
               <div className="flex items-center justify-between gap-2 border-b border-line-subtle px-4 py-2.5">
                 <span className="flex items-center gap-2">
                   <Icon name="file" className="h-3.5 w-3.5 text-ink-faint" />
-                  <span className="text-[13px] font-medium text-ink">制品</span>
-                  <span className="text-2xs font-normal text-ink-faint">可直接下载</span>
+                  <span className="text-ui font-medium text-ink">制品</span>
+                  <span className="text-micro font-normal text-ink-faint">可直接下载</span>
                 </span>
                 <Badge tone="emerald">{run.artifacts.length}</Badge>
               </div>
@@ -667,10 +667,10 @@ export function RunDetailPage() {
                     className="flex items-center gap-2.5 px-4 py-2.5 transition-colors hover:bg-surface-muted/60"
                   >
                     <Icon name="file" className="h-4 w-4 shrink-0 text-ink-faint" />
-                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink-soft">
+                    <span className="min-w-0 flex-1 truncate text-ui text-ink-soft">
                       {art.filename}
                     </span>
-                    <span className="shrink-0 text-2xs tabular-nums text-ink-faint">
+                    <span className="shrink-0 text-micro tabular-nums text-ink-faint">
                       {formatBytes(art.size_bytes)}
                     </span>
                     <Button
@@ -727,12 +727,12 @@ export function RunDetailPage() {
           <div className="flex items-center gap-2">
             <Icon name="file" className="h-3.5 w-3.5 text-slate-400" />
             <span className="text-xs font-medium text-slate-200">运行日志</span>
-            <span className="rounded bg-white/10 px-1.5 py-0.5 text-2xs tabular-nums text-slate-300">
+            <span className="rounded bg-white/10 px-1.5 py-0.5 text-micro tabular-nums text-slate-300">
               {logs.length}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1.5 text-2xs text-slate-500">
+            <span className="flex items-center gap-1.5 text-micro text-slate-500">
               <span
                 className={cn(
                   'h-1.5 w-1.5 rounded-full',
@@ -745,7 +745,7 @@ export function RunDetailPage() {
               <button
                 type="button"
                 onClick={() => setLogs([])}
-                className="rounded px-1.5 py-0.5 text-2xs text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-200"
+                className="rounded px-1.5 py-0.5 text-micro text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-200"
               >
                 清空
               </button>

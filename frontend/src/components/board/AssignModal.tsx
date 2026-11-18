@@ -144,7 +144,7 @@ export function AssignModal({
         {!isAgent && group && (
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <p className="text-[13px] font-medium text-ink-soft">路由策略</p>
+              <p className="text-ui font-medium text-ink-soft">路由策略</p>
               <span className="text-xs text-ink-faint">{group.members.length} 个成员</span>
             </div>
             <OptionCards
