@@ -454,6 +454,18 @@ RUN_TERMINAL = Counter(
     "进入终态的 Run 数（按终态）",
     ("status",),
 )
+# 007：分派类动作计数（按 action）。与 RUN_TERMINAL 分开——分派是责任流转、
+# 终态是执行结果，混在一个 counter 里按 label 筛不如两个语义清晰的指标。
+REQUEST_DISPATCH_ACTIONS = Counter(
+    "aw_request_dispatch_actions_total",
+    "需求分派类动作数（dispatch/reassign/accept/reject）",
+    ("action",),
+)
+NOTIFICATIONS_CREATED = Counter(
+    "aw_notifications_created_total",
+    "站内通知产生数（按类型）",
+    ("type",),
+)
 SANDBOX_EXECUTIONS = Counter(
     "aw_sandbox_executions_total",
     "沙箱执行次数（按终态）",

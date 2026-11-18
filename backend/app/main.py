@@ -25,11 +25,13 @@ from app.api.v1.external_tool_grants import router as external_tool_grants_route
 from app.api.v1.external_tool_servers import router as external_tool_servers_router
 from app.api.v1.groups import router as groups_router
 from app.api.v1.marketplace import router as marketplace_router
+from app.api.v1.notifications import router as notifications_router
 from app.api.v1.requests import router as requests_router
 from app.api.v1.runs import router as runs_router
 from app.api.v1.schedules import router as schedules_router
 from app.api.v1.stats import router as stats_router
 from app.api.v1.tools import router as tools_router
+from app.api.v1.users import router as users_router
 from app.api.v1.ws import router as ws_router
 from app.core import metrics
 from app.core.config import settings
@@ -91,6 +93,8 @@ def create_app() -> FastAPI:
     api_v1.include_router(runs_router)
     api_v1.include_router(stats_router)
     api_v1.include_router(tools_router)
+    api_v1.include_router(users_router)
+    api_v1.include_router(notifications_router)
     api_v1.include_router(admin_router)
     api_v1.include_router(admin_egress_router)
     app.include_router(api_v1)

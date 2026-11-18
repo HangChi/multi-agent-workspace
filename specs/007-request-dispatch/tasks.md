@@ -61,15 +61,15 @@
 
 ## Phase 4：通知与人员端点（TDD，可独立上线）
 
-- [ ] T023 [P] Integration: `GET /users/options`（U-1..4：仅在职、viewer 403、稳定排序）。
-- [ ] T024 Write `backend/app/api/v1/users.py` + `user_service.list_options()`：在职用户
+- [X] T023 [P] Integration: `GET /users/options`（U-1..4：仅在职、viewer 403、稳定排序）。
+- [X] T024 Write `backend/app/api/v1/users.py` + `user_service.list_options()`：在职用户
       最小投影（id/email/role），注册进 main.py。
-- [ ] T025 [P] Integration: 通知读写（N-1..4：未读过滤、全部已读、他人 id 越权 updated=0）。
-- [ ] T026 Write `backend/app/api/v1/notifications.py` + service：列表/未读/已读
+- [X] T025 [P] Integration: 通知读写（N-1..4：未读过滤、全部已读、他人 id 越权 updated=0）。
+- [X] T026 Write `backend/app/api/v1/notifications.py` + service：列表/未读/已读
       （UPDATE 带 user_id 条件）、审计 notification_read 仅记条数。
-- [ ] T027 Write `publish_request_event()`（`app/core/events.py`）+ `WS /ws/requests/{id}`
+- [X] T027 Write `publish_request_event()`（`app/core/events.py`）+ `WS /ws/requests/{id}`
       （`api/v1/ws.py`；仅 owner/当前 assignee 可订阅，否则 4401）。
-- [ ] T028 [P] Modify `backend/app/core/metrics.py`：分派/通知计数器（gauge/counter，
+- [X] T028 [P] Modify `backend/app/core/metrics.py`：分派/通知计数器（gauge/counter，
       对齐 003 风格；P4 与功能同提交，不「先上线后补」）。
 
 ## Phase 5：前端（每提交过 eslint/prettier/tsc/vitest）

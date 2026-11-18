@@ -1,18 +1,21 @@
-"""需求端点（T046/T055）：看板列表 + 创建 + 详情 + 附件 + 分配。
+"""需求端点（T046/T055 + 007）：看板列表 + 创建 + 详情 + 附件 + 分配 + 分派动作。
 
 对齐 contracts/api.md 需求部分：
-- GET /requests（?status=&q=&priority=&page=&page_size=）→ 200 RequestList
+- GET /requests（?scope=relevant|mine&status=&q=&priority=&page=&page_size=）→ 200 RequestList
 - POST /requests → 201 Request（status=created）
-- GET /requests/{id} → 200 Request（含 attachments）
+- GET /requests/{id} → 200 Request（含 attachments + 分派指针 + 经手链）
 - POST /requests/{id}/attachments → 201（预签名 PUT URL + 元数据回填）
 - GET /requests/{id}/attachments/{key} → 302 预签名 GET URL
-- POST /requests/{id}/assign → 202（仅校验+入队，RT<100ms）
+- POST /requests/{id}/assign → 202（拖员工=转交；拖 Agent/组=建 Run 入队）
+- POST /requests/{id}/accept → 202（007：pending → accepted）
+- POST /requests/{id}/reject → 202（007：pending|accepted → created，原因必填）
 
-T049：request_create 审计挂接。T059：assign 审计挂接。
+T049：request_create 审计挂接。T059：assign 审计挂接。007：分派四动作审计。
 """
 
 from typing import Annotated
 
+import structlog
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse, RedirectResponse
 
@@ -23,6 +26,7 @@ from app.core.audit import (
     REQUEST_REJECT,
     write_audit,
 )
+from app.core.events import publish_request_event
 from app.models.schedule import Schedule
 from app.schemas.request import (
     AssignOut,
@@ -43,7 +47,25 @@ from app.services import (
     request_service,
 )
 
+logger = structlog.get_logger(__name__)
+
 router = APIRouter(prefix="/requests", tags=["requests"])
+
+
+async def _publish_request_event(request_id: str, payload: dict) -> None:
+    """提交后发布 request 频道事件（看板/详情 WS 实时刷新）。
+
+    失败不阻塞业务（broker 抖动不该让已受理的分派回滚）——与
+    assignment_service._publish_assigned 同一条降级纪律。
+    """
+    try:
+        await publish_request_event(request_id, payload)
+    except Exception as exc:  # noqa: BLE001 - 事件发布降级，仅告警
+        logger.warning(
+            "request_event_publish_failed",
+            request_id=request_id,
+            error=type(exc).__name__,
+        )
 
 
 @router.get("", response_model=RequestList)
@@ -178,6 +200,15 @@ async def accept_request(
         strict=True,
     )
     await db.commit()
+    await _publish_request_event(
+        request.id,
+        {
+            "type": "status_change",
+            "status": request.status,
+            "assignee_id": request.assignee_id,
+            "actor_id": user.id,
+        },
+    )
     return DispatchActionOut(request_id=request.id, status=request.status)
 
 
@@ -206,6 +237,15 @@ async def reject_request(
         strict=True,
     )
     await db.commit()
+    await _publish_request_event(
+        request.id,
+        {
+            "type": "status_change",
+            "status": request.status,
+            "assignee_id": request.assignee_id,
+            "actor_id": user.id,
+        },
+    )
     return DispatchActionOut(request_id=request.id, status=request.status)
 
 
@@ -321,6 +361,15 @@ async def assign_request(
             strict=True,
         )
         await db.commit()
+        await _publish_request_event(
+            request.id,
+            {
+                "type": "status_change",
+                "status": request.status,
+                "assignee_id": request.assignee_id,
+                "actor_id": user.id,
+            },
+        )
         return DispatchActionOut(request_id=request.id, status=request.status)
 
     parent_run_id, runs, strategy = await assignment_service.assign(

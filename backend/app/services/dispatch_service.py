@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.core import metrics
 from app.models.request import Request
 from app.models.request_dispatch import RequestDispatch
 from app.models.user import User
@@ -92,6 +93,7 @@ async def _notify(
         )
     )
     await db.flush()
+    metrics.NOTIFICATIONS_CREATED.inc(type=type_)
 
 
 async def _next_seq(db: AsyncSession, request_id: str) -> int:
@@ -131,6 +133,7 @@ async def _record_history(
         )
     )
     await db.flush()
+    metrics.REQUEST_DISPATCH_ACTIONS.inc(action=action)
 
 
 async def dispatch_request(

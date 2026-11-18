@@ -1,4 +1,4 @@
-"""运行实时事件 WebSocket 端点（T071，US5）：/ws/runs/{run_id}。
+"""运行实时事件 WebSocket 端点（T071，US5 + 007）：/ws/runs/{run_id} 与 /ws/requests/{request_id}。
 
 对齐 contracts/api.md WebSocket 契约（FR-015，SC-003）：
 - 握手凭证**优先取子协议**：`Sec-WebSocket-Protocol: aw.bearer, <access>`
@@ -11,6 +11,10 @@
 - 订阅 Redis 频道 run:{run_id}，逐条转发事件到客户端
 - 客户端 {"type": "ping"} → 服务端 {"type": "pong"}（保活）
 - 连接断开清理订阅
+
+007 新增 /ws/requests/{request_id}：分派类状态变更（pending/accepted/created）
+发生在 Run 存在之前，塞不进 run 频道，故开 request:{id} 频道。
+归属校验同构：owner、**当前 assignee** 或 admin 可订阅。
 
 用 Starlette WebSocket（FastAPI 原生），不依赖 httpx client——
 WS 测试用同步 TestClient（starlette），走真实 Redis 发布/订阅。
@@ -27,8 +31,9 @@ from sqlalchemy.pool import NullPool
 
 from app.core import metrics
 from app.core.config import settings
-from app.core.events import subscribe_run_events
+from app.core.events import subscribe_request_events, subscribe_run_events
 from app.core.security import decode_token
+from app.models.request import Request
 from app.models.run import Run
 from app.models.user import User
 
@@ -91,6 +96,86 @@ async def _can_access_run(run_id: str, user_id: str) -> bool:
             return user is not None and user.role == "admin"
     finally:
         await engine.dispose()
+
+
+async def _can_access_request(request_id: str, user_id: str) -> bool:
+    """需求 WS 归属校验（007）：owner、当前 assignee 或 admin 可订阅。
+
+    与 _can_access_run 同构（一次性 NullPool engine + finally dispose）——
+    理由见那里的注释：WS 端点可能跑在任意事件循环，复用全局连接池会死锁。
+    """
+    engine = create_async_engine(settings.database_url, poolclass=NullPool)
+    try:
+        async with AsyncSession(engine, expire_on_commit=False) as db:
+            request = await db.get(Request, request_id)
+            if request is None:
+                return False
+            if user_id in (request.owner_id, request.assignee_id):
+                return True
+            user = await db.get(User, user_id)
+            return user is not None and user.role == "admin"
+    finally:
+        await engine.dispose()
+
+
+@router.websocket("/ws/requests/{request_id}")
+async def ws_request_events(websocket: WebSocket, request_id: str) -> None:
+    """订阅 request:{request_id} 频道并转发分派类事件（007）。
+
+    - 鉴权失败 → close(code=1008, reason="unauthorized")
+    - 越权（非 owner/当前 assignee 且非 admin）→ close(code=1008, reason="forbidden")
+    - 收到 {"type": "ping"} → 回 {"type": "pong"}
+    """
+    token, subprotocol = _credential(websocket)
+    user_id = _authorize(token)
+    if user_id is None:
+        await websocket.close(*_CLOSE_UNAUTHORIZED)
+        return
+
+    if not await _can_access_request(request_id, user_id):
+        logger.warning("ws_forbidden", request_id=request_id[:8], user_id=user_id[:8])
+        await websocket.close(*_CLOSE_FORBIDDEN)
+        return
+
+    await websocket.accept(subprotocol=subprotocol)
+    metrics.WS_CONNECTIONS.inc()
+
+    send_lock = asyncio.Lock()
+
+    async def send(payload: dict[str, Any]) -> None:
+        async with send_lock:
+            await websocket.send_json(payload)
+
+    ready = asyncio.Event()
+
+    async def _subscribe() -> None:
+        await subscribe_request_events(request_id, send, on_ready=_mark_ready)
+
+    async def _mark_ready() -> None:
+        ready.set()
+
+    sub_task = asyncio.create_task(_subscribe())
+
+    try:
+        await asyncio.wait_for(ready.wait(), timeout=5)
+        await send({"type": "ready"})
+    except TimeoutError:
+        logger.warning("ws_subscribe_slow", request_id=request_id[:8])
+
+    try:
+        while True:
+            message = await websocket.receive_json()
+            if message.get("type") == "ping":
+                await send({"type": "pong"})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        metrics.WS_CONNECTIONS.dec()
+        sub_task.cancel()
+        try:
+            await sub_task
+        except (asyncio.CancelledError, Exception):  # noqa: S110, BLE001 - 任务取消/清理，静默即可
+            pass
 
 
 @router.websocket("/ws/runs/{run_id}")
