@@ -22,7 +22,7 @@ from sqlalchemy import (
     Uuid,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 from app.models.user import new_uuid
@@ -64,4 +64,13 @@ class Project(Base):
         UniqueConstraint("owner_id", "name", name="uq_projects_owner_name"),
         # 列表端点固定按 owner 过滤 + 状态筛选。
         Index("ix_projects_owner_status", "owner_id", "status"),
+    )
+
+    # 010：成员关系（owner 之外的全部成员；owner 本人不在此表——
+    # 它在 owner_id 列上，双写要同步是纯冗余，R-01）。
+    # passive_deletes：删项目时成员行由 DB 级联删，ORM 不逐条 SELECT。
+    members = relationship(
+        "ProjectMember",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )

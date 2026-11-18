@@ -49,6 +49,9 @@ class Notification(Base):
             "run_completed",
             # 009：解锁通知（前置终态 → 后续方「可以启动了」）
             "dependency_ready",
+            # 010：成员变动（加人/移出——只发给对方本人；删项目不发，R-05）
+            "project_member_added",
+            "project_member_removed",
             name="notification_type",
         ),
         nullable=False,

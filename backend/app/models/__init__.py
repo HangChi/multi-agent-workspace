@@ -21,6 +21,7 @@ from app.models.group_member import GroupMember
 from app.models.invite_code import InviteCode
 from app.models.notification import Notification
 from app.models.project import Project
+from app.models.project_member import ProjectMember
 from app.models.request import Request
 from app.models.request_dependency import RequestDependency
 from app.models.request_dispatch import RequestDispatch
@@ -49,6 +50,7 @@ __all__ = [
     "MarketplaceListing",
     "Notification",
     "Project",
+    "ProjectMember",
     "Request",
     "RequestDependency",
     "RequestDispatch",

@@ -5,11 +5,11 @@
 
 ## Phase 2 — 数据模型（提交点：`feat(db): 010 project_members 表`）
 
-- [ ] T001 [P] Write `backend/app/models/project_member.py`：`ProjectMember` 模型（project_id/user_id/created_at，复合主键，两 FK CASCADE）+ `ix_project_members_user_id`；**无 role 列**（R-01）
-- [ ] T002 Modify `backend/app/models/project.py`：`members` relationship（cascade + passive_deletes）；`backend/app/models/__init__.py` 注册 ProjectMember（`__all__` 同步，防 009 的 F401 返工）
-- [ ] T003 Write `backend/alembic/versions/0014_project_member.py`：建表 + PK + 索引 + notification_type 枚举加两值（autocommit_block）
-- [ ] T004 Modify `backend/app/models/notification.py`：type 枚举加 `project_member_added` / `project_member_removed`
-- [ ] T005 [P] Integration: `backend/tests/integration/test_project_member_schema.py` — 迁移后断言（列/PK/索引；删用户→成员行 CASCADE 但需求保留；删项目→成员行 CASCADE）
+- [X] T001 [P] Write `backend/app/models/project_member.py`：`ProjectMember` 模型（project_id/user_id/created_at，复合主键，两 FK CASCADE）+ `ix_project_members_user_id`；**无 role 列**（R-01）
+- [X] T002 Modify `backend/app/models/project.py`：`members` relationship（cascade + passive_deletes）；`backend/app/models/__init__.py` 注册 ProjectMember（`__all__` 同步，防 009 的 F401 返工）
+- [X] T003 Write `backend/alembic/versions/0014_project_member.py`：建表 + PK + 索引 + notification_type 枚举加两值（autocommit_block）
+- [X] T004 Modify `backend/app/models/notification.py`：type 枚举加 `project_member_added` / `project_member_removed`
+- [X] T005 [P] Integration: `backend/tests/integration/test_project_member_schema.py` — 迁移后断言（列/PK/索引；删用户→成员行 CASCADE 但需求保留；删项目→成员行 CASCADE）
 
 ## Phase 3a — 成员管理纯增量（提交点：`feat(project): 010 成员管理端点`）
 
