@@ -30,11 +30,11 @@
 
 ## Phase 4 — 前端（提交点：`feat(ui): 010 共享前端`）
 
-- [ ] T017 [P] `frontend/src/api/projectMembers.ts`：add/remove/list + endpoints 挂载；projects.ts 类型加 member_count/is_shared
-- [ ] T018 [P] Component: `frontend/src/components/project/MemberSection.tsx` — 成员区（owner 徽章 + 成员列表 + 添加器 + 移除；owner 才见操作）
-- [ ] T019 Modify `frontend/src/pages/ProjectsPage.tsx`：挂 MemberSection；「我的/共享的」徽章
-- [ ] T020 Modify `frontend/src/components/layout/NotificationBell.tsx`：TYPE_META 加 project_member_added/removed（图标 users）
-- [ ] T021 [P] Unit: `frontend/src/tests/projectMembers.test.tsx` — 契约级用例（owner 徽章/成员只读/添加器候选取 users/options/viewer 无入口）；前端五件套
+- [X] T017 [P] `frontend/src/api/projectMembers.ts`：add/remove/list + endpoints 挂载；projects.ts 类型加 member_count/is_shared
+- [X] T018 [P] Component: `frontend/src/components/project/MemberSection.tsx` — 成员区（owner 徽章 + 成员列表 + 添加器 + 移除；owner 才见操作）
+- [X] T019 Modify `frontend/src/pages/ProjectsPage.tsx`：挂 MemberSection；「我的/共享的」徽章
+- [X] T020 Modify `frontend/src/components/layout/NotificationBell.tsx`：TYPE_META 加 project_member_added/removed（图标 users）
+- [X] T021 [P] Unit: `frontend/src/tests/projectMembers.test.tsx` — 契约级用例（owner 徽章/成员只读/添加器候选取 users/options/viewer 无入口）；前端五件套
 
 ## Phase 5 — 验收与合并（每项一次提交）
 

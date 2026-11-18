@@ -75,6 +75,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     description: null,
     status: 'active',
     request_count: 3,
+    member_count: 1,
     created_at: '2026-11-18T00:00:00Z',
     updated_at: '2026-11-18T00:00:00Z',
     ...overrides,

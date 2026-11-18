@@ -10,6 +10,9 @@ export type NotificationType =
   | 'run_completed'
   // 009：前置终态 → 后续方「可以启动了」
   | 'dependency_ready'
+  // 010：成员变动（只发给对方本人；删项目不发）
+  | 'project_member_added'
+  | 'project_member_removed'
 
 export interface Notification {
   id: string

@@ -11,6 +11,8 @@ export interface Project {
   status: 'active' | 'archived'
   /** 该项目下、当前用户可见范围内的需求数（我创建的 + 分派给我的） */
   request_count: number
+  /** 010：成员数（含 owner——「这个项目有几个人」的自然口径） */
+  member_count: number
   created_at: string
   updated_at: string
 }

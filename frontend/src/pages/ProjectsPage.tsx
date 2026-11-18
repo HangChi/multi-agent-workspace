@@ -16,6 +16,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { extractError } from '../api/client'
 import { createProject, deleteProject, fetchProjects, updateProject } from '../api/endpoints'
 import type { Project } from '../api/endpoints'
+import { MemberSection } from '../components/project/MemberSection'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -256,6 +257,10 @@ export function ProjectsPage() {
                       <Badge tone={project.status === 'active' ? 'emerald' : 'slate'} dot>
                         {project.status === 'active' ? '进行中' : '已归档'}
                       </Badge>
+                      {/* 010：我的/共享的区分（owner_id 是唯一归属真相） */}
+                      <Badge tone={project.owner_id === user?.id ? 'brand' : 'sky'}>
+                        {project.owner_id === user?.id ? '我的' : '共享的'}
+                      </Badge>
                     </p>
                     {project.description && (
                       <p className="mt-0.5 truncate text-sm text-ink-muted">
@@ -264,7 +269,7 @@ export function ProjectsPage() {
                     )}
                   </div>
                   <span className="shrink-0 text-sm tabular-nums text-ink-muted">
-                    {project.request_count} 条需求
+                    {project.request_count} 条需求 · {project.member_count} 人
                   </span>
                   <div className="flex shrink-0 items-center gap-1">
                     <Button
@@ -299,6 +304,11 @@ export function ProjectsPage() {
                     >
                       删除
                     </Button>
+                  </div>
+
+                  {/* 010：成员区（owner 可管理，成员只读——后端同一谓词） */}
+                  <div className="w-full border-t border-line-subtle pt-2">
+                    <MemberSection projectId={project.id} ownerId={project.owner_id} />
                   </div>
                 </>
               )}

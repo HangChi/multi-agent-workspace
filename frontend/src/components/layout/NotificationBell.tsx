@@ -40,6 +40,9 @@ const TYPE_META: Record<
   // 009：前置终态 → 可以启动了（措辞按 payload.dependency_status 三分，
   // 前端在通知项里渲染，这里只给图标与类型标签）
   dependency_ready: { label: '前置就绪', icon: 'clock' },
+  // 010：成员变动（两种共用一条 meta，文案按 type 二分）
+  project_member_added: { label: '成员变动', icon: 'users' },
+  project_member_removed: { label: '成员变动', icon: 'users' },
 }
 
 function timeAgo(iso: string): string {
