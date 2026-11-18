@@ -182,7 +182,9 @@ jobs:
 
       - name: ruff
         working-directory: backend
-        run: ruff check app tests
+        # alembic/ 必须在内：迁移文件同样是交付代码，此前的 app tests 范围
+        # 让迁移里的旧式 Union 注解（UP007 等）永远过不了CI也看不见。
+        run: ruff check app tests alembic
 
       # 格式检查放在 lint 之后：ruff check 只看语义，ruff format 看排版，
       # 两者互补。没有这一步，格式化风格会随作者编辑器配置漂移。

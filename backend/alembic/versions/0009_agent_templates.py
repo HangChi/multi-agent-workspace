@@ -69,7 +69,9 @@ def upgrade() -> None:
         # reuse request_priority).
         sa.Column(
             "egress_mode",
-            postgresql.ENUM("default", "restricted", name="agent_egress_mode", create_type=False),
+            postgresql.ENUM(
+                "default", "restricted", name="agent_egress_mode", create_type=False
+            ),
             nullable=False,
             server_default="default",
         ),
@@ -156,15 +158,11 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("ix_agents_source_agent_id", table_name="agents")
-    op.drop_constraint(
-        "agents_source_agent_id_fkey", "agents", type_="foreignkey"
-    )
+    op.drop_constraint("agents_source_agent_id_fkey", "agents", type_="foreignkey")
     op.drop_column("agents", "source_agent_id")
 
     op.drop_index("ix_agents_source_template_id", table_name="agents")
-    op.drop_constraint(
-        "agents_source_template_id_fkey", "agents", type_="foreignkey"
-    )
+    op.drop_constraint("agents_source_template_id_fkey", "agents", type_="foreignkey")
     op.drop_column("agents", "source_template_id")
 
     op.drop_index("uq_agent_templates_builtin_name", table_name="agent_templates")

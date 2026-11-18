@@ -20,6 +20,7 @@ old schema could represent is lost.
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0008_run_cost_micros"

@@ -8,16 +8,17 @@ pipeline 策略需要知道各子 Run 的先后顺序：组内成员按 position
 子 Run 依次填 sequence=1..N，执行时取 sequence-1 的产出作为本阶段输入。
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "7c1e9a4b2d30"
-down_revision: Union[str, Sequence[str], None] = "4bddde85dc4f"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = "4bddde85dc4f"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
