@@ -269,22 +269,19 @@ async def blocked_summaries(
     if not request_ids:
         return {}
     rows = (
-        (
-            await db.execute(
-                select(
-                    RequestDependency.request_id,
-                    Request.title,
-                )
-                .join(Request, Request.id == RequestDependency.dependency_id)
-                .where(
-                    RequestDependency.request_id.in_(request_ids),
-                    Request.status.not_in(TERMINAL_STATUSES),
-                )
-                .order_by(Request.created_at)
+        await db.execute(
+            select(
+                RequestDependency.request_id,
+                Request.title,
             )
+            .join(Request, Request.id == RequestDependency.dependency_id)
+            .where(
+                RequestDependency.request_id.in_(request_ids),
+                Request.status.not_in(TERMINAL_STATUSES),
+            )
+            .order_by(Request.created_at)
         )
-        .all()
-    )
+    ).all()
     summaries: dict[str, tuple[int, list[str]]] = {}
     for rid, title in rows:
         count, titles = summaries.get(rid, (0, []))
