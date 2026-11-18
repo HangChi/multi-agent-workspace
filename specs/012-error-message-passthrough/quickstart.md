@@ -47,8 +47,16 @@ cd frontend && npm run lint && npm run format:check && npm run typecheck && npm 
 
 | 日期 | 命令 | 结果 |
 |---|---|---|
-| _待填_ | ErrorBanner.test.tsx（7 例） | _待填_ |
-| _待填_ | 前端五件套 | _待填_ |
-| _待填_ | s12 复跑（B4） | _待填_ |
-| _待填_ | s12 三组回归（零新增失败） | _待填_ |
-| _待填_ | 009/011 quickstart 回填 | _待填_ |
+| 2026-11-18 | ErrorBanner.test.tsx（7 例） | ✅ 7/7（新增「字符串原样渲染」先红后绿；「空字符串不渲染」一次通过——falsy 短路本来就在） |
+| 2026-11-18 | 前端五件套 | ✅ lint/format/typecheck/139 passed/build 全绿（基线 137+2） |
+| 2026-11-18 | s12 复跑（B4） | ✅ ❌ → ✅（错误横幅逐条列出阻塞项；二跑稳定 5.9s/5.8s） |
+| 2026-11-18 | s12 三组回归 | ✅ 9 过 / 6 败——6 败是 011 记录的其余已知发现（A5/B1/B2/C2/C3/C5），零新增失败 |
+| 2026-11-18 | 009/011 quickstart 回填 | ✅ 009 B4 转 ✅；011 §4/§5 的发现 #2 标记已修复 |
+
+## 5. 部署注记（沙箱网络）
+
+Docker 构建期 `npm ci`/`uv sync` 需要联网，沙箱 DNS 不通。解法：
+`docker build --build-arg HTTP_PROXY=http://host.docker.internal:7897
+--build-arg HTTPS_PROXY=http://host.docker.internal:7897`（宿主代理
+经 host.docker.internal 可达；127.0.0.1 在构建容器里是容器自身），
+构建完用 `SKIP_BUILD=1 bash deploy/deploy.sh` 走本地镜像部署。

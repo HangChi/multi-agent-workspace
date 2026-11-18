@@ -60,7 +60,7 @@ backend/.venv/bin/python deploy/verify/s11_project_sharing.py --base ... --invit
 | 2026-11-18 | s12 二跑（SC-004 可重复） | ✅ 结果完全一致（同 8 项过 / 同 7 项败） |
 | 2026-11-18 | 墙钟时间（SC-003 <180s） | ✅ 36s（含 dev server 探测与三组断言） |
 | 2026-11-18 | 反证实验（SC-005） | ✅ 破坏「创建项目」按钮文案 → A1 转 ❌ + 截图产物 + 退出码 1；还原后复绿 |
-| 2026-11-18 | B4 拖拽 | ✅ 拖拽成功（dnd-kit 传感器响应）；**无退化**——看板没有点击分配入口，409 消息被 ErrorBanner bug 吃掉（见 §5） |
+| 2026-11-18 | B4 拖拽 | ✅ 拖拽成功（dnd-kit 传感器响应）；**无退化**——看板没有点击分配入口，409 消息被 ErrorBanner bug 吃掉（发现 #2）——012 修复后复跑转 ✅ |
 | 2026-11-18 | s11 回归 | ⏳ 未跑（011 零应用改动，s11 结果不受影响；按纪律不虚填） |
 | 2026-11-18 | 三份 quickstart 回填 | ✅ 008 四条 ✅/一条 ⏳；009 两条 ✅/三条 ⏳；010 两条 ✅/三条 ⏳——全部附根因 |
 
@@ -69,7 +69,7 @@ backend/.venv/bin/python deploy/verify/s11_project_sharing.py --base ... --invit
 | # | 发现 | 根因 | 影响项 |
 |---|---|---|---|
 | 1 | 详情弹层永远显示「前置需求 0 个」，blocked 提示自相矛盾（「有 0 个前置未完成」） | `BoardPage` 的 `detailSource = inList ?? deepLinkRequest` 优先用列表项（`dependencies=null`） | B1/B2（009） |
-| 2 | 409 的逐条阻塞消息到不了用户，只显示「请求失败，请稍后重试」 | `ErrorBanner` 对**已提取的字符串**二次 `extractError` 落兜底；**19 处调用点全中**（自 007 T082 起所有后端错误消息都不可见） | B4（009）+ 全局 |
+| 2 | 409 的逐条阻塞消息到不了用户，只显示（✅ 已修复，012）「请求失败，请稍后重试」 | `ErrorBanner` 对**已提取的字符串**二次 `extractError` 落兜底；**19 处调用点全中**（自 007 T082 起所有后端错误消息都不可见） | B4（009）+ 全局 | 修复：`typeof error === "string" ? error : extractError(error)`（012 一行判型+2 单测；s12 B4 复跑转 ✅） |
 | 3 | viewer 看得见「项目」导航入口 | `nav.ts` 的 `/projects` 项无 `memberOnly: true` | A5/C5（008/010） |
 | 4 | 成员的项目页与建需求表单看不到共享项目 | `ProjectsPage`/`RequestForm` 查 `scope: 'mine'`（后端 relevant 口径 010 已扩展，前端没接） | C2/C3（010） |
 
