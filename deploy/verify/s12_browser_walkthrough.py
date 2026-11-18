@@ -645,6 +645,11 @@ class Walkthrough:
         started = time.monotonic()
         try:
             page.goto(self.frontend_url, wait_until="networkidle")
+            # 先用板内搜索把看板收窄到目标卡一张——看板短则无需滚动，
+            # 拖拽坐标稳定（dnd-kit PointerSensor 在长板+滚动下的激活
+            # 时灵时不灵，011 诊断日志实测）
+            page.get_by_label("搜索需求").fill(b_title)
+            page.wait_for_timeout(800)
             page.locator("article", has_text=b_title).first.wait_for(timeout=10000)
             target = page.locator(
                 f"[title*='拖到这里分配给'][title*='{self.seed['agent']['name']}']"
