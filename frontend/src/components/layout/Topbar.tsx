@@ -4,7 +4,7 @@
  * 为什么从侧栏改回横栏：
  * - 侧栏常驻会吃掉 256px 内容宽度，看板列被压窄；而这个工作台的页面
  *   几乎都是「宽内容」（看板、列表、表格），横向导航更划算；
- * - 于是横栏只放 4 个业务入口（看板、仪表盘、Agent、组）。
+ * - 于是横栏放 5 个业务入口（看板、仪表盘、Agent、组、项目）。
  *
  * 设置不进横栏，收在右上角「个人菜单」（头像下拉）里：账号信息 + 一个
  * 「设置」入口 + 退出。这是 Linear / GitHub 的做法——设置是低频且属于
@@ -13,9 +13,9 @@
  * 菜单里只放**一个**设置入口，不罗列通用/模板/调度/工具/管理五个子项：
  * 那五个目的地的完整导航在设置页自己的二级导航里（SettingsLayout），
  * 头像菜单再列一遍就是同一份清单两个入口，点进去看到的内容也完全相同。
- * 需要直达某个设置子页时用 ⌘K（命令面板已索引全部设置页）。
+ * 需要直达某个设置子页时用命令面板（已索引全部设置页）。
  *
- * 右上角保持克制：只有 ⌘K、明/暗切换、个人菜单。
+ * 右上角保持克制：只有命令面板、明/暗切换、通知、个人菜单。
  * 「系统正常」pill 已撤掉——它既不是真监控（没有后端探活背书），
  * 又和设置里的主题、版本信息重复；主题的三选一在设置 → 通用设置。
  */
@@ -33,6 +33,7 @@ import { cn } from '../ui/cn'
 import { useCommandPalette } from '../command/useCommandPalette'
 import { NotificationBell } from './NotificationBell'
 import { MAIN_NAV, filterNav } from './nav'
+import { modCombo } from '../../utils/platform'
 
 const ROLE_LABEL: Record<string, string> = {
   admin: '管理员',
@@ -71,7 +72,7 @@ export function Topbar() {
           className="flex shrink-0 items-center gap-2 rounded-lg pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 focus-visible:ring-offset-2"
         >
           <LogoMark size={26} title="" />
-          <span className="hidden text-[14.5px] font-semibold tracking-tight text-ink sm:block">
+          <span className="hidden text-body font-semibold tracking-tight text-ink sm:block">
             Agent 工作台
           </span>
         </Link>
@@ -87,7 +88,16 @@ export function Topbar() {
         </nav>
 
         <div className="ml-auto flex items-center gap-1.5">
-          {/* 全局搜索：主流工作台把「去哪」收敛成一个 ⌘K 入口 */}
+          {/* 全局搜索：主流工作台把「去哪」收敛成一个命令面板入口。
+              窄屏退化为纯图标按钮——触屏没有硬件键盘，不能整个撤掉入口。 */}
+          <button
+            type="button"
+            onClick={toggle}
+            aria-label="打开命令面板"
+            className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-line bg-surface px-2 text-ink-faint shadow-card transition-colors hover:border-line-strong hover:text-ink-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 sm:hidden"
+          >
+            <Icon name="search" className="h-3.5 w-3.5" />
+          </button>
           <button
             type="button"
             onClick={toggle}
@@ -96,8 +106,8 @@ export function Topbar() {
           >
             <Icon name="search" className="h-3.5 w-3.5" />
             <span className="w-20 text-left lg:w-24">搜索或跳转…</span>
-            <kbd className="rounded border border-line bg-surface-muted px-1 py-0.5 text-micro font-medium">
-              ⌘K
+            <kbd className="rounded border border-line bg-surface-muted px-1 py-0.5 text-2xs font-medium">
+              {modCombo('K')}
             </kbd>
           </button>
 
@@ -113,7 +123,7 @@ export function Topbar() {
             triggerClassName="py-1 pl-1 pr-1.5 hover:bg-surface-subtle"
             trigger={
               <>
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-[11px] font-semibold text-white">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-2xs font-semibold text-white">
                   {initial}
                 </span>
                 <Icon name="chevron-down" className="hidden h-3.5 w-3.5 text-ink-faint sm:block" />

@@ -27,7 +27,8 @@ export function SettingsLayout() {
         <div className="lg:sticky lg:top-[5.25rem]">
           <p className="label-caps mb-2 hidden px-2.5 lg:block">设置</p>
 
-          {/* 桌面：竖向列表 */}
+          {/* 桌面：竖向列表。条目只放标题——描述文字统一由下方的
+              虚线框承担（当前项），避免同屏出现两遍同一句话。 */}
           <nav aria-label="设置导航" className="hidden flex-col gap-0.5 lg:flex">
             {items.map((item) => (
               <NavLink
@@ -35,7 +36,7 @@ export function SettingsLayout() {
                 to={item.to}
                 className={({ isActive }) =>
                   cn(
-                    'group relative flex items-start gap-2.5 rounded-lg px-2.5 py-[7px] transition-colors duration-150',
+                    'group relative flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] transition-colors duration-150',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 focus-visible:ring-offset-2',
                     isActive
                       ? 'bg-surface text-ink shadow-card ring-1 ring-inset ring-line/80'
@@ -48,17 +49,12 @@ export function SettingsLayout() {
                     <Icon
                       name={item.icon}
                       className={cn(
-                        'mt-0.5 h-4 w-4 shrink-0',
+                        'h-4 w-4 shrink-0',
                         isActive ? 'text-brand-600' : 'text-ink-faint'
                       )}
                     />
-                    <span className="min-w-0">
-                      <span className="block truncate text-ui font-medium">{item.label}</span>
-                      {item.description && (
-                        <span className="mt-0.5 block truncate text-micro leading-snug text-ink-faint">
-                          {item.description}
-                        </span>
-                      )}
+                    <span className="min-w-0 truncate text-ui font-medium">
+                      {item.label}
                     </span>
                   </>
                 )}

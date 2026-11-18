@@ -1,7 +1,12 @@
-/** 注册页（T025）：邀请码 + 邮箱 + 密码，含密码强度提示。 */
+/**
+ * 注册页（T025）：邀请码 + 邮箱 + 密码，含密码强度提示。
+ *
+ * 细节约定同登录页：noValidate 自定义校验 + 聚焦首个错误字段 +
+ * 触屏不 autoFocus + 深链回跳。强度条对读屏用户补 role=status 播报。
+ */
 
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import { extractError } from '../api/client'
 import { AuthShell } from '../components/layout/AuthShell'
@@ -10,12 +15,15 @@ import { ErrorBanner } from '../components/ui/ErrorBanner'
 import { Input } from '../components/ui/Field'
 import { useAuth } from '../hooks/useAuth'
 import { cn } from '../components/ui/cn'
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+import { isEmail } from '../utils/validation'
 
 const STRENGTH_STYLE = ['bg-line', 'bg-rose-400', 'bg-amber-400', 'bg-emerald-500']
 const STRENGTH_LABEL = ['', '偏弱', '中等', '较强']
 const STRENGTH_TEXT = ['', 'text-rose-600', 'text-amber-600', 'text-emerald-600']
+
+/** 触屏设备进页面就弹键盘是负体验；精确指针（鼠标/触控板）才自动聚焦。 */
+const FINE_POINTER =
+  typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches
 
 /** 0~3 分：长度、字母+数字组合、额外复杂度。 */
 function scorePassword(pwd: string): number {
@@ -35,6 +43,7 @@ interface FieldErrors {
 
 export function RegisterPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { register } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -48,10 +57,12 @@ export function RegisterPage() {
   const clear = (key: keyof FieldErrors) =>
     setFieldErrors((v) => (v[key] ? { ...v, [key]: undefined } : v))
 
+  const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname
+
   const validate = () => {
     const next: FieldErrors = {}
     if (!email.trim()) next.email = '请输入邮箱'
-    else if (!EMAIL_RE.test(email.trim())) next.email = '邮箱格式不正确'
+    else if (!isEmail(email)) next.email = '邮箱格式不正确'
 
     if (!password) next.password = '请设置密码'
     else if (password.length < 8) next.password = '密码至少 8 位'
@@ -61,7 +72,9 @@ export function RegisterPage() {
     if (!inviteCode.trim()) next.invite = '请输入邀请码'
 
     setFieldErrors(next)
-    return Object.keys(next).length === 0
+    const firstKey = (['email', 'password', 'invite'] as const).find((k) => next[k])
+    if (firstKey) document.getElementById(`register-${firstKey}`)?.focus()
+    return !firstKey
   }
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -71,7 +84,7 @@ export function RegisterPage() {
     setLoading(true)
     try {
       await register({ email: email.trim(), password, invite_code: inviteCode.trim() })
-      navigate('/', { replace: true })
+      navigate(from ?? '/', { replace: true })
     } catch (err) {
       setError(extractError(err))
     } finally {
@@ -97,6 +110,7 @@ export function RegisterPage() {
     >
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
         <Input
+          id="register-email"
           label="邮箱"
           type="email"
           value={email}
@@ -108,11 +122,12 @@ export function RegisterPage() {
           leftIcon="mail"
           placeholder="you@example.com"
           autoComplete="email"
-          autoFocus
+          autoFocus={FINE_POINTER}
         />
 
         <div>
           <Input
+            id="register-password"
             label="密码"
             type={showPassword ? 'text' : 'password'}
             value={password}
@@ -129,33 +144,41 @@ export function RegisterPage() {
                 icon={showPassword ? 'eye-off' : 'eye'}
                 label={showPassword ? '隐藏密码' : '显示密码'}
                 size="sm"
+                aria-pressed={showPassword}
                 onClick={() => setShowPassword((v) => !v)}
               />
             }
           />
 
-          {/* 强度条：长度/组合达标才点亮，给用户即时反馈 */}
+          {/* 强度条：长度/组合达标才点亮，给用户即时反馈。
+              视觉条 aria-hidden，改由下方 role=status 播报，读屏不重复。 */}
           {password.length > 0 && (
-            <div className="mt-2 flex items-center gap-2">
-              <div className="flex flex-1 gap-1">
-                {[1, 2, 3].map((i) => (
-                  <span
-                    key={i}
-                    className={cn(
-                      'h-1 flex-1 rounded-full transition-colors duration-200',
-                      i <= strength ? STRENGTH_STYLE[strength] : 'bg-line'
-                    )}
-                  />
-                ))}
+            <>
+              <div className="mt-2 flex items-center gap-2" aria-hidden="true">
+                <div className="flex flex-1 gap-1">
+                  {[1, 2, 3].map((i) => (
+                    <span
+                      key={i}
+                      className={cn(
+                        'h-1 flex-1 rounded-full transition-colors duration-200',
+                        i <= strength ? STRENGTH_STYLE[strength] : 'bg-line'
+                      )}
+                    />
+                  ))}
+                </div>
+                <span className={cn('text-micro font-medium', STRENGTH_TEXT[strength])}>
+                  {STRENGTH_LABEL[strength]}
+                </span>
               </div>
-              <span className={cn('text-micro font-medium', STRENGTH_TEXT[strength])}>
-                {STRENGTH_LABEL[strength]}
-              </span>
-            </div>
+              <p role="status" className="sr-only">
+                密码强度：{STRENGTH_LABEL[strength]}
+              </p>
+            </>
           )}
         </div>
 
         <Input
+          id="register-invite"
           label="邀请码"
           value={inviteCode}
           onChange={(e) => {

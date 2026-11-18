@@ -4,9 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <!-- iOS 只认 PNG 的 apple-touch-icon（SVG 会被忽略），180×180 由
+         public/apple-touch-icon.png 提供（favicon.svg 的高分辨率渲染） -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#080d17" media="(prefers-color-scheme: dark)" />
+    <meta
+      name="description"
+      content="Agent 工作台：拖拽式任务分发与多角色 Agent 执行，需求看板、编排策略、成本与日志全链路可观测。"
+    />
     <title>Agent 工作台</title>
     <!-- 正文字体只覆盖拉丁区（约 30KB），首屏优先拉取，避免标题/数字先回退再跳字 -->
     <link

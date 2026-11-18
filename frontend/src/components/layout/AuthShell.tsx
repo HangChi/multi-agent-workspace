@@ -63,7 +63,7 @@ export function AuthShell({ title, subtitle, children, footer }: AuthShellProps)
         <div className="relative z-10 p-10 xl:p-14">
           <div className="flex items-center gap-2.5">
             <LogoMark size={36} />
-            <span className="text-[15px] font-semibold tracking-tight text-white">
+            <span className="text-base font-semibold tracking-tight text-white">
               Agent 工作台
             </span>
           </div>
@@ -96,7 +96,9 @@ export function AuthShell({ title, subtitle, children, footer }: AuthShellProps)
           </ul>
         </div>
 
-        <div className="relative z-10 p-10 text-xs text-ink-muted xl:p-14">
+        {/* 版权行压在 bg-slate-950 上：text-ink-muted 对深底仅 ~3.6:1 不过 AA，
+            与相邻文案统一用 slate-400（~7:1） */}
+        <div className="relative z-10 p-10 text-xs text-slate-400 xl:p-14">
           © {new Date().getFullYear()} Agent 工作台 · 内部协作平台
         </div>
       </aside>

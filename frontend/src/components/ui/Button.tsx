@@ -1,11 +1,15 @@
 /**
  * 按钮体系：8 种语义变体 × 4 档尺寸，内置 loading / 图标 / 全宽。
  *
+ * as="link" 时渲染为 react-router <Link>：跳转型操作（空状态 CTA、
+ * 「查看全部」）用 button 语义是错的，但视觉上要与按钮完全一致。
+ *
  * 统一的交互反馈：hover 提亮 → active 加深 → focus-visible 描边环 → disabled 降透明度。
  */
 
 import { forwardRef } from 'react'
 import type { ButtonHTMLAttributes } from 'react'
+import { Link } from 'react-router-dom'
 
 import { Icon } from './Icons'
 import type { IconName } from './Icons'
@@ -64,6 +68,9 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   leftIcon?: IconName
   rightIcon?: IconName
   fullWidth?: boolean
+  /** 渲染为路由链接而非按钮（跳转型操作）；须同时传 to */
+  as?: 'button' | 'link'
+  to?: string
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
@@ -74,6 +81,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     leftIcon,
     rightIcon,
     fullWidth,
+    as = 'button',
+    to,
     className,
     children,
     disabled,
@@ -82,12 +91,25 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   },
   ref
 ) {
+  const classes = cn(BASE, VARIANTS[variant], SIZES[size], fullWidth && 'w-full', className)
+
+  // 跳转型按钮：Link 渲染，视觉与交互（含 focus 环）与 button 完全一致
+  if (as === 'link' && to) {
+    return (
+      <Link to={to} className={classes}>
+        {leftIcon && <Icon name={leftIcon} className={ICON_SIZES[size]} />}
+        {children}
+        {rightIcon && <Icon name={rightIcon} className={ICON_SIZES[size]} />}
+      </Link>
+    )
+  }
+
   return (
     <button
       ref={ref}
       type={type}
       disabled={disabled || loading}
-      className={cn(BASE, VARIANTS[variant], SIZES[size], fullWidth && 'w-full', className)}
+      className={classes}
       {...rest}
     >
       {loading ? (

@@ -1,10 +1,12 @@
 /** 路由与守卫（T026）：登录守卫 + 角色守卫 + 工作台路由（T037/T038）。 */
 
-import { Suspense, lazy } from 'react'
-import { Link, Navigate, Route, Routes } from 'react-router-dom'
+import { Suspense, lazy, useEffect } from 'react'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import { AppLayout } from './components/layout/AppLayout'
 import { SettingsLayout } from './components/layout/SettingsLayout'
+import { Button } from './components/ui/Button'
+import { EmptyState } from './components/ui/EmptyState'
 import { Icon } from './components/ui/Icons'
 import { LogoMark } from './components/ui/Logo'
 import { Spinner } from './components/ui/Spinner'
@@ -98,11 +100,47 @@ function PageLoading() {
   )
 }
 
-/** 登录守卫：未登录 → /login。 */
+/**
+ * 按路由更新 document.title。
+ *
+ * 多标签场景与读屏用户靠标题分辨当前页面；静态 SPA 全程一个标题
+ * 是主流框架（Next/Remix）默认就处理好的事，这里补上。
+ */
+const ROUTE_TITLES: [RegExp, string][] = [
+  [/^\/login$/, '登录'],
+  [/^\/register$/, '注册'],
+  [/^\/runs\//, '运行详情'],
+  [/^\/dashboard$/, '仪表盘'],
+  [/^\/agents$/, 'Agent 管理'],
+  [/^\/groups$/, 'Agent 组'],
+  [/^\/projects$/, '项目管理'],
+  [/^\/settings\/general$/, '通用设置'],
+  [/^\/settings\/templates$/, 'Agent 模板'],
+  [/^\/settings\/schedules$/, '定时调度'],
+  [/^\/settings\/marketplace$/, '工具市场'],
+  [/^\/settings\/admin$/, '管理后台'],
+  [/^\/settings$/, '设置'],
+  [/^\/$/, '需求看板'],
+]
+
+function titleForPath(pathname: string): string {
+  return ROUTE_TITLES.find(([re]) => re.test(pathname))?.[1] ?? '页面不存在'
+}
+
+function useDocumentTitle() {
+  const { pathname } = useLocation()
+  useEffect(() => {
+    document.title = `${titleForPath(pathname)} · Agent 工作台`
+  }, [pathname])
+}
+
+/** 登录守卫：未登录 → /login（带上原目标，登录后回跳）。 */
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { initialized, isAuthenticated } = useAuth()
+  const location = useLocation()
   if (!initialized) return <FullPageLoading />
-  if (!isAuthenticated) return <Navigate to="/login" replace />
+  if (!isAuthenticated)
+    return <Navigate to="/login" replace state={{ from: { pathname: location.pathname } }} />
   return <>{children}</>
 }
 
@@ -120,13 +158,16 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
           <p className="mt-1 text-sm leading-relaxed text-ink-muted">
             该页面仅限管理员角色访问，如需权限请联系系统管理员。
           </p>
-          <Link
+          <Button
+            as="link"
             to="/"
-            className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 text-sm font-medium text-ink-soft shadow-card transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45"
+            variant="secondary"
+            size="sm"
+            leftIcon="arrow-left"
+            className="mt-4"
           >
-            <Icon name="arrow-left" className="h-4 w-4" />
             返回看板
-          </Link>
+          </Button>
         </div>
       </div>
     )
@@ -147,6 +188,7 @@ function BoardHome() {
  * 放在外层则 AppLayout（导航栏）保持挂载，只有内容区变化。
  */
 export function AppRouter() {
+  useDocumentTitle()
   return (
     <Suspense fallback={<FullPageLoading />}>
       <Routes>
@@ -171,7 +213,7 @@ export function AppRouter() {
 
           {/* 设置模块：二级导航 + 子页面。
               模板 / 调度 / 工具市场 / 管理后台都从顶部导航挪到这里，
-              顶部因此只需容纳 4 个高频入口。 */}
+              顶部因此只需容纳 5 个高频入口。 */}
           <Route path="settings" element={<SettingsLayout />}>
             <Route index element={<Navigate to="/settings/general" replace />} />
             <Route path="general" element={<Suspended element={<SettingsPage />} />} />
@@ -195,10 +237,30 @@ export function AppRouter() {
           <Route path="schedules" element={<Navigate to="/settings/schedules" replace />} />
           <Route path="marketplace" element={<Navigate to="/settings/marketplace" replace />} />
           <Route path="admin" element={<Navigate to="/settings/admin" replace />} />
+
+          {/* 真 404：拼错的 URL 要明确告知，而不是静默跳看板——
+              用户会把「没保存成功」误判成「跳转了」。放在布局子路由里，
+              顶栏与设置导航仍在，用户可以直接点走。 */}
+          <Route path="*" element={<Suspended element={<NotFound />} />} />
         </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
+  )
+}
+
+function NotFound() {
+  return (
+    <EmptyState
+      icon="search"
+      title="页面不存在"
+      description="地址可能拼错了，或指向一个已被移除的页面。"
+      className="mt-10"
+      action={
+        <Button as="link" to="/" variant="primary" leftIcon="arrow-left">
+          返回看板
+        </Button>
+      }
+    />
   )
 }
 
