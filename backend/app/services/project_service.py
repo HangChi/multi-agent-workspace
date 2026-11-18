@@ -240,16 +240,47 @@ async def load_active_owned_project(
     return project
 
 
+async def project_visible_to_user(
+    db: AsyncSession, project_id: str, user_id: str
+) -> bool:
+    """项目对当前用户是否可见：我创建的 ∪ **含我可见需求的项目**。
+
+    与「管理页 mine 口径」的差异是刻意存在的：看板筛选下拉
+    （scope=relevant）会把「派给我需求所属的他人项目」给接收人，
+    他点这个项目时过滤校验必须放行——否则下拉给了个点了就 404 的选项
+    （s9 场景 C 实测抓到的前后端不一致）。
+    """
+    project = await db.get(Project, project_id)
+    if project is None:
+        return False
+    if project.owner_id == user_id:
+        return True
+    visible = (
+        await db.execute(
+            select(func.count())
+            .select_from(Request)
+            .where(
+                Request.project_id == project_id,
+                or_(
+                    Request.owner_id == user_id,
+                    Request.assignee_id == user_id,
+                ),
+            )
+        )
+    ).scalar_one()
+    return int(visible) > 0
+
+
 async def project_exists_for_filter(
     db: AsyncSession, project_id: str, user_id: str
 ) -> None:
     """`GET /requests?project_id=` 的过滤目标校验。
 
-    与 load_active_owned_project 的差异：**允许已归档项目**（归档只拦新建，
-    不拦回看——Assumptions 第 2 条），但仍要求存在且属本人，否则 404。
+    允许已归档项目（归档只拦新建，不拦回看——Assumptions 第 2 条），
+    但要求「存在且对当前用户可见」（本人或有我可见需求），否则 404——
+    不是静默空列表，空列表会让人以为项目被清空了。
     """
-    project = await db.get(Project, project_id)
-    if project is None or project.owner_id != user_id:
+    if not await project_visible_to_user(db, project_id, user_id):
         raise AppError("NOT_FOUND", "项目不存在")
 
 

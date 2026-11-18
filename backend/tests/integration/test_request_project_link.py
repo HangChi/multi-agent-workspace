@@ -235,3 +235,41 @@ async def test_list_without_project_param_unchanged_shape(
         "dispatch_history",
     ):
         assert field in item, f"既有字段 {field} 丢失"
+
+
+# ---------- 下拉与过滤的一致性（s9 场景 C 实测抓到的缺口） ----------
+
+
+async def test_receiver_can_filter_by_dispatched_projects_owner_project(
+    db_session, client, make_headers
+):
+    """接收人的筛选下拉（scope=relevant）含他人的项目 → 点它过滤必须放行。
+
+    前后端不一致的原始 bug：下拉按「可见」给项目，过滤校验却要求
+    「属于调用者」——下拉给了个点了就 404 的选项。
+    """
+    owner = await _user(db_session)
+    worker = await _user(db_session)
+    stranger = await _user(db_session)
+    project = await _project(db_session, owner)
+    req = await _create_request(
+        client, await make_headers(owner), project_id=project.id
+    )
+    await client.post(
+        f"{REQUESTS_URL}/{req['id']}/assign",
+        json={"assignee_type": "user", "assignee_id": worker.id},
+        headers=await make_headers(owner),
+    )
+
+    # worker（接收人）按该项目过滤 → 200 且含该需求
+    resp = await client.get(
+        f"{REQUESTS_URL}?project_id={project.id}", headers=await make_headers(worker)
+    )
+    assert resp.status_code == 200
+    assert req["id"] in {r["id"] for r in resp.json()["items"]}
+
+    # 陌生人（与该需求毫无关系）→ 仍 404
+    stranger_resp = await client.get(
+        f"{REQUESTS_URL}?project_id={project.id}", headers=await make_headers(stranger)
+    )
+    assert stranger_resp.status_code == 404
