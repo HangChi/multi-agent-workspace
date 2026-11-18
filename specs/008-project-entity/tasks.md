@@ -14,12 +14,12 @@
 
 ## Phase 3a — 项目 CRUD 纯增量（提交点：`feat(project): 008 项目 CRUD`）
 
-- [ ] T007 [P] Unit/Integration: `backend/tests/integration/test_projects.py` — 先写红（P-1/P-2/P-3/P-4/P-8/P-9：建/同名 409/他人 404/viewer 403/计数/边界）
-- [ ] T008 Modify `backend/app/core/audit.py`：`project_create/project_update/project_delete` 三动作常量（集中定义区，同 REQUEST_DISPATCH_ACTIONS 风格）
-- [ ] T009 Write `backend/app/services/project_service.py`：list（带 request_count 实时聚合）/get/create/update（name 同步 requests.project_name，同事务）/delete（SET NULL + 清 project_name，同事务）/归档不改需求
-- [ ] T010 Write `backend/app/schemas/project.py`：`ProjectCreate/ProjectUpdate/ProjectOut/ProjectList`（request_count 字段）
-- [ ] T011 Write `backend/app/api/v1/projects.py`：五端点 + `main.py` 挂路由 + 审计（create/update/delete，delete detail 带 request_count）
-- [ ] T012 跑 T007 转绿 + 全量回归（`test_requests.py`/`test_dispatch_*.py` 不改一条）
+- [X] T007 [P] Unit/Integration: `backend/tests/integration/test_projects.py` — 先写红（P-1/P-2/P-3/P-4/P-8/P-9：建/同名 409/他人 404/viewer 403/计数/边界）
+- [X] T008 Modify `backend/app/core/audit.py`：`project_create/project_update/project_delete` 三动作常量（集中定义区，同 REQUEST_DISPATCH_ACTIONS 风格）
+- [X] T009 Write `backend/app/services/project_service.py`：list（带 request_count 实时聚合）/get/create/update（name 同步 requests.project_name，同事务）/delete（SET NULL + 清 project_name，同事务）/归档不改需求
+- [X] T010 Write `backend/app/schemas/project.py`：`ProjectCreate/ProjectUpdate/ProjectOut/ProjectList`（request_count 字段）
+- [X] T011 Write `backend/app/api/v1/projects.py`：五端点 + `main.py` 挂路由 + 审计（create/update/delete，delete detail 带 request_count）
+- [X] T012 跑 T007 转绿 + 全量回归（`test_requests.py`/`test_dispatch_*.py` 不改一条）
 
 ## Phase 3b — 需求归属（改既有，提交点：`feat(request): 008 需求归属`）
 

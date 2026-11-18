@@ -10,7 +10,7 @@
 | 方法 | 路径 | 角色 | 响应 |
 |---|---|---|---|
 | POST | `/projects` | member/admin | 201 `ProjectOut` |
-| GET | `/projects` | member/admin | 200 `ProjectList`（含 `request_count`） |
+| GET | `/projects?scope=mine\|relevant` | member/admin | 200 `ProjectList`（含 `request_count`；mine 默认=我创建的，relevant=我创建的+派给我需求所属的） |
 | GET | `/projects/{id}` | member/admin | 200 `ProjectOut` / 404 |
 | PATCH | `/projects/{id}` | member/admin | 200 `ProjectOut` / 404 / 409 / 422 |
 | DELETE | `/projects/{id}` | member/admin | 204 / 404 |

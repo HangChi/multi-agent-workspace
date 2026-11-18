@@ -1,0 +1,120 @@
+"""项目端点（008）：需求的业务容器 CRUD。
+
+判定顺序（contracts §1）：认证 → 角色（viewer 403）→ schema（422）→
+同名（409）→ 落库 + 审计。删除的 detail 带 request_count——
+「我的需求怎么集体没项目了」这类排查就靠这个数。
+"""
+
+from fastapi import APIRouter, Query, status
+
+from app.api.deps import DB, CurrentUser, MemberUser, ResourceId
+from app.core.audit import PROJECT_CREATE, PROJECT_DELETE, PROJECT_UPDATE, write_audit
+from app.schemas.project import (
+    ProjectCreate,
+    ProjectList,
+    ProjectOut,
+    ProjectUpdate,
+)
+from app.services import project_service
+
+router = APIRouter(prefix="/projects", tags=["projects"])
+
+
+@router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
+async def create_project(
+    payload: ProjectCreate, _m: MemberUser, user: CurrentUser, db: DB
+):
+    """建项目（同用户名下唯一，含已归档项目也占名字）。"""
+    project = await project_service.create_project(db, user_id=user.id, payload=payload)
+    await write_audit(
+        db,
+        user_id=user.id,
+        action=PROJECT_CREATE,
+        target_type="project",
+        target_id=project.id,
+        detail={"name": project.name},
+        strict=True,
+    )
+    await db.commit()
+    return ProjectOut.model_validate(project).model_copy(update={"request_count": 0})
+
+
+@router.get("", response_model=ProjectList)
+async def list_projects(
+    user: CurrentUser,
+    _m: MemberUser,
+    db: DB,
+    scope: str = Query(
+        default="mine",
+        pattern="^(mine|relevant)$",
+        description="mine=我创建的项目（管理页）；relevant=我创建的+派给我需求所属的（看板筛选下拉）",
+    ),
+):
+    """项目列表 + 每个项目的可见需求数。"""
+    rows = await project_service.list_projects(db, user.id, scope=scope)
+    return {
+        "items": [
+            ProjectOut.model_validate(p).model_copy(update={"request_count": count})
+            for p, count in rows
+        ],
+        "total": len(rows),
+    }
+
+
+@router.get("/{project_id}", response_model=ProjectOut)
+async def get_project(
+    project_id: ResourceId, user: CurrentUser, _m: MemberUser, db: DB
+):
+    """项目详情 + 可见需求数。"""
+    project, count = await project_service.get_project(db, project_id, user.id)
+    return ProjectOut.model_validate(project).model_copy(
+        update={"request_count": count}
+    )
+
+
+@router.patch("/{project_id}", response_model=ProjectOut)
+async def update_project(
+    project_id: ResourceId,
+    payload: ProjectUpdate,
+    user: CurrentUser,
+    _m: MemberUser,
+    db: DB,
+):
+    """改项目：改名同事务同步需求的 project_name 快照。"""
+    project = await project_service.update_project(
+        db, project_id=project_id, user_id=user.id, payload=payload
+    )
+    await write_audit(
+        db,
+        user_id=user.id,
+        action=PROJECT_UPDATE,
+        target_type="project",
+        target_id=project.id,
+        detail={"fields": sorted(payload.model_dump(exclude_unset=True).keys())},
+        strict=True,
+    )
+    await db.commit()
+    _, count = await project_service.get_project(db, project.id, user.id)
+    return ProjectOut.model_validate(project).model_copy(
+        update={"request_count": count}
+    )
+
+
+@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project(
+    project_id: ResourceId, user: CurrentUser, _m: MemberUser, db: DB
+):
+    """删项目：其下需求保留、归属清空（审计记 request_count）。"""
+    affected = await project_service.delete_project(
+        db, project_id=project_id, user_id=user.id
+    )
+    await write_audit(
+        db,
+        user_id=user.id,
+        action=PROJECT_DELETE,
+        target_type="project",
+        target_id=project_id,
+        detail={"request_count": affected},
+        strict=True,
+    )
+    await db.commit()

@@ -78,6 +78,13 @@ REQUEST_DISPATCH_ACTIONS = frozenset(
     }
 )
 
+# ===== 项目实体（008）的审计动作 =====
+# 删除动作的 detail 带 request_count（有多少条需求的归属被清空）——
+# 「我的需求怎么集体没项目了」这类排查就靠这个数（contracts §1.4）。
+PROJECT_CREATE = "project_create"
+PROJECT_UPDATE = "project_update"
+PROJECT_DELETE = "project_delete"
+
 
 async def write_audit(
     db: AsyncSession,
