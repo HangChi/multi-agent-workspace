@@ -20,16 +20,16 @@
 
 ## Phase 2：数据模型与状态机（TDD，无行为变化，可独立上线）
 
-- [ ] T009 [P] Unit: `backend/tests/unit/test_request_state_machine.py` — 迁移表全量
+- [X] T009 [P] Unit: `backend/tests/unit/test_request_state_machine.py` — 迁移表全量
       （data-model §2 每行：合法/非法/幂等）；不变量三条（assignee 非空 ⇔ pending|accepted 等）。
-- [ ] T010 Write `backend/app/orchestrator/request_state_machine.py`：`RequestStatus` 枚举
+- [X] T010 Write `backend/app/orchestrator/request_state_machine.py`：`RequestStatus` 枚举
       （+pending/accepted）、`_TRANSITIONS` 表、`transition()`（仿 run 状态机；非法迁移
       `TransitionError` → 调用方转 409）。
-- [ ] T011 Write `backend/alembic/versions/0011_request_dispatch.py`：requests +3 列
+- [X] T011 Write `backend/alembic/versions/0011_request_dispatch.py`：requests +3 列
       （assignee_id ON DELETE SET NULL / dispatched_at / accepted_at）、枚举
       `ADD VALUE IF NOT EXISTS` ×2、`request_dispatches` 与 `notifications` 两表 +
       索引（含未读部分索引）。无存量回填（新列全可空）。
-- [ ] T012 Integration: 迁移后 schema 断言（列/索引/枚举值存在）+ downgrade 冒烟
+- [X] T012 Integration: 迁移后 schema 断言（列/索引/枚举值存在）+ downgrade 冒烟
       （枚举值不删，同 006 纪律）。
 
 ## Phase 3：分派闭环（TDD）— 3a 纯增量（新端点），单独提交
