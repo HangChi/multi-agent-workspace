@@ -111,7 +111,6 @@ export function RequestCard({ request, draggable = true, onOpen }: Props) {
                 request.runs_summary?.failed ?? 0
               } 失败`}
             >
-              <Icon name="activity" className="h-3 w-3" />
               {request.runs_summary?.total} 个运行
             </span>
           )}
