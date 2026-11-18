@@ -322,9 +322,10 @@ GET        /api/v1/stats/overview              # 仪表盘：运行中/队列深
 | `notifications` | id, user_id, type, request_id, title(标题快照), payload(jsonb), read_at, created_at | 站内通知（007） |
 | `projects` | id, owner_id, name(≤100), description, status(active/archived), created_at, updated_at · UNIQUE(owner_id, name) | 需求的业务容器（008，单人归属） |
 | `request_dependencies` | id, request_id(被依赖方), dependency_id(前置), created_by, created_at · UNIQUE(request_id, dependency_id) + CHECK 防自依赖 | 依赖边（009，可增删不更新） |
+| `project_members` | (project_id, user_id) 复合主键, created_at · 无 role 列 | 项目成员（010，owner 在 projects.owner_id） |
 | `audit_logs` | id, user_id, action, target_type, target_id, detail, created_at | 审计 |
 
-索引要点：`runs(status, created_at)`、`runs(request_id)`、`steps(run_id, seq)`、`requests(status, priority)`、`schedules(next_run_at) WHERE enabled`（部分索引，扫描只走启用的规则）、`schedule_triggers(schedule_id, planned_at DESC, id DESC)`、`agent_templates(owner_id, created_at)`、`agent_templates(name) WHERE owner_id IS NULL`（内置唯一性）、`agents(source_template_id)`、`agents(source_agent_id)`（来源反查）、`requests(assignee_id, status)`（007 收件箱）、`request_dispatches(request_id, seq)`（007 经手链正序）、`notifications(user_id, created_at DESC) WHERE read_at IS NULL`（007 未读部分索引）、`projects(owner_id, status)`（008 列表）、`requests(project_id)`（008 项目筛选）、`request_dependencies(request_id)`（009 门禁）、`request_dependencies(dependency_id)`（009 解锁反查）。
+索引要点：`runs(status, created_at)`、`runs(request_id)`、`steps(run_id, seq)`、`requests(status, priority)`、`schedules(next_run_at) WHERE enabled`（部分索引，扫描只走启用的规则）、`schedule_triggers(schedule_id, planned_at DESC, id DESC)`、`agent_templates(owner_id, created_at)`、`agent_templates(name) WHERE owner_id IS NULL`（内置唯一性）、`agents(source_template_id)`、`agents(source_agent_id)`（来源反查）、`requests(assignee_id, status)`（007 收件箱）、`request_dispatches(request_id, seq)`（007 经手链正序）、`notifications(user_id, created_at DESC) WHERE read_at IS NULL`（007 未读部分索引）、`projects(owner_id, status)`（008 列表）、`requests(project_id)`（008 项目筛选）、`request_dependencies(request_id)`（009 门禁）、`request_dependencies(dependency_id)`（009 解锁反查）、`project_members(user_id)`（010 参与项目反查）。
 
 **模板的三个语义要点**（完整论证见 `specs/005-agent-templates/`）：
 
@@ -449,10 +450,10 @@ Prometheus/Grafana 监控告警 · 审计日志完善 · 备份演练 · CI/CD�
 
 **验收**：系统稳定运行、故障可发现可回溯、扩容操作文档化。
 
-**当前状态（2026-11-18）**：Phase 1 / Phase 2 / Phase 3 主体已完成，九个特性全部落地
+**当前状态（2026-11-18）**：Phase 1 / Phase 2 / Phase 3 主体已完成，十个特性全部落地
 （001 核心闭环 84/84、002 沙箱与出网 76/76、003 外部 MCP 65/65、004 定时调度 65/65、
 005 Agent 模板与克隆 39/39、006 运行自动重试 39/39、007 需求分派与收件箱 41/41、
-008 项目实体与需求归属 30/30、009 需求依赖编排 29/29），均有 CI 门禁与真实栈验收。007 补齐了系统设计动机的
+008 项目实体与需求归属 30/30、009 需求依赖编排 29/29、010 项目共享与成员 26/30），均有 CI 门禁与真实栈验收。007 补齐了系统设计动机的
 最后一环——「需求分派给员工，员工接收后拖给 Agent」（见 §5.1.1）；008 给需求加了
 业务容器（项目），看板可按项目筛选。**需求间依赖/DAG 明确未做**（用户确认留后续）。
 Phase 3 进展：
@@ -468,7 +469,23 @@ Phase 3 进展：
 006 之后补了 `runs` 重试三字段；007 之后补了 `requests` 分派三列与
 `request_dispatches` / `notifications` 两表；008 之后补了 `projects` 表与
 `requests` 归属两列；009 之后补了 `request_dependencies` 表与
-`notification_type` 枚举的 `dependency_ready` 值，见第 8 节）。
+`notification_type` 枚举的 `dependency_ready` 值；010 之后补了
+`project_members` 表与枚举的 `project_member_added/removed` 值，
+见第 8 节）。
+
+**项目共享的四个语义要点**（完整论证见 `specs/010-project-sharing/research.md`）：
+
+1. **无 role 列。** 成员身份即角色，owner 恒为 `projects.owner_id`——两层模型
+   是用户确认范围，第三态没有使用数据；存一个只有单值的列是给未来埋坑。
+2. **谓词扩展靠「参与者」而非「成员行」。** 项目 owner 不在成员表里，任何
+   按成员行反查的口径都会把 owner 本人漏掉——而 owner 恰恰是最该看到自己
+   项目里全部需求的人。`participating_project_ids` / `is_participant`
+   （owned ∪ 成员行）是所有可见性口径的唯一入口。
+3. **`project_id` 变更 = 创建者或该项目 owner。** 008 立此规则防「经手人把
+   需求挪去自己项目，创建者视图静默丢活」；共享场景下收敛为两个对项目结构
+   负有责任的角色，其余人（含普通成员）不行。
+4. **accept/reject 不扩展。** 共享不碰「责任接收」——那是个人确认动作，
+   成员替同事点接收会让 007 的经手链失真。责任流转与项目协作是两个维度。
 
 **需求依赖的四个语义要点**（完整论证见 `specs/009-request-dependency/research.md`）：
 

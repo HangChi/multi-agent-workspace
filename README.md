@@ -17,6 +17,7 @@
 | **需求分派（007）** | 需求卡片可拖到员工卡片（或经人员选择器指定）：需求进入对方收件箱（`pending`），对方可接收 / 附原因退回 / 转交同事；全程经手链与站内通知留证 |
 | **项目容器（008）** | 项目是需求的业务容器（单人归属）：建需求时可归类，看板按项目筛选；项目可改名（快照同步）/ 归档（只拦新建）/ 删除（需求保留、归属清空） |
 | **需求依赖（009）** | 需求间有向「先后」边：前置未完成时拖给 Agent/组被 409 挡下（逐条列出阻塞项），前置终态后通知「可以启动了」；拒绝成环，边可增删 |
+| **项目共享（010）** | 项目从单人篮子变成团队工作区：owner 全权 + 成员项目内读写协作；成员可见彼此项目与需求，加人/移出即时生效并有通知 |
 | **拖拽分配** | 需求卡片用 dnd-kit 拖到 Agent 卡或组卡，落点弹窗选策略，`POST /requests/{id}/assign` 毫秒级受理，重活交给 Celery |
 | **四种编排策略** | `direct` 单 Agent · `fan_out` 并行分发 · `pipeline` 顺序串联 · `router` 模型选成员，父子 Run 通过 `parent_run_id` 关联 |
 | **ReAct 执行引擎** | 自研状态机 + 工具循环：LLM 推理 → 工具调用 → 结果回填 → 直到出最终答案；每步落库，可展开查看输入输出 |
@@ -31,7 +32,7 @@
 | 路由 | 页面 | 内容 |
 |---|---|---|
 | `/` | 看板 | 需求按状态分列（含「待接收/已接收」）、拖拽源、员工卡与 Agent/组作为投放目标；「与我相关 / 我创建的」范围切换 + 按项目筛选（含未归属） |
-| `/projects` | 项目管理 | 项目列表 / 新建 / 行内改名 / 归档切换 / 删除（需求保留、归属清空） |
+| `/projects` | 项目管理 | 项目列表（我的/共享的）/ 新建 / 行内改名 / 归档切换 / 删除（需求保留、归属清空）/ 成员管理（owner） |
 | 需求卡片 | — | 项目徽章 + 未完成前置徽章（hover 逐条标题）；被挡住时拖拽分配被 409 挡下 |
 | `/dashboard` | 仪表盘 | 运行中/排队数、今日完成与失败、7 日成功率与成本趋势 |
 | `/agents` | Agent 管理 | 名称、描述、系统提示词、模型、温度、最大步数、工具集、成本上限；「从模板创建」一键预填，「克隆」复制配置，「存为模板」沉淀配置 |
@@ -226,7 +227,7 @@ frontend/
     hooks/          # useAuth / useRequests / useRunSocket
 deploy/             # docker-compose / Caddyfile / .env.example / mock-llm / verify
 docs/               # 架构文档（入口见 docs/README.md）
-specs/              # Spec Kit 规格（001–009，SDD + TDD 工作流）
+specs/              # Spec Kit 规格（001–010，SDD + TDD 工作流）
 ```
 
 ---
@@ -304,7 +305,10 @@ GET           /requests/{id}/dependents    009：谁依赖我（反向视图）
 POST          /requests/{id}/accept        007：接收分派来的需求（pending → accepted）
 POST          /requests/{id}/reject        007：退回（pending|accepted → created，reason 必填 1..2000）
 
-GET           /projects                   008：我的项目（?scope=mine|relevant）+ 每项需求计数
+GET           /projects                   008：我的项目（?scope=mine|relevant）+ 每项需求计数 + 成员数
+POST          /projects/{id}/members      010：加成员（owner 特权；被加者收通知）
+GET           /projects/{id}/members      010：成员列表（含 owner 标记）
+DELETE        /projects/{id}/members/{user_id}  010：移除成员（owner 特权，不能移除自己）
 POST          /projects                   008：建项目（同用户名下唯一，含归档也占名字）
 PATCH         /projects/{id}              008：改名（同步需求快照）/ 归档 / 恢复
 DELETE        /projects/{id}              008：删除（需求保留、归属清空；审计记 request_count）
@@ -330,7 +334,7 @@ GET           /health, /health/ready       存活 / 就绪探针
 `REFRESH_GRACE_SECONDS` 给多标签页并发刷新留宽限期，避免互相踢下线。
 
 > 以上是概览。完整的请求/响应 schema、错误码与边界语义在各特性的
-> `specs/NNN-*/contracts/api.md`（001–009 九份），运行时以 `/docs` 的 OpenAPI 为准。
+> `specs/NNN-*/contracts/api.md`（001–010 十份），运行时以 `/docs` 的 OpenAPI 为准。
 
 ### 内置工具
 
@@ -375,8 +379,8 @@ Agent 可挂载的工具由执行器注册表提供，当前实现 5 个：
 
 ## 测试与质量门禁
 
-当前套件规模：后端 **1439 个用例**（unit + integration，真实 PostgreSQL 16）、
-前端 **133 例 / 24 文件**。CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在每次
+当前套件规模：后端 **1462 个用例**（unit + integration，真实 PostgreSQL 16）、
+前端 **137 例 / 25 文件**。CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在每次
 push / PR 跑以下流水线：
 
 - **后端**：`ruff check` → `ruff format --check` → `mypy app` → `alembic upgrade head`
@@ -434,7 +438,8 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 [005 模板与克隆](specs/005-agent-templates/quickstart.md) ·
 [007 分派收件箱](specs/007-request-dispatch/quickstart.md) ·
 [008 项目容器](specs/008-project-entity/quickstart.md) ·
-[009 需求依赖](specs/009-request-dependency/quickstart.md)。
+[009 需求依赖](specs/009-request-dependency/quickstart.md) ·
+[010 项目共享](specs/010-project-sharing/quickstart.md)。
 
 已记录的关键实测数据：分配受理 12ms、WS 推送滞后 0.25s 内、20 并发全量完成 1.71s、
 失败重试成功率 5/5；压测 100 并发 818 req/s、200 并发 0 错误（P95 受 2 vCPU 开发机限制）。
@@ -471,6 +476,7 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 | [007-request-dispatch](specs/007-request-dispatch/spec.md) | 需求分派给员工 + 收件箱 + 站内通知 + 经手链 | ✅ 41/41（s8 真实栈 7/7） |
 | [008-project-entity](specs/008-project-entity/spec.md) | 项目容器：需求归类 + 看板按项目筛选 + 项目 CRUD | ✅ 30/30（s9 真实栈 5/5） |
 | [009-request-dependency](specs/009-request-dependency/spec.md) | 需求依赖：有向边 + 硬门禁 + 解锁通知 | ✅ 29/29（s10 真实栈 4/4） |
+| [010-project-sharing](specs/010-project-sharing/spec.md) | 项目共享：成员管理 + 共享可见性 + 协作谓词 | ✅ 26/26（s11 真实栈 4/4） |
 
 分支约定：特性开发走 `feat/<name>`，每个 Phase 一次提交，完成后 fast-forward 合并回
 `master` 并删除特性分支。宪法见 [.specify/memory/constitution.md](.specify/memory/constitution.md)。
@@ -488,6 +494,9 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
   只做「硬门禁 + 完成通知」，不做拓扑排序/关键路径/自动级联启动（用户范围确认）；
   依赖目标不做可见性校验（内部协作定位，「B 等隔壁团队的 A」是核心场景，
   research R-05 记录取舍）。
+- 项目共享（010）：两层权限（owner 全权 + 成员项目内读写），**无 role 列**、
+  不做部门树/所有权移交/成员审批流（用户范围确认外）；owner 不能退出自己创建的
+  项目（无主项目是脏状态，移交是后续特性）。
 - `Agent.tools` 已按工具目录过滤实际注入 LLM 的工具集；未授权目录工具会返回 `denied` 结构并写入审计日志。
 - `run_python` / `run_shell` 已接入 Docker 一次性容器，支持超时、取消、资源限制、输出截断与制品回收；原生 Linux 的 iptables/nftables 出网验收已在 CI 的原生 VM 上通过（`iptables-save` / `ip6tables-save` / `nft` 残留全 0，域名矩阵 18/18）。唯一例外是 `public HTTPS with DNS attribution`：它依赖宿主公网，按非门禁用例运行并在产物里留证。
 - 出网规则管理、Agent 限制模式和访问查询端点已接入；TLS 解密、URL 路径/请求体级记录仍不在范围内。
@@ -520,5 +529,5 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 | [docs/llm-pricing.md](docs/llm-pricing.md) | LLM 单价表口径（成本核算与熔断的基准） |
 | [docs/load-test-2026-11-17.md](docs/load-test-2026-11-17.md) | 100/200 并发压测记录 |
 | [docs/code-audit-2026-11-17.md](docs/code-audit-2026-11-17.md) | 2026-11-17 全量代码审查报告（含修复进度） |
-| [specs/](specs/) | 001–009 九个特性的规格四件套 + 任务清单 + 实测记录 |
+| [specs/](specs/) | 001–010 十个特性的规格四件套 + 任务清单 + 实测记录 |
 | [.specify/memory/constitution.md](.specify/memory/constitution.md) | 项目宪法（SDD + TDD、质量门禁、安全边界） |
