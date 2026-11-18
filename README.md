@@ -381,7 +381,7 @@ Agent 可挂载的工具由执行器注册表提供，当前实现 5 个：
 ## 测试与质量门禁
 
 当前套件规模：后端 **1462 个用例**（unit + integration，真实 PostgreSQL 16）、
-前端 **139 例 / 25 文件**、浏览器走查 **15 项**（`deploy/verify/s12_browser_walkthrough.py`，
+前端 **143 例 / 25 文件**、浏览器走查 **15 项**（`deploy/verify/s12_browser_walkthrough.py`，
 真实 Chromium）。CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在每次
 push / PR 跑以下流水线：
 
@@ -431,6 +431,8 @@ backend/.venv/bin/python deploy/verify/strategy_scenarios.py --base http://local
 backend/.venv/bin/python deploy/verify/s6_agent_templates.py --base http://localhost:8080 --invite <INVITE>
 backend/.venv/bin/python deploy/verify/s8_request_dispatch.py --base http://localhost:8080 --invite <INVITE>
 backend/.venv/bin/python deploy/verify/s12_browser_walkthrough.py --base http://localhost:8080 --invite <INVITE> [--viewer-invite <INVITE>]
+# 验收跑完清一把攒下的测试账号（dry-run 默认，--execute 才删；先备份！）
+backend/.venv/bin/python deploy/verify/cleanup_test_data.py --execute
 node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（需 playwright）
 ```
 
@@ -484,6 +486,7 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 | [011-browser-walkthrough](specs/011-browser-walkthrough/spec.md) | 浏览器走查基建：s12 脚本把 008/009/010 的前端清单自动化 | ✅ 20/21（s12 实测 9/15，6 项失败是已知发现） |
 | [012-error-message-passthrough](specs/012-error-message-passthrough/spec.md) | ErrorBanner 字符串直通：后端错误消息直达用户（修 011 抓出的系统性 bug） | ✅ 10/10（s12 B4 复跑转 ✅） |
 | [013-s12-findings-fix](specs/013-s12-findings-fix/spec.md) | s12 挂账三项全修：viewer 项目入口/共享项目前端可见/依赖弹层刷新 | ✅ 11/11（s12 **15/15** 全绿） |
+| [014-test-data-hygiene](specs/014-test-data-hygiene/spec.md) | 测试数据卫生：一键清理验收账号（FK 安全两阶段删）+ 分配目标面板重设计 | ✅ 11/12（实测 303→1 用户；s12 15/15 保持） |
 
 分支约定：特性开发走 `feat/<name>`，每个 Phase 一次提交，完成后 fast-forward 合并回
 `master` 并删除特性分支。宪法见 [.specify/memory/constitution.md](.specify/memory/constitution.md)。
