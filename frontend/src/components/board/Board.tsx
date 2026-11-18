@@ -16,10 +16,10 @@
 import { DndContext, DragOverlay, DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import { useMemo, useState } from 'react'
 
-import { Agent, Group, UserOption, WorkRequest } from '../../api/endpoints'
+import { Agent, Group, Project, UserOption, WorkRequest } from '../../api/endpoints'
 import { IconButton } from '../ui/Button'
 import { Icon } from '../ui/Icons'
-import { Input } from '../ui/Field'
+import { Input, Select } from '../ui/Field'
 import { Skeleton } from '../ui/Skeleton'
 import { cn } from '../ui/cn'
 import { AssignTarget } from './AssignModal'
@@ -62,6 +62,11 @@ interface Props {
   groups: Group[]
   /** 007：在职员工（分派落点）。 */
   users: UserOption[]
+  /** 008：项目筛选下拉的数据（scope=relevant：我的 + 派给我活所属的）。 */
+  projects: Project[]
+  /** 008：当前选中的项目（null=全部，'none'=未归属，uuid=具体项目）。 */
+  project: string | null
+  onProjectChange: (value: string | null) => void
   isLoading?: boolean
   /** 拖拽落点回调（触发分配/分派弹窗）。 */
   onAssignStart: (request: WorkRequest, target: AssignTarget) => void
@@ -74,6 +79,9 @@ export function Board({
   agents,
   groups,
   users,
+  projects,
+  project,
+  onProjectChange,
   isLoading,
   onAssignStart,
   onOpenDetail,
@@ -167,6 +175,27 @@ export function Board({
             )
           })}
         </div>
+
+        {/* 008：项目筛选。放在状态 chips 右侧、搜索左侧——「先按项目收敛，
+            再在结果里搜」是看板的主用路径；未归属选项让「还没归类的活」
+            也能被单独审视（FR-006）。 */}
+        {projects.length > 0 && (
+          <Select
+            value={project ?? ''}
+            onChange={(e) => onProjectChange(e.target.value || null)}
+            controlSize="sm"
+            aria-label="按项目筛选"
+            wrapperClassName="w-full lg:w-48"
+          >
+            <option value="">全部项目</option>
+            <option value="none">未归属</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}（{p.request_count}）
+              </option>
+            ))}
+          </Select>
+        )}
 
         <Input
           value={q}

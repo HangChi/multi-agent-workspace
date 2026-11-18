@@ -69,6 +69,9 @@ export interface WorkRequest {
   accepted_at?: string | null
   /** 007：经手链。仅详情端点填充，列表端为 null。 */
   dispatch_history?: DispatchRecord[] | null
+  /** 008：业务归属。project_name 是快照（随项目改名同步）。 */
+  project_id?: string | null
+  project_name?: string | null
   created_at: string
   updated_at: string
 }
@@ -78,6 +81,8 @@ export interface RequestCreateRequest {
   description?: string | null
   expected_output?: string | null
   priority?: RequestPriority
+  /** 008：业务归属（可空 = 不归类）。 */
+  project_id?: string | null
 }
 
 export interface RequestList {
@@ -107,10 +112,29 @@ export async function fetchRequests(params?: {
   status?: RequestStatus
   q?: string
   priority?: RequestPriority
+  /** 008：按项目过滤（uuid；不存在/他人 → 404） */
+  project_id?: string
+  /** 008：未归属需求。与 project_id 互斥（都传以 project_id 为准）。 */
+  project?: 'none'
   page?: number
   page_size?: number
 }): Promise<RequestList> {
   const { data } = await apiClient.get<RequestList>('/requests', { params })
+  return data
+}
+
+/** 编辑需求（008 首次接线；含 project_id 时仅创建者可改）。 */
+export async function updateRequest(
+  id: string,
+  payload: {
+    title?: string
+    description?: string | null
+    expected_output?: string | null
+    priority?: RequestPriority
+    project_id?: string | null
+  }
+): Promise<WorkRequest> {
+  const { data } = await apiClient.patch<WorkRequest>(`/requests/${id}`, payload)
   return data
 }
 

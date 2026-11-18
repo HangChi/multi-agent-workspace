@@ -53,6 +53,15 @@ const SchedulesPage = lazy(() =>
 const MarketplacePage = lazy(() =>
   import('./pages/MarketplacePage').then((m) => ({ default: m.MarketplacePage }))
 )
+/**
+ * 项目管理页（008）。
+ *
+ * 单独分包：它是一个独立的管理面（列表 + 表单 + 确认框），看板用户不必
+ * 为它付体积；viewer 进不来（后端 403，页面直接渲染 403 态）。
+ */
+const ProjectsPage = lazy(() =>
+  import('./pages/ProjectsPage').then((m) => ({ default: m.ProjectsPage }))
+)
 const RunDetailPage = lazy(() =>
   import('./pages/RunDetailPage').then((m) => ({ default: m.RunDetailPage }))
 )
@@ -157,6 +166,7 @@ export function AppRouter() {
           <Route path="dashboard" element={<Suspended element={<DashboardPage />} />} />
           <Route path="agents" element={<Suspended element={<AgentPage />} />} />
           <Route path="groups" element={<Suspended element={<GroupPage />} />} />
+          <Route path="projects" element={<Suspended element={<ProjectsPage />} />} />
           <Route path="runs/:runId" element={<Suspended element={<RunDetailPage />} />} />
 
           {/* 设置模块：二级导航 + 子页面。

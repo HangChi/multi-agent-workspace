@@ -10,6 +10,7 @@ import {
   fetchAgents,
   fetchGroups,
   fetchRequest,
+  fetchProjects,
   fetchRequests,
   fetchUserOptions,
   openDownloadUrl,
@@ -79,6 +80,10 @@ export function BoardPage() {
    */
   const [searchParams, setSearchParams] = useSearchParams()
   const deepLinkId = searchParams.get('request')
+  // 008：项目筛选深链。uuid=具体项目，'none'=未归属，缺省=全部。
+  // 与 request 深链共用一套 searchParams——刷新、分享、后退都保持。
+  const projectParam = searchParams.get('project')
+  const project = projectParam === 'none' || projectParam ? projectParam : null
   const closeDetail = () => {
     setDetail(null)
     if (deepLinkId) {
@@ -105,14 +110,26 @@ export function BoardPage() {
   // 007：看板范围（relevant 默认 = 我创建的 + 分派给我的；mine = 仅我创建的）
   const [scope, setScope] = useState<'relevant' | 'mine'>('relevant')
   const { data, isLoading } = useQuery({
-    queryKey: ['requests', scope],
-    queryFn: () => fetchRequests({ scope }),
+    queryKey: ['requests', scope, project],
+    queryFn: () =>
+      fetchRequests({
+        scope,
+        project_id: project && project !== 'none' ? project : undefined,
+        project: project === 'none' ? 'none' : undefined,
+      }),
   })
 
   // 007：员工拖放目标（第三类落点——转交处理责任）
   const { data: userOptions } = useQuery({
     queryKey: ['users', 'options'],
     queryFn: fetchUserOptions,
+  })
+
+  // 008：项目筛选下拉。scope=relevant——接收人的下拉必须含「派给他那件活
+  // 所属的项目」（那可能是别人的项目，FR-010）。
+  const { data: projectOptions } = useQuery({
+    queryKey: ['projects', 'options', 'relevant'],
+    queryFn: () => fetchProjects({ scope: 'relevant' }),
   })
 
   // 分配目标：活跃 Agent + 全部组。
@@ -201,6 +218,16 @@ export function BoardPage() {
       : (requests.find((r) => r.id === detailSource.id) ?? detailSource)
     : null
 
+  const onProjectChange = (value: string | null) => {
+    const next = new URLSearchParams(searchParams)
+    if (value) {
+      next.set('project', value)
+    } else {
+      next.delete('project')
+    }
+    setSearchParams(next, { replace: true })
+  }
+
   const counts = {
     pending: requests.filter((r) => r.status === 'created').length,
     running: requests.filter((r) => r.status === 'running').length,
@@ -278,6 +305,7 @@ export function BoardPage() {
               description: values.description || null,
               expected_output: values.expected_output || null,
               priority: values.priority,
+              project_id: values.project_id,
             })
           }
           onCancel={() => setShowForm(false)}
@@ -290,6 +318,9 @@ export function BoardPage() {
         agents={activeAgents}
         groups={allGroups}
         users={userOptions?.items ?? []}
+        projects={projectOptions?.items ?? []}
+        project={project}
+        onProjectChange={onProjectChange}
         isLoading={isLoading}
         onAssignStart={openAssign}
         onOpenDetail={(r) => {

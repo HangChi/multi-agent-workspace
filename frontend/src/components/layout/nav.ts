@@ -24,12 +24,13 @@ export interface NavItem {
   description?: string
 }
 
-/** 主导航：日常真正会反复切换的四个入口。 */
+/** 主导航：日常真正会反复切换的入口。 */
 export const MAIN_NAV: NavItem[] = [
   { to: '/', label: '需求看板', shortLabel: '看板', icon: 'grid', end: true },
   { to: '/dashboard', label: '仪表盘', icon: 'activity' },
   { to: '/agents', label: 'Agent 管理', shortLabel: 'Agent', icon: 'bot' },
   { to: '/groups', label: 'Agent 组', shortLabel: '组', icon: 'users' },
+  { to: '/projects', label: '项目管理', shortLabel: '项目', icon: 'layers' },
 ]
 
 /**

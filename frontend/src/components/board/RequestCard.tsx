@@ -1,4 +1,4 @@
-/** 需求卡片（T047 + T056）：看板上的最小单元，可拖拽分配给 Agent/组。
+/** 需求卡片（T047 + T056 + 008）：看板上的最小单元，可拖拽分配/分派。
  *
  * 设计取舍（对齐 Linear / Trello 的卡片密度）：
  * - 只放「标题 + 一行元信息」。描述不进卡片：它让每张卡高低不齐、
@@ -75,6 +75,22 @@ export function RequestCard({ request, draggable = true, onOpen }: Props) {
         <h4 className="line-clamp-2 text-body font-medium leading-snug text-ink">
           {request.title}
         </h4>
+
+        {/* 008：项目徽章。与「定时」徽标同款密度（一行 micro 文字），
+            无归属不渲染——「未归类」不是错误状态，不该占视觉空间。
+            点击直接按该项目筛选（与看板下拉同源）。 */}
+        {request.project_name && (
+          <Link
+            to={`/?project=${request.project_id}`}
+            onPointerDown={stopDrag}
+            onClick={(e) => e.stopPropagation()}
+            className="mt-1 inline-flex max-w-full items-center gap-1 rounded-md bg-surface-muted px-1.5 py-0.5 text-micro text-ink-muted transition-colors hover:bg-brand-50 hover:text-accent dark:hover:bg-brand-500/10"
+            title={`按项目「${request.project_name}」筛选`}
+          >
+            <Icon name="layers" className="h-2.5 w-2.5 shrink-0" />
+            <span className="truncate">{request.project_name}</span>
+          </Link>
+        )}
 
         <div className="mt-2 flex items-center gap-2">
           {/* 来源徽标放在卡片上而不是只在详情里：看板上要能一眼分辨

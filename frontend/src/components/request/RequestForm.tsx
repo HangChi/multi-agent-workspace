@@ -1,11 +1,18 @@
-/** 创建需求表单（T048）：标题/描述/期望产出/优先级。 */
+/**
+ * 创建需求表单（T048 + 008）：标题/描述/期望产出/优先级/项目归属。
+ *
+ * 项目选择器只列本人 **active** 项目（后端对归档项目返回 400——
+ * 「看得见但不能用」），默认「不归类」：项目是可选的组织维度，
+ * 不该逼每个人建需求前先建项目。
+ */
 
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 
-import { RequestPriority } from '../../api/endpoints'
+import { fetchProjects, RequestPriority } from '../../api/endpoints'
 import { Button } from '../ui/Button'
 import { Icon } from '../ui/Icons'
-import { Input, Textarea } from '../ui/Field'
+import { Input, Select, Textarea } from '../ui/Field'
 import { SegmentedControl } from '../ui/Segmented'
 import { cn } from '../ui/cn'
 
@@ -14,6 +21,8 @@ export interface RequestFormValues {
   description: string
   expected_output: string
   priority: RequestPriority
+  /** 008：项目归属。null = 不归类。 */
+  project_id: string | null
 }
 
 interface Props {
@@ -40,8 +49,18 @@ export function RequestForm({ onSubmit, onCancel, submitting }: Props) {
     description: '',
     expected_output: '',
     priority: 'normal',
+    project_id: null,
   })
   const [touched, setTouched] = useState(false)
+
+  // 项目下拉数据（本人 active 项目）。失败静默——选不了项目不影响建需求
+  // 主流程， degrade 成「没有项目可选」而不是弹错误横幅。
+  const { data: projects } = useQuery({
+    queryKey: ['projects', 'options', 'active'],
+    queryFn: () => fetchProjects({ scope: 'mine' }),
+    retry: false,
+  })
+  const activeProjects = (projects?.items ?? []).filter((p) => p.status === 'active')
 
   const set = <K extends keyof RequestFormValues>(key: K, value: RequestFormValues[K]) => {
     setValues((v) => ({ ...v, [key]: value }))
@@ -118,6 +137,24 @@ export function RequestForm({ onSubmit, onCancel, submitting }: Props) {
             hint="写清格式与结构，Agent 更容易一次做对"
           />
         </div>
+
+        <Select
+          label="所属项目（可选）"
+          value={values.project_id ?? ''}
+          onChange={(e) => set('project_id', e.target.value || null)}
+          hint={
+            activeProjects.length === 0
+              ? '还没有项目——可到「项目管理」创建后回来归类'
+              : '归类后可在看板按项目筛选；之后也可在详情里改'
+          }
+        >
+          <option value="">不归类</option>
+          {activeProjects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}（{p.request_count}）
+            </option>
+          ))}
+        </Select>
 
         <div>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">

@@ -28,17 +28,17 @@
 - [X] T015 Modify `backend/app/services/request_service.py`：创建/编辑时的项目校验（存在+属本人+active）；编辑按「是否含 project_id 键」分流权限（R-05）；`list_requests` +`project_id`/`project=none` 过滤（与 scope 正交）
 - [X] T016 Modify `backend/app/api/v1/requests.py`：list 加 query 参数；create/update 走 service 新校验；detail 无需改（schema 自带）
 - [X] T017 跑 T013 转绿 + 既有测试全量回归（重点：test_requests/test_dispatch_visibility 的 403/404/202 断言不变）
-- [ ] T018 [P] 前端 api 层先行：`frontend/src/api/projects.ts`（CRUD）+ `requests.ts` 类型扩展（T029 的测试会消费）——**挪到 Phase 4 与页面同批做**（独立文件无依赖，放 3b 提交里反而拆散前端改动）
+- [X] T018 [P] 前端 api 层先行：`frontend/src/api/projects.ts`（CRUD）+ `requests.ts` 类型扩展（T029 的测试会消费）——**挪到 Phase 4 与页面同批做**（独立文件无依赖，放 3b 提交里反而拆散前端改动）
 
 ## Phase 4 — 前端（提交点：`feat(ui): 008 项目容器前端`）
 
-- [ ] T019 [P] Component: `frontend/src/pages/ProjectsPage.tsx` — 列表（名称/描述/状态/需求数）+ 新建 + 行内改名 + 归档切换 + 删除（ConfirmDialog，文案说明需求保留）
-- [ ] T020 [P] Modify `frontend/src/components/request/RequestForm.tsx`：项目选择器（默认不归类，仅本人 active 项目）
-- [ ] T021 Modify `frontend/src/pages/BoardPage.tsx` + `components/board/Board.tsx`：工具条项目下拉（全部/各项目带计数/未归属）+ URL `?project=` 深链 + 刷新保持
-- [ ] T022 Modify `frontend/src/components/board/RequestCard.tsx`：项目名徽章（无归属不渲染）
-- [ ] T023 Modify `frontend/src/components/layout/nav.ts`：`/projects` 导航项（member/admin 可见）
-- [ ] T024 [P] Unit: `frontend/src/tests/projects.test.tsx` — 契约级用例（选择器默认不归类/归档项目不可选/下拉含未归属选项/viewer 无入口）
-- [ ] T025 前端五件套（lint/format/typecheck/test/build）全绿
+- [X] T019 [P] Component: `frontend/src/pages/ProjectsPage.tsx` — 列表（名称/描述/状态/需求数）+ 新建 + 行内改名 + 归档切换 + 删除（ConfirmDialog，文案说明需求保留）
+- [X] T020 [P] Modify `frontend/src/components/request/RequestForm.tsx`：项目选择器（默认不归类，仅本人 active 项目）
+- [X] T021 Modify `frontend/src/pages/BoardPage.tsx` + `components/board/Board.tsx`：工具条项目下拉（全部/各项目带计数/未归属）+ URL `?project=` 深链 + 刷新保持
+- [X] T022 Modify `frontend/src/components/board/RequestCard.tsx`：项目名徽章（无归属不渲染）
+- [X] T023 Modify `frontend/src/components/layout/nav.ts`：`/projects` 导航项（member/admin 可见）
+- [X] T024 [P] Unit: `frontend/src/tests/projects.test.tsx` — 契约级用例（选择器默认不归类/归档项目不可选/下拉含未归属选项/viewer 无入口）
+- [X] T025 前端五件套（lint/format/typecheck/test/build）全绿
 
 ## Phase 5 — 验收与合并（每项一次提交）
 
