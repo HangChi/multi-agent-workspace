@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from 'react'
 import { previewCron, Schedule } from '../../api/endpoints'
 import type { RoutingStrategy, ScheduleTargetType, ScheduleTemplate } from '../../api/endpoints'
 import { Button } from '../ui/Button'
+import { ErrorBanner } from '../ui/ErrorBanner'
 import { Icon } from '../ui/Icons'
 import { Input, Select, Textarea } from '../ui/Field'
 import { OptionCards } from '../ui/Segmented'
@@ -142,6 +143,9 @@ export function ScheduleForm({
   }))
   const [touched, setTouched] = useState(false)
   const [preview, setPreview] = useState<{ runs: string[]; error: string | null } | null>(null)
+  /** 预览请求本身失败（网络/500）：与「表达式非法」分开——
+   *  前者不阻塞提交，后者必须阻塞（否则必然吃后端 422） */
+  const [previewFailed, setPreviewFailed] = useState(false)
 
   const set = <K extends keyof ScheduleFormValues>(key: K, value: ScheduleFormValues[K]) =>
     setValues((v) => ({ ...v, [key]: value }))
@@ -173,6 +177,7 @@ export function ScheduleForm({
     const expr = values.cron_expr.trim()
     if (!expr) {
       setPreview(null)
+      setPreviewFailed(false)
       return
     }
     const seq = ++previewSeq.current
@@ -182,10 +187,15 @@ export function ScheduleForm({
           // 只认最后一次请求的结果：先发的慢响应不该覆盖后发的
           if (seq === previewSeq.current) {
             setPreview({ runs: result.next_runs, error: result.error })
+            setPreviewFailed(false)
           }
         })
         .catch(() => {
-          if (seq === previewSeq.current) setPreview(null)
+          if (seq === previewSeq.current) {
+            // 网络失败不等于表达式错误：不给字段标红，只提示预览不可用
+            setPreview(null)
+            setPreviewFailed(true)
+          }
         })
     }, 350)
     return () => window.clearTimeout(timer)
@@ -195,8 +205,12 @@ export function ScheduleForm({
   const titleError = touched && !values.template.title.trim() ? '请填写需求标题' : null
   const targetError = touched && !values.target.id ? '请选择执行目标' : null
 
-  // cron 字段只认自己的错误，见文件头注释
-  const cronServerError = errorField === 'cron_expr' ? (error ?? null) : null
+  // cron 字段只认自己的错误，见文件头注释。
+  // 预览判非法时同步钉到字段上并阻止提交——让用户看到黄色警告却仍然
+  // 提交得动，只会被后端 422 打回。
+  const cronPreviewError = preview?.error ?? null
+  const cronServerError =
+    errorField === 'cron_expr' ? (error ?? null) : cronPreviewError
   const targetServerError = errorField === 'target' ? (error ?? null) : null
   const bannerError = suppressError || errorField ? null : (error ?? null)
 
@@ -206,6 +220,8 @@ export function ScheduleForm({
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     setTouched(true)
+    // 预览判非法时直接拦在前端：后端只会回 422，体验上是「说了不听」
+    if (cronPreviewError) return
     if (!values.name.trim() || !values.template.title.trim() || !values.target.id) return
     onSubmit({
       ...values,
@@ -227,15 +243,7 @@ export function ScheduleForm({
 
   return (
     <form onSubmit={submit} className="space-y-5">
-      {bannerError && (
-        <p
-          role="alert"
-          className="flex items-start gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-relaxed text-rose-700"
-        >
-          <Icon name="alert-circle" className="mt-px h-3.5 w-3.5 shrink-0" />
-          {bannerError}
-        </p>
-      )}
+      {bannerError && <ErrorBanner error={bannerError} className="mt-0" />}
 
       {/* ---------------- 规则本身 ---------------- */}
       <div className="grid gap-4 sm:grid-cols-2">
@@ -270,12 +278,16 @@ export function ScheduleForm({
             placeholder="0 9 * * 1-5"
             maxLength={120}
             className="font-mono"
+            // 字段顺序图例：新手连「分 时 日 月 周」都不知道，
+            // 交集提示管的是语义，图例管的是字段顺序
+            labelExtra={<span className="font-mono">分 时 日 月 周</span>}
           />
-          <div className="mt-2 flex flex-wrap gap-1">
+          <div className="mt-2 flex flex-wrap gap-1" role="group" aria-label="常用周期预设">
             {CRON_PRESETS.map((preset) => (
               <button
                 key={preset.value}
                 type="button"
+                aria-pressed={values.cron_expr === preset.value}
                 onClick={() => set('cron_expr', preset.value)}
                 className={cn(
                   'rounded-md border px-2 py-1 text-micro font-medium transition-colors',
@@ -309,7 +321,7 @@ export function ScheduleForm({
           className={cn(
             'rounded-lg border px-3 py-2 text-xs leading-relaxed',
             preview.error
-              ? 'border-amber-200 bg-amber-50 text-amber-800'
+              ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300'
               : 'border-line-subtle bg-surface-muted text-ink-soft'
           )}
         >
@@ -329,6 +341,14 @@ export function ScheduleForm({
             </span>
           )}
         </div>
+      )}
+
+      {/* 预览请求失败（网络/500）：不阻塞提交，但要说清「预览不可用」 */}
+      {previewFailed && !preview?.error && (
+        <p className="flex items-center gap-1.5 text-micro text-ink-faint">
+          <Icon name="info" className="h-3 w-3" />
+          触发时间预览请求失败，不影响保存；可过一会再试。
+        </p>
       )}
 
       {/* ---------------- 建单模板 ---------------- */}

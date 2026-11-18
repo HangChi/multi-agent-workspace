@@ -274,6 +274,10 @@ export function SchedulesPage() {
           </div>
           <div className="p-5">
             <ScheduleForm
+              // key 按编辑对象走：连点两个「编辑」不会把 A 的字段留给 B
+              // （组件不卸载、useState 初始化器不重跑——静默数据覆盖：
+              // 标题是「编辑规则 B」，表单里是 A 的名称/cron/目标）
+              key={editing?.id ?? 'new'}
               initial={editing}
               agents={agents?.items ?? []}
               groups={groups?.items ?? []}
