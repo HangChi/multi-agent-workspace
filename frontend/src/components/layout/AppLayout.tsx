@@ -1,169 +1,104 @@
-/** 工作台布局：吸顶毛玻璃导航 + 内容区（T037/T038 共用）。 */
+/**
+ * 工作台布局：固定侧栏 + 顶栏 + 内容区。
+ *
+ * 与旧版的差别（也是这次重排的核心）：
+ * - 顶部横向导航放不下 8 个模块了，改成侧栏：主导航 4 项 +「设置」1 项；
+ * - 模板 / 调度 / 工具市场 / 管理后台收进设置模块（见 SettingsLayout）；
+ * - 内容区左偏移跟随侧栏收起态，桌面省下 100+px 给看板列；
+ * - 背景加一层固定的冷色渐晕 + 点阵，滚动时不动，避免大片死白。
+ */
 
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Outlet, useLocation } from 'react-router-dom'
 
-import { useAuth } from '../../hooks/useAuth'
-import { Badge } from '../ui/Badge'
-import type { BadgeTone } from '../ui/Badge'
-import { Dropdown, DropdownItem, DropdownLabel, DropdownSeparator } from '../ui/Dropdown'
 import { ErrorBoundary } from '../ui/ErrorBoundary'
-import { Icon } from '../ui/Icons'
-import type { IconName } from '../ui/Icons'
-import { LogoWordmark } from '../ui/Logo'
 import { cn } from '../ui/cn'
-import { ThemeToggle } from '../ui/ThemeToggle'
+import { Sidebar } from './Sidebar'
+import { ContentShell, Topbar } from './Topbar'
 
-interface NavItem {
-  to: string
-  label: string
-  icon: IconName
-  end?: boolean
-  adminOnly?: boolean
-  /** 仅 member/admin 可见（viewer 对所有调度端点都是 403）。 */
-  memberOnly?: boolean
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { to: '/', label: '看板', icon: 'grid', end: true },
-  { to: '/dashboard', label: '仪表盘', icon: 'activity' },
-  { to: '/schedules', label: '调度', icon: 'clock', memberOnly: true },
-  { to: '/agents', label: 'Agent', icon: 'bot' },
-  { to: '/agent-templates', label: '模板', icon: 'layers', memberOnly: true },
-  { to: '/groups', label: 'Agent 组', icon: 'users' },
-  { to: '/marketplace', label: '工具市场', icon: 'zap' },
-  { to: '/admin', label: '管理', icon: 'shield', adminOnly: true },
-]
-
-const ROLE_LABEL: Record<string, string> = {
-  admin: '管理员',
-  member: '成员',
-  viewer: '只读',
-}
-
-const ROLE_TONE: Record<string, BadgeTone> = {
-  admin: 'brand',
-  member: 'sky',
-  viewer: 'slate',
-}
-
-function navClass({ isActive }: { isActive: boolean }) {
-  return cn(
-    'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-colors duration-150',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 focus-visible:ring-offset-2',
-    isActive
-      ? 'bg-brand-50 text-accent ring-1 ring-inset ring-brand-100'
-      : 'text-ink-soft hover:bg-surface-subtle hover:text-ink'
-  )
-}
+const COLLAPSE_KEY = 'aw_sidebar_collapsed'
 
 export function AppLayout() {
-  const { user, logout } = useAuth()
   // 用 location.key 作错误边界的复位信号：切页面时自动清掉上一页的渲染错误，
   // 否则用户修好数据回到该页仍是错误状态（错误边界只在 key 变化时复位）。
   const location = useLocation()
-  const items = NAV_ITEMS.filter(
-    (item) =>
-      (!item.adminOnly || user?.role === 'admin') &&
-      (!item.memberOnly || user?.role === 'admin' || user?.role === 'member')
-  )
-  const initial = (user?.email ?? '?').slice(0, 1).toUpperCase()
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem(COLLAPSE_KEY) === '1'
+  })
+
+  useEffect(() => {
+    window.localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0')
+  }, [collapsed])
+
+  // 路由变化自动关抽屉：否则点完菜单它还会盖在新页面上
+  useEffect(() => {
+    setDrawerOpen(false)
+  }, [location.pathname])
+
+  // 抽屉打开时锁滚动，并支持 ESC 关闭
+  useEffect(() => {
+    if (!drawerOpen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDrawerOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prev
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [drawerOpen])
 
   return (
     <div className="relative min-h-screen bg-canvas">
-      {/* 顶部极淡的品牌色渐隐，避免纯灰底显得廉价 */}
+      {/* 氛围层：固定不滚动，只在首屏上方淡出，给白卡片一个不扁平的落点 */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 h-56 bg-gradient-to-b from-brand-50/60 via-brand-50/10 to-transparent"
+        className="pointer-events-none fixed inset-x-0 top-0 h-[30rem] canvas-atmosphere"
       />
 
-      <header className="sticky top-0 z-40 border-b border-line/80 bg-surface/85 backdrop-blur-md">
-        <div className="mx-auto flex h-14 w-full max-w-[1600px] items-center gap-4 px-4 sm:px-6 lg:px-8">
-          <Link
-            to="/"
-            className="flex shrink-0 items-center gap-2.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 focus-visible:ring-offset-2"
-          >
-            <LogoWordmark size={30} textClassName="hidden sm:flex" />
-          </Link>
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-brand-600 focus:px-4 focus:py-2.5 focus:text-sm focus:font-medium focus:text-white"
+      >
+        跳到主内容
+      </a>
 
-          <nav className="hidden items-center gap-0.5 md:flex" aria-label="主导航">
-            {items.map((item) => (
-              <NavLink key={item.to} to={item.to} end={item.end} className={navClass}>
-                <Icon name={item.icon} className="h-3.5 w-3.5 opacity-80" />
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
+      <Sidebar
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((v) => !v)}
+      />
 
-          <div className="ml-auto flex items-center gap-1.5">
-            <ThemeToggle />
-            <span className="mr-1 hidden items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-1 text-2xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200/70 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/25 lg:flex">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse-ring" />
-              系统正常
-            </span>
+      <div
+        className={cn(
+          'relative flex min-h-screen flex-col transition-[padding-left] duration-200 ease-out-expo',
+          collapsed ? 'lg:pl-rail' : 'lg:pl-sidebar'
+        )}
+      >
+        <Topbar pathname={location.pathname} onOpenMenu={() => setDrawerOpen(true)} />
 
-            <Dropdown
-              ariaLabel="账号菜单"
-              panelClassName="w-64"
-              triggerClassName="py-1 pl-1 pr-2 hover:bg-surface-subtle"
-              trigger={
-                <>
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-brand-600 to-brand-800 text-[11px] font-semibold text-white">
-                    {initial}
-                  </span>
-                  <span className="hidden max-w-[150px] truncate text-[13px] text-ink-soft sm:block">
-                    {user?.email}
-                  </span>
-                  <Icon
-                    name="chevron-down"
-                    className="hidden h-3.5 w-3.5 text-ink-faint sm:block"
-                  />
-                </>
-              }
-            >
-              <div className="px-2.5 pb-2 pt-1.5">
-                <p className="truncate text-[13px] font-medium text-ink">{user?.email}</p>
-                <div className="mt-1.5">
-                  <Badge tone={ROLE_TONE[user?.role ?? 'member'] ?? 'slate'} dot>
-                    {ROLE_LABEL[user?.role ?? 'member'] ?? user?.role}
-                  </Badge>
-                </div>
-              </div>
-              <DropdownSeparator />
-              <DropdownLabel>账号</DropdownLabel>
-              <DropdownItem icon="log-out" tone="danger" onClick={logout}>
-                退出登录
-              </DropdownItem>
-            </Dropdown>
-          </div>
-        </div>
+        <main id="main-content" tabIndex={-1} className="flex-1 focus-visible:outline-none">
+          <ContentShell>
+            {/* 区块级兜底：某个页面渲染崩溃时，导航栏仍可用，用户能切走。
+                根级兜底在 App.tsx，两层互补。 */}
+            <ErrorBoundary variant="section" resetKey={location.key}>
+              <Outlet />
+            </ErrorBoundary>
+          </ContentShell>
+        </main>
 
-        {/* 移动端：第二行可横向滚动的导航（右侧渐隐提示还能滑） */}
-        <div className="relative border-t border-line-subtle md:hidden">
-          <nav
-            className="scrollbar-none flex items-center gap-1 overflow-x-auto px-3 py-1.5"
-            aria-label="主导航（移动端）"
-          >
-            {items.map((item) => (
-              <NavLink key={item.to} to={item.to} end={item.end} className={navClass}>
-                <Icon name={item.icon} className="h-3.5 w-3.5 opacity-80" />
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-surface via-surface/80 to-transparent"
-          />
-        </div>
-      </header>
-
-      <main className="relative mx-auto w-full max-w-[1600px] px-4 pb-16 pt-5 sm:px-6 sm:pt-6 lg:px-8 lg:pt-8">
-        {/* 区块级兜底：某个页面渲染崩溃时，导航栏仍可用，用户能切走。
-            根级兜底在 App.tsx，两层互补。 */}
-        <ErrorBoundary variant="section" resetKey={location.key}>
-          <Outlet />
-        </ErrorBoundary>
-      </main>
+        <footer className="mt-auto border-t border-line/60">
+          <ContentShell className="flex flex-col gap-1 py-4 text-2xs text-ink-faint sm:flex-row sm:items-center sm:justify-between">
+            <span>Agent 工作台 · 内部协作平台</span>
+            <span className="font-mono">v0.1.0 · {new Date().getFullYear()}</span>
+          </ContentShell>
+        </footer>
+      </div>
     </div>
   )
 }

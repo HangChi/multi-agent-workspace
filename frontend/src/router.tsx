@@ -4,6 +4,7 @@ import { Suspense, lazy } from 'react'
 import { Link, Navigate, Route, Routes } from 'react-router-dom'
 
 import { AppLayout } from './components/layout/AppLayout'
+import { SettingsLayout } from './components/layout/SettingsLayout'
 import { Icon } from './components/ui/Icons'
 import { LogoMark } from './components/ui/Logo'
 import { Spinner } from './components/ui/Spinner'
@@ -56,6 +57,9 @@ const RunDetailPage = lazy(() =>
   import('./pages/RunDetailPage').then((m) => ({ default: m.RunDetailPage }))
 )
 const AdminPage = lazy(() => import('./pages/AdminPage').then((m) => ({ default: m.AdminPage })))
+const SettingsPage = lazy(() =>
+  import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage }))
+)
 
 /** 全屏加载：恢复会话期间别让用户看到白屏。 */
 function FullPageLoading() {
@@ -152,23 +156,38 @@ export function AppRouter() {
           <Route index element={<Suspended element={<BoardHome />} />} />
           <Route path="dashboard" element={<Suspended element={<DashboardPage />} />} />
           <Route path="agents" element={<Suspended element={<AgentPage />} />} />
-          {/* 模板页自己处理 viewer 的 403（与调度页同一套路）：页面内文案
-              比通用守卫更具体，因此这里不再叠一层 RequireMember。 */}
-          <Route path="agent-templates" element={<Suspended element={<AgentTemplatesPage />} />} />
           <Route path="groups" element={<Suspended element={<GroupPage />} />} />
-          <Route path="marketplace" element={<Suspended element={<MarketplacePage />} />} />
-          {/* 调度页自己处理 viewer 的 403（页面内文案比通用守卫更具体），
-              因此这里不再叠一层 RequireMember 守卫。 */}
-          <Route path="schedules" element={<Suspended element={<SchedulesPage />} />} />
           <Route path="runs/:runId" element={<Suspended element={<RunDetailPage />} />} />
-          <Route
-            path="admin"
-            element={
-              <RequireAdmin>
-                <Suspended element={<AdminPage />} />
-              </RequireAdmin>
-            }
-          />
+
+          {/* 设置模块：二级导航 + 子页面。
+              模板 / 调度 / 工具市场 / 管理后台都从顶部导航挪到这里，
+              顶部因此只需容纳 4 个高频入口。 */}
+          <Route path="settings" element={<SettingsLayout />}>
+            <Route index element={<Navigate to="/settings/general" replace />} />
+            <Route path="general" element={<Suspended element={<SettingsPage />} />} />
+            <Route
+              path="templates"
+              element={<Suspended element={<AgentTemplatesPage />} />}
+            />
+            {/* 调度页/模板页自己处理 viewer 的 403（页面内文案比通用守卫更具体），
+                因此这里不再叠一层 RequireMember 守卫。 */}
+            <Route path="schedules" element={<Suspended element={<SchedulesPage />} />} />
+            <Route path="marketplace" element={<Suspended element={<MarketplacePage />} />} />
+            <Route
+              path="admin"
+              element={
+                <RequireAdmin>
+                  <Suspended element={<AdminPage />} />
+                </RequireAdmin>
+              }
+            />
+          </Route>
+
+          {/* 旧地址兼容：书签、历史通知、外部文档里的链接不能因为重排就 404 */}
+          <Route path="agent-templates" element={<Navigate to="/settings/templates" replace />} />
+          <Route path="schedules" element={<Navigate to="/settings/schedules" replace />} />
+          <Route path="marketplace" element={<Navigate to="/settings/marketplace" replace />} />
+          <Route path="admin" element={<Navigate to="/settings/admin" replace />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
