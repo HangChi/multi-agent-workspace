@@ -175,3 +175,28 @@ def test_next_after_rejects_beyond_search_horizon():
     base = datetime(2097, 3, 1, tzinfo=UTC)
     with pytest.raises(CronExpressionError, match="不会触发"):
         next_after(cron, base)
+
+
+# ---------- 015 覆盖率补齐：分配失败措辞白名单 ----------
+
+from app.api.errors import AppError
+from app.services.schedule_service import _translate_assign_failure
+
+
+@pytest.mark.parametrize(
+    ("message", "code", "expected"),
+    [
+        ("目标已归档，无法分配", "INVALID_INPUT", "目标已归档"),
+        ("目标不存在", "NOT_FOUND", "目标已删除"),
+        ("本月配额已用尽", "RATE_LIMITED", "本月配额已用尽"),
+        ("月配额已用尽（已用 120 分 / 上限 100 分）", "RATE_LIMITED", "本月配额已用尽"),
+        ("其它未知原因", "CONFLICT", "目标不可用"),
+    ],
+)
+def test_translate_assign_failure_maps_to_contract_whitelist(message, code, expected):
+    """reason 必须是契约 §2 的措辞白名单，不得泄露 UUID/表名/异常类名。
+
+    这五条映射决定用户在「调度历史」里看到什么：归档/删除/配额/兜底。
+    映射错了会让用户按错误的提示去修一个不存在的问题。
+    """
+    assert _translate_assign_failure(AppError(code, message)) == expected
