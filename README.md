@@ -522,7 +522,10 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
   Celery 进程通过 Redis 快照合并进同一端点。`deploy/observability/` 有抓取配置与 8 条告警规则，
   但**阈值尚未在真实流量下验证**（这也是 003 发布状态里未闭环的那一项）。没有 Grafana 面板。
 - **备份**：`deploy/backup/backup.sh`（pg_dump + 对象目录 + manifest）与 `restore-drill.sh`
-  （还原到临时库并断言迁移版本/表数）已就绪，cron 写法见该目录 README；**恢复演练只在开发机跑过**。
+  （还原到临时库并断言迁移版本/表数）已就绪，cron 写法见该目录 README。
+  开发机上按「备份 → 演练」完整跑通过一次（2026-11-19：备份 192K / 对象 108K，
+  还原后 alembic=0016、32 表、14 用户、20 运行，临时库已丢弃）；
+  **仍未在目标主机上做过**——真机演练要等部署链路打通。
 - **部署**：`deploy/deploy.sh`（迁移 → 换容器 → 健康门禁 → 失败回滚）+ CI 手动触发的 `deploy` job；
   真正的生产环境部署 smoke 仍需有主机与域名时执行。
 - **尚未实现**：Sentry 异常上报、Grafana 面板、PITR（时间点恢复）。
