@@ -16,6 +16,7 @@ from app.api import errors
 from app.api.middleware import RequestContextMiddleware
 from app.api.v1.admin import router as admin_router
 from app.api.v1.admin_egress import router as admin_egress_router
+from app.api.v1.admin_invite_codes import router as admin_invite_codes_router
 from app.api.v1.agent_egress import router as agent_egress_router
 from app.api.v1.agent_templates import router as agent_templates_router
 from app.api.v1.agents import router as agents_router
@@ -103,6 +104,7 @@ def create_app() -> FastAPI:
     api_v1.include_router(notifications_router)
     api_v1.include_router(admin_router)
     api_v1.include_router(admin_egress_router)
+    api_v1.include_router(admin_invite_codes_router)
     app.include_router(api_v1)
     app.include_router(ws_router)
 

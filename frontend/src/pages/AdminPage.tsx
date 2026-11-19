@@ -16,6 +16,7 @@ import {
 } from '../api/endpoints'
 import { extractError } from '../api/client'
 import { ExternalToolServers } from '../components/admin/ExternalToolServers'
+import { InviteCodes } from '../components/admin/InviteCodes'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Card, IconTile } from '../components/ui/Card'
@@ -264,6 +265,10 @@ export function AdminPage() {
           </Button>
         }
       />
+
+      {/* 邀请码：准入控制的唯一入口（015）。放在审计日志之前——它是有事
+          要做的操作区，审计是复盘用的只读区。 */}
+      <InviteCodes />
 
       {/* 筛选栏 */}
       <Card>

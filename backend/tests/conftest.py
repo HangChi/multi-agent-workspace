@@ -34,7 +34,9 @@ def _local_stack_database_url() -> str | None:
             parts = urlsplit(value)
             if parts.hostname in {"postgres", "db"}:
                 # 容器网络名在宿主上解析不了：换成回环地址，端口与凭据不变
-                cred = parts.netloc.rsplit("@", 1)[0] + "@" if "@" in parts.netloc else ""
+                cred = (
+                    parts.netloc.rsplit("@", 1)[0] + "@" if "@" in parts.netloc else ""
+                )
                 port = f":{parts.port}" if parts.port else ""
                 parts = parts._replace(netloc=f"{cred}127.0.0.1{port}")
             return urlunsplit(parts)

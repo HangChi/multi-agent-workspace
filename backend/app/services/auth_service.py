@@ -83,6 +83,9 @@ async def register(
     ).scalar_one_or_none()
     if invite is None:
         raise AppError("INVALID_INPUT", "邀请码无效")
+    if invite.revoked_at is not None:
+        # 015：吊销与「无效」同一口径——不告诉持码人「这个码曾经存在」。
+        raise AppError("INVALID_INPUT", "邀请码无效")
     if invite.expires_at is not None and invite.expires_at < datetime.now(UTC):
         raise AppError("INVALID_INPUT", "邀请码已过期")
     if invite.used_count >= invite.max_uses:
@@ -101,7 +104,10 @@ async def register(
         await db.execute(
             update(InviteCode)
             .where(
-                InviteCode.id == invite.id, InviteCode.used_count < InviteCode.max_uses
+                InviteCode.id == invite.id,
+                InviteCode.used_count < InviteCode.max_uses,
+                # 015：吊销与消耗同一条件更新里判，规避「刚吊销就并发注册成功」。
+                InviteCode.revoked_at.is_(None),
             )
             .values(used_count=InviteCode.used_count + 1)
             .returning(InviteCode.role)

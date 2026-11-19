@@ -28,6 +28,11 @@ class InviteCode(Base):
     expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # 015：管理员吊销（泄露/发错人）。为空表示有效；不删行是因为
+    # users.invite_code_id 引用它，删了会断掉注册来源的审计链。
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_by: Mapped[str | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )
