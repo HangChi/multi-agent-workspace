@@ -26,6 +26,24 @@ docker compose -p aw -f deploy/docker-compose.yml up -d --build
 > 项目名固定为 `aw`（容器名 aw-*）。不加 `-p aw` 时 compose 会按目录名推导项目名，
 > 与已有容器冲突（`container name already in use`）。
 
+### 两种进程拓扑：多容器（默认）/ 单容器
+
+| 模式 | 容器 | 适用 | 代价 |
+|---|---|---|---|
+| 多容器（默认） | api / worker / beat 各自独立 | 多用户、要压测、要单独扩 worker | 三者各自构建重启，容易出现「api 已是新代码、worker 还是几小时前的镜像」 |
+| 单容器 | `app`（uvicorn + celery worker + beat 同进程组） | 单机自用、演示、少运维 | ① 统一 `DB_POOL=null`，API 失去连接池；② 不能单独扩 worker（scale 会连带复制 beat，同一 cron 触发两次） |
+
+```bash
+deploy/single.sh     # 切单容器（自动停 api/worker/beat，起 app + frontend）
+deploy/multi.sh      # 切回多容器（自动移除 aw-app）
+deploy/single.sh status   # 看当前是哪种
+```
+
+单容器的实现要点：三个进程共享**同一个镜像**，版本漂移在物理上不可能；
+`wait -n` 保证任一进程退出就整容器退出（交给 `restart: unless-stopped`），
+不存在「半个系统还活着」。`app` 在 compose 网络里挂了别名 `api`，所以
+nginx 的上游 `http://api:8000` 两种模式通用，不用改前端镜像。
+
 本地离线验证（无真实 LLM 密钥时）：
 
 ```bash

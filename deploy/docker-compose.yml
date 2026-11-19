@@ -351,6 +351,48 @@ services:
       timeout: 10s
       retries: 3
 
+  # ---------- 单容器模式（profile: single，默认不启动）----------
+  # 把 api + worker + beat 合成一个容器。为什么要有它：多容器模式下三者各自
+  # 构建/重启，很容易出现「api 已是新代码、worker 还是几小时前的镜像」——
+  # 2026-11-19 实测就撞上过（worker/beat 跑着悬空镜像 ID）。合成后三个进程
+  # 共享同一镜像，版本漂移在物理上不可能。
+  #
+  # 代价（别忽略，见 backend/docker/all-in-one.sh 注释）：
+  # ① 统一 DB_POOL=null（worker 跨事件循环必须；API 因此失去连接池，吞吐下降）；
+  # ② 不能单独扩 worker —— scale 会连带复制 beat，同一 cron 被重复触发。
+  # 所以：单机自用/演示用 single，多用户或需要压测时用默认多容器。
+  #
+  # 启动：deploy/single.sh（会先停掉 api/worker/beat，再起 app + frontend）
+  app:
+    extends:
+      service: worker
+    container_name: aw-app
+    profiles: ['single']
+    command: ['/opt/aw/docker/all-in-one.sh']
+    # 合并后 API 也在这台容器里，需要把 8000 暴露给 frontend 所在网络。
+    # 网络别名 `api`：nginx 的上游写死 http://api:8000，加了这个别名后
+    # 单容器/多容器两种模式共用同一份 nginx.conf，不用改前端镜像。
+    networks:
+      default:
+        aliases:
+          - api
+    expose:
+      - '8000'
+    healthcheck:
+      # 只探 API：worker/beat 的存活由「任一进程退出即整容器退出」保证
+      test: ['CMD-SHELL', 'python -c "import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/api/v1/health/ready\", timeout=3)"']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        # 合并后是 API+worker+beat 的合计预算：API 2C/1g + worker 2C/2g + beat 1C/512m
+        # 有重叠（进程空闲时不等量占用），取 3C/3g 而不是 5C/3.5g。
+        limits:
+          cpus: '3.0'
+          memory: 3g
+
   # ---------- 可观测性（默认不启动）----------
   # 用法：docker compose -p aw -f deploy/docker-compose.yml --profile observability up -d prometheus
   # 只暴露到 127.0.0.1：指标本身包含业务量与错误率，不该直接暴露公网。

@@ -42,6 +42,8 @@ RUN uv sync --locked --no-dev --no-install-project
 COPY app ./app
 COPY alembic.ini ./
 COPY alembic ./alembic
+# 单容器模式的启动脚本（api+worker+beat 同进程组）；多容器模式不用它
+COPY docker ./docker
 
 # 现在把项目自身装进 venv（--no-editable：镜像里要的是稳定快照，
 # 不要指向源码目录的 .pth，否则运行时会读到意外文件）
