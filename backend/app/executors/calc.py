@@ -87,7 +87,11 @@ def _eval_node(node: ast.AST) -> float:
     if isinstance(node, ast.UnaryOp):
         unary_type: type[Any] = type(node.op)
         if unary_type not in _UNARY_OPS:
-            raise ExpressionError(f"不支持的一元运算符: {op_type.__name__}")
+            # 2026-11-19：这里原本写的是 `op_type.__name__`（从上面的二元分支
+            # 复制过来的），于是 safe_eval("~5") 抛的是 UnboundLocalError 而不是
+            # ExpressionError——工具调用会变成 500，而 LLM 收到的是堆栈而不是
+            # 「这个运算符不支持」。补测时暴露。
+            raise ExpressionError(f"不支持的一元运算符: {unary_type.__name__}")
         return _UNARY_OPS[unary_type](_eval_node(node.operand))
 
     if isinstance(node, ast.Call):
