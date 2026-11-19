@@ -128,17 +128,17 @@ async def test_create_credential_truncates_overlong_label():
 
 
 def _credential(**overrides):
-    base = dict(
-        server_id="srv",
-        scope_owner_id="owner",
-        label="prod",
-        kind="api_key",
-        header_name="x-api-key",
-        ciphertext="enc",
-        key_version="v1",
-        status="active",
-        created_by="owner",
-    )
+    base = {
+        "server_id": "srv",
+        "scope_owner_id": "owner",
+        "label": "prod",
+        "kind": "api_key",
+        "header_name": "x-api-key",
+        "ciphertext": "enc",
+        "key_version": "v1",
+        "status": "active",
+        "created_by": "owner",
+    }
     base.update(overrides)
     return ExternalCredential(**base)
 
@@ -209,3 +209,40 @@ async def test_revoke_credential_is_idempotent():
     await revoke_credential(db, cred)
     assert db.flushed == 0
     assert cred.rotated_at is None
+
+
+# ---------- load_credential_value：越权/密钥版本/正常解密 ----------
+
+from app.services.external_credential_service import load_credential_value
+
+
+class _ScalarSession:
+    """只提供 db.scalar，返回预设的凭据（或 None）。"""
+
+    def __init__(self, credential) -> None:
+        self._credential = credential
+
+    async def scalar(self, _stmt):
+        return self._credential
+
+
+@pytest.mark.asyncio
+async def test_load_credential_value_missing_is_forbidden():
+    """找不到（越权/服务器不符/非 active 都落入同一查询）→ FORBIDDEN。
+
+    用 FORBIDDEN 而不是 NOT_FOUND：不暴露「这个凭据是否存在」。
+    """
+    with pytest.raises(AppError, match="凭证不可用"):
+        await load_credential_value(
+            _ScalarSession(None), credential_id="c", owner_id="o", server_id="s"
+        )
+
+
+@pytest.mark.asyncio
+async def test_load_credential_value_rejects_unknown_key_version():
+    """key_version 不是 v1 → INVALID_STATE，绝不尝试用未知版本解密。"""
+    cred = _credential(key_version="v2")
+    with pytest.raises(AppError, match="密钥版本不可用"):
+        await load_credential_value(
+            _ScalarSession(cred), credential_id="c", owner_id="o", server_id="s"
+        )

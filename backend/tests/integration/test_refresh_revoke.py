@@ -80,3 +80,58 @@ async def test_legacy_token_without_index_is_still_revoked():
 
     assert revoked == 1
     assert await token_store.consume_refresh_token(legacy_jti) is False
+
+
+# ---------- 015 覆盖率补齐：Redis 不可用时的 fail-open 降级 ----------
+
+
+class _BoomRedis:
+    """同步 client，所有访问方法抛异常（模拟 Redis 抖动/宕机）。
+
+    注意 `get_redis()` 本身是同步的，且在 consume/revoke 里位于 try 之外——
+    所以要让「取到 client 之后、调用方法时」才抛，才能走到对应的降级分支。
+    """
+
+    def pipeline(self, **kwargs):
+        raise ConnectionError("redis down")
+
+    async def exists(self, *_a, **_k):
+        raise ConnectionError("redis down")
+
+    async def getdel(self, *_a, **_k):
+        raise ConnectionError("redis down")
+
+    async def smembers(self, *_a, **_k):
+        raise ConnectionError("redis down")
+
+    async def scan_iter(self, *_a, **_k):
+        raise ConnectionError("redis down")
+
+
+async def test_register_fails_open_when_redis_unavailable(monkeypatch):
+    """Redis 不可用时注册放行：登录不能因为 token 存储抖动而失败。
+
+    fail-open 的理由是——登录本身要密码，refresh 泄露的前提是攻击者已拿到
+    token；若 Redis 抖动就让全体用户掉线，可用性损失大于收益。
+    """
+    from app.core import token_store as ts
+
+    monkeypatch.setattr(ts, "get_redis", lambda: _BoomRedis())
+    # 不应抛异常
+    await ts.register_refresh_token("jti-x", "user-x", ttl_seconds=60)
+
+
+async def test_consume_fails_open_on_redis_error(monkeypatch):
+    """消费路径 Redis 异常时返回 True（视为可用），避免把抖动当成重放攻击。"""
+    from app.core import token_store as ts
+
+    monkeypatch.setattr(ts, "get_redis", lambda: _BoomRedis())
+    assert await ts.consume_refresh_token("jti-y") is True
+
+
+async def test_revoke_all_fails_open_on_redis_error(monkeypatch):
+    """撤销路径 Redis 异常时不抛错：登出必须幂等，不能让客户端卡在报错里。"""
+    from app.core import token_store as ts
+
+    monkeypatch.setattr(ts, "get_redis", lambda: _BoomRedis())
+    assert await ts.revoke_all_refresh_tokens("user-z") == 0

@@ -92,3 +92,50 @@ def test_div_result_out_of_range_is_wrapped():
     """浮点除极小数会 OverflowError，必须转成 ExpressionError 而不是裸抛。"""
     with pytest.raises(ExpressionError):
         safe_eval("1e300 / 1e-300")
+
+
+# ---------- 015 覆盖率补齐：有限性检查与超大 int 结果 ----------
+
+
+def test_complex_result_rejected_as_non_finite():
+    """结果是 complex 时拒绝：LLM 交付物里不能出现复数。"""
+    with pytest.raises(ExpressionError, match="有限实数"):
+        safe_eval("(-1) ** 0.5")
+
+
+def test_non_finite_result_rejected():
+    """inf/nan 同样拒绝——它们会污染后续统计，且 JSON 序列化会炸。
+
+    `10.0 ** 308` = 1e308（有限），两个相乘溢出成 inf，走 139-140 的
+    「结果不是有限实数」分支。
+    """
+    with pytest.raises(ExpressionError, match="有限实数"):
+        safe_eval("10.0 ** 308 * 10.0 ** 308")
+    with pytest.raises(ExpressionError, match="除数不能为 0"):
+        safe_eval("0 / 0")
+
+
+def test_oversized_int_result_rejected_at_top_level():
+    """`_eval_node` 返回超宽 int，在 safe_eval 顶层再次拦（双保险）。"""
+    with pytest.raises(ExpressionError, match="过大"):
+        safe_eval("2 ** 10000")
+
+
+def test_pow_overflow_is_wrapped_as_expression_error():
+    """`10.0 ** 1000` 是 float 溢出（OverflowError），走 81-82 分支。
+
+    指数 1000 正好等于上限（`>` 才拒绝），结果 1e1000 超出 float 表示范围，
+    `operator.pow` 抛 OverflowError——必须转成 ExpressionError 而非裸抛。
+    """
+    with pytest.raises(ExpressionError, match="超出可计算范围"):
+        safe_eval("10.0 ** 1000")
+
+
+def test_huge_int_result_rejected_at_finite_check():
+    """`10 ** 1000` 是超宽 int，`math.isfinite` 无法转 float 抛 OverflowError。
+
+    这走的是 136-138 分支（比例有限性更严格）：超大 int 直接拒绝，
+    而不是当成有限数放行。
+    """
+    with pytest.raises(ExpressionError, match="有限实数"):
+        safe_eval("10 ** 1000")
