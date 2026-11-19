@@ -51,9 +51,19 @@ async def list_projects(
         pattern="^(mine|relevant)$",
         description="mine=我创建的项目（管理页）；relevant=我创建的+派给我需求所属的（看板筛选下拉）",
     ),
+    # 分页是可选的：不传 page 表示「要全量」——看板/表单的项目下拉靠它，
+    # 少一个项目用户就没法把需求归过去。管理页传 page 才分页。
+    page: int | None = Query(default=None, ge=1, description="页码；不传=全量"),
+    page_size: int = Query(default=50, ge=1, le=100),
 ):
-    """项目列表 + 每个项目的可见需求数。"""
-    rows = await project_service.list_projects(db, user.id, scope=scope)
+    """项目列表 + 每个项目的可见需求数（page 可选）。"""
+    rows, total = await project_service.list_projects(
+        db,
+        user.id,
+        scope=scope,
+        limit=page_size if page is not None else None,
+        offset=((page or 1) - 1) * page_size,
+    )
     # 010：成员数一次批量（GROUP BY project_id），不逐项目查
     member_counts = (
         dict(
@@ -79,7 +89,7 @@ async def list_projects(
             )
             for p, count in rows
         ],
-        "total": len(rows),
+        "total": total,
     }
 
 

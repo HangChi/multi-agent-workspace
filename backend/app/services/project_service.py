@@ -110,9 +110,18 @@ async def _visible_request_counts(
 
 
 async def list_projects(
-    db: AsyncSession, user_id: str, scope: str = "mine"
-) -> list[tuple[Project, int]]:
-    """项目列表 + 每个项目的可见需求数。
+    db: AsyncSession,
+    user_id: str,
+    scope: str = "mine",
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+) -> tuple[list[tuple[Project, int]], int]:
+    """项目列表 + 每个项目的可见需求数；返回 (当页行, 全量总数)。
+
+    limit=None 表示不分页（看板/表单的项目下拉需要全量选项——少一个项目，
+    用户就没法把需求归到那个项目里，且下拉本身是「选一个」的场景，
+    分页反而变难用）。管理页传 limit/offset 分页。
 
     scope=mine（管理页默认）：仅我创建的项目。
     scope=relevant（看板筛选下拉）：我创建的 ∪ **我是成员的** ∪
@@ -167,16 +176,31 @@ async def list_projects(
         merged = {p.id: p for p in owned}
         merged.update({p.id: p for p in referenced})
         ordered = sorted(merged.values(), key=lambda p: p.created_at, reverse=True)
+        total = len(ordered)
+        # relevant 三肢合并只能内存排；分页在内存切片（下拉场景 limit=None 不切）
+        if limit is not None:
+            ordered = ordered[offset : offset + limit]
     else:
+        total = int(
+            (
+                await db.execute(
+                    select(func.count())
+                    .select_from(Project)
+                    .where(Project.owner_id == user_id)
+                )
+            ).scalar_one()
+        )
         stmt = (
             select(Project)
             .where(Project.owner_id == user_id)
             .order_by(Project.created_at.desc())
         )
+        if limit is not None:
+            stmt = stmt.offset(offset).limit(limit)
         ordered = list((await db.execute(stmt)).scalars().all())
 
     counts = await _visible_request_counts(db, [user_id], [p.id for p in ordered])
-    return [(p, counts.get(p.id, 0)) for p in ordered]
+    return [(p, counts.get(p.id, 0)) for p in ordered], total
 
 
 async def get_project(

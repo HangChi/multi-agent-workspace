@@ -10,7 +10,7 @@
  * （后端语义见 research R-02：SET NULL，与 004 删调度规则同款）。
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { extractError } from '../api/client'
@@ -25,6 +25,7 @@ import { Icon } from '../components/ui/Icons'
 import { Input } from '../components/ui/Field'
 import { Page } from '../components/ui/Page'
 import { PageHeader } from '../components/ui/PageHeader'
+import { Pagination } from '../components/ui/Pagination'
 import { CardSkeleton } from '../components/ui/Skeleton'
 import { useConfirm } from '../components/ui/useConfirm'
 import { useToast } from '../components/ui/useToast'
@@ -44,16 +45,25 @@ export function ProjectsPage() {
   const [error, setError] = useState<string | null>(null)
   // 行内改名的项目 id 与草稿
   const [renamingId, setRenamingId] = useState<string | null>(null)
+  // 分页：项目会随团队使用不断累积，管理页不该一次全渲染
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 20
   const [renameDraft, setRenameDraft] = useState('')
 
   const { data, isLoading } = useQuery({
     // 010：默认 relevant（我创建的 + 共享给我的）——页面用「我的/共享的」
     // 徽章区分归属（s12 的 C2 现场：只查 mine 时成员看不到共享项目）
-    queryKey: ['projects', 'list', 'relevant'],
-    queryFn: () => fetchProjects({ scope: 'relevant' }),
+    queryKey: ['projects', 'list', 'relevant', page],
+    queryFn: () => fetchProjects({ scope: 'relevant', page, page_size: PAGE_SIZE }),
     enabled: !isViewer,
   })
   const projects = data?.items ?? []
+  const totalProjects = data?.total ?? 0
+
+  // 删掉当页最后一条时页码会落到空页：退一页，而不是让用户看着空白列表
+  useEffect(() => {
+    if (!isLoading && page > 1 && projects.length === 0) setPage((p) => p - 1)
+  }, [isLoading, page, projects.length])
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['projects'] })
@@ -342,6 +352,16 @@ export function ProjectsPage() {
             </li>
           ))}
         </ul>
+      )}
+
+      {totalProjects > PAGE_SIZE && (
+        <Pagination
+          page={page}
+          pageSize={PAGE_SIZE}
+          total={totalProjects}
+          loading={isLoading}
+          onChange={setPage}
+        />
       )}
     </Page>
   )

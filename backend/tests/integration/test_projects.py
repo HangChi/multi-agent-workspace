@@ -344,3 +344,53 @@ async def test_delete_project_keeps_requests_and_clears_link(
         .first()
     )
     assert audit["request_count"] == 3
+
+
+# ---------- P-10：可选分页（015 优化）----------
+
+
+async def test_list_projects_paginates_when_page_given(
+    client, db_session, make_headers
+):
+    """传 page 才分页：total 是全量数，items 是当页切片。
+
+    为什么分页是「可选」而不是默认：看板/表单的项目下拉靠这个接口拿全量
+    选项——少一个项目，用户就没法把需求归到它上面。管理页传 page 分页。
+    """
+    user = await _user(db_session)
+    for i in range(3):
+        await _make_project(db_session, user, name=f"分页-{i}")
+
+    first = await client.get(
+        PROJECTS_URL,
+        params={"page": 1, "page_size": 2},
+        headers=await make_headers(user),
+    )
+    assert first.status_code == 200
+    body = first.json()
+    assert body["total"] == 3
+    assert len(body["items"]) == 2
+
+    second = await client.get(
+        PROJECTS_URL,
+        params={"page": 2, "page_size": 2},
+        headers=await make_headers(user),
+    )
+    assert second.status_code == 200
+    assert len(second.json()["items"]) == 1
+    # 两页不重叠
+    assert {p["id"] for p in body["items"]}.isdisjoint(
+        {p["id"] for p in second.json()["items"]}
+    )
+
+
+async def test_list_projects_without_page_returns_all(client, db_session, make_headers):
+    """不传 page = 全量（下拉选项依赖这个行为，不能被默认分页悄悄截断）。"""
+    user = await _user(db_session)
+    for i in range(3):
+        await _make_project(db_session, user, name=f"全量-{i}")
+
+    resp = await client.get(PROJECTS_URL, headers=await make_headers(user))
+    assert resp.status_code == 200
+    assert len(resp.json()["items"]) == 3
+    assert resp.json()["total"] == 3

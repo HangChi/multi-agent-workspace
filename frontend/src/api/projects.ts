@@ -41,6 +41,9 @@ export interface ProjectList {
  */
 export async function fetchProjects(params?: {
   scope?: 'mine' | 'relevant'
+  /** 页码；不传 = 要全量（看板/表单的项目下拉依赖全量选项） */
+  page?: number
+  page_size?: number
 }): Promise<ProjectList> {
   const { data } = await apiClient.get<ProjectList>('/projects', { params })
   return data
