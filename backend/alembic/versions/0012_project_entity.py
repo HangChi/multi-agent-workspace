@@ -67,9 +67,7 @@ def upgrade() -> None:
         # owner_id 非空，普通唯一约束即可——不需要 005 那种部分唯一索引。
         sa.UniqueConstraint("owner_id", "name", name="uq_projects_owner_name"),
     )
-    op.create_index(
-        "ix_projects_owner_status", "projects", ["owner_id", "status"]
-    )
+    op.create_index("ix_projects_owner_status", "projects", ["owner_id", "status"])
 
     # 2. requests 两列（全可空：存量需求保持未归类，行为零变化）。
     op.add_column(

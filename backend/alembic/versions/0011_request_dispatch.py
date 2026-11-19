@@ -179,9 +179,7 @@ def downgrade() -> None:
     op.drop_index("ix_notifications_user_unread", table_name="notifications")
     op.drop_index("ix_notifications_user_id", table_name="notifications")
     op.drop_table("notifications")
-    op.drop_index(
-        "ix_request_dispatches_request_id", table_name="request_dispatches"
-    )
+    op.drop_index("ix_request_dispatches_request_id", table_name="request_dispatches")
     op.drop_table("request_dispatches")
     op.drop_index("ix_requests_assignee_status", table_name="requests")
     op.drop_column("requests", "accepted_at")

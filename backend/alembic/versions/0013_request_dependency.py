@@ -67,9 +67,7 @@ def upgrade() -> None:
         ),
         # 库层堵死自依赖：service 先拦（400），这里是兜底。双 FK 同表时
         # CHECK 是唯一能防呆的库级手段。
-        sa.CheckConstraint(
-            "request_id <> dependency_id", name="ck_no_self_dependency"
-        ),
+        sa.CheckConstraint("request_id <> dependency_id", name="ck_no_self_dependency"),
     )
     # 门禁查询路径（assign 热路径，SC-003 的 RT 预算靠它）
     op.create_index(
@@ -88,8 +86,7 @@ def upgrade() -> None:
     # （PG 不能安全删，旧 worker 可能还在引用，同 0011 纪律）。
     with op.get_context().autocommit_block():
         op.execute(
-            "ALTER TYPE notification_type ADD VALUE IF NOT EXISTS "
-            "'dependency_ready'"
+            "ALTER TYPE notification_type ADD VALUE IF NOT EXISTS 'dependency_ready'"
         )
 
 

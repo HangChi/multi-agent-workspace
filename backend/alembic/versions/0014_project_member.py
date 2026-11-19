@@ -49,9 +49,7 @@ def upgrade() -> None:
         ),
     )
     # 「我是哪些项目的成员」反查——relevant 口径的热路径。
-    op.create_index(
-        "ix_project_members_user_id", "project_members", ["user_id"]
-    )
+    op.create_index("ix_project_members_user_id", "project_members", ["user_id"])
     # 枚举新值（autocommit_block：同事务不能使用新值，同 0011/0013）。
     # 只发给对方本人的成员变动通知；删项目不发（点进 404 是噪声，R-05）。
     with op.get_context().autocommit_block():
