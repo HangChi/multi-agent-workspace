@@ -7,6 +7,7 @@ setup 全部 commit（API 走独立 session）。
 """
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import func, select
@@ -216,3 +217,56 @@ async def test_run_completed_notifies_owner_on_settle(db_session):
     assert await settle_request_status(db_session, req.id) is None
     await db_session.commit()
     assert await _notif_count(db_session, owner.id, type_="run_completed") == before + 1
+
+
+# ---------- 015 覆盖率补齐：未读数与空 ids 已读 ----------
+
+from app.services.notification_service import mark_read, unread_count
+
+
+async def test_unread_count_counts_only_unread(db_session):
+    """未读数只算 read_at 为 NULL 的，已读的不计入。"""
+    from app.models.notification import Notification
+    from app.models.user import User
+
+    user = User(
+        email=f"ncount-{uuid.uuid4().hex[:8]}@test.com",
+        password_hash="x" * 60,
+        role="member",
+        status="active",
+    )
+    db_session.add(user)
+    await db_session.commit()
+
+    db_session.add(Notification(user_id=user.id, type="request_dispatched", title="未读"))
+    db_session.add(
+        Notification(
+            user_id=user.id,
+            type="request_dispatched",
+            title="已读",
+            read_at=datetime.now(UTC),
+        )
+    )
+    await db_session.commit()
+
+    assert await unread_count(db_session, user_id=user.id) == 1
+
+
+async def test_mark_read_with_empty_ids_is_noop(db_session):
+    """ids=[] 必须返回 0 而不是「全部已读」——空列表是「没有要标的」。
+
+    这个分支是把 `ids is None`（全部）与 `ids == []`（空）区分开的关键：
+    前端下拉「清空选择」会传空数组，误判成「全部已读」会清掉整页未读。
+    """
+    from app.models.user import User
+
+    user = User(
+        email=f"nmark-{uuid.uuid4().hex[:8]}@test.com",
+        password_hash="x" * 60,
+        role="member",
+        status="active",
+    )
+    db_session.add(user)
+    await db_session.commit()
+
+    assert await mark_read(db_session, user_id=user.id, ids=[]) == 0
