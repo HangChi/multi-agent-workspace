@@ -172,3 +172,52 @@ async def test_server_detail_projection_reads_tool_listings_without_lazy_io(
     assert len(projection["tools"]) == 1
     assert projection["tools"][0]["listing_id"] == listing_id
     assert projection["tools"][0]["listing_status"] == "published"
+
+
+# ---------- 015 覆盖率补齐：get_server 越权/缺失 → 404 ----------
+
+
+@pytest.mark.asyncio
+async def test_get_server_missing_or_foreign_owner_is_not_found(db_session, make_user):
+    """非 admin 访问不存在/他人的 server 一律 404，不暴露存在性。"""
+    from app.api.errors import AppError
+    from app.services import external_tool_service
+
+    admin, _ = await make_user(role="admin")
+    stranger, _ = await make_user(role="member")
+
+    # 不存在的 server
+    with pytest.raises(AppError) as exc:
+        await external_tool_service.get_server(
+            db_session,
+            server_id="00000000-0000-0000-0000-000000000000",
+            owner_id=admin.id,
+            is_admin=False,
+        )
+    assert exc.value.code == "NOT_FOUND"
+
+    # 存在但他人的 server（非 admin）→ 同样 404，不暴露存在性
+    from app.models.external_tool import ExternalToolServer
+
+    server = ExternalToolServer(
+        owner_id=stranger.id,
+        created_by=stranger.id,
+        name="Foreign Server",
+        description="Fixture",
+        endpoint_url="https://8.8.8.8/mcp",
+        normalized_endpoint_url="https://8.8.8.8/mcp",
+        maintainer="Test",
+        auth_mode="none",
+        status="pending_review",
+    )
+    db_session.add(server)
+    await db_session.flush()
+
+    with pytest.raises(AppError) as exc:
+        await external_tool_service.get_server(
+            db_session,
+            server_id=server.id,
+            owner_id=admin.id,
+            is_admin=False,
+        )
+    assert exc.value.code == "NOT_FOUND"
