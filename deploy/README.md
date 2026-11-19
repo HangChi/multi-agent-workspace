@@ -39,6 +39,21 @@ deploy/multi.sh      # 切回多容器（自动移除 aw-app）
 deploy/single.sh status   # 看当前是哪种
 ```
 
+### 后端只有一个镜像（aw-api）
+
+api / worker / beat / migrate / app 五个服务**共用 `image: aw-api`**，只有 api
+服务带 `build:`。此前每个服务各自 build，宿主机上会留下 5 个内容几乎相同的
+881MB 镜像，改一行代码要重复构建 5 次，还容易出现「worker 忘了重建」的版本
+漂移。现在只有一份，切模式不需要重建。
+
+部署脚本已同步：`deploy.sh` 显式 `compose build api`（其余服务没有 build 段，
+只写 `$SERVICES` 时若不含 api 会「No services to build」，随后 up 用旧镜像
+静默起服务）；`single.sh` 同样先 build api。
+
+> ⚠️ 构建需要能访问 PyPI。在受限沙箱里 `uv sync` 会以
+> `failed to lookup address information` 失败——此时只能复用本地已有镜像
+> （`docker tag` 到 aw-api），不能重建。
+
 单容器的实现要点：三个进程共享**同一个镜像**，版本漂移在物理上不可能；
 `wait -n` 保证任一进程退出就整容器退出（交给 `restart: unless-stopped`），
 不存在「半个系统还活着」。`app` 在 compose 网络里挂了别名 `api`，所以

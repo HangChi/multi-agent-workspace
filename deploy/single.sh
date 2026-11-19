@@ -39,8 +39,11 @@ esac
 log "停止多容器模式下的 api/worker/beat"
 "${COMPOSE[@]}" stop api worker beat >/dev/null 2>&1 || true
 
-log "重建并启动 app（含依赖 postgres/redis/minio/migrate/dns-proxy）"
-"${COMPOSE[@]}" --profile single up -d --build postgres redis minio migrate dns-proxy app
+log "构建后端镜像（worker/beat/migrate/app 共用 aw-api，只构建这一份）"
+"${COMPOSE[@]}" build api
+
+log "启动 app（含依赖 postgres/redis/minio/migrate/dns-proxy）"
+"${COMPOSE[@]}" --profile single up -d postgres redis minio migrate dns-proxy app
 
 log "启动 frontend（--no-deps：避免把 api 一起拉起来）"
 # 手工 docker run 起过的同名容器不归 compose 管，compose 会因为名字冲突拒绝创建；

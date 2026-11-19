@@ -172,8 +172,8 @@ services:
   # ---------- 应用服务 ----------
   # 一次性迁移：建表（alembic upgrade head），api/worker/beat 依赖其完成
   migrate:
-    build:
-      context: ../backend
+    # 复用 aw-api 镜像（同一份代码；见 api 服务上的说明）
+    image: aw-api
     container_name: aw-migrate
     command: alembic upgrade head
     environment: &app_env
@@ -216,6 +216,10 @@ services:
   api:
     build:
       context: ../backend
+    # 后端只构建**一份**镜像：worker/beat/migrate/app 全部用 image: aw-api 复用。
+    # 此前每个服务各自 build，于是出现 5 个内容几乎相同的 aw-* 镜像（各 881MB），
+    # 每次改一行代码要重复构建 5 次，还容易漏建某个服务→版本漂移。
+    image: aw-api
     container_name: aw-api
     restart: unless-stopped
     environment: *app_env
@@ -246,8 +250,8 @@ services:
       - '8000'
 
   worker:
-    build:
-      context: ../backend
+    # 复用 aw-api 镜像（同一份代码；见 api 服务上的说明）
+    image: aw-api
     container_name: aw-worker
     restart: unless-stopped
     # 并发度可配：每个任务会调 LLM + 工具，过高会同时打满 API 限流与内存
@@ -318,8 +322,8 @@ services:
       start_period: 30s
 
   beat:
-    build:
-      context: ../backend
+    # 复用 aw-api 镜像（同一份代码；见 api 服务上的说明）
+    image: aw-api
     container_name: aw-beat
     restart: unless-stopped
     command: celery -A app.tasks.celery_app:celery_app beat --loglevel=${LOG_LEVEL:-info}

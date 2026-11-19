@@ -115,8 +115,11 @@ if [ "${SKIP_BUILD:-0}" = "1" ]; then
   # 代码没变只想重启，或镜像已由 CI 构建好：跳过构建直接用本地镜像
   log "SKIP_BUILD=1，跳过构建，直接使用本地镜像"
 else
-  log "构建镜像：$SERVICES + migrate"
-  compose build $SERVICES migrate
+  # api 必须显式构建：worker/beat/migrate 现在复用 image: aw-api，自身没有
+  # build 段——只写 $SERVICES 时若里面不含 api，就会「No services to build」，
+  # 随后的 up 则用上一版旧镜像静默起服务。
+  log "构建镜像：api + $SERVICES + migrate"
+  compose build api $SERVICES migrate
 fi
 
 # ---------- 4. 迁移（一次性容器，跑完即退）----------
