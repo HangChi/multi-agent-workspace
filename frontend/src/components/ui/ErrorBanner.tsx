@@ -48,7 +48,7 @@ export function ErrorBanner({
   if (variant === 'inline') {
     return (
       <p
-        className={cn('flex items-start gap-1.5 text-sm leading-relaxed text-rose-600', className)}
+        className={cn('flex items-start gap-1.5 text-sm leading-relaxed text-rose-700 dark:text-rose-300', className)}
         role="alert"
       >
         <Icon name="alert-circle" className="mt-0.5 h-4 w-4 shrink-0" />

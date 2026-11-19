@@ -154,7 +154,7 @@ export function ExecutionCard({
         <div className="space-y-3 border-t border-line pt-3">
           {loading && !detail && <p className="text-xs text-ink-muted">正在加载执行详情…</p>}
           {error && (
-            <p role="alert" className="text-xs text-rose-600">
+            <p role="alert" className="text-xs text-rose-700 dark:text-rose-400">
               {error}
             </p>
           )}

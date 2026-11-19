@@ -110,7 +110,7 @@ export function TriggerHistory({ open, onClose, scheduleId, scheduleName }: Prop
             <span className="text-emerald-600">{counts.fired} 成功</span>
             <span className="text-amber-600">{counts.missed} 错过</span>
             <span className="text-sky-600">{counts.skipped_busy} 跳过</span>
-            <span className="text-rose-600">{counts.failed} 失败</span>
+            <span className="text-rose-600 dark:text-rose-400">{counts.failed} 失败</span>
           </span>
         ) : undefined
       }

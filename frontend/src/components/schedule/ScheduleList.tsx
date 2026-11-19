@@ -218,9 +218,9 @@ export function ScheduleList({
               <Button
                 size="sm"
                 variant="ghost"
+                tone="danger"
                 leftIcon="trash"
                 onClick={() => onDelete(schedule)}
-                className="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
               >
                 删除
               </Button>

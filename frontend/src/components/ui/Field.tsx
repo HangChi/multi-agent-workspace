@@ -74,7 +74,7 @@ function FieldShell({
     <p
       id={`${id}-msg`}
       role="alert"
-      className="mt-1.5 flex items-start gap-1 text-xs leading-relaxed text-rose-600"
+      className="mt-1.5 flex items-start gap-1 text-xs leading-relaxed text-rose-700 dark:text-rose-400"
     >
       <Icon name="alert-circle" className="mt-px h-3.5 w-3.5 shrink-0" />
       <span>{error}</span>

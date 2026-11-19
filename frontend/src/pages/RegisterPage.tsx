@@ -20,7 +20,7 @@ import { isEmail } from '../utils/validation'
 
 const STRENGTH_STYLE = ['bg-line', 'bg-rose-400', 'bg-amber-400', 'bg-emerald-500']
 const STRENGTH_LABEL = ['', '偏弱', '中等', '较强']
-const STRENGTH_TEXT = ['', 'text-rose-600', 'text-amber-600', 'text-emerald-600']
+const STRENGTH_TEXT = ['', 'text-rose-700 dark:text-rose-400', 'text-amber-700 dark:text-amber-400', 'text-emerald-700 dark:text-emerald-400']
 
 /** 0~3 分：长度、字母+数字组合、额外复杂度。 */
 function scorePassword(pwd: string): number {
