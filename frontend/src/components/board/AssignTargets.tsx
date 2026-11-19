@@ -30,6 +30,27 @@ const STRATEGY_LABELS: Record<RoutingStrategy, string> = {
 /** 每类目标默认露出的芯片数，超出折叠。 */
 const VISIBLE_CAP = 8
 
+/**
+ * 头像色板：按用户/Agent 的 id 散列到一套固定的柔和渐变。
+ *
+ * 旧版所有人共用同一个「sky→brand」蓝渐变——一排芯片望去是七八个
+ * 一模一样的蓝色方块，既单调也没法靠颜色区分人。散列到五套色相后
+ * 每颗芯片自带「身份色」，扫读和点名都快得多。
+ */
+const AVATAR_GRADIENTS = [
+  'from-sky-400 to-brand-500',
+  'from-emerald-400 to-teal-500',
+  'from-amber-400 to-orange-500',
+  'from-rose-400 to-pink-500',
+  'from-violet-400 to-purple-500',
+] as const
+
+function avatarGradient(seed: string): string {
+  let hash = 0
+  for (let i = 0; i < seed.length; i += 1) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0
+  return AVATAR_GRADIENTS[hash % AVATAR_GRADIENTS.length]
+}
+
 function TargetChip({
   id,
   kind,
@@ -60,11 +81,16 @@ function TargetChip({
       )}
     >
       {isGroup ? (
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-sky-50 text-sky-600 ring-1 ring-inset ring-sky-100 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/25">
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-sky-50 text-sky-600 ring-1 ring-inset ring-sky-100 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/25">
           <Icon name="users" className="h-3.5 w-3.5" />
         </span>
       ) : (
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-gradient-to-br from-sky-500 to-brand-600 text-micro font-semibold text-white">
+        <span
+          className={cn(
+            'flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-gradient-to-br text-micro font-semibold text-white shadow-sm',
+            avatarGradient(id)
+          )}
+        >
           {initials}
         </span>
       )}
@@ -85,11 +111,16 @@ interface Props {
 function TargetRow({
   label,
   hint,
+  rowIcon,
+  hintIcon,
   items,
   filter,
 }: {
   label: string
   hint: string
+  /** 行首图标与空态图标（调用方按目标类型给） */
+  rowIcon: 'users' | 'bot' | 'user'
+  hintIcon: 'plus' | 'search'
   /** 每项自带 key（调用方 map 时带上）。 */
   items: React.ReactNode[]
   filter?: React.ReactNode
@@ -110,10 +141,23 @@ function TargetRow({
   useEffect(checkScrollable, [items.length, expanded])
 
   return (
-    <div className="flex items-center gap-2">
-      <span className="flex w-[5.5rem] shrink-0 items-center gap-1 text-micro font-medium text-ink-faint">
-        {label}
-        <span className="tabular-nums">({items.length})</span>
+    <div className="flex items-center gap-2.5">
+      {/* 标签列：图标 + 名称 + 计数胶囊。
+          旧版是「同事 (6)」一串小灰字——行首没有锚点，三行并排看时
+          层次糊成一片。加了图标和计数胶囊后每行自带「标题感」。 */}
+      <span className="flex w-[5.75rem] shrink-0 items-center gap-1.5">
+        <Icon name={rowIcon} className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
+        <span className="text-ui font-medium text-ink-soft">{label}</span>
+        <span
+          className={cn(
+            'rounded-full px-1.5 text-2xs font-semibold tabular-nums',
+            items.length > 0
+              ? 'bg-surface-subtle text-ink-soft ring-1 ring-inset ring-line/70'
+              : 'text-ink-faint'
+          )}
+        >
+          {items.length}
+        </span>
       </span>
       {filter}
       <div className="relative min-w-0 flex-1">
@@ -124,7 +168,16 @@ function TargetRow({
           aria-label={`${label}拖放目标`}
           className="scrollbar-none flex items-center gap-1.5 overflow-x-auto py-0.5 pr-6"
         >
-          {items.length === 0 ? <span className="text-micro text-ink-faint">{hint}</span> : shown}
+          {items.length === 0 ? (
+            // 空态做成虚线「空位」 pill：读作「这里可以有，现在没有」，
+            // 而不是一句没着落的灰字
+            <span className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 text-micro text-ink-faint">
+              <Icon name={hintIcon} className="h-3.5 w-3.5" />
+              {hint}
+            </span>
+          ) : (
+            shown
+          )}
           {hidden > 0 && (
             <button
               type="button"
@@ -174,11 +227,13 @@ export function AssignTargets({ agents, groups, users }: Props) {
   }
 
   return (
-    <section aria-label="分配目标" className="space-y-1.5">
+    <section aria-label="分配目标" className="divide-y divide-line-subtle">
       {/* 同事：拖 = 转交处理责任 */}
       <TargetRow
         label="同事"
         hint="还没有同事"
+        rowIcon="user"
+        hintIcon="plus"
         items={filteredUsers.map((u) => (
           <TargetChip
             key={u.id}
@@ -190,14 +245,16 @@ export function AssignTargets({ agents, groups, users }: Props) {
           />
         ))}
         filter={
-          <span className="flex h-8 shrink-0 items-center gap-1 rounded-md border border-line bg-surface px-2">
+          // 过滤框贴行尾右侧：夹在标签和芯片之间会把一行切成三段，
+          // 挪到最右像「行尾工具」，视觉动线（标签 → 芯片 → 工具）顺得多
+          <span className="ml-auto flex h-8 shrink-0 items-center gap-1 rounded-lg border border-line/80 bg-surface px-2 shadow-card">
             <Icon name="search" className="h-3.5 w-3.5 text-ink-faint" />
             <input
               value={userFilter}
               onChange={(e) => setUserFilter(e.target.value)}
               placeholder="搜同事"
               aria-label="筛选分配同事"
-              className="w-24 bg-transparent text-ui text-ink outline-none placeholder:text-ink-faint"
+              className="w-20 bg-transparent text-ui text-ink outline-none placeholder:text-ink-faint"
             />
             {userFilter && (
               <IconButton
@@ -214,7 +271,9 @@ export function AssignTargets({ agents, groups, users }: Props) {
       {/* Agent：拖 = 启动执行 */}
       <TargetRow
         label="Agent"
-        hint="还没有 Agent"
+        hint="到 Agent 管理创建"
+        rowIcon="bot"
+        hintIcon="plus"
         items={agents.map((a) => (
           <TargetChip
             key={a.id}
@@ -230,7 +289,9 @@ export function AssignTargets({ agents, groups, users }: Props) {
       {/* 组：拖 = 启动执行（按组的路由策略） */}
       <TargetRow
         label="组"
-        hint="还没有组"
+        hint="到 Agent 组创建"
+        rowIcon="users"
+        hintIcon="plus"
         items={groups.map((g) => (
           <TargetChip
             key={g.id}

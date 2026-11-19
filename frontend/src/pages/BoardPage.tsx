@@ -263,11 +263,14 @@ export function BoardPage() {
         icon={<Icon name="grid" />}
         actions={
           <>
-            {/* 007：范围切换（relevant 默认 / mine 兼容旧视图） */}
+            {/* 007：范围切换（relevant 默认 / mine 兼容旧视图）。
+                iOS/Linear 式分段控件：灰轨道 + 白 pill + 投影。
+                实心蓝 pill 在白底上像「另一个按钮」，白 pill 才像
+                「被选中的段」——两者视觉语义完全不同。 */}
             <div
               role="group"
               aria-label="看板范围"
-              className="hidden items-center gap-1 rounded-lg border border-line bg-surface p-0.5 shadow-card sm:flex"
+              className="hidden items-center gap-0.5 rounded-lg border border-line/80 bg-surface-subtle p-0.5 shadow-card sm:flex"
             >
               {(
                 [
@@ -281,9 +284,11 @@ export function BoardPage() {
                   aria-pressed={scope === value}
                   onClick={() => setScope(value)}
                   className={cn(
-                    'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                    'rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
-                    scope === value ? 'bg-brand-600 text-white' : 'text-ink-muted hover:text-ink'
+                    scope === value
+                      ? 'bg-surface text-accent shadow-card ring-1 ring-inset ring-line/70'
+                      : 'text-ink-muted hover:text-ink'
                   )}
                 >
                   {label}

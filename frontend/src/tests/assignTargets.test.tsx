@@ -62,9 +62,9 @@ describe('AssignTargets（014 重设计）', () => {
   it('三类目标各占一行，带各自计数', () => {
     setup([user(1), user(2)])
     expect(screen.getByText('同事')).toBeDefined()
-    expect(screen.getByText('(2)')).toBeDefined()
+    expect(screen.getByText('2')).toBeDefined()
     expect(screen.getByText('Agent')).toBeDefined()
-    expect(screen.getAllByText('(1)').length).toBeGreaterThanOrEqual(2) // Agent 行 + 组行各一个
+    expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(2) // Agent 行 + 组行各一个
     expect(screen.getByText('组')).toBeDefined()
     // 芯片仍带可拖拽提示（title 契约不变）
     expect(screen.getByTitle('拖到这里分派给「colleague-1」 · 同事 · 转交处理责任')).toBeDefined()
