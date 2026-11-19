@@ -11,12 +11,42 @@
 
 import os
 import uuid
+from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
+
+
+def _local_stack_database_url() -> str | None:
+    """从 deploy/.env 取本地栈的连接串（容器内主机名换成本机地址）。
+
+    为什么不再写死口令：默认值曾是 `aw:aw-dev-password@localhost`，但本地
+    compose 栈的口令由 deploy/.env 的 POSTGRES_PASSWORD 决定（实测是
+    test-password-123）。两者不一致的后果是「不带环境变量直接 pytest」
+    秒挂 12~1034 个 fixture error，而且报错长得像代码坏了——每个新人
+    都会踩一次，每次都要人告诉他一串 export。
+    """
+    env_file = Path(__file__).resolve().parents[2] / "deploy" / ".env"
+    if not env_file.is_file():
+        return None
+    for raw in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line.startswith("DATABASE_URL="):
+            value = line.split("=", 1)[1].strip().strip('"').strip("'")
+            parts = urlsplit(value)
+            if parts.hostname in {"postgres", "db"}:
+                # 容器网络名在宿主上解析不了：换成回环地址，端口与凭据不变
+                cred = parts.netloc.rsplit("@", 1)[0] + "@" if "@" in parts.netloc else ""
+                port = f":{parts.port}" if parts.port else ""
+                parts = parts._replace(netloc=f"{cred}127.0.0.1{port}")
+            return urlunsplit(parts)
+    return None
+
 
 # 测试标记 + 数据库 URL：先于任何 app 模块导入设置
 os.environ["TESTING"] = "1"
-_TEST_DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://aw:aw-dev-password@localhost:5432/agent_workbench",
+_TEST_DATABASE_URL = (
+    os.getenv("DATABASE_URL")
+    or _local_stack_database_url()
+    or "postgresql+asyncpg://aw:aw-dev-password@127.0.0.1:5432/agent_workbench"
 )
 if "agent_workbench_test" not in _TEST_DATABASE_URL:
     _TEST_DATABASE_URL = _TEST_DATABASE_URL.replace(
