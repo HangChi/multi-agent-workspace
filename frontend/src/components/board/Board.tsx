@@ -211,8 +211,10 @@ export function Board({
           比下拉少一次点击，也让各状态的积压量直接可见。
           吸顶（Topbar 同款材质）：长看板滚动后筛选/搜索不离开视野。
           整条装进白底圆角条：控件们有了「归属」，不再是散落的表单零件；
-          所有控件统一 h-9，baseline 对齐。 */}
-      <div className="sticky top-14 z-header -mx-1 bg-canvas/95 px-1 py-2 backdrop-blur">
+          所有控件统一 h-9，baseline 对齐。
+          层级用 z-sticky（30）而非 z-header：低于 Topbar（40），
+          否则展开的头像下拉会被这条工具条盖住（层叠上下文陷阱）。 */}
+      <div className="sticky top-14 z-sticky -mx-1 bg-canvas/95 px-1 py-2 backdrop-blur">
         <div className="flex flex-col gap-2.5 rounded-xl border border-line/80 bg-surface p-1.5 shadow-card lg:flex-row lg:items-center lg:justify-between">
           <div
             role="group"

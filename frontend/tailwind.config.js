@@ -141,8 +141,14 @@ export default {
        * skip 跳转链接（聚焦时）/ modal 模态 / toast 轻提示。
        * 此前 Modal z-[80]、Toast z-[90]、面板 z-[60] 散落四处，
        * 任何新浮层都要先考古一遍数字；收敛后按语义取用。
+       *
+       * sticky（30）：页面内的吸顶工具条（看板筛选条）。
+       * 必须**低于** header（40）——Topbar 是 z-40 的层叠上下文，头像下拉
+       * 面板虽在内部用 z-50，整体仍被压在 header 的 40 里；工具条若也用
+       * 40，凭 DOM 顺序就能盖住整个 Topbar（含展开的下拉菜单）。
        */
       zIndex: {
+        sticky: '30',
         header: '40',
         dropdown: '50',
         palette: '60',
