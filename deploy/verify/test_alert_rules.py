@@ -95,6 +95,12 @@ class AlertRuleTests(unittest.TestCase):
             "aw_ws_connections_active",
             "aw_llm_call_duration_seconds",
             "aw_sandbox_execution_duration_seconds",
+            # 007 的活动量计数器：只做面板与占比的分母（分派动作分布、
+            # 通知类型分布），绝对量涨跌不构成故障——不派单不告警，
+            # 派单失败才告警，而那条路径走的是 aw_run_failure_rate 与
+            # API 5xx，不在这两个 counter 上。
+            "aw_request_dispatch_actions",
+            "aw_notifications_created",
         }
         referenced = {
             _normalize(name)
