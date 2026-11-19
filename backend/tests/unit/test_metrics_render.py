@@ -163,3 +163,88 @@ def test_start_background_publisher_marks_thread_daemon(monkeypatch):
     assert thread.daemon is True
     assert thread.name == "metrics-publisher"
     assert calls == [1]
+
+
+class _StopLoop(Exception):
+    pass
+
+
+async def test_load_remote_snapshots_skips_self_and_garbage():
+    """跨进程合并要排除自己（否则本进程指标算两遍）。"""
+
+    class _AsyncRedis:
+        def __init__(self, items):
+            self.items = items
+
+        async def scan_iter(self, match=None, count=None):
+            for key in self.items:
+                yield key
+
+        async def get(self, key):
+            return self.items[key]
+
+    own_key = f"{metrics.REMOTE_PREFIX}{metrics.process_id()}"
+    other_key = f"{metrics.REMOTE_PREFIX}other-host:999"
+    client = _AsyncRedis(
+        {
+            own_key: b'{"a": {"kind": "counter"}}',
+            other_key: b'{"b": {"kind": "counter"}}',
+            f"{metrics.REMOTE_PREFIX}empty:1": b"",
+            f"{metrics.REMOTE_PREFIX}bad:1": b"{not json",
+        }
+    )
+
+    snapshots = await metrics.load_remote_snapshots(client)
+
+    assert snapshots == [{"b": {"kind": "counter"}}]
+
+
+async def test_load_remote_snapshots_degrades_on_redis_error():
+    class _Broken:
+        async def scan_iter(self, match=None, count=None):
+            raise ConnectionError("redis down")
+            yield  # pragma: no cover
+
+    assert await metrics.load_remote_snapshots(_Broken()) == []
+
+
+def test_publisher_loop_counts_failures_and_keeps_going(monkeypatch):
+    """发布失败不能退出循环：指标断了不影响业务，但要继续尝试恢复。"""
+    attempts: list[int] = []
+
+    monkeypatch.setattr(metrics, "publish", lambda client: False)
+
+    def _sleep(_seconds):
+        attempts.append(1)
+        if len(attempts) >= 3:
+            raise _StopLoop
+
+    monkeypatch.setattr(metrics.time, "sleep", _sleep)
+
+    try:
+        metrics._publisher_loop(lambda: object())
+    except _StopLoop:
+        pass
+
+    assert len(attempts) == 3
+
+
+def test_publisher_loop_tolerates_client_factory_errors(monkeypatch):
+    """建连失败也算一次失败，不能把线程炸掉。"""
+    attempts: list[int] = []
+
+    def _factory():
+        raise ConnectionError("cannot connect")
+
+    def _sleep(_seconds):
+        attempts.append(1)
+        raise _StopLoop
+
+    monkeypatch.setattr(metrics.time, "sleep", _sleep)
+
+    try:
+        metrics._publisher_loop(_factory)
+    except _StopLoop:
+        pass
+
+    assert len(attempts) == 1
