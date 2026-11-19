@@ -14,10 +14,14 @@ import random
 import pytest
 
 from app.executors.llm import TRANSIENT_LITELLM_ERRORS, LLMClientError
+from app.orchestrator import retry_policy
 from app.orchestrator.retry_policy import (
     FailureKind,
     backoff_seconds,
     classify_failure,
+    describe_kind,
+    is_retryable,
+    retry_delay_for,
 )
 from app.orchestrator.runner import (
     CostLimitExceeded,
@@ -210,3 +214,76 @@ def test_litellm_request_errors_are_permanent(cls_name: str):
 def test_transient_litellm_errors_is_non_empty():
     """导入失败时集合为空——那样 5xx 会被误判成业务类，必须被发现。"""
     assert len(TRANSIENT_LITELLM_ERRORS) >= 5
+
+
+# ---------- 015 覆盖率补齐：重试门槛与等待时长选择 ----------
+
+
+def test_is_retryable_requires_transient_failure(monkeypatch):
+    """三个条件必须同时满足：瞬时类 + 未到上限 + 上限本身合法。"""
+    assert is_retryable(ConnectionError("reset"), attempt=1, max_attempts=3) is True
+    # 业务类失败：一次都不重试
+    assert is_retryable(QuotaExceeded(1, 2), attempt=1, max_attempts=3) is False
+
+
+def test_is_retryable_false_when_attempts_exhausted():
+    """attempt 语义是「已经跑完第几次」，等于上限时不再重试。
+
+    写成 `>` 会让每个 Run 多跑一次——多出来的那一次往往发生在配额刚好
+    用尽的边缘，用户看到的是「明明说 3 次，跑了 4 次」。
+    """
+    assert is_retryable(ConnectionError("reset"), attempt=2, max_attempts=3) is True
+    assert is_retryable(ConnectionError("reset"), attempt=3, max_attempts=3) is False
+    assert is_retryable(ConnectionError("reset"), attempt=9, max_attempts=3) is False
+
+
+@pytest.mark.parametrize("max_attempts", [0, 1])
+def test_is_retryable_false_when_auto_retry_disabled(max_attempts):
+    """max_attempts <= 1 等于关闭自动重试：配置成 1 时不能还偷偷重试一次。"""
+    assert is_retryable(ConnectionError("x"), attempt=1, max_attempts=max_attempts) is (
+        False
+    )
+
+
+def test_retry_delay_for_returns_zero_for_permanent_failures():
+    """不可重试的失败等待时长为 0——调用方靠它区分「等待中」与「已终结」。"""
+    assert (
+        retry_delay_for(MaxStepsExceeded("too many"), 1, base_seconds=5, cap_seconds=60)
+        == 0.0
+    )
+
+
+def test_retry_delay_for_uses_backoff_for_transient_failures(monkeypatch):
+    """瞬时失败走 full jitter 退避，且上界随 attempt 翻倍。"""
+    ceilings: list[float] = []
+
+    def _fake_uniform(_low: float, high: float) -> float:
+        ceilings.append(high)
+        return high
+
+    monkeypatch.setattr(retry_policy.random, "uniform", _fake_uniform)
+
+    first = retry_policy.retry_delay_for(
+        ConnectionError("reset"), 1, base_seconds=5, cap_seconds=60
+    )
+    second = retry_policy.retry_delay_for(
+        ConnectionError("reset"), 2, base_seconds=5, cap_seconds=60
+    )
+    capped = retry_policy.retry_delay_for(
+        ConnectionError("reset"), 9, base_seconds=5, cap_seconds=60
+    )
+
+    assert (first, second, capped) == (5.0, 10.0, 60.0)
+    assert ceilings == [5.0, 10.0, 60.0]
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        (ConnectionError("reset"), "transient"),
+        (QuotaExceeded(1, 2), "permanent"),
+    ],
+)
+def test_describe_kind_is_the_enum_value_used_in_logs(exc, expected):
+    """日志与审计里写的是枚举值本身（transient/permanent），不是类名。"""
+    assert describe_kind(exc) == expected

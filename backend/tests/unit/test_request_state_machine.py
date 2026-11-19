@@ -20,6 +20,7 @@ from app.orchestrator.request_state_machine import (
     RequestStatus,
     TransitionError,
     assert_dispatch_invariants,
+    can_transition,
     is_terminal,
     transition,
 )
@@ -185,3 +186,49 @@ def test_invariant_created_has_no_assignee():
     bad = FakeRequest(status="created", assignee_id="u1")
     with pytest.raises(ValueError, match="assignee_id"):
         assert_dispatch_invariants(bad)
+
+
+# ---------- 015 覆盖率补齐：can_transition 预判 ----------
+
+
+@pytest.mark.parametrize(
+    ("current", "target"),
+    [
+        ("created", "pending"),
+        ("pending", "accepted"),
+        ("accepted", "running"),
+        ("running", "completed"),
+        # created → running 是既有链路的真实路径（assign 端点直达，
+        # 中间不落 assigned），不是「未分派不能跑」
+        ("created", "running"),
+    ],
+)
+def test_can_transition_allows_legal_moves(current, target):
+    """`can_transition` 是「只问不迁移」的预判口。
+
+    服务层在写分派历史、发通知之前先问一句——否则非法迁移会在写完历史后
+    才抛 409，留下半截数据。所以它与 `transition` 的判据必须完全一致。
+    """
+    assert can_transition(current, target) is True
+    # 枚举入参同样成立（服务层两种写法都有）
+    assert can_transition(RequestStatus(current), RequestStatus(target)) is True
+
+
+@pytest.mark.parametrize(
+    ("current", "target"),
+    [
+        ("pending", "running"),  # 必须先接收（accepted）才能拖给 agent
+        ("completed", "pending"),  # 终态不可回退
+        ("cancelled", "accepted"),
+        # failed 也是终态：需求级没有「重试离开终态」规则，重试是 Run 级概念
+        ("failed", "cancelled"),
+    ],
+)
+def test_can_transition_rejects_illegal_moves(current, target):
+    assert can_transition(current, target) is False
+
+
+@pytest.mark.parametrize("status", ["created", "pending", "running"])
+def test_can_transition_to_self_is_always_true(status):
+    """迁移到自身是 no-op 而非错误：调用方无需为「已经是目标状态」加特判。"""
+    assert can_transition(status, status) is True

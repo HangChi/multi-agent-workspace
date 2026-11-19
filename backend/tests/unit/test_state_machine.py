@@ -18,6 +18,7 @@ import pytest
 from app.orchestrator.state_machine import (
     _RETRYABLE_TERMINAL,
     _TERMINAL,
+    RunState,
     RunStatus,
     TransitionError,
     is_terminal,
@@ -309,3 +310,53 @@ def test_transition_to_retrying_is_idempotent():
     run = FakeRun(status="retrying")
     transition(run, RunStatus.RETRYING)
     assert run.status == "retrying"
+
+
+# ---------- 015 覆盖率补齐：终态判定与执行现场重置 ----------
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["completed", "failed", "timeout", "cancelled"],
+)
+def test_is_terminal_covers_all_four_terminal_states(status):
+    """`is_terminal` 把 failed/timeout 也算终态（虽可重试，但本轮已结束）。
+
+    这条区分很关键：`transition` 用同一个判据决定要不要打 finished_at 并
+    计数 RUN_TERMINAL。漏掉 failed/timeout 会让看板的「失败率」少一半。
+    """
+    assert is_terminal(status) is True
+    assert is_terminal(RunStatus(status)) is True
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "needs_input", "retrying"])
+def test_is_terminal_rejects_non_terminal_states(status):
+    assert is_terminal(status) is False
+
+
+def test_clear_execution_resets_every_execution_field():
+    """failed → queued 手动重试时必须把执行现场清干净。
+
+    漏清 `error` 会让重试后的详情页仍显示上一次的失败原因；漏清 cost 会让
+    重试被当成「已花钱」而立刻触发成本上限——两者都是静默的数据错误。
+    """
+    run = RunState(
+        status="failed",
+        current_step=7,
+        cost_cents=42,
+        cost_micros=42_000_000,
+        error="上次失败了",
+        result={"answer": "旧结果"},
+    )
+    run.mark_started()
+    run.mark_finished()
+
+    run.clear_execution()
+
+    assert run.current_step == 0
+    assert run.cost_cents == 0
+    assert run.cost_micros == 0
+    assert run.error is None
+    assert run.result is None
+    assert run.started_at is None
+    assert run.finished_at is None
