@@ -10,7 +10,12 @@ from fastapi import APIRouter
 
 from app.api.deps import DB, AdminUser, CurrentUser
 from app.core.audit import write_audit
-from app.schemas.invite_code import InviteCodeCreate, InviteCodeList, InviteCodeOut
+from app.schemas.invite_code import (
+    InviteCodeBatchCreate,
+    InviteCodeCreate,
+    InviteCodeList,
+    InviteCodeOut,
+)
 from app.services import invite_code_service
 
 router = APIRouter(prefix="/admin/invite-codes", tags=["admin-invite-codes"])
@@ -48,6 +53,41 @@ async def create_invite_code(
     await db.commit()
     await db.refresh(row)
     return invite_code_service.to_out(row)
+
+
+@router.post("/batch", response_model=InviteCodeList, status_code=201)
+async def create_invite_codes_batch(
+    payload: InviteCodeBatchCreate, user: CurrentUser, _admin: AdminUser, db: DB
+):
+    """一次发多张（1..20）。给新小组开几个人是常见动作，逐个点太笨。"""
+    rows = await invite_code_service.create_invite_codes(
+        db,
+        count=payload.count,
+        role=payload.role,
+        max_uses=payload.max_uses,
+        expires_in_days=payload.expires_in_days,
+        created_by=user.id,
+    )
+    await write_audit(
+        db,
+        user_id=user.id,
+        action="invite_code_create",
+        target_type="invite_code",
+        target_id=rows[0].id,
+        detail={
+            "role": payload.role,
+            "max_uses": payload.max_uses,
+            "count": payload.count,
+            "batch": True,
+        },
+    )
+    await db.commit()
+    for row in rows:
+        await db.refresh(row)
+    return {
+        "items": [invite_code_service.to_out(row) for row in rows],
+        "total": len(rows),
+    }
 
 
 @router.post("/{code_id}/revoke", response_model=InviteCodeOut)

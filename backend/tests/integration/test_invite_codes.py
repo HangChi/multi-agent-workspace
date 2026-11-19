@@ -170,3 +170,33 @@ async def test_state_expired(client, make_headers, db_session):
     )
     assert resp.status_code == 400
     assert resp.json()["error"]["message"] == "邀请码已过期"
+
+
+async def test_batch_create_returns_distinct_active_codes(client, make_headers):
+    headers = await make_headers(role="admin")
+    resp = await client.post(
+        f"{CODES_URL}/batch",
+        json={"role": "member", "max_uses": 2, "count": 3},
+        headers=headers,
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["total"] == 3
+    codes = [item["code"] for item in body["items"]]
+    assert len(set(codes)) == 3  # 不重复
+    assert all(item["state"] == "active" for item in body["items"])
+
+
+async def test_batch_create_rejects_oversized_count(client, make_headers):
+    headers = await make_headers(role="admin")
+    resp = await client.post(
+        f"{CODES_URL}/batch", json={"count": 21}, headers=headers
+    )
+    assert resp.status_code == 422
+
+
+async def test_batch_create_member_forbidden(client, make_headers):
+    resp = await client.post(
+        f"{CODES_URL}/batch", json={"count": 2}, headers=await make_headers(role="member")
+    )
+    assert resp.status_code == 403

@@ -65,3 +65,9 @@ class InviteCodeCreate(BaseModel):
     role: Literal["member", "viewer"] = "member"
     max_uses: int = Field(default=1, ge=1, le=1000)
     expires_in_days: int | None = Field(default=None, ge=1, le=365)
+
+
+class InviteCodeBatchCreate(InviteCodeCreate):
+    """批量发码：参数同单张，另加数量。"""
+
+    count: int = Field(default=3, ge=1, le=20)

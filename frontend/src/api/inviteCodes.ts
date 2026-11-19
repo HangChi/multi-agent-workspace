@@ -43,6 +43,18 @@ export async function createInviteCode(payload: CreateInviteCodePayload): Promis
   return data
 }
 
+export interface CreateInviteCodeBatchPayload extends CreateInviteCodePayload {
+  count: number
+}
+
+/** 批量发码（1..20 张，同参数）。给新小组开几个人是常见动作。 */
+export async function createInviteCodesBatch(
+  payload: CreateInviteCodeBatchPayload
+): Promise<InviteCodeList> {
+  const { data } = await apiClient.post<InviteCodeList>('/admin/invite-codes/batch', payload)
+  return data
+}
+
 export async function revokeInviteCode(codeId: string): Promise<InviteCodeItem> {
   const { data } = await apiClient.post<InviteCodeItem>(`/admin/invite-codes/${codeId}/revoke`)
   return data

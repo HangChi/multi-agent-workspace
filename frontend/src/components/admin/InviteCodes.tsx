@@ -17,7 +17,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
 import { extractError } from '../../api/client'
-import { createInviteCode, fetchInviteCodes, revokeInviteCode } from '../../api/inviteCodes'
+import {
+  createInviteCode,
+  createInviteCodesBatch,
+  fetchInviteCodes,
+  revokeInviteCode,
+} from '../../api/inviteCodes'
 import type { InviteCodeItem, InviteRole, InviteState } from '../../api/inviteCodes'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
@@ -53,7 +58,8 @@ export function InviteCodes() {
   const [role, setRole] = useState<InviteRole>('member')
   const [maxUses, setMaxUses] = useState('10')
   const [expiresDays, setExpiresDays] = useState('')
-  const [freshCode, setFreshCode] = useState<InviteCodeItem | null>(null)
+  const [freshCodes, setFreshCodes] = useState<InviteCodeItem[]>([])
+  const [count, setCount] = useState('1')
   const [error, setError] = useState<unknown>(null)
 
   const {
@@ -68,11 +74,33 @@ export function InviteCodes() {
   })
 
   const createMutation = useMutation({
-    mutationFn: createInviteCode,
-    onSuccess: (item) => {
-      setFreshCode(item)
+    // 1 张走单发，多张走批量：两个接口的响应形状不同，本地归一成数组
+    mutationFn: async (payload: {
+      role: InviteRole
+      max_uses: number
+      expires_in_days: number | null
+      count: number
+    }) => {
+      if (payload.count <= 1) {
+        const item = await createInviteCode({
+          role: payload.role,
+          max_uses: payload.max_uses,
+          expires_in_days: payload.expires_in_days,
+        })
+        return [item]
+      }
+      const list = await createInviteCodesBatch({
+        role: payload.role,
+        max_uses: payload.max_uses,
+        expires_in_days: payload.expires_in_days,
+        count: payload.count,
+      })
+      return list.items
+    },
+    onSuccess: (items) => {
+      setFreshCodes(items)
       setError(null)
-      toast.success('邀请码已生成')
+      toast.success(items.length > 1 ? `已生成 ${items.length} 张邀请码` : '邀请码已生成')
       void queryClient.invalidateQueries({ queryKey: ['admin', 'invite-codes'] })
     },
     onError: (err) => setError(err),
@@ -98,7 +126,12 @@ export function InviteCodes() {
       toast.error('过期天数需 ≥1，留空表示永不过期')
       return
     }
-    createMutation.mutate({ role, max_uses: uses, expires_in_days: days })
+    const n = Number(count)
+    if (!Number.isFinite(n) || n < 1 || n > 20) {
+      toast.error('一次最多生成 20 张')
+      return
+    }
+    createMutation.mutate({ role, max_uses: uses, expires_in_days: days, count: n })
   }
 
   async function copy(code: string) {
@@ -150,6 +183,16 @@ export function InviteCodes() {
           placeholder="留空=永久"
           wrapperClassName="w-full sm:w-28"
         />
+        <Input
+          label="数量"
+          type="number"
+          min={1}
+          max={20}
+          value={count}
+          onChange={(e) => setCount(e.target.value)}
+          hint="一次最多 20 张"
+          wrapperClassName="w-full sm:w-24"
+        />
         <Button
           variant="primary"
           leftIcon="plus"
@@ -160,24 +203,80 @@ export function InviteCodes() {
         </Button>
       </div>
 
-      {freshCode ? (
-        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-brand-200 bg-brand-50/60 px-4 py-3 dark:border-brand-500/30 dark:bg-brand-500/10">
-          <Icon name="key" className="h-4 w-4 text-accent" />
-          <span className="text-xs text-ink-soft">刚生成的码（只在这里显示一次高亮）</span>
-          <code className="rounded bg-surface px-2 py-1 font-mono text-sm tracking-wider text-ink">
-            {freshCode.code}
-          </code>
-          <Button
-            size="sm"
-            variant="secondary"
-            leftIcon="copy"
-            onClick={() => copy(freshCode.code)}
-          >
-            复制
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setFreshCode(null)}>
-            收起
-          </Button>
+      {freshCodes.length > 0 ? (
+        <div className="mt-4 rounded-lg border border-brand-200 bg-brand-50/60 px-4 py-3 dark:border-brand-500/30 dark:bg-brand-500/10">
+          <div className="flex flex-wrap items-center gap-2">
+            <Icon name="key" className="h-4 w-4 text-accent" />
+            <span className="text-xs text-ink-soft">
+              刚生成 {freshCodes.length} 张（高亮只保留到本次分发，如需再查请看下表）
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              leftIcon="copy"
+              className="ml-auto"
+              onClick={() => copy(freshCodes.map((item) => item.code).join('\n'))}
+            >
+              全部复制
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setFreshCodes([])}>
+              收起
+            </Button>
+          </div>
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {freshCodes.map((item) => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  onClick={() => copy(item.code)}
+                  className="rounded bg-surface px-2 py-1 font-mono text-sm tracking-wider text-ink ring-1 ring-brand-200 transition-colors hover:ring-brand-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:ring-brand-500/30"
+                  title="点击复制"
+                >
+                  {item.code}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {/* 用量摘要：一眼看出「还有几张能用」，不用自己数表 */}
+      {data && data.items.length > 0 ? (
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-soft">
+          <span>
+            共 <span className="font-semibold tabular-nums text-ink">{data.total}</span> 张
+          </span>
+          <span>
+            可用{' '}
+            <span className="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+              {data.items.filter((i) => i.state === 'active').length}
+            </span>
+          </span>
+          <span>
+            已用尽{' '}
+            <span className="tabular-nums">
+              {data.items.filter((i) => i.state === 'exhausted').length}
+            </span>
+          </span>
+          <span>
+            已过期{' '}
+            <span className="tabular-nums">
+              {data.items.filter((i) => i.state === 'expired').length}
+            </span>
+          </span>
+          <span>
+            已吊销{' '}
+            <span className="tabular-nums">
+              {data.items.filter((i) => i.state === 'revoked').length}
+            </span>
+          </span>
+          <span>
+            累计用码注册{' '}
+            <span className="font-semibold tabular-nums text-ink">
+              {data.items.reduce((sum, i) => sum + i.used_count, 0)}
+            </span>{' '}
+            人
+          </span>
         </div>
       ) : null}
 

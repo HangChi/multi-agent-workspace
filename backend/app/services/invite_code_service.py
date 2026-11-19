@@ -98,6 +98,32 @@ async def create_invite_code(
     return row
 
 
+async def create_invite_codes(
+    db: AsyncSession,
+    *,
+    count: int,
+    role: str,
+    max_uses: int,
+    expires_in_days: int | None,
+    created_by: str,
+) -> list[InviteCode]:
+    """批量发码（1..20 张，同一批参数）。
+
+    为什么批量：给一个新小组开三个人是常见动作，逐个点「生成」再逐个复制
+    既慢又容易漏发。上限 20 是为了让「一键发 500 张」这种误操作不存在。
+    """
+    return [
+        await create_invite_code(
+            db,
+            role=role,
+            max_uses=max_uses,
+            expires_in_days=expires_in_days,
+            created_by=created_by,
+        )
+        for _ in range(count)
+    ]
+
+
 async def revoke_invite_code(db: AsyncSession, code_id: str) -> InviteCode:
     """吊销一张码。已吊销的再吊销是 409（幂等留给客户端自己判断）。"""
     row = await db.get(InviteCode, code_id)
