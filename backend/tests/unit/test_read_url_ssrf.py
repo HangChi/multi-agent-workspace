@@ -152,3 +152,169 @@ def _blocked_nets():
     from app.executors import read_url
 
     return read_url._BLOCKED_NETS
+
+
+# ---------- 015 覆盖率补齐：执行链分支（注入 client + resolver） ----------
+
+import httpx
+
+from app.executors.read_url import ReadUrlExecutor
+
+
+def _executor(handler, resolver=None):
+    """构造注入版 executor：MockTransport 出响应，resolver 决定「连哪个 IP」。
+
+    不 monkeypatch 全局 httpx.AsyncClient——ReadUrlExecutor 本来就把 client
+    与 resolver 设计成可注入，直接塞假对象更贴近真实调用路径。
+    """
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(transport=transport)
+    return ReadUrlExecutor(
+        client=client,
+        resolver=resolver or (lambda _host: _resolver_sync(["93.184.216.34"])),
+    )
+
+
+async def _resolver_sync(addresses: list[str]):
+    return addresses
+
+
+async def test_execute_returns_text_and_flags():
+    handler = lambda request: httpx.Response(
+        200,
+        headers={"content-type": "text/plain; charset=utf-8"},
+        text="hello world",
+    )
+    result = await _executor(handler).execute({"url": "https://example.com/a"})
+    assert result["status"] == 200
+    assert result["text"] == "hello world"
+    assert result["truncated"] is False
+    assert result["body_truncated"] is False
+
+
+async def test_execute_http_error_returns_status_and_error():
+    result = await _executor(lambda r: httpx.Response(404)).execute(
+        {"url": "https://example.com/missing"}
+    )
+    assert result["status"] == 404
+    assert result["error"] == "HTTP 404"
+
+
+async def test_execute_html_is_converted_to_text():
+    handler = lambda r: httpx.Response(
+        200, headers={"content-type": "text/html"}, text="<p>Hello <b>world</b></p>"
+    )
+    result = await _executor(handler).execute({"url": "https://example.com"})
+    assert result["content_type"] == "text/html"
+    assert "world" in result["text"]
+
+
+async def test_execute_follows_redirect_and_final_url_is_target():
+    """重定向跟随：终态 URL 是目标，但每跳连接的都是「已校验的 IP」。
+
+    连接目标是 resolver 返回的 IP（Host/SNI 才是原域名），所以 request.url
+    的 host 是 IP——这正是 SSRF 防 DNS rebinding 的关键：客户端不允许再解析。
+    """
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        if request.url.path == "/start":
+            return httpx.Response(302, headers={"location": "/final"})
+        return httpx.Response(200, text="done")
+
+    result = await _executor(handler).execute({"url": "https://example.com/start"})
+    assert result["text"] == "done"
+    assert paths == ["/start", "/final"]
+    # 结果里的 url 是规范化后的目标域名（不是 IP），供前端展示
+    assert result["url"] == "https://example.com/final"
+
+
+async def test_execute_redirect_without_location_fails():
+    result = await _executor(lambda r: httpx.Response(302)).execute(
+        {"url": "https://example.com/start"}
+    )
+    assert "重定向缺少 Location" in result["error"]
+
+
+async def test_execute_redirect_loop_hits_cap():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"location": "/again"})
+
+    result = await _executor(handler).execute({"url": "https://example.com/start"})
+    assert "重定向次数超过" in result["error"]
+
+
+async def test_execute_dns_resolution_failure_is_soft_error():
+    result = await _executor(
+        lambda r: httpx.Response(200, text="x"), resolver=lambda _h: _resolver_sync([])
+    ).execute({"url": "https://example.com/a"})
+    assert "域名解析失败" in result["error"]
+
+
+async def test_execute_connection_error_retries_other_address():
+    """第一个地址连不上要换第二个——读超时不换，连不上才换。"""
+    attempts: list[str] = []
+
+    async def resolver(_host):
+        return ["93.184.216.34", "93.184.216.35"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(str(request.url))
+        if "216.34" in str(request.url):
+            raise httpx.ConnectError("refused")
+        return httpx.Response(200, text="ok")
+
+    result = await _executor(handler, resolver=resolver).execute(
+        {"url": "https://example.com/a"}
+    )
+    assert result["text"] == "ok"
+    assert len(attempts) == 2
+    assert "216.35" in attempts[-1]
+
+
+async def test_execute_large_body_is_truncated():
+    """text 截断到 8000 字符；body 截断（2MB）是另一条独立上限。
+
+    10KB 的 body 远小于 2MB，所以 `body_truncated` 为 False；但字符数超
+    8000，`truncated` 为 True——两个上限判据不同，不能混用。
+    """
+    handler = lambda r: httpx.Response(
+        200, headers={"content-type": "text/plain"}, text="x" * 10000
+    )
+    result = await _executor(handler).execute({"url": "https://example.com/big"})
+    assert result["truncated"] is True
+    assert len(result["text"]) == 8000
+    assert result["body_truncated"] is False
+
+
+async def test_execute_unknown_encoding_falls_back_to_utf8():
+    """非法 encoding 名会让 .decode 抛 LookupError，回退 utf-8 而非崩。
+
+    httpx 会把未知 charset 归一化成 utf-8，所以这里显式覆盖响应的
+    `encoding` 属性制造 LookupError，验证 fallback 分支产出正确的 UTF-8
+    文本（而非把异常冒出去变成 500）。
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        resp = httpx.Response(200, content="中文".encode())
+        resp.encoding = "not-a-real-codec"
+        return resp
+
+    result = await _executor(handler).execute({"url": "https://example.com/a"})
+    assert result["text"] == "中文"
+
+
+async def test_execute_ipv6_host_gets_bracketed_authority():
+    """IPv6 字面量 Host 头要带方括号，否则连接与 Host 头都不合法。"""
+    seen_headers: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_headers["host"] = request.headers.get("host")
+        return httpx.Response(200, text="ok")
+
+    result = await _executor(
+        handler, resolver=lambda _h: _resolver_sync(["2606:4700::1"])
+    ).execute({"url": "https://[2606:4700::1]/"})
+    assert result["text"] == "ok"
+    assert seen_headers["host"] == "[2606:4700::1]"

@@ -133,3 +133,45 @@ def test_validate_cron_returns_message_for_bad_expression():
 
     assert message is not None
     assert "5 个字段" in message
+
+
+# ---------- 015 覆盖率补齐：剩余边界分支 ----------
+
+
+def test_empty_timezone_rejected():
+    """`_resolve_tz` 空时区要单独报「不能为空」，而不是「未知时区」。"""
+    with pytest.raises(CronExpressionError, match="时区不能为空"):
+        parse_cron("0 9 * * *", "   ")
+
+
+def test_timezone_whitespace_is_stripped():
+    cron = parse_cron("0 9 * * *", "  UTC  ")
+    assert cron_weekdays(cron)  # 能解析即说明 strip 生效
+
+
+def test_next_after_rejects_naive_datetime():
+    """naive datetime 会被隐式当本地时间——跨部署（容器 UTC）会整体漂移。"""
+    cron = parse_cron("0 9 * * *", "UTC")
+    with pytest.raises(CronExpressionError, match="带时区"):
+        next_after(cron, datetime(2026, 11, 19, 9, 0))
+
+
+def test_validate_cron_returns_message_when_parse_ok_but_no_next_fire():
+    """解析通过但算不出下一次触发（极端情形）→ 同样要返回错误说明。
+
+    `0 0 29 2 *`（2 月 29 日）在连续平年里要等 7 年才轮到下一个闰年，
+    超过 4 年的搜索上限——这正是「能解析、但以当前时刻为基准算不出下一次」
+    的兜底分支，同时覆盖 next_after 的「可预见时间内不会触发」。
+    """
+    now = datetime(2097, 3, 1, tzinfo=UTC)
+    message = validate_cron("0 0 29 2 *", "UTC", now)
+    assert message is not None
+    assert "不会产生任何触发时刻" in message
+
+
+def test_next_after_rejects_beyond_search_horizon():
+    """下一次触发超过 4 年上限：宁报错也不要返回一个远处的假时刻。"""
+    cron = parse_cron("0 0 29 2 *", "UTC")
+    base = datetime(2097, 3, 1, tzinfo=UTC)
+    with pytest.raises(CronExpressionError, match="不会触发"):
+        next_after(cron, base)
