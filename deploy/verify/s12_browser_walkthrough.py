@@ -556,6 +556,11 @@ class Walkthrough:
                 remove_btn.wait_for(timeout=10000)
                 added = True
                 remove_btn.click()
+                # 015 起移除前置依赖要过二次确认（破坏性操作统一走
+                # ConfirmDialog），点完 X 只是弹确认框，边还没删——不点
+                # 这一下会留下一条边，B2 的「1 个前置未完成」随之变成 2 个。
+                confirm = page.get_by_role("dialog").filter(has_text="移除前置依赖？")
+                confirm.get_by_role("button", name="移除", exact=True).click()
                 remove_btn.wait_for(state="detached", timeout=10000)
                 removed = True
             except Exception:  # noqa: BLE001,S110 - 见下方发现记录（移除按钮不出现本身就是发现）
