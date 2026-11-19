@@ -51,7 +51,9 @@ async def test_missing_credentials_is_401(db_session):
 async def test_non_bearer_scheme_is_401(db_session):
     user = await _user(db_session)
     with pytest.raises(HTTPException) as exc:
-        await get_current_user(db_session, _creds(create_access_token(user.id, user.role), "Basic"))
+        await get_current_user(
+            db_session, _creds(create_access_token(user.id, user.role), "Basic")
+        )
     assert exc.value.status_code == 401
 
 
@@ -65,7 +67,9 @@ async def test_refresh_token_cannot_authenticate(db_session):
     """refresh token 只能换 access：拿它调业务接口必须被拒。"""
     user = await _user(db_session)
     with pytest.raises(HTTPException) as exc:
-        await get_current_user(db_session, _creds(create_refresh_token(user.id, user.role)))
+        await get_current_user(
+            db_session, _creds(create_refresh_token(user.id, user.role))
+        )
     assert exc.value.status_code == 401
 
 
@@ -80,7 +84,9 @@ async def test_disabled_user_is_401(db_session):
     """禁用账号即使 token 未过期也必须被挡住。"""
     user = await _user(db_session, status="disabled")
     with pytest.raises(HTTPException) as exc:
-        await get_current_user(db_session, _creds(create_access_token(user.id, user.role)))
+        await get_current_user(
+            db_session, _creds(create_access_token(user.id, user.role))
+        )
     assert exc.value.status_code == 401
 
 
