@@ -11,9 +11,13 @@ PostgreSQL allows ``ADD VALUE`` inside a transaction, but the new value cannot
 be *used* in that same transaction. No data backfill is needed — every new
 column is nullable and no existing row is a dispatch participant.
 
-Downgrade drops the columns and tables but keeps the enum values (PostgreSQL
-cannot safely drop them and an old worker may still reference them, same
-discipline as 0010).
+Downgrade drops the columns and tables, and drops the two enum types this
+migration *created* (``dispatch_action`` / ``notification_type``) so that
+``downgrade base`` followed by ``upgrade head`` stays repeatable. The values
+added to the shared ``request_status`` enum are still kept (PostgreSQL cannot
+safely drop them and an old worker may still reference them, same discipline
+as 0010) — types created here are owned here, values added to a shared type
+are not.
 """
 
 from collections.abc import Sequence
@@ -175,7 +179,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # 枚举值不删：见模块 docstring。
+    # 加在 request_status 上的枚举值不删：见模块 docstring。
     op.drop_index("ix_notifications_user_unread", table_name="notifications")
     op.drop_index("ix_notifications_user_id", table_name="notifications")
     op.drop_table("notifications")
@@ -185,3 +189,10 @@ def downgrade() -> None:
     op.drop_column("requests", "accepted_at")
     op.drop_column("requests", "dispatched_at")
     op.drop_column("requests", "assignee_id")
+    # 但本迁移**创建**的两个类型必须随表删掉——它们只服务于刚被删的两张表，
+    # 留着会让 `downgrade base` 之后的 `upgrade head` 在 CREATE TYPE 处撞
+    # DuplicateObject（type "dispatch_action" already exists），迁移可逆性门禁
+    # 因此长期红着。删类型与删值不同：类型的生命周期由创建者负责，
+    # 而共享类型（request_status）上 ADD 的值仍按 docstring 的纪律保留。
+    op.execute("DROP TYPE IF EXISTS dispatch_action")
+    op.execute("DROP TYPE IF EXISTS notification_type")
