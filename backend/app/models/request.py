@@ -12,6 +12,7 @@ from sqlalchemy import (
     Text,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -145,7 +146,14 @@ class Request(Base):
     # 与迁移 0011 声明一致——测试库走 create_all，索引必须声明在模型侧，
     # 否则「迁移里有、测试里没有」会让 prod/test 静默分叉。
     # 008：ix_requests_project_id 服务 GET /requests?project_id= 过滤。
+    # 015：ix_requests_owner_created 服务看板 scope=mine/relevant 的「我创建的」
+    # 一支 + ORDER BY created_at DESC（assignee 一支已有上面的复合索引）。
     __table_args__ = (
         Index("ix_requests_assignee_status", "assignee_id", "status"),
         Index("ix_requests_project_id", "project_id"),
+        Index(
+            "ix_requests_owner_created",
+            "owner_id",
+            text("created_at DESC"),
+        ),
     )
