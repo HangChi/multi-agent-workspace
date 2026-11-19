@@ -135,7 +135,9 @@ function TargetRow({
   const checkScrollable = () => {
     const el = scrollRef.current
     if (!el) return
-    setScrollable(el.scrollWidth > el.clientWidth && el.scrollLeft < el.scrollWidth - el.clientWidth - 1)
+    setScrollable(
+      el.scrollWidth > el.clientWidth && el.scrollLeft < el.scrollWidth - el.clientWidth - 1
+    )
   }
   // 挂载 / 展开收起 / 条目变化时各量一次：只靠 onScroll 会漏掉初始态
   useEffect(checkScrollable, [items.length, expanded])

@@ -65,7 +65,12 @@ export function AgentTemplatesPage() {
 
   const canManage = user?.role === 'admin' || user?.role === 'member'
 
-  const { data, isLoading, isError: listError, refetch: refetchTemplates } = useQuery({
+  const {
+    data,
+    isLoading,
+    isError: listError,
+    refetch: refetchTemplates,
+  } = useQuery({
     queryKey: ['agent-templates', 'page', qDebounced],
     queryFn: () =>
       fetchAgentTemplates({
@@ -121,9 +126,7 @@ export function AgentTemplatesPage() {
         egress_mode: values.egress_mode,
       }),
     onSuccess: (agent) => {
-      toast.success(
-        agent.warning ? `已创建，但${agent.warning}` : `已按模板创建「${agent.name}」`
-      )
+      toast.success(agent.warning ? `已创建，但${agent.warning}` : `已按模板创建「${agent.name}」`)
       setUsing(null)
       invalidate()
       void navigate(`/agents?highlight=${agent.id}`)

@@ -115,7 +115,8 @@ function CostTrend({ data }: { data: number[] }) {
   const [pinned, setPinned] = useState<number | null>(null)
   // 轴标签自适应精度：总额不足 1 元时固定两位小数，
   // 否则「¥0.01 / ¥0.01 / ¥0」三行重复数字像坏掉的轴
-  const axisFmt = (v: number) => (total < 100 ? `¥${(v / 100).toFixed(2)}` : `¥${(v / 100).toFixed(1)}`)
+  const axisFmt = (v: number) =>
+    total < 100 ? `¥${(v / 100).toFixed(2)}` : `¥${(v / 100).toFixed(1)}`
   // 中轴与顶轴相同（总额只有一两分）时不渲染中轴：重复数字比缺一个刻度更糟
   const midLabel = axisFmt(Math.round(max / 2))
   const showMid = midLabel !== axisFmt(max) && midLabel !== '¥0'
@@ -168,7 +169,10 @@ function CostTrend({ data }: { data: number[] }) {
             ))}
           </div>
 
-          <div aria-hidden="true" className="relative flex h-full min-h-[200px] items-end gap-1.5 sm:gap-2.5">
+          <div
+            aria-hidden="true"
+            className="relative flex h-full min-h-[200px] items-end gap-1.5 sm:gap-2.5"
+          >
             {data.map((v, i) => {
               const pct = Math.max((v / max) * 100, v > 0 ? 10 : 2)
               const isToday = i === todayIdx
@@ -232,7 +236,8 @@ function QuotaRing({ pct }: { pct: number }) {
   // 最小留 0.8% 的弧长，避免「有数据却完全空白」
   const filled = (Math.min(Math.max(pct, 0.8), 100) / 100) * circumference
   // 档位色走 Tailwind 令牌类（stroke-*），不写死 hex——两套主题都成立
-  const ringClass = pct >= 85 ? 'stroke-rose-500' : pct >= 60 ? 'stroke-amber-500' : 'stroke-brand-500'
+  const ringClass =
+    pct >= 85 ? 'stroke-rose-500' : pct >= 60 ? 'stroke-amber-500' : 'stroke-brand-500'
   const ringId = 'quota-ring-gradient'
 
   return (

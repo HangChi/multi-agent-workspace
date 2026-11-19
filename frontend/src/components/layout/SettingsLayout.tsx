@@ -61,9 +61,7 @@ export function SettingsLayout() {
                         isActive ? 'text-brand-600 dark:text-brand-300' : 'text-ink-faint'
                       )}
                     />
-                    <span className="min-w-0 truncate text-ui font-medium">
-                      {item.label}
-                    </span>
+                    <span className="min-w-0 truncate text-ui font-medium">{item.label}</span>
                   </>
                 )}
               </NavLink>

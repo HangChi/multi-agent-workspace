@@ -135,8 +135,7 @@ export function ExternalToolGrants({ agentId }: { agentId: string }) {
                 <Badge
                   tone={item.status === 'active' && !item.unavailable_reason ? 'emerald' : 'amber'}
                 >
-                  {item.unavailable_reason ??
-                    (GRANT_STATUS_LABEL[item.status] ?? item.status)}
+                  {item.unavailable_reason ?? GRANT_STATUS_LABEL[item.status] ?? item.status}
                 </Badge>
                 {item.status !== 'revoked' && (
                   <Button
@@ -154,7 +153,8 @@ export function ExternalToolGrants({ agentId }: { agentId: string }) {
               ({ tool, installation }) =>
                 installation &&
                 !grants.some(
-                  (grantItem) => grantItem.tool_version_id === tool.id && grantItem.status === 'active'
+                  (grantItem) =>
+                    grantItem.tool_version_id === tool.id && grantItem.status === 'active'
                 ) && (
                   <div key={tool.id} className="flex flex-wrap items-center gap-2 py-2">
                     <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink">

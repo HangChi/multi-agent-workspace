@@ -31,7 +31,14 @@ interface Props {
   errorField?: 'name' | 'system_prompt' | null
 }
 
-export function TemplateForm({ initial, onSubmit, onCancel, submitting, error, errorField }: Props) {
+export function TemplateForm({
+  initial,
+  onSubmit,
+  onCancel,
+  submitting,
+  error,
+  errorField,
+}: Props) {
   const [values, setValues] = useState<TemplateFormValues>({
     ...CONFIG_DEFAULTS,
     ...initial,

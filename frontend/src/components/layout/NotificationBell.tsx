@@ -99,10 +99,7 @@ function NotificationItem({
         <span className="flex items-center gap-1.5">
           <Badge tone="slate">{meta.label}</Badge>
           {notification.read_at === null && (
-            <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500"
-              aria-label="未读"
-            />
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" aria-label="未读" />
           )}
         </span>
         <span className="mt-1 block truncate text-ui text-ink-soft">{notification.title}</span>

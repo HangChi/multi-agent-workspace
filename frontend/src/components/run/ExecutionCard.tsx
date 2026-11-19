@@ -128,9 +128,7 @@ export function ExecutionCard({
         </span>
         <span>
           <dt className="inline text-ink-faint">耗时：</dt>
-          <dd className="inline tabular-nums">
-            {detail?.duration_ms ?? execution.duration_ms} ms
-          </dd>
+          <dd className="inline tabular-nums">{detail?.duration_ms ?? execution.duration_ms} ms</dd>
         </span>
         <span>
           <dt className="inline text-ink-faint">制品：</dt>

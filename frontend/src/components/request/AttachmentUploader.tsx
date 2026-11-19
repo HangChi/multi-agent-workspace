@@ -67,7 +67,11 @@ export function AttachmentUploader({ requestId, onUploaded }: Props) {
           xhr.open('POST', put.upload_url)
           xhr.upload.onprogress = (e) => {
             if (e.lengthComputable) {
-              setProgress({ done: i, total: files.length, pct: Math.round((e.loaded / e.total) * 100) })
+              setProgress({
+                done: i,
+                total: files.length,
+                pct: Math.round((e.loaded / e.total) * 100),
+              })
             }
           }
           xhr.onload = () =>

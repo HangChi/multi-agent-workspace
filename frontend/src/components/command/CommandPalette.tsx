@@ -256,9 +256,7 @@ export function CommandPalette({ open, onClose }: Props) {
         </div>
 
         {filtered.length === 0 ? (
-          <p className="px-3 py-8 text-center text-ui text-ink-faint">
-            没有匹配「{q}」的结果
-          </p>
+          <p className="px-3 py-8 text-center text-ui text-ink-faint">没有匹配「{q}」的结果</p>
         ) : (
           <div
             ref={listRef}

@@ -4,8 +4,7 @@
  * 避免一处写 ⌘ 一处写 Ctrl 的漂移。
  */
 
-const IS_MAC =
-  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '')
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '')
 
 /** 展示用：Mac → "⌘"；其他 → "Ctrl"（后跟空格由调用方决定）。 */
 export const MOD_KEY_LABEL = IS_MAC ? '⌘' : 'Ctrl'

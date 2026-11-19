@@ -96,13 +96,18 @@ interface Props {
 /** 键盘拖拽的中文播报：dnd-kit 默认英文，读屏用户听不懂。
  *  instructions 是「怎么操作」的说明，announcements 是操作过程的实时播报。 */
 const SCREEN_READER_INSTRUCTIONS = {
-  draggable: '按空格键拾起需求卡片，用方向键在目标间移动，再按空格键放到高亮的目标上，按 Esc 取消。',
+  draggable:
+    '按空格键拾起需求卡片，用方向键在目标间移动，再按空格键放到高亮的目标上，按 Esc 取消。',
 }
 
 const DRAG_ANNOUNCEMENTS = {
   onDragStart: ({ active }: { active: { data: { current?: { title?: string } } } }) =>
     `已拾起需求「${active.data.current?.title ?? ''}」，用方向键选择目标，空格键放下，Esc 取消。`,
-  onDragOver: ({ over }: { over: { data: { current?: { kind?: string; id?: string } } } | null }) => {
+  onDragOver: ({
+    over,
+  }: {
+    over: { data: { current?: { kind?: string; id?: string } } } | null
+  }) => {
     if (!over) return '不在任何目标上'
     const kind = over.data.current?.kind
     const label = kind === 'user' ? '同事' : kind === 'group' ? 'Agent 组' : 'Agent'
@@ -318,9 +323,9 @@ export function Board({
           onDragCancel={handleDragCancel}
         >
           {/* 分配目标：白底工具条承托，三类落点一眼可辨 */}
-        <div className="mt-3 rounded-xl border border-line/80 bg-surface p-1.5 shadow-card">
-          <AssignTargets agents={agents} groups={groups} users={users} />
-        </div>
+          <div className="mt-3 rounded-xl border border-line/80 bg-surface p-1.5 shadow-card">
+            <AssignTargets agents={agents} groups={groups} users={users} />
+          </div>
 
           <div className="relative mt-3">
             <div
@@ -354,7 +359,11 @@ export function Board({
                       </span>
                     </header>
 
-                    <div role="list" aria-label={`${col.label}列的需求`} className="flex flex-1 flex-col gap-2.5">
+                    <div
+                      role="list"
+                      aria-label={`${col.label}列的需求`}
+                      className="flex flex-1 flex-col gap-2.5"
+                    >
                       {isLoading ? (
                         <>
                           <Skeleton className="h-[64px] rounded-lg" />
@@ -372,12 +381,12 @@ export function Board({
                         ))
                       )}
 
-                    {!isLoading && items.length === 0 && (
-                      <div className="flex min-h-[88px] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line bg-surface/60 px-3 text-center">
-                        <span className="text-micro font-medium text-ink-faint">暂无需求</span>
-                        <span className="text-micro leading-snug text-ink-muted">{col.hint}</span>
-                      </div>
-                    )}
+                      {!isLoading && items.length === 0 && (
+                        <div className="flex min-h-[88px] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line bg-surface/60 px-3 text-center">
+                          <span className="text-micro font-medium text-ink-faint">暂无需求</span>
+                          <span className="text-micro leading-snug text-ink-muted">{col.hint}</span>
+                        </div>
+                      )}
                     </div>
                   </section>
                 )

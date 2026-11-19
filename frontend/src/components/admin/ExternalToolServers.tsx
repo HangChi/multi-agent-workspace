@@ -51,17 +51,13 @@ export function ExternalToolServers() {
   } | null>(null)
   const [rotateValue, setRotateValue] = useState('')
 
-  const {
-    data,
-    isLoading,
-    isError,
-    refetch,
-  } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['external-tool-servers'],
     queryFn: fetchExternalServers,
   })
 
-  const invalidate = () => void queryClient.invalidateQueries({ queryKey: ['external-tool-servers'] })
+  const invalidate = () =>
+    void queryClient.invalidateQueries({ queryKey: ['external-tool-servers'] })
 
   const review = useMutation({
     mutationFn: ({
@@ -101,8 +97,17 @@ export function ExternalToolServers() {
     onError: (cause) => setError(extractError(cause)),
   })
   const rotateMutation = useMutation({
-    mutationFn: ({ serverId, label, kind, value }: { serverId: string; label: string; kind: 'bearer' | 'api_key'; value: string }) =>
-      rotateExternalCredential(serverId, { label, kind, value }),
+    mutationFn: ({
+      serverId,
+      label,
+      kind,
+      value,
+    }: {
+      serverId: string
+      label: string
+      kind: 'bearer' | 'api_key'
+      value: string
+    }) => rotateExternalCredential(serverId, { label, kind, value }),
     onSuccess: () => {
       setRotating(null)
       setRotateValue('')
@@ -191,7 +196,10 @@ export function ExternalToolServers() {
                   {server.current_validation_status ?? '待验证'}
                 </Badge>
                 {server.credentials?.map((credential) => (
-                  <div key={credential.id} className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+                  <div
+                    key={credential.id}
+                    className="flex flex-wrap items-center gap-2 text-xs text-ink-muted"
+                  >
                     <span>
                       {credential.label} · {credential.status}
                     </span>

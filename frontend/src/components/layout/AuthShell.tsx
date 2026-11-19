@@ -63,9 +63,7 @@ export function AuthShell({ title, subtitle, children, footer }: AuthShellProps)
         <div className="relative z-10 p-10 xl:p-14">
           <div className="flex items-center gap-2.5">
             <LogoMark size={36} />
-            <span className="text-base font-semibold tracking-tight text-white">
-              Agent 工作台
-            </span>
+            <span className="text-base font-semibold tracking-tight text-white">Agent 工作台</span>
           </div>
         </div>
 

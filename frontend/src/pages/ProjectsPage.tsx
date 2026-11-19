@@ -287,7 +287,9 @@ export function ProjectsPage() {
                       </Badge>
                     </p>
                     {project.description && (
-                      <p className="mt-0.5 truncate text-ui text-ink-muted">{project.description}</p>
+                      <p className="mt-0.5 truncate text-ui text-ink-muted">
+                        {project.description}
+                      </p>
                     )}
                   </div>
                   <span className="shrink-0 text-ui tabular-nums text-ink-muted">

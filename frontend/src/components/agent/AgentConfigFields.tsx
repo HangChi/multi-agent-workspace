@@ -54,8 +54,12 @@ export function AgentConfigFields({
   egressHint,
   toolsFootnote,
 }: Props) {
-  const { catalog, isLoading: toolsLoading, isError: toolsError, refetch: refetchTools } =
-    useToolsCatalog()
+  const {
+    catalog,
+    isLoading: toolsLoading,
+    isError: toolsError,
+    refetch: refetchTools,
+  } = useToolsCatalog()
 
   const toggleTool = (tool: string) => {
     set(
@@ -204,7 +208,10 @@ export function AgentConfigFields({
           </span>
         </div>
         {toolsError ? (
-          <ErrorBanner error="工具目录加载失败，暂时无法选择工具" retry={() => void refetchTools()} />
+          <ErrorBanner
+            error="工具目录加载失败，暂时无法选择工具"
+            retry={() => void refetchTools()}
+          />
         ) : (
           <div role="group" aria-label="工具白名单" className="flex flex-wrap gap-2">
             {catalog.map((tool) => {
@@ -227,7 +234,10 @@ export function AgentConfigFields({
                   <Icon name={active ? 'check' : 'plus'} className="h-3 w-3" />
                   <span className="font-mono">{tool.name}</span>
                   <span
-                    className={cn('font-sans text-micro', active ? 'text-brand-400' : 'text-ink-faint')}
+                    className={cn(
+                      'font-sans text-micro',
+                      active ? 'text-brand-400' : 'text-ink-faint'
+                    )}
                   >
                     {tool.display_name}
                   </span>
@@ -279,11 +289,7 @@ export function ConfigSubmitBar({
           'sticky bottom-0 -mx-5 -mb-5 rounded-b-xl border-t bg-surface/95 px-5 py-3 backdrop-blur'
       )}
     >
-      {hint ? (
-        <span className="hidden text-micro text-ink-faint sm:inline">{hint}</span>
-      ) : (
-        <span />
-      )}
+      {hint ? <span className="hidden text-micro text-ink-faint sm:inline">{hint}</span> : <span />}
       <div className="flex items-center gap-2">
         <Button type="button" variant="secondary" onClick={onCancel}>
           取消

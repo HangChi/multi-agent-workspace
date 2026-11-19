@@ -96,7 +96,9 @@ export function LogPanel({ logs, socketLabel, socketConnected, onClear }: Props)
   }
 
   const copyAll = async () => {
-    const text = filtered.map((l) => `${formatTime(l.at)} [${l.level}] ${stripAnsi(l.line)}`).join('\n')
+    const text = filtered
+      .map((l) => `${formatTime(l.at)} [${l.level}] ${stripAnsi(l.line)}`)
+      .join('\n')
     try {
       await window.navigator.clipboard.writeText(text)
     } catch {

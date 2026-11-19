@@ -209,8 +209,7 @@ export function ScheduleForm({
   // 预览判非法时同步钉到字段上并阻止提交——让用户看到黄色警告却仍然
   // 提交得动，只会被后端 422 打回。
   const cronPreviewError = preview?.error ?? null
-  const cronServerError =
-    errorField === 'cron_expr' ? (error ?? null) : cronPreviewError
+  const cronServerError = errorField === 'cron_expr' ? (error ?? null) : cronPreviewError
   const targetServerError = errorField === 'target' ? (error ?? null) : null
   const bannerError = suppressError || errorField ? null : (error ?? null)
 

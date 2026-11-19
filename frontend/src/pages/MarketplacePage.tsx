@@ -104,7 +104,8 @@ export function MarketplacePage() {
         actions={
           items.length > 0 && (
             <p className="text-micro text-ink-faint">
-              共 <span className="font-medium text-ink-soft">{data?.total ?? items.length}</span> 个工具
+              共 <span className="font-medium text-ink-soft">{data?.total ?? items.length}</span>{' '}
+              个工具
             </p>
           )
         }
@@ -229,7 +230,9 @@ export function MarketplacePage() {
                     size="sm"
                     variant={installed ? 'secondary' : 'primary'}
                     // 只禁当前卡片：此前任一安装中禁用全部卡片
-                    disabled={installed || (install.isPending && install.variables === listing.listing_id)}
+                    disabled={
+                      installed || (install.isPending && install.variables === listing.listing_id)
+                    }
                     loading={install.isPending && install.variables === listing.listing_id}
                     onClick={() => install.mutate(listing.listing_id)}
                   >

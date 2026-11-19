@@ -154,7 +154,11 @@ export function RunDetailPage() {
       case 'log_line':
         setLogs((prev) => [
           ...prev.slice(-199),
-          { line: event.line as string, level: (event.level as string) ?? 'info', at: new Date().toISOString() },
+          {
+            line: event.line as string,
+            level: (event.level as string) ?? 'info',
+            at: new Date().toISOString(),
+          },
         ])
         break
       case 'sandbox_started':
@@ -295,11 +299,12 @@ export function RunDetailPage() {
     }
   }, [])
 
-  const { connected, status: socketStatus, retryCount, reconnect } = useRunSocket(
-    runId,
-    onEvent,
-    !!runId
-  )
+  const {
+    connected,
+    status: socketStatus,
+    retryCount,
+    reconnect,
+  } = useRunSocket(runId, onEvent, !!runId)
 
   /**
    * 重连成功后补数：断线期间的 step/log 事件不会补发，connected 由
@@ -327,7 +332,8 @@ export function RunDetailPage() {
     // 取消会丢弃全部进行中的工作——破坏性操作，先确认
     const ok = await confirm({
       title: '取消该运行？',
-      description: '已执行的步骤与成本会保留，但任务不会继续。取消后如需重跑，可点「重试」重新入队。',
+      description:
+        '已执行的步骤与成本会保留，但任务不会继续。取消后如需重跑，可点「重试」重新入队。',
       confirmText: '取消运行',
       tone: 'warning',
     })
@@ -774,7 +780,13 @@ export function RunDetailPage() {
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
           <Icon name="alert-triangle" className="h-3.5 w-3.5 shrink-0" />
           实时连接多次重连失败，已切换为每 10 秒轮询（可能看不到最新进度）。
-          <Button size="xs" variant="warning" leftIcon="refresh" onClick={reconnect} className="ml-auto">
+          <Button
+            size="xs"
+            variant="warning"
+            leftIcon="refresh"
+            onClick={reconnect}
+            className="ml-auto"
+          >
             重新连接
           </Button>
         </div>

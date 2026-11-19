@@ -208,10 +208,7 @@ export function BoardPage() {
    * 表现为「深链有时候管用有时候不管用」。
    */
   const inList = deepLinkId ? requests.find((r) => r.id === deepLinkId) : undefined
-  const {
-    data: deepLinkRequest,
-    isError: deepLinkError,
-  } = useQuery({
+  const { data: deepLinkRequest, isError: deepLinkError } = useQuery({
     queryKey: ['requests', 'detail', deepLinkId],
     queryFn: () => fetchRequest(deepLinkId!),
     enabled: !!deepLinkId && !inList,

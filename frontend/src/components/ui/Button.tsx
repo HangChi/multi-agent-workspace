@@ -122,13 +122,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   }
 
   return (
-    <button
-      ref={ref}
-      type={type}
-      disabled={disabled || loading}
-      className={classes}
-      {...rest}
-    >
+    <button ref={ref} type={type} disabled={disabled || loading} className={classes} {...rest}>
       {loading ? (
         <Spinner className={ICON_SIZES[size]} />
       ) : leftIcon ? (

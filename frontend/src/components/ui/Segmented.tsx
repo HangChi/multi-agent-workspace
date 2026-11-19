@@ -26,11 +26,7 @@ interface SegmentOption<T extends string> {
  * radiogroup 的方向键导航：把焦点与选中态一起移到相邻项。
  * 返回按键处理器；非方向键不拦截。
  */
-function useRovingRadio<T extends string>(
-  values: T[],
-  value: T,
-  onChange: (v: T) => void
-) {
+function useRovingRadio<T extends string>(values: T[], value: T, onChange: (v: T) => void) {
   return useCallback(
     (e: KeyboardEvent<HTMLElement>) => {
       const keys = ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp']
