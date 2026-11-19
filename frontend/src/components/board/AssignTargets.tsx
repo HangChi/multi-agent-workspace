@@ -52,10 +52,11 @@ function TargetChip({
       ref={setNodeRef}
       title={`拖到这里${kind === 'user' ? '分派给' : '分配给'}「${name}」 · ${meta}`}
       className={cn(
-        'flex h-8 shrink-0 items-center gap-1.5 rounded-md border pl-1 pr-2 transition-colors duration-150',
+        'flex h-8 shrink-0 items-center gap-1.5 rounded-lg border pl-1 pr-2 transition-all duration-150',
+        // 白底工具条上的芯片用浅灰底：纯白芯片会「消失」只剩边框
         isOver
-          ? 'border-brand-400 bg-brand-50 shadow-sm dark:bg-brand-500/10'
-          : 'border-line bg-surface hover:border-line-strong hover:bg-surface-muted'
+          ? 'border-brand-400 bg-brand-50 shadow-card dark:bg-brand-500/15'
+          : 'border-line/80 bg-surface-muted hover:border-line-strong hover:bg-surface hover:shadow-card'
       )}
     >
       {isGroup ? (

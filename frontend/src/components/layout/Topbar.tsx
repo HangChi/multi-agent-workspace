@@ -49,10 +49,12 @@ const ROLE_TONE: Record<string, BadgeTone> = {
 
 function navClass({ isActive }: { isActive: boolean }) {
   return cn(
-    'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-ui font-medium transition-colors duration-150',
+    'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-ui font-medium transition-all duration-150',
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 focus-visible:ring-offset-2',
     isActive
-      ? 'bg-brand-50 text-accent ring-1 ring-inset ring-brand-100 dark:bg-brand-500/10'
+      ? // 激活态：品牌淡蓝底 + 深蓝字 + 内描边。三件套一起才像「选中的标签」，
+        // 只有文字变色在白底上几乎看不出来
+        'bg-surface-brand text-accent ring-1 ring-inset ring-brand-200/70 dark:ring-brand-500/25'
       : 'text-ink-soft hover:bg-surface-subtle hover:text-ink'
   )
 }
@@ -65,7 +67,9 @@ export function Topbar() {
   const initial = (user?.email ?? '?').slice(0, 1).toUpperCase()
 
   return (
-    <header className="sticky top-0 z-header border-b border-line/70 bg-canvas/85 backdrop-blur-xl">
+    // 白底顶栏压在灰蓝画布上：明度差给页面「建立了结构」，
+    // 此前顶栏与内容同色（canvas/85），页面像一块没有框架的平板
+    <header className="sticky top-0 z-header border-b border-line/80 bg-surface/85 backdrop-blur-xl">
       <div className="mx-auto flex h-14 w-full max-w-[1560px] items-center gap-2 px-3 sm:gap-3 sm:px-6 lg:px-8">
         <Link
           to="/"
@@ -173,7 +177,7 @@ export function Topbar() {
         </nav>
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-canvas via-canvas/80 to-transparent"
+          className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-surface via-surface/80 to-transparent"
         />
       </div>
     </header>

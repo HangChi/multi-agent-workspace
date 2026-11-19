@@ -385,18 +385,27 @@ function TemplateCard({
   onDelete: (() => void) | null
 }) {
   return (
-    <Card padding="none" className="overflow-hidden">
+    <Card padding="none" interactive className="group overflow-hidden">
       <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="truncate text-body font-semibold text-ink">{template.name}</h3>
-            {template.is_builtin && <Badge tone="slate">内置</Badge>}
+        <div className="flex min-w-0 items-start gap-3">
+          {/* 与 Agent 卡同款 40px 渐变底板：模板是「Agent 的胚子」，
+              视觉上用同一套身份语言 */}
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 via-brand-500 to-brand-600 text-white shadow-card ring-1 ring-inset ring-white/25">
+            <Icon name="layers" className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-body font-semibold tracking-tight text-ink">
+                {template.name}
+              </h3>
+              {template.is_builtin && <Badge tone="slate">内置</Badge>}
+            </div>
+            <p className="mt-1 line-clamp-2 text-ui leading-relaxed text-ink-muted">
+              {template.description || '暂无描述'}
+            </p>
           </div>
-          <p className="mt-1 line-clamp-2 text-ui leading-relaxed text-ink-muted">
-            {template.description || '暂无描述'}
-          </p>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1.5">
           <Button size="sm" variant="primary" leftIcon="plus" onClick={onUse}>
             用这个模板
           </Button>
@@ -413,15 +422,17 @@ function TemplateCard({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line-subtle bg-surface-muted/60 px-4 py-2.5">
-        <span className="inline-flex items-center gap-1.5 rounded-md bg-surface px-1.5 py-0.5 font-mono text-micro text-ink-soft ring-1 ring-inset ring-line">
+      <div className="flex flex-wrap items-center gap-2 border-t border-line-subtle bg-surface-muted/60 px-4 py-2.5">
+        {/* 元信息胶囊化，与 Agent 列表同一套形状语言 */}
+        <span className="inline-flex items-center gap-1.5 rounded-md bg-surface px-2 py-1 font-mono text-micro font-medium text-ink-soft ring-1 ring-inset ring-line">
           {template.model}
         </span>
-        <span className="inline-flex items-center gap-1.5 text-micro text-ink-muted">
-          <Icon name="layers" className="h-3.5 w-3.5 text-ink-faint" />
-          {template.tools.length > 0 ? template.tools.join(' · ') : '无工具'}
+        <span className="inline-flex items-center gap-1.5 rounded-md bg-surface px-2 py-1 text-micro text-ink-muted ring-1 ring-inset ring-line">
+          <Icon name="layers" className="h-3 w-3 text-ink-faint" />
+          {template.tools.length > 0 ? `${template.tools.length} 个工具` : '无工具'}
         </span>
-        <span className="text-micro text-ink-muted">
+        <span className="inline-flex items-center gap-1.5 rounded-md bg-surface px-2 py-1 text-micro text-ink-muted ring-1 ring-inset ring-line">
+          <Icon name="coins" className="h-3 w-3 text-ink-faint" />
           上限 ¥{(template.cost_limit_cents / 100).toFixed(2)}
         </span>
         <span className="ml-auto hidden text-micro text-ink-faint sm:block">

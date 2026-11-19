@@ -39,12 +39,17 @@
 :root {
   color-scheme: light;
 
-  /* 表面层级 */
-  --canvas: 246 248 252; /* 页面底：比纯白灰一档，让白卡片浮起来 */
+  /* 表面层级：层级之间拉开明度差，白卡片才「浮」得起来。
+     此前 canvas(246) 与 surface-subtle(241) 只差 5，灰叠灰成一片。 */
+  --canvas: 241 245 251; /* 页面底：slate-100 档，比白卡暗一档 */
   --surface: 255 255 255; /* 卡片 / 弹层 / 输入框 */
-  --surface-muted: 248 250 253; /* 次级块（卡片内浅底、hover） */
+  --surface-muted: 248 250 252; /* 次级块（卡片内浅底、hover） */
   --surface-subtle: 241 245 250; /* 三级块（看板列、分段控件槽） */
-  --surface-inset: 255 255 255;
+  --surface-inset: 248 250 252;
+  /* 品牌表面：激活态 / hero 区的极淡蓝底。与 canvas 有色相差异，
+     「选中」不再只靠边框和文字颜色表达 */
+  --surface-brand: 239 246 255;
+  --surface-brand-strong: 219 234 254;
 
   /* 描边 */
   --line: 226 232 240;
@@ -85,10 +90,13 @@
   color-scheme: dark;
 
   --canvas: 8 13 23;
-  --surface: 16 24 38;
-  --surface-muted: 20 29 45;
-  --surface-subtle: 26 37 56;
+  --surface: 17 25 40;
+  --surface-muted: 22 32 50;
+  --surface-subtle: 28 40 60;
   --surface-inset: 12 19 31;
+  /* 暗色下的品牌表面用深蓝底：与 canvas 有色相差异但不过亮 */
+  --surface-brand: 23 37 84;
+  --surface-brand-strong: 30 58 138;
 
   --line: 34 46 66;
   --line-strong: 51 66 90;

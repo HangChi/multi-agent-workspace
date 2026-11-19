@@ -44,11 +44,13 @@ export function Card({
   return (
     <div
       className={cn(
+        // 边框用 80% 不透明度 + 双层柔和阴影（环境光 + 接触影）：
+        // 全不透明度边框在浅灰底上像「贴纸」，半透明才像「浮起」
         'rounded-xl border shadow-card',
         TONES[tone],
         PADDINGS[padding],
         interactive &&
-          'transition-[box-shadow,border-color,transform] duration-200 ease-out-expo hover:-translate-y-0.5 hover:border-line-strong hover:shadow-panel',
+          'transition-[box-shadow,border-color,transform] duration-200 ease-out-expo hover:-translate-y-0.5 hover:border-line-strong hover:shadow-lift',
         className
       )}
     >

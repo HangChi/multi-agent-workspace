@@ -28,8 +28,10 @@ const BASE =
   'focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50'
 
 const VARIANTS: Record<ButtonVariant, string> = {
+  // 渐变底 + 品牌光晕：实心蓝太平，加一层从 brand-500 到 brand-600 的
+  // 微渐变和彩色投影，按钮立刻有「质感」（对齐 Stripe / Linear 的主按钮）
   primary:
-    'border border-brand-700/20 bg-brand-600 text-white shadow-btn-primary hover:bg-brand-700 active:bg-brand-800',
+    'border border-brand-700/25 bg-gradient-to-b from-brand-500 to-brand-600 text-white shadow-glow hover:from-brand-600 hover:to-brand-700 hover:shadow-lift active:from-brand-700 active:to-brand-800',
   secondary:
     'border border-line-strong bg-surface text-ink-soft shadow-card hover:border-line-strong hover:bg-surface-muted active:bg-surface-subtle',
   outline:
@@ -37,11 +39,11 @@ const VARIANTS: Record<ButtonVariant, string> = {
   ghost:
     'border border-transparent text-ink-soft hover:bg-surface-subtle hover:text-ink active:bg-line/70',
   danger:
-    'border border-rose-700/20 bg-rose-600 text-white shadow-sm hover:bg-rose-700 active:bg-rose-800',
+    'border border-rose-700/25 bg-gradient-to-b from-rose-500 to-rose-600 text-white shadow-sm hover:from-rose-600 hover:to-rose-700 active:from-rose-700 active:to-rose-800',
   success:
-    'border border-emerald-700/20 bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 active:bg-emerald-800',
+    'border border-emerald-700/25 bg-gradient-to-b from-emerald-500 to-emerald-600 text-white shadow-sm hover:from-emerald-600 hover:to-emerald-700 active:from-emerald-700 active:to-emerald-800',
   warning:
-    'border border-amber-600/20 bg-amber-500 text-white shadow-sm hover:bg-amber-600 active:bg-amber-700',
+    'border border-amber-600/25 bg-gradient-to-b from-amber-400 to-amber-500 text-white shadow-sm hover:from-amber-500 hover:to-amber-600 active:from-amber-600 active:to-amber-700',
   link: 'border border-transparent px-0 text-accent underline-offset-4 hover:text-accent hover:underline',
 }
 

@@ -209,79 +209,90 @@ export function Board({
     <div className="space-y-3">
       {/* 工具条：左筛选、右搜索。筛选做成带计数的分段控件，
           比下拉少一次点击，也让各状态的积压量直接可见。
-          吸顶（Topbar 同款材质）：长看板滚动后筛选/搜索不离开视野。 */}
-      <div className="sticky top-14 z-header -mx-1 flex flex-col gap-2.5 bg-canvas/85 px-1 py-2 backdrop-blur-xl lg:flex-row lg:items-center lg:justify-between">
-        <div
-          role="group"
-          aria-label="按状态筛选"
-          className="scrollbar-none flex items-center gap-1 overflow-x-auto"
-        >
-          {chips.map((chip) => {
-            const on = filter === chip.value
-            return (
-              <button
-                key={chip.value}
-                type="button"
-                aria-pressed={on}
-                onClick={() => setFilter(chip.value)}
-                className={cn(
-                  'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-ui font-medium transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
-                  on
-                    ? 'border-brand-600 bg-brand-600 text-white'
-                    : 'border-line bg-surface text-ink-muted hover:border-line-strong hover:text-ink'
-                )}
-              >
-                {chip.label}
-                <span className={cn('tabular-nums', on ? 'text-white/75' : 'text-ink-faint')}>
-                  {chip.count}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-
-        {/* 008：项目筛选。放在状态 chips 右侧、搜索左侧——「先按项目收敛，
-            再在结果里搜」是看板的主用路径；未归属选项让「还没归类的活」
-            也能被单独审视（FR-006）。 */}
-        {projects.length > 0 && (
-          <Select
-            value={project ?? ''}
-            onChange={(e) => onProjectChange(e.target.value || null)}
-            controlSize="sm"
-            aria-label="按项目筛选"
-            wrapperClassName="w-full lg:w-48"
+          吸顶（Topbar 同款材质）：长看板滚动后筛选/搜索不离开视野。
+          整条装进白底圆角条：控件们有了「归属」，不再是散落的表单零件；
+          所有控件统一 h-9，baseline 对齐。 */}
+      <div className="sticky top-14 z-header -mx-1 bg-canvas/95 px-1 py-2 backdrop-blur">
+        <div className="flex flex-col gap-2.5 rounded-xl border border-line/80 bg-surface p-1.5 shadow-card lg:flex-row lg:items-center lg:justify-between">
+          <div
+            role="group"
+            aria-label="按状态筛选"
+            className="scrollbar-none flex items-center gap-0.5 overflow-x-auto rounded-lg bg-surface-subtle p-0.5"
           >
-            <option value="">全部项目</option>
-            <option value="none">未归属</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}（{p.request_count}）
-              </option>
-            ))}
-          </Select>
-        )}
+            {chips.map((chip) => {
+              const on = filter === chip.value
+              return (
+                <button
+                  key={chip.value}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setFilter(chip.value)}
+                  className={cn(
+                    'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[7px] px-2.5 text-ui font-medium transition-all duration-150',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45',
+                    on
+                      ? 'bg-surface text-accent shadow-card ring-1 ring-inset ring-line/70'
+                      : 'text-ink-muted hover:text-ink'
+                  )}
+                >
+                  {chip.label}
+                  <span
+                    className={cn(
+                      'rounded px-1 text-2xs font-semibold tabular-nums',
+                      on ? 'bg-brand-50 text-accent dark:bg-brand-500/15' : 'text-ink-faint'
+                    )}
+                  >
+                    {chip.count}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
 
-        <Input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="搜索标题 / 描述 / 期望产出"
-          leftIcon="search"
-          controlSize="sm"
-          aria-label="搜索需求"
-          wrapperClassName="w-full lg:w-64"
-          rightSlot={
-            q ? (
-              <IconButton
-                icon="x"
-                label="清除搜索"
-                size="xs"
-                onClick={() => setQ('')}
-                className="mr-0.5"
-              />
-            ) : undefined
-          }
-        />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            {/* 008：项目筛选。放在状态 chips 右侧、搜索左侧——「先按项目收敛，
+                再在结果里搜」是看板的主用路径；未归属选项让「还没归类的活」
+                也能被单独审视（FR-006）。 */}
+            {projects.length > 0 && (
+              <Select
+                value={project ?? ''}
+                onChange={(e) => onProjectChange(e.target.value || null)}
+                controlSize="sm"
+                aria-label="按项目筛选"
+                wrapperClassName="w-full sm:w-44"
+              >
+                <option value="">全部项目</option>
+                <option value="none">未归属</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}（{p.request_count}）
+                  </option>
+                ))}
+              </Select>
+            )}
+
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="搜索标题 / 描述 / 期望产出"
+              leftIcon="search"
+              controlSize="sm"
+              aria-label="搜索需求"
+              wrapperClassName="w-full sm:w-64"
+              rightSlot={
+                q ? (
+                  <IconButton
+                    icon="x"
+                    label="清除搜索"
+                    size="xs"
+                    onClick={() => setQ('')}
+                    className="mr-0.5"
+                  />
+                ) : undefined
+              }
+            />
+          </div>
+        </div>
       </div>
 
       {/* 空看板整体引导：七列「暂无需求」不告诉用户下一步干什么 */}
@@ -304,7 +315,10 @@ export function Board({
           onDragEnd={handleDragEnd}
           onDragCancel={handleDragCancel}
         >
+          {/* 分配目标：白底工具条承托，三类落点一眼可辨 */}
+        <div className="mt-3 rounded-xl border border-line/80 bg-surface p-1.5 shadow-card">
           <AssignTargets agents={agents} groups={groups} users={users} />
+        </div>
 
           <div className="relative mt-3">
             <div
@@ -319,18 +333,18 @@ export function Board({
                   <section
                     key={col.status}
                     aria-label={col.label}
-                    className="flex w-[84vw] max-w-[340px] shrink-0 snap-start flex-col rounded-xl border border-line/70 bg-surface-subtle/50 p-2 sm:w-[300px] xl:min-w-[300px] xl:flex-1 xl:min-h-[60vh]"
+                    className="flex w-[84vw] max-w-[340px] shrink-0 snap-start flex-col rounded-xl border border-line/70 bg-surface-muted/60 p-2 sm:w-[300px] xl:min-w-[300px] xl:flex-1 xl:min-h-[60vh]"
                   >
-                    <header className="-mx-2 mb-2 flex items-center gap-2 border-b border-line/60 px-3.5 pb-2 pt-0.5">
+                    <header className="-mx-2 mb-2 flex items-center gap-2 rounded-t-lg border-b border-line/60 bg-surface px-3.5 pb-2 pt-0.5">
                       {isRunning && (
                         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500 animate-pulse-ring" />
                       )}
-                      <h2 className="text-ui font-semibold text-ink">{col.label}</h2>
+                      <h2 className="text-ui font-semibold tracking-tight text-ink">{col.label}</h2>
                       <span
                         className={cn(
-                          'rounded-full px-1.5 text-micro font-medium tabular-nums',
+                          'rounded-full px-1.5 text-2xs font-semibold tabular-nums',
                           items.length > 0
-                            ? 'bg-surface text-ink-muted ring-1 ring-inset ring-line'
+                            ? 'bg-surface-subtle text-ink-soft ring-1 ring-inset ring-line/70'
                             : 'text-ink-faint'
                         )}
                       >
@@ -356,14 +370,12 @@ export function Board({
                         ))
                       )}
 
-                      {!isLoading && items.length === 0 && (
-                        <div className="flex min-h-[88px] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line-strong/70 px-3 text-center">
-                          <span className="text-micro font-medium text-ink-faint">暂无需求</span>
-                          <span className="text-micro leading-snug text-ink-faint/80">
-                            {col.hint}
-                          </span>
-                        </div>
-                      )}
+                    {!isLoading && items.length === 0 && (
+                      <div className="flex min-h-[88px] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line bg-surface/60 px-3 text-center">
+                        <span className="text-micro font-medium text-ink-faint">暂无需求</span>
+                        <span className="text-micro leading-snug text-ink-muted">{col.hint}</span>
+                      </div>
+                    )}
                     </div>
                   </section>
                 )

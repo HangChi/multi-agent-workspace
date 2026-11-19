@@ -18,7 +18,7 @@ import {
 } from '../api/endpoints'
 import { Badge } from '../components/ui/Badge'
 import { Button, IconButton } from '../components/ui/Button'
-import { Card, IconTile } from '../components/ui/Card'
+import { Card } from '../components/ui/Card'
 import { useConfirm } from '../components/ui/useConfirm'
 import { EmptyState } from '../components/ui/EmptyState'
 import { ErrorBanner } from '../components/ui/ErrorBanner'
@@ -398,12 +398,14 @@ export function GroupPage() {
               <Card key={group.id} padding="none" className="overflow-hidden">
                 <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex min-w-0 items-start gap-3">
-                    <IconTile tone="sky">
-                      <Icon name="users" className="h-[18px] w-[18px]" />
-                    </IconTile>
+                    {/* 与 Agent 卡同款 40px 渐变底板：两个列表页并排看时
+                       「头像」是同一套视觉语言 */}
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 via-brand-500 to-brand-600 text-white shadow-card ring-1 ring-inset ring-white/25">
+                      <Icon name="users" className="h-5 w-5" />
+                    </span>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="truncate text-body font-semibold text-ink">
+                        <h3 className="truncate text-body font-semibold tracking-tight text-ink">
                           {group.name}
                         </h3>
                         <Badge tone="sky" dot>

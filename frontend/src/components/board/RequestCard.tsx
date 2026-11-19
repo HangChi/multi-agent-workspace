@@ -18,10 +18,11 @@ import { useBoardStore } from '../../stores/boardStore'
 import { Icon } from '../ui/Icons'
 import { cn } from '../ui/cn'
 
-/** 卡片左侧的优先级色条，比整块染色更克制 */
+/** 卡片左侧的优先级色条：高/中优先级用微渐变，低优先级退化为中性灰。
+ *  纯色三条线在图里没有「热度」差异，渐变让优先级真的可扫读。 */
 const PRIORITY_ACCENT: Record<string, string> = {
-  high: 'bg-rose-400',
-  normal: 'bg-brand-400',
+  high: 'bg-gradient-to-b from-rose-400 to-rose-500',
+  normal: 'bg-gradient-to-b from-brand-400 to-brand-500',
   low: 'bg-line-strong',
 }
 
@@ -61,15 +62,18 @@ export function RequestCard({ request, draggable = true, onOpen }: Props) {
       // 卡片内的链接/按钮各自 stopClick，导航与开详情不打架。
       onClick={onOpen && !isDragging ? () => onOpen() : undefined}
       className={cn(
-        'group relative overflow-hidden rounded-lg border border-line/80 bg-surface transition-[border-color,box-shadow,opacity] duration-150',
+        // 白卡 + 柔和双层阴影 + 半透明边框：从灰底列里「浮」出来。
+        // 此前 border + 无阴影，卡片像贴在列上的一张纸
+        'group relative overflow-hidden rounded-lg border border-line/70 bg-surface shadow-card transition-[box-shadow,border-color,transform,opacity] duration-200 ease-out-expo',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 focus-visible:ring-offset-1',
         isDragging
           ? 'cursor-grabbing border-dashed border-brand-300 bg-brand-50/40 opacity-60 shadow-none'
           : draggable
-            ? 'cursor-grab hover:border-line-strong hover:shadow-panel'
-            : 'hover:border-line-strong'
+            ? 'cursor-grab hover:-translate-y-0.5 hover:border-line-strong hover:shadow-lift'
+            : 'hover:border-line-strong hover:shadow-lift'
       )}
     >
+      {/* 优先级色条：见 PRIORITY_ACCENT（高/中用微渐变，低优先级退化为灰） */}
       <span
         aria-hidden="true"
         className={cn(
@@ -78,8 +82,8 @@ export function RequestCard({ request, draggable = true, onOpen }: Props) {
         )}
       />
 
-      <div className="py-2.5 pl-3.5 pr-2.5">
-        <h4 className="line-clamp-2 text-body font-medium leading-snug text-ink">
+      <div className="px-3 py-2.5 pl-3.5">
+        <h4 className="line-clamp-2 text-body font-medium leading-snug tracking-tight text-ink">
           {request.title}
         </h4>
 

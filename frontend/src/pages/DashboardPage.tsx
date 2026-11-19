@@ -41,7 +41,7 @@ function formatCents(cents: number): string {
   return `¥${(cents / 100).toFixed(2)}`
 }
 
-type Tone = 'brand' | 'sky' | 'emerald' | 'rose' | 'amber'
+type Tone = 'brand' | 'sky' | 'emerald' | 'rose' | 'amber' | 'slate'
 
 const TONE_TEXT: Record<Tone, string> = {
   brand: 'text-accent',
@@ -49,6 +49,8 @@ const TONE_TEXT: Record<Tone, string> = {
   emerald: 'text-emerald-600 dark:text-emerald-300',
   rose: 'text-rose-600 dark:text-rose-300',
   amber: 'text-amber-600 dark:text-amber-300',
+  // 空数据中性档：不制造「出事了」的错觉
+  slate: 'text-ink-soft',
 }
 
 /** 指标卡：数字最大，标签次之，解释最小。 */
@@ -69,23 +71,29 @@ function StatCard({
 }) {
   return (
     <Card className="relative overflow-hidden" padding="md">
-      <div className="flex items-start justify-between gap-3">
+      {/* 右上角一块极淡的品牌色晕染：白卡不再「素面朝天」，
+          色相与图标底板呼应，整卡有了主题感 */}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-gradient-to-br from-brand-100/70 to-transparent dark:from-brand-500/10"
+      />
+      <div className="relative flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-medium text-ink-muted">{label}</p>
+          <p className="text-ui font-medium text-ink-muted">{label}</p>
           <p
             className={cn(
-              'text-metric mt-1 font-display text-[30px] font-semibold leading-none',
+              'text-metric mt-1.5 font-display text-[32px] font-semibold leading-none',
               TONE_TEXT[tone]
             )}
           >
             {value}
           </p>
         </div>
-        <IconTile tone={tone} size="md">
-          <Icon name={icon} className="h-4 w-4" />
+        <IconTile tone={tone} size="lg">
+          <Icon name={icon} className="h-[18px] w-[18px]" />
         </IconTile>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1">
+      <div className="relative mt-3 flex flex-wrap items-center gap-x-2 gap-y-1">
         {badge}
         {sub && <p className="text-micro leading-relaxed text-ink-faint">{sub}</p>}
       </div>
@@ -105,6 +113,12 @@ function CostTrend({ data }: { data: number[] }) {
   const todayIdx = data.length - 1
   // 点选（触摸）：hover 提示在触屏上不可见，点一下柱子钉住数值
   const [pinned, setPinned] = useState<number | null>(null)
+  // 轴标签自适应精度：总额不足 1 元时固定两位小数，
+  // 否则「¥0.01 / ¥0.01 / ¥0」三行重复数字像坏掉的轴
+  const axisFmt = (v: number) => (total < 100 ? `¥${(v / 100).toFixed(2)}` : `¥${(v / 100).toFixed(1)}`)
+  // 中轴与顶轴相同（总额只有一两分）时不渲染中轴：重复数字比缺一个刻度更糟
+  const midLabel = axisFmt(Math.round(max / 2))
+  const showMid = midLabel !== axisFmt(max) && midLabel !== '¥0'
 
   return (
     <Card padding="lg" className="flex h-full flex-col">
@@ -137,10 +151,10 @@ function CostTrend({ data }: { data: number[] }) {
         {/* 纵轴刻度：只标最大与 0，避免一排数字把图压碎 */}
         <div
           aria-hidden="true"
-          className="flex w-12 shrink-0 flex-col justify-between pb-6 text-right text-micro tabular-nums text-ink-faint"
+          className="flex w-14 shrink-0 flex-col justify-between pb-6 text-right text-micro tabular-nums text-ink-faint"
         >
-          <span>{formatCents(max)}</span>
-          <span>{formatCents(Math.round(max / 2))}</span>
+          <span>{axisFmt(max)}</span>
+          {showMid && <span>{midLabel}</span>}
           <span>¥0</span>
         </div>
 
@@ -154,7 +168,7 @@ function CostTrend({ data }: { data: number[] }) {
             ))}
           </div>
 
-          <div aria-hidden="true" className="relative flex h-full min-h-[168px] items-end gap-1.5 sm:gap-2.5">
+          <div aria-hidden="true" className="relative flex h-full min-h-[200px] items-end gap-1.5 sm:gap-2.5">
             {data.map((v, i) => {
               const pct = Math.max((v / max) * 100, v > 0 ? 10 : 2)
               const isToday = i === todayIdx
@@ -168,14 +182,17 @@ function CostTrend({ data }: { data: number[] }) {
                 >
                   {/* 柱子限宽：只有一两天有数据时会变成几根巨柱，限宽后仍是「图」而不是「墙」 */}
                   <div className="relative flex h-full w-full max-w-[2.75rem] flex-1 items-end">
+                    {/* 基线轨道：全高浅底，空数据的日子也是一根「看得见的柱子」，
+                        图表不会因为没数据就散架 */}
+                    <span className="absolute inset-x-0 bottom-0 top-0 rounded-t-[5px] bg-line/25" />
                     <div
                       className={cn(
-                        'w-full rounded-t-[5px] transition-all duration-200',
+                        'relative w-full rounded-t-[5px] transition-all duration-200',
                         v > 0
                           ? isToday
-                            ? 'bg-gradient-to-t from-brand-600 to-brand-400'
-                            : 'bg-gradient-to-t from-brand-400/80 to-brand-300/70 group-hover:from-brand-500 group-hover:to-brand-400'
-                          : 'bg-line'
+                            ? 'bg-gradient-to-t from-brand-600 to-brand-400 shadow-[0_0_12px_rgb(var(--brand-500)/0.35)]'
+                            : 'bg-gradient-to-t from-brand-500/85 to-brand-400/75 group-hover:from-brand-500 group-hover:to-brand-400'
+                          : 'bg-transparent'
                       )}
                       style={{ height: `${pct}%` }}
                     />
@@ -216,10 +233,18 @@ function QuotaRing({ pct }: { pct: number }) {
   const filled = (Math.min(Math.max(pct, 0.8), 100) / 100) * circumference
   // 档位色走 Tailwind 令牌类（stroke-*），不写死 hex——两套主题都成立
   const ringClass = pct >= 85 ? 'stroke-rose-500' : pct >= 60 ? 'stroke-amber-500' : 'stroke-brand-500'
+  const ringId = 'quota-ring-gradient'
 
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
       <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full -rotate-90">
+        {/* 渐变描边：实心色环像贴纸，同色系微渐变有「光影」 */}
+        <defs>
+          <linearGradient id={ringId} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="rgb(var(--brand-400))" />
+            <stop offset="100%" stopColor="rgb(var(--brand-600))" />
+          </linearGradient>
+        </defs>
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -236,6 +261,8 @@ function QuotaRing({ pct }: { pct: number }) {
           strokeWidth={stroke}
           strokeLinecap="round"
           strokeDasharray={`${filled} ${circumference}`}
+          // 健康档用品牌渐变；告警档（≥60%）保持纯色，语义优先于装饰
+          stroke={pct >= 60 ? undefined : `url(#${ringId})`}
           className={cn('transition-[stroke-dasharray] duration-500', ringClass)}
         />
       </svg>
@@ -321,7 +348,11 @@ function HealthCard({
 }) {
   const total = completed + failed
   const okPct = total > 0 ? (completed / total) * 100 : 100
-  const healthy = rate >= 0.8
+  // 今天没有结束的运行时不算「不健康」——空系统显示红色告警是误报，
+  // 视觉上也是一片刺眼的红，改中性的「暂无数据」
+  const noData = total === 0
+  const healthy = noData ? null : rate >= 0.8
+  const healthTone = healthy === null ? 'slate' : healthy ? 'emerald' : 'rose'
 
   return (
     <Card className="flex flex-col" padding="lg">
@@ -329,13 +360,13 @@ function HealthCard({
         title="今日健康度"
         description="今天结束的运行里，成功占多少"
         icon={
-          <IconTile tone={healthy ? 'emerald' : 'rose'} size="sm">
+          <IconTile tone={healthTone} size="sm">
             <Icon name="target" className="h-3.5 w-3.5" />
           </IconTile>
         }
         actions={
-          <Badge tone={healthy ? 'emerald' : 'rose'} dot>
-            {healthy ? '健康' : '需关注'}
+          <Badge tone={healthTone} dot>
+            {healthy === null ? '暂无数据' : healthy ? '健康' : '需关注'}
           </Badge>
         }
       />
@@ -343,10 +374,10 @@ function HealthCard({
       <div className="mt-5 flex items-end justify-between gap-3">
         <div>
           <p className="text-metric font-display text-[32px] font-semibold leading-none text-ink">
-            {total === 0 ? '—' : `${Math.round(okPct)}%`}
+            {noData ? '—' : `${Math.round(okPct)}%`}
           </p>
           <p className="mt-2 text-xs text-ink-faint">
-            成功 {completed} · 失败 {failed}
+            {noData ? '今天还没有结束的运行' : `成功 ${completed} · 失败 ${failed}`}
           </p>
         </div>
         <div className="text-right text-micro text-ink-faint">
@@ -359,12 +390,12 @@ function HealthCard({
 
       {/* 完成/失败堆叠条：比例比两个数字更容易读 */}
       <div className="mt-4 flex h-2 overflow-hidden rounded-full bg-line">
-        {total === 0 ? (
+        {noData ? (
           <span className="h-full w-full bg-line" />
         ) : (
           <>
             <span
-              className="h-full bg-emerald-500 transition-all duration-500"
+              className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 transition-all duration-500"
               style={{ width: `${okPct}%` }}
             />
             <span className="h-full flex-1 bg-rose-400/80" />
@@ -450,7 +481,11 @@ export function DashboardPage() {
   }
 
   const ratePct = (data.success_rate_7d * 100).toFixed(1)
-  const rateHealthy = data.success_rate_7d >= 0.8
+  // 空系统（近 7 日没有任何结束的运行）不算「不健康」：中性色 + 暂无数据，
+  // 而不是一片刺眼的红——误报比不报更伤信任
+  const hasRuns = data.completed_today + data.failed_today > 0 || data.success_rate_7d > 0
+  const rateHealthy = hasRuns && data.success_rate_7d >= 0.8
+  const rateTone = !hasRuns ? 'slate' : rateHealthy ? 'emerald' : 'rose'
 
   return (
     <Page>
@@ -490,12 +525,12 @@ export function DashboardPage() {
         <StatCard
           label="近 7 日成功率"
           value={`${ratePct}%`}
-          sub="完成 /（完成 + 失败）"
+          sub={hasRuns ? '完成 /（完成 + 失败）' : '近 7 日暂无结束的运行'}
           icon="target"
-          tone={rateHealthy ? 'emerald' : 'rose'}
+          tone={rateTone}
           badge={
-            <Badge tone={rateHealthy ? 'emerald' : 'rose'} dot>
-              {rateHealthy ? '健康' : '需关注'}
+            <Badge tone={rateTone} dot>
+              {!hasRuns ? '暂无数据' : rateHealthy ? '健康' : '需关注'}
             </Badge>
           }
         />
@@ -523,32 +558,42 @@ export function DashboardPage() {
         </h2>
         <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
           {[
-            { to: '/', icon: 'grid' as IconName, label: '新建需求', hint: '写卡片并拖给 Agent' },
+            {
+              to: '/',
+              icon: 'grid' as IconName,
+              label: '新建需求',
+              hint: '写卡片并拖给 Agent',
+              tone: 'brand' as const,
+            },
             {
               to: '/agents',
               icon: 'bot' as IconName,
               label: '管理 Agent',
               hint: '提示词、模型与工具集',
+              tone: 'sky' as const,
             },
             {
               to: '/groups',
               icon: 'users' as IconName,
               label: '编排 Agent 组',
               hint: '把多个 Agent 串成流水线',
+              tone: 'amber' as const,
             },
             {
               to: '/settings/schedules',
               icon: 'clock' as IconName,
               label: '配置定时规则',
               hint: '按周期自动建单',
+              tone: 'emerald' as const,
             },
           ].map((item) => (
             <Link
               key={item.to}
               to={item.to}
-              className="group flex items-center gap-2.5 rounded-xl border border-line/80 bg-surface px-3 py-2.5 shadow-card transition-all duration-200 ease-out-expo hover:-translate-y-0.5 hover:border-line-strong hover:shadow-panel focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
+              className="group flex items-center gap-2.5 rounded-xl border border-line/80 bg-surface px-3 py-2.5 shadow-card transition-all duration-200 ease-out-expo hover:-translate-y-0.5 hover:border-line-strong hover:shadow-lift focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
             >
-              <IconTile tone="slate" size="sm">
+              {/* 图标按目的地染色：四个入口一眼可分，不再是四块一样的灰 */}
+              <IconTile tone={item.tone} size="sm">
                 <Icon name={item.icon} className="h-3.5 w-3.5" />
               </IconTile>
               <span className="min-w-0 flex-1">

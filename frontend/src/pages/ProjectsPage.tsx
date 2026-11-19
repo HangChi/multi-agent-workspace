@@ -274,8 +274,10 @@ export function ProjectsPage() {
               ) : (
                 <>
                   <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-2 text-ui font-medium text-ink">
-                      <span className="truncate">{project.name}</span>
+                    <p className="flex flex-wrap items-center gap-2">
+                      <span className="truncate text-body font-semibold tracking-tight text-ink">
+                        {project.name}
+                      </span>
                       <Badge tone={project.status === 'active' ? 'emerald' : 'slate'} dot>
                         {project.status === 'active' ? '进行中' : '已归档'}
                       </Badge>
@@ -285,15 +287,15 @@ export function ProjectsPage() {
                       </Badge>
                     </p>
                     {project.description && (
-                      <p className="mt-0.5 truncate text-sm text-ink-muted">
-                        {project.description}
-                      </p>
+                      <p className="mt-0.5 truncate text-ui text-ink-muted">{project.description}</p>
                     )}
                   </div>
-                  <span className="shrink-0 text-sm tabular-nums text-ink-muted">
+                  <span className="shrink-0 text-ui tabular-nums text-ink-muted">
                     {project.request_count} 条需求 · {project.member_count} 人
                   </span>
-                  <div className="flex shrink-0 items-center gap-1">
+                  {/* 操作组：左侧细分隔线与信息区隔开，三个 ghost 按钮
+                      不再像散落在行尾的裸文字 */}
+                  <div className="flex shrink-0 items-center gap-0.5 border-l border-line-subtle pl-2">
                     <Button
                       variant="ghost"
                       size="sm"

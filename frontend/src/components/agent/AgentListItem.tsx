@@ -20,10 +20,12 @@ interface Props {
   onSaveAsTemplate: () => void
 }
 
-function Meta({ icon, children }: { icon: IconName; children: React.ReactNode }) {
+/** 元信息胶囊：图标 + 短文本，浅灰底 + 细描边。
+ *  与裸文本的区别是「有形状」——列表扫读时按形状分组更快。 */
+function MetaChip({ icon, children }: { icon: IconName; children: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-micro text-ink-muted">
-      <Icon name={icon} className="h-3.5 w-3.5 text-ink-faint" />
+    <span className="inline-flex items-center gap-1.5 rounded-md bg-surface px-2 py-1 text-micro text-ink-muted ring-1 ring-inset ring-line">
+      <Icon name={icon} className="h-3 w-3 text-ink-faint" />
       {children}
     </span>
   )
@@ -43,22 +45,24 @@ export function AgentListItem({
     <Card padding="none" interactive className="group overflow-hidden">
       <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
+          {/* 头像放大到 40px + 渐变 + 内描边：列表行的视觉锚点。
+              此前 36px 纯渐变块太小，撑不起一行里的「身份感」 */}
           <span
             className={cn(
-              'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white shadow-sm ring-1 ring-inset',
+              'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-card ring-1 ring-inset',
               active
-                ? 'bg-gradient-to-br from-sky-500 to-brand-600 ring-brand-700/20'
+                ? 'bg-gradient-to-br from-sky-400 via-brand-500 to-brand-600 ring-white/25'
                 : 'bg-line-strong ring-line-strong/40'
             )}
           >
-            <Icon name="bot" className="h-[18px] w-[18px]" />
+            <Icon name="bot" className="h-5 w-5" />
           </span>
 
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h3
                 className={cn(
-                  'truncate text-body font-semibold',
+                  'truncate text-body font-semibold tracking-tight',
                   active ? 'text-ink' : 'text-ink-muted'
                 )}
               >
@@ -130,19 +134,23 @@ export function AgentListItem({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line-subtle bg-surface-muted/60 px-4 py-2.5">
-        <span className="inline-flex items-center gap-1.5 rounded-md bg-surface px-1.5 py-0.5 font-mono text-micro text-ink-soft ring-1 ring-inset ring-line">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-2 border-t border-line-subtle bg-surface-muted/60 px-4 py-2.5">
+        {/* 元信息全部做成胶囊：模型/工具/成本/日期/参数各有「形状」，
+            扫读时按形状分组，不再是一串长得一样的灰字 */}
+        <span className="inline-flex items-center gap-1.5 rounded-md bg-surface px-2 py-1 font-mono text-micro font-medium text-ink-soft ring-1 ring-inset ring-line">
           {agent.model}
         </span>
-        <Meta icon="layers">{agent.tools.length > 0 ? agent.tools.join(' · ') : '无工具'}</Meta>
-        <Meta icon="coins">上限 ¥{(agent.cost_limit_cents / 100).toFixed(2)}</Meta>
-        <Meta icon="clock">
+        <MetaChip icon="layers">
+          {agent.tools.length > 0 ? `${agent.tools.length} 个工具` : '无工具'}
+        </MetaChip>
+        <MetaChip icon="coins">上限 ¥{(agent.cost_limit_cents / 100).toFixed(2)}</MetaChip>
+        <MetaChip icon="clock">
           {new Date(agent.created_at).toLocaleDateString('zh-CN', {
             year: 'numeric',
             month: '2-digit',
             day: '2-digit',
           })}
-        </Meta>
+        </MetaChip>
         <span className="ml-auto hidden text-micro text-ink-faint sm:block">
           温度 {agent.temperature.toFixed(1)} · 最多 {agent.max_steps} 步 · 超时{' '}
           {agent.max_run_seconds}s

@@ -28,7 +28,9 @@ export function SettingsLayout() {
           <p className="label-caps mb-2 hidden px-2.5 lg:block">设置</p>
 
           {/* 桌面：竖向列表。条目只放标题——描述文字统一由下方的
-              虚线框承担（当前项），避免同屏出现两遍同一句话。 */}
+              虚线框承担（当前项），避免同屏出现两遍同一句话。
+              激活态用品牌淡蓝底 + 左侧 2px 品牌条：竖向导航的「你在哪」
+              需要最强的视觉锚点，白底 + 灰环在灰画布上几乎看不见。 */}
           <nav aria-label="设置导航" className="hidden flex-col gap-0.5 lg:flex">
             {items.map((item) => (
               <NavLink
@@ -36,21 +38,27 @@ export function SettingsLayout() {
                 to={item.to}
                 className={({ isActive }) =>
                   cn(
-                    'group relative flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] transition-colors duration-150',
+                    'group relative flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] transition-all duration-150',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/45 focus-visible:ring-offset-2',
                     isActive
-                      ? 'bg-surface text-ink shadow-card ring-1 ring-inset ring-line/80'
+                      ? 'bg-surface-brand font-semibold text-accent ring-1 ring-inset ring-brand-200/60 dark:ring-brand-500/20'
                       : 'text-ink-soft hover:bg-surface/70 hover:text-ink'
                   )
                 }
               >
                 {({ isActive }) => (
                   <>
+                    {isActive && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-gradient-to-b from-brand-400 to-brand-600"
+                      />
+                    )}
                     <Icon
                       name={item.icon}
                       className={cn(
                         'h-4 w-4 shrink-0',
-                        isActive ? 'text-brand-600' : 'text-ink-faint'
+                        isActive ? 'text-brand-600 dark:text-brand-300' : 'text-ink-faint'
                       )}
                     />
                     <span className="min-w-0 truncate text-ui font-medium">

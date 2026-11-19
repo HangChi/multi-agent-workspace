@@ -42,14 +42,22 @@ export function PageHeader({
       )}
     >
       <div className="flex min-w-0 items-center gap-2.5">
-        {icon && <span className="shrink-0 text-ink-faint [&>svg]:h-5 [&>svg]:w-5">{icon}</span>}
+        {icon && (
+          // 图标加一块品牌色底板：纯灰度图标在页头里像个没着落的装饰，
+          // 给一点品牌色整页立刻有「主题」
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-600 text-white shadow-glow [&>svg]:h-[18px] [&>svg]:w-[18px]">
+            {icon}
+          </span>
+        )}
         <div className="min-w-0">
           {eyebrow && (
-            <div className="mb-0.5 flex items-center gap-1.5 text-micro font-medium uppercase tracking-[0.1em] text-ink-faint">
+            <div className="mb-0.5 flex items-center gap-1.5 text-micro font-medium uppercase tracking-[0.1em] text-accent/80">
               {eyebrow}
             </div>
           )}
-          <h1 className="text-page-title-sm font-semibold text-ink sm:text-page-title">{title}</h1>
+          <h1 className="text-page-title-sm font-semibold tracking-tight text-ink sm:text-page-title">
+            {title}
+          </h1>
           {description && (
             <p className="mt-1 max-w-[72ch] text-ui leading-relaxed text-ink-muted">
               {description}

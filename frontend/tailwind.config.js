@@ -35,6 +35,9 @@ export default {
           muted: 'rgb(var(--surface-muted) / <alpha-value>)',
           subtle: 'rgb(var(--surface-subtle) / <alpha-value>)',
           inset: 'rgb(var(--surface-inset) / <alpha-value>)',
+          /** 品牌表面：激活态 / hero 的极淡蓝底 */
+          brand: 'rgb(var(--surface-brand) / <alpha-value>)',
+          'brand-strong': 'rgb(var(--surface-brand-strong) / <alpha-value>)',
         },
         /** 描边 / 分割线 */
         line: {
@@ -104,12 +107,23 @@ export default {
         'page-title': ['1.25rem', { lineHeight: '1.75rem', letterSpacing: '-0.01em' }],
         'page-title-sm': ['1.125rem', { lineHeight: '1.625rem', letterSpacing: '-0.01em' }],
       },
+      /**
+       * 阴影系统：三层分工（对齐 Stripe / Linear 的「环境光 + 接触影」做法）。
+       * - card：卡片静态态。环境光（大扩散低透明度）+ 接触影（1px 贴边），
+       *   比单层 1px 边框更柔和但仍有清晰的浮起感；
+       * - lift：hover 态。扩散更大、透明度更高，配合 translateY(-1px) 有「抬起」感；
+       * - pop：浮层（菜单/弹窗）。最深的一档；
+       * - glow：品牌色光晕，只给主按钮与 hero 元素——纯灰阴影没有「品牌感」。
+       */
       boxShadow: {
-        card: '0 1px 2px 0 rgb(var(--shadow) / 0.04), 0 1px 3px 0 rgb(var(--shadow) / 0.05)',
+        card: '0 1px 2px 0 rgb(var(--shadow) / 0.05), 0 4px 12px -4px rgb(var(--shadow) / 0.07)',
+        lift: '0 2px 4px 0 rgb(var(--shadow) / 0.05), 0 14px 32px -10px rgb(var(--shadow) / 0.14)',
         /** 悬浮面板：更长的扩散、更低的透明度，避免「脏灰边」 */
         panel:
-          '0 1px 2px 0 rgb(var(--shadow) / 0.04), 0 12px 32px -20px rgb(var(--shadow) / 0.22)',
+          '0 1px 2px 0 rgb(var(--shadow) / 0.04), 0 16px 40px -20px rgb(var(--shadow) / 0.22)',
         pop: '0 24px 48px -24px rgb(var(--shadow) / 0.28), 0 8px 20px -12px rgb(var(--shadow) / 0.16)',
+        /** 品牌色光晕：主按钮的「彩色深度」，替代纯灰投影 */
+        glow: '0 1px 2px 0 rgb(var(--brand-800) / 0.28), 0 6px 16px -6px rgb(var(--brand-600) / 0.4), inset 0 1px 0 0 rgb(255 255 255 / 0.18)',
         'btn-primary':
           '0 1px 2px 0 rgb(var(--brand-800) / 0.24), inset 0 1px 0 0 rgb(255 255 255 / 0.16)',
         field: 'inset 0 1px 2px 0 rgb(var(--shadow) / 0.04)',
