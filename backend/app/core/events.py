@@ -71,7 +71,11 @@ async def publish_user_notification(user_id: str, payload: dict[str, Any]) -> No
             channel_for_user(user_id), json.dumps(payload, ensure_ascii=False)
         )
     except Exception as exc:  # noqa: BLE001 - 见 docstring
-        logger.warning("publish_user_notification_failed", user_id=user_id[:8], error=type(exc).__name__)
+        logger.warning(
+            "publish_user_notification_failed",
+            user_id=user_id[:8],
+            error=type(exc).__name__,
+        )
 
 
 async def redis_ping() -> bool:

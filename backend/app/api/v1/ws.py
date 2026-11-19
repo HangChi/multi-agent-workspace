@@ -295,7 +295,9 @@ async def ws_notifications(websocket: WebSocket) -> None:
         await asyncio.wait_for(ready.wait(), timeout=5)
         await send({"type": "ready"})
     except TimeoutError:
-        logger.warning("ws_subscribe_slow", channel="notifications", user_id=user_id[:8])
+        logger.warning(
+            "ws_subscribe_slow", channel="notifications", user_id=user_id[:8]
+        )
 
     try:
         while True:

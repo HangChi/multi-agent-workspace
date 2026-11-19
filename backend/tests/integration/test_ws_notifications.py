@@ -109,7 +109,11 @@ def test_ws_notifications_only_self_channel():
         asyncio.run(publish_user_notification(other_id, {"type": "notification"}))
 
         # 自己频道发一条作为「哨兵」：如果先收到的是它，说明别人的没串进来
-        asyncio.run(publish_user_notification(user_id, {"type": "notification", "marker": "self"}))
+        asyncio.run(
+            publish_user_notification(
+                user_id, {"type": "notification", "marker": "self"}
+            )
+        )
         # 发布是异步的：可能先收到别人的（BUG），也可能直接收到自己的哨兵
         message = ws.receive_json()
         assert message.get("marker") == "self", f"收到了别人的频道事件: {message}"

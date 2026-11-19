@@ -189,14 +189,14 @@ async def test_batch_create_returns_distinct_active_codes(client, make_headers):
 
 async def test_batch_create_rejects_oversized_count(client, make_headers):
     headers = await make_headers(role="admin")
-    resp = await client.post(
-        f"{CODES_URL}/batch", json={"count": 21}, headers=headers
-    )
+    resp = await client.post(f"{CODES_URL}/batch", json={"count": 21}, headers=headers)
     assert resp.status_code == 422
 
 
 async def test_batch_create_member_forbidden(client, make_headers):
     resp = await client.post(
-        f"{CODES_URL}/batch", json={"count": 2}, headers=await make_headers(role="member")
+        f"{CODES_URL}/batch",
+        json={"count": 2},
+        headers=await make_headers(role="member"),
     )
     assert resp.status_code == 403

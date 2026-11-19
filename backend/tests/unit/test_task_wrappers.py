@@ -37,7 +37,7 @@ class _FakeSession:
     async def commit(self) -> None:
         self.committed += 1
 
-    async def scalar(self, _stmt):  # noqa: ANN001 - 测试替身
+    async def scalar(self, _stmt):
         return self.scalar_result
 
 
@@ -58,7 +58,7 @@ def fake_session(monkeypatch) -> _FakeSession:
 
 
 def test_scan_task_returns_processed_count(fake_session, monkeypatch):
-    async def _fake_run(_db) -> int:  # noqa: ANN001
+    async def _fake_run(_db) -> int:
         return 3
 
     monkeypatch.setattr(schedule, "run_due_schedules", _fake_run)
@@ -68,7 +68,7 @@ def test_scan_task_returns_processed_count(fake_session, monkeypatch):
 def test_scan_task_reraises_so_beat_sees_failure(fake_session, monkeypatch):
     """服务层抛错必须冒到 Celery：吞掉会让「扫描停摆」无声无息。"""
 
-    async def _boom(_db) -> int:  # noqa: ANN001
+    async def _boom(_db) -> int:
         raise RuntimeError("db down")
 
     monkeypatch.setattr(schedule, "run_due_schedules", _boom)
@@ -80,7 +80,7 @@ def test_scan_task_reraises_so_beat_sees_failure(fake_session, monkeypatch):
 
 
 def test_reap_task_returns_ids_and_commits(fake_session, monkeypatch):
-    async def _fake_reap(_db) -> list[str]:  # noqa: ANN001
+    async def _fake_reap(_db) -> list[str]:
         return ["run-1"]
 
     monkeypatch.setattr(maintenance, "reap_stale_runs", _fake_reap)
@@ -93,7 +93,7 @@ def test_reap_task_returns_ids_and_commits(fake_session, monkeypatch):
 def test_reap_task_survives_event_push_failure(fake_session, monkeypatch):
     """推送失败不能把回收结果一起吞掉：Run 已经被标记 failed，这个事实要留住。"""
 
-    async def _fake_reap(_db) -> list[str]:  # noqa: ANN001
+    async def _fake_reap(_db) -> list[str]:
         return ["run-2"]
 
     def _explode(*_args, **_kwargs):
@@ -109,7 +109,7 @@ def test_reap_task_survives_event_push_failure(fake_session, monkeypatch):
 
 
 def test_purge_task_returns_purged_count(fake_session, monkeypatch):
-    async def _fake_purge(_db) -> int:  # noqa: ANN001
+    async def _fake_purge(_db) -> int:
         return 7
 
     monkeypatch.setattr(maintenance, "purge_expired_sandbox_data", _fake_purge)
@@ -118,7 +118,7 @@ def test_purge_task_returns_purged_count(fake_session, monkeypatch):
 
 
 def test_prune_history_task_returns_removed_count(fake_session, monkeypatch):
-    async def _fake_prune(_db) -> int:  # noqa: ANN001
+    async def _fake_prune(_db) -> int:
         return 12
 
     monkeypatch.setattr(maintenance, "prune_schedule_history", _fake_prune)
