@@ -170,3 +170,27 @@ async def test_snapshot_returns_mode_and_rules(db_session):
     assert mode in {"default", "restricted"}
     assert isinstance(global_rules, list)
     assert isinstance(agent_rules, list)
+
+
+# ---------- 015 覆盖率补齐：归档组不可分配 ----------
+
+
+async def test_load_group_rejects_archived_group(db_session):
+    """归档组 → 400 INVALID_INPUT（区别于「不存在 → 404」）。"""
+    from app.models.group import AgentGroup
+    from app.services.assignment_service import _load_group
+
+    owner = await _user(db_session)
+    group = AgentGroup(
+        owner_id=owner.id,
+        name=f"archived-{uuid.uuid4().hex[:6]}",
+        routing_strategy="fan_out",
+        status="archived",
+    )
+    db_session.add(group)
+    await db_session.commit()
+
+    with pytest.raises(AppError) as exc:
+        await _load_group(db_session, group.id, owner.id)
+    assert exc.value.code == "INVALID_INPUT"
+    assert "归档" in exc.value.message
