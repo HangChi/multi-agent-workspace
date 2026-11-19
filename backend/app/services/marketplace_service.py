@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import cast, func, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -109,7 +110,13 @@ async def browse_listings(
     if category:
         filters.append(ExternalToolVersion.capability_category == category)
     if capability:
-        filters.append(ExternalToolVersion.required_permissions.contains([capability]))
+        # 列类型是 JSON（不是 JSONB），直接 .contains() 会被编译成
+        # `json LIKE text` 而报 `operator does not exist: json ~~ text` —— 也就是
+        # 「按能力筛选」这条最常用的路径在 PG 上直接 500。这里显式转 JSONB 再判
+        # 包含（不需要迁移改列类型）。
+        filters.append(
+            cast(ExternalToolVersion.required_permissions, JSONB).contains([capability])
+        )
     if maintainer:
         filters.append(ExternalToolServer.maintainer == maintainer)
     if version:
