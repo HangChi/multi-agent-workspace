@@ -198,9 +198,11 @@ jobs:
 
       # 带覆盖率跑：门槛写在 pytest.ini 的 [coverage:report] fail_under，
       # 低于阈值非零退出。--cov 是显式加的，本地快速循环可以不带。
+      # 必须写成 --cov=app：裸 --cov 等价于 --cov=.，会把 tests/ 自己
+      # 算进分母（分母翻三倍、数字被稀释），报出来的不是 app/ 的覆盖率。
       - name: pytest（含覆盖率门禁）
         working-directory: backend
-        run: pytest -q --cov --cov-report=term
+        run: pytest -q --cov=app --cov-report=term-missing:skip-covered
 
   image:
     name: 后端镜像（可构建 + 可启动）

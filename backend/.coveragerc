@@ -1,0 +1,31 @@
+# 覆盖率口径（pytest-cov 只认 .coveragerc / setup.cfg / tox.ini / pyproject，
+# 不读 pytest.ini 里的 [coverage:run]——放在 pytest.ini 里等于没写）。
+#
+# 2026-11-19 修的两个度量错误：
+#   ① concurrency 没声明：AsyncSession 把同步 ORM 跑在 greenlet 里，coverage
+#      默认不跟进 greenlet 内的执行，所有碰 DB 的服务层被系统性低估
+#      （同一测试文件 project_member_service 量出 29%，声明后 78%）。
+#   ② CI 用裸 --cov（等价 --cov=.）把 tests/ 也算进分母，报的不是 app/ 的数
+#      （见 .github/workflows/ci.yml 的 --cov=app）。
+#
+# 修好后实测基线：app/ 90%（9935 语句 / 约 950 未覆盖），门槛 85%，留 5 个点
+# 余量给异常兜底与平台相关分支。旧门槛 75% 比真实值低 15 个点，等于新增代码
+# 不写测试也能过。
+
+[run]
+source = app
+# greenlet：AsyncSession 的同步 ORM 执行；thread：anyio 的同步依赖与 to_thread
+concurrency = greenlet,thread
+omit =
+    */__init__.py
+
+[report]
+fail_under = 85
+# 只报未满分的文件，避免 80 行「100%」噪音淹没真正需要关注的模块
+skip_covered = True
+skip_empty = True
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    if __name__ == .__main__.:
