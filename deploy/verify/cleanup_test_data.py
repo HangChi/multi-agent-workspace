@@ -71,6 +71,11 @@ async def main() -> int:
     parser.add_argument("--execute", action="store_true", help="真删（默认 dry-run）")
     parser.add_argument("--pattern", action="append", default=None, help="邮箱 LIKE 模式（可多次）")
     parser.add_argument("--protect", action="append", default=None, help="保护名单（可多次）")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="命中账号拥有过半需求时仍然执行（预检默认中止）",
+    )
     args = parser.parse_args()
 
     patterns = args.pattern or DEFAULT_PATTERNS
@@ -163,6 +168,29 @@ async def main() -> int:
             raise RuntimeError(f"删除序不完整，疑似有环：{non_empty - set(delete_order)}")
         print(f"污染传播涉及 {len(non_empty) + 1} 张表；删除序（子先）：")
         print("  " + " → ".join(delete_order + ["users"]))
+
+        # 预检：命中面过大时先停一下。
+        # 2026-11-19 实测踩到：演示/联调数据都建在 w-owner 这类带前缀的账号下，
+        # 而本脚本按邮箱前缀认「测试账号」——于是 --execute 会把整套演示数据
+        # （50 需求 / 20 运行 / 13 Agent / 8 项目）一起删掉，看起来却像「清理
+        # 了几百行垃圾」。命中需求过半时强制要求 --force，把「我确实要删」变成
+        # 一次显式表态，而不是被 dry-run 的表格骗过去。
+        owned = await conn.fetchval(
+            "SELECT count(*) FROM requests WHERE owner_id = ANY($1::uuid[])", victim_ids
+        )
+        total_requests = await conn.fetchval("SELECT count(*) FROM requests") or 0
+        if total_requests and owned / total_requests >= 0.5:
+            print(
+                f"\n⚠️  预检：命中账号拥有 {owned}/{total_requests} 条需求"
+                f"（{owned / total_requests:.0%}），看起来不是「零星测试数据」。"
+            )
+            if args.execute and not args.force:
+                print(
+                    "   已中止，未删除任何行。确认要连这些数据一起删，请加 --force；"
+                    "\n   只是想清 s12 等脚本产生的账号，用 --pattern 缩小前缀。"
+                )
+                return 1
+            print("   （dry-run 继续打印将删内容，供你判断）")
 
         total = 0
         async with conn.transaction():
