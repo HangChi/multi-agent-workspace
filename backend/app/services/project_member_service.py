@@ -15,10 +15,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
-from app.models.notification import Notification
 from app.models.project import Project
 from app.models.project_member import ProjectMember
 from app.models.user import User
+from app.services.notification_service import create_notification
 
 logger = structlog.get_logger(__name__)
 
@@ -138,17 +138,12 @@ async def add_member(
     db.add(edge)
     await db.flush()
     # 通知只发给对方本人（R-05：被加者要知道「为什么多了这些需求」）
-    db.add(
-        Notification(
-            user_id=member_user_id,
-            type="project_member_added",
-            request_id=None,
-            title=project.name,
-            payload={
-                "project_id": project_id,
-                "project_name": project.name,
-            },
-        )
+    await create_notification(
+        db,
+        user_id=member_user_id,
+        type_="project_member_added",
+        title=project.name,
+        payload={"project_id": project_id, "project_name": project.name},
     )
     logger.info(
         "project_member_added",
@@ -186,17 +181,12 @@ async def remove_member(
 
     await db.delete(edge)
     await db.flush()
-    db.add(
-        Notification(
-            user_id=member_user_id,
-            type="project_member_removed",
-            request_id=None,
-            title=project.name,
-            payload={
-                "project_id": project_id,
-                "project_name": project.name,
-            },
-        )
+    await create_notification(
+        db,
+        user_id=member_user_id,
+        type_="project_member_removed",
+        title=project.name,
+        payload={"project_id": project_id, "project_name": project.name},
     )
     logger.info(
         "project_member_removed",

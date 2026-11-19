@@ -31,7 +31,11 @@ from sqlalchemy.pool import NullPool
 
 from app.core import metrics
 from app.core.config import settings
-from app.core.events import subscribe_request_events, subscribe_run_events
+from app.core.events import (
+    subscribe_request_events,
+    subscribe_run_events,
+    subscribe_user_notifications,
+)
 from app.core.security import decode_token
 from app.models.request import Request
 from app.models.run import Run
@@ -239,6 +243,65 @@ async def ws_run_events(websocket: WebSocket, run_id: str) -> None:
             if message.get("type") == "ping":
                 await send({"type": "pong"})
             # 其他客户端消息暂不处理（预留：用户回复等）
+    except WebSocketDisconnect:
+        pass
+    finally:
+        metrics.WS_CONNECTIONS.dec()
+        sub_task.cancel()
+        try:
+            await sub_task
+        except (asyncio.CancelledError, Exception):  # noqa: S110, BLE001 - 任务取消/清理，静默即可
+            pass
+
+
+@router.websocket("/ws/notifications")
+async def ws_notifications(websocket: WebSocket) -> None:
+    """订阅 user:{id}:notifications 频道，实时下发站内通知（015）。
+
+    为什么需要它：铃铛此前只有 30s 轮询（SC-007 的兜底口径）。分派/依赖解锁/
+    成员变动这些事件本身是「有人在等我」的信号，晚半分钟就失去意义。
+
+    鉴权：频道名由 token 里的 user_id 推导，**不接受客户端传入用户 id**——
+    否则改一个参数就能订阅别人的通知。归属校验因此退化成「token 有效即为本人」。
+
+    轮询仍然保留：WS 断线（网络抖动、代理超时）期间铃铛不能彻底不更新。
+    """
+    token, subprotocol = _credential(websocket)
+    user_id = _authorize(token)
+    if user_id is None:
+        await websocket.close(*_CLOSE_UNAUTHORIZED)
+        return
+
+    await websocket.accept(subprotocol=subprotocol)
+    metrics.WS_CONNECTIONS.inc()
+
+    send_lock = asyncio.Lock()
+
+    async def send(payload: dict[str, Any]) -> None:
+        async with send_lock:
+            await websocket.send_json(payload)
+
+    ready = asyncio.Event()
+
+    async def _mark_ready() -> None:
+        ready.set()
+
+    async def _subscribe() -> None:
+        await subscribe_user_notifications(user_id, send, on_ready=_mark_ready)
+
+    sub_task = asyncio.create_task(_subscribe())
+
+    try:
+        await asyncio.wait_for(ready.wait(), timeout=5)
+        await send({"type": "ready"})
+    except TimeoutError:
+        logger.warning("ws_subscribe_slow", channel="notifications", user_id=user_id[:8])
+
+    try:
+        while True:
+            message = await websocket.receive_json()
+            if message.get("type") == "ping":
+                await send({"type": "pong"})
     except WebSocketDisconnect:
         pass
     finally:

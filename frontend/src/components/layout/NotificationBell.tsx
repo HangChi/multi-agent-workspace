@@ -2,9 +2,9 @@
  * 通知铃铛（007 T033）：顶栏未读入口 + 通知中心面板。
  *
  * 设计取舍：
- * - 未读数走 TanStack Query 轮询（refetchInterval ≤30s，SC-007），不建用户级
- *   WS——为一个小红点引入长连接的在线状态/多标签去发/重连补发，成本远超收益
- *   （research R-06）；
+ * - 015 起接了用户级 WS（/ws/notifications）做即时刷新，但**轮询保留**：
+ *   反代空闲超时、休眠唤醒、公司网络都可能静默断开 WS，而「铃铛不更新」比
+ *   「晚 30 秒更新」更难被发现。轮询是兜底，WS 是提速（SC-007 的口径未变）；
  * - 面板用 Dropdown（项目现成组件）：点外面关、Esc 关、焦点归还，不用重复造。
  *   注意 Dropdown 的键盘导航只认 role="menuitem"，所以面板内的可点项
  *   （通知 / 全部已读）都带该角色——否则读屏与 ↑↓ 导航全部失效；
@@ -32,6 +32,7 @@ import { Icon } from '../ui/Icons'
 import { Skeleton } from '../ui/Skeleton'
 import { cn } from '../ui/cn'
 import { useToast } from '../ui/useToast'
+import { useNotificationSocket } from '../../hooks/useNotificationSocket'
 
 const FALLBACK_META = { label: '通知', icon: 'inbox' as const }
 
@@ -116,6 +117,12 @@ export function NotificationBell() {
   const navigate = useNavigate()
   const toast = useToast()
   const [marking, setMarking] = useState(false)
+
+  // 015：有新通知就 invalidate 两个查询。不本地插一条——已读状态、分页、
+  // 跨端一致性都由后端说了算，本地拼出来的列表迟早对不上。
+  useNotificationSocket(() => {
+    void qc.invalidateQueries({ queryKey: ['notifications'] })
+  })
 
   // keepPreviousData：轮询间隙不让徽标闪回 0（误判「通知没了」）
   const { data: unread = 0, isLoading: unreadLoading } = useQuery({

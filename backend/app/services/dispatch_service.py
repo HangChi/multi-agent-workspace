@@ -80,20 +80,20 @@ async def _notify(
 
     title 存需求标题快照：标题可改，通知是「当时发生了什么」的记录
     （data-model §4）。
-    """
-    from app.models.notification import Notification
 
-    db.add(
-        Notification(
-            user_id=user_id,
-            type=type_,
-            request_id=request.id,
-            title=request.title,
-            payload=payload,
-        )
+    015：写入与实时推送统一走 notification_service.create_notification——
+    此前四处各写一遍 db.add，加推送时漏一处就是「这条通知永远晚半分钟」。
+    """
+    from app.services.notification_service import create_notification
+
+    await create_notification(
+        db,
+        user_id=user_id,
+        type_=type_,
+        title=request.title,
+        request_id=request.id,
+        payload=payload,
     )
-    await db.flush()
-    metrics.NOTIFICATIONS_CREATED.inc(type=type_)
 
 
 async def _next_seq(db: AsyncSession, request_id: str) -> int:

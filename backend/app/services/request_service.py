@@ -89,19 +89,16 @@ async def settle_request_status(db: AsyncSession, request_id: str) -> str | None
         runs=len(statuses),
     )
     # 007 FR-010：执行结果通知创建者（标题存需求标题快照，同分派通知纪律）
-    from app.core import metrics
-    from app.models.notification import Notification
+    from app.services.notification_service import create_notification
 
-    db.add(
-        Notification(
-            user_id=request.owner_id,
-            type="run_completed",
-            request_id=request.id,
-            title=request.title,
-            payload={"status": request.status},
-        )
+    await create_notification(
+        db,
+        user_id=request.owner_id,
+        type_="run_completed",
+        title=request.title,
+        request_id=request.id,
+        payload={"status": request.status},
     )
-    metrics.NOTIFICATIONS_CREATED.inc(type="run_completed")
     # 009 FR-007/008：解锁通知（同事务；幂等由上面的 running 门禁保证）
     await _notify_ready_dependents(db, request)
     return request.status
@@ -115,8 +112,7 @@ async def _notify_ready_dependents(db: AsyncSession, request: Request) -> None:
     在 running 时跳过（FR-007 场景 4/5；running 本不该有未完成前置，
     门禁保证，这里是防御）。
     """
-    from app.core import metrics
-    from app.models.notification import Notification
+    from app.services.notification_service import create_notification
 
     dependents = await dependency_service.ready_dependents(db, request.id)
     for dependent in dependents:
@@ -124,22 +120,20 @@ async def _notify_ready_dependents(db: AsyncSession, request: Request) -> None:
         if dependent.assignee_id:
             recipients.add(dependent.assignee_id)
         for user_id in recipients:
-            db.add(
-                Notification(
-                    user_id=user_id,
-                    type="dependency_ready",
-                    request_id=dependent.id,
-                    title=dependent.title,
-                    payload={
-                        "dependency_id": request.id,
-                        "dependency_title": request.title,
-                        # 前端按实际终态渲染三种措辞（completed/failed/
-                        # cancelled），不拆三种通知类型
-                        "dependency_status": request.status,
-                    },
-                )
+            await create_notification(
+                db,
+                user_id=user_id,
+                type_="dependency_ready",
+                title=dependent.title,
+                request_id=dependent.id,
+                payload={
+                    "dependency_id": request.id,
+                    "dependency_title": request.title,
+                    # 前端按实际终态渲染三种措辞（completed/failed/
+                    # cancelled），不拆三种通知类型
+                    "dependency_status": request.status,
+                },
             )
-            metrics.NOTIFICATIONS_CREATED.inc(type="dependency_ready")
     if dependents:
         logger.info(
             "dependency_ready_notified",
