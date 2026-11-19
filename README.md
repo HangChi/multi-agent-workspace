@@ -479,14 +479,16 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 | [003-mcp-tool-market](specs/003-mcp-tool-market/spec.md) | 外部 MCP 工具：注册/审批/授权/调用留证 | ✅ 65/65 |
 | [004-scheduled-requests](specs/004-scheduled-requests/spec.md) | 定时调度：cron 规则 → 自动建单分配 + 错过不补跑 | ✅ 65/65 |
 | [005-agent-templates](specs/005-agent-templates/spec.md) | Agent 模板 + 一键克隆 + 另存为模板 + 内置模板 | ✅ 39/39 |
+| [006-run-retry](specs/006-run-retry/spec.md) | 运行自动重试：瞬时失败重试 + 不重复执行 + 成本跨次累计 | ✅ 39/39 |
 | [007-request-dispatch](specs/007-request-dispatch/spec.md) | 需求分派给员工 + 收件箱 + 站内通知 + 经手链 | ✅ 41/41（s8 真实栈 7/7） |
 | [008-project-entity](specs/008-project-entity/spec.md) | 项目容器：需求归类 + 看板按项目筛选 + 项目 CRUD | ✅ 30/30（s9 真实栈 5/5） |
 | [009-request-dependency](specs/009-request-dependency/spec.md) | 需求依赖：有向边 + 硬门禁 + 解锁通知 | ✅ 29/29（s10 真实栈 4/4） |
 | [010-project-sharing](specs/010-project-sharing/spec.md) | 项目共享：成员管理 + 共享可见性 + 协作谓词 | ✅ 26/26（s11 真实栈 4/4） |
-| [011-browser-walkthrough](specs/011-browser-walkthrough/spec.md) | 浏览器走查基建：s12 脚本把 008/009/010 的前端清单自动化 | ✅ 20/21（s12 实测 9/15，6 项失败是已知发现） |
+| [011-browser-walkthrough](specs/011-browser-walkthrough/spec.md) | 浏览器走查基建：s12 脚本把 008/009/010 的前端清单自动化 | ✅ 21/21（s12 终态 15/15；首轮 6 项发现已由 012/013 修完） |
 | [012-error-message-passthrough](specs/012-error-message-passthrough/spec.md) | ErrorBanner 字符串直通：后端错误消息直达用户（修 011 抓出的系统性 bug） | ✅ 10/10（s12 B4 复跑转 ✅） |
 | [013-s12-findings-fix](specs/013-s12-findings-fix/spec.md) | s12 挂账三项全修：viewer 项目入口/共享项目前端可见/依赖弹层刷新 | ✅ 11/11（s12 **15/15** 全绿） |
-| [014-test-data-hygiene](specs/014-test-data-hygiene/spec.md) | 测试数据卫生：一键清理验收账号（FK 安全两阶段删）+ 分配目标面板重设计 | ✅ 11/12（实测 303→1 用户；s12 15/15 保持） |
+| [014-test-data-hygiene](specs/014-test-data-hygiene/spec.md) | 测试数据卫生：一键清理验收账号（FK 安全两阶段删）+ 分配目标面板重设计 | ✅ 12/12（实测 303→1 用户；s12 15/15 保持） |
+| [015-ui-refresh](specs/015-ui-refresh/spec.md) | 前端全模块 UI 整改：14 个模块逐次重做 + 焦点/表单/缓存键三类基建收敛 + 三轮定点视觉迭代 | ✅ 22/22（17 提交 69 文件；143 例 + s12 15/15） |
 
 分支约定：特性开发走 `feat/<name>`，每个 Phase 一次提交，完成后 fast-forward 合并回
 `master` 并删除特性分支。宪法见 [.specify/memory/constitution.md](.specify/memory/constitution.md)。
@@ -524,7 +526,7 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 - **尚未实现**：Sentry 异常上报、Grafana 面板、PITR（时间点恢复）。
 - **压力验证**：`deploy/verify/load_test.py` 实测 100 并发 818 req/s、200 并发 0 错误，
   但 P95 在 100 并发下突破 500ms（2 vCPU 开发机），详见 `docs/load-test-2026-11-17.md`。
-- 前端单测覆盖页面、store 与组件（20 文件 / 107 例）；真实浏览器的端到端验证依靠人工或按需脚本，仓库内没有 Playwright e2e。
+- 前端单测覆盖页面、store 与组件（26 文件 / 143 例）；真实浏览器的端到端验证依靠人工或按需脚本，仓库内没有常驻 Playwright e2e（008/009/010 的清单由 `deploy/verify/s12_browser_walkthrough.py` 覆盖）。
 - 未指定开源许可证；仓库为私有自用。
 
 ---
