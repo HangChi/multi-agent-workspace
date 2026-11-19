@@ -45,7 +45,7 @@
 - [X] T026 Write `deploy/verify/s9_project_container.py` — 五场景（A 建项归类 / B 管理动作 / C 筛选深链 / D 权限边界 / E s8+s1–s4 回归）
 - [X] T027 部署 + 跑 s9 五场景全过 + 回填 quickstart §1/§4
 - [X] T028 回归：s8 原样重跑 7/7（在「需求有归属」的数据上）+ s1–s4 29/29 + strategy 3/3
-- [ ] T029 前端浏览器走查逐条标 ⏳/✅（quickstart §2 清单，未验的写原因不勾）
+- [X] T029 前端浏览器走查逐条标 ✅（由 011 的 s12 脚本覆盖：2026-11-19 复跑 A 组 5/5，整体 15/15，seed run_id=f0823f）
 - [X] T030 README（核心能力/页面表/API 概览/已知限制）+ `docs/architecture.md`（§8 表 + 索引要点）+ docs/README 特性表 + ff 合并 master 删分支
 
 ## Notes（贯穿全清单的硬约束）

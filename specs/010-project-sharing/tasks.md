@@ -41,7 +41,7 @@
 - [X] T022 Write `deploy/verify/s11_project_sharing.py` — 四场景（A 成员管理 / B 可见性 / C 协作链 / D 回归+RT）
 - [X] T023 部署 + 跑 s11 四场景全过 + RT 计时（SC-006）+ 回填 quickstart §1/§4
 - [X] T024 回归：s10 4/4、s9 5/5、s8 7/7、s1–s4 29/29、strategy 3/3 原样重跑
-- [ ] T025 前端浏览器走查逐条标 ⏳/✅（quickstart §2 清单，未验的写原因不勾）
+- [X] T025 前端浏览器走查逐条标 ✅（由 011 的 s12 脚本覆盖：2026-11-19 复跑 C 组 5/5，整体 15/15，seed run_id=f0823f）
 - [X] T026 README（核心能力/页面表/API 概览/已知限制）+ `docs/architecture.md`（§8 表 + 索引 + 语义要点）+ docs/README 特性表 + ff 合并 master 删分支
 
 ## Notes（贯穿全清单的硬约束）

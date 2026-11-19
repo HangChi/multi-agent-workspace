@@ -53,3 +53,4 @@ deploy/verify/.artifacts/
 
 # 数据库备份（本地证据，不进仓库）
 deploy/backup/*.sql
+.pytest-tmp/

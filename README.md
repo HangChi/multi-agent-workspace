@@ -529,7 +529,7 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 - **压力验证**：`deploy/verify/load_test.py` 实测 100 并发 818 req/s、200 并发 0 错误，
   但 P95 在 100 并发下突破 500ms（2 vCPU 开发机），详见 `docs/load-test-2026-11-17.md`。
 - 前端单测覆盖页面、store 与组件（26 文件 / 143 例）；真实浏览器的端到端验证依靠人工或按需脚本，仓库内没有常驻 Playwright e2e（008/009/010 的清单由 `deploy/verify/s12_browser_walkthrough.py` 覆盖）。
-- 未指定开源许可证；仓库为私有自用。
+- 许可证：[MIT](LICENSE)；仓库原本私有自用，开源前请复核依赖许可与部署配置中的密钥处理。
 
 ---
 
