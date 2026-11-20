@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     app_env: str = "development"
     log_level: str = "info"
 
+    # 异常上报（Sentry，可选）。
+    # 留空即完全关闭：不 import sentry_sdk、不装依赖、零运行时开销。
+    # 填了 DSN 才会初始化，但需要先装可选依赖 `pip install -e '.[sentry]'`；
+    # 没装依赖却填了 DSN 时只记一条 warning，不让进程起不来 ——
+    # 观测是增强能力，不该成为启动的硬前提。
+    sentry_dsn: str = ""
+    sentry_traces_sample_rate: float = 0.0
+    sentry_send_default_pii: bool = False
+
     # 数据库（默认对齐 deploy/docker-compose.yml 的本地开发配置）
     database_url: str = (
         "postgresql+asyncpg://aw:aw-dev-password@localhost:5432/agent_workbench"

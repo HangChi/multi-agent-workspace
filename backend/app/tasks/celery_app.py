@@ -67,6 +67,19 @@ celery_app.conf.beat_schedule = {
 # 注意：autodiscover_tasks 只会导入 packages 参数本身（related_name="tasks"），
 # 不会递归扫描子模块，因此必须在 __init__.py 为空时显式导入任务模块。
 @worker_process_init.connect
+def _init_sentry_in_worker(**_kwargs: object) -> None:
+    """每个 worker 子进程单独初始化 Sentry（DSN 为空时是空操作）。
+
+    不能只在外层进程 init：prefork 模式下 SDK 的后台传输线程与网络连接
+    不会随 fork 复制，子进程里抛的异常会静默丢掉。Sentry 官方对 celery
+    的要求也是挂在 worker_process_init 上。
+    """
+    from app.core.sentry import init_sentry
+
+    init_sentry()
+
+
+@worker_process_init.connect
 def _start_metrics_publisher(**_kwargs: object) -> None:
     """每个 worker 子进程启动时，把本进程指标周期性发布到 Redis。
 

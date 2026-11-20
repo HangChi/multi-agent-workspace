@@ -43,8 +43,13 @@ from app.core.db import SessionLocal
 from app.core.events import redis_ping
 from app.core.log_setup import configure_logging
 from app.core.redis import close_redis, get_broker_redis, get_redis
+from app.core.sentry import init_sentry
 
 configure_logging()
+
+# 在 create_app() 之前初始化：这样连「应用创建期间」抛的异常也能被上报。
+# SENTRY_DSN 为空时函数立即返回 False，不 import SDK、零开销。
+init_sentry()
 
 logger = structlog.get_logger(__name__)
 
