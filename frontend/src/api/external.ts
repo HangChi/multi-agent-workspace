@@ -177,6 +177,29 @@ export interface ExternalToolVersion {
   listing_status: string | null
 }
 
+/** 运行期诊断计数器（进程本地，admin only）。
+ *
+ * 注意 `counters` 是**单个 API 进程内**的累加值：多 worker 部署时每个进程各有一份，
+ * 页面展示的是「当前这个进程」的视图，不是全局聚合。需要全局口径时看 Prometheus。 */
+export interface ExternalObservabilityAlert {
+  name: string
+  count: number
+  last_seen: string
+}
+
+export interface ExternalObservability {
+  counters: Record<string, number>
+  last_seen: Record<string, string>
+  alerts: ExternalObservabilityAlert[]
+}
+
+export async function fetchExternalObservability(minutes = 60): Promise<ExternalObservability> {
+  const { data } = await apiClient.get<ExternalObservability>('/external-tools/observability', {
+    params: { minutes },
+  })
+  return data
+}
+
 export interface ExternalServer {
   id: string
   name: string

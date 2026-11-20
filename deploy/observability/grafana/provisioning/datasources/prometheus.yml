@@ -1,0 +1,19 @@
+# Grafana 数据源：Provisioning 挂载，容器启动自动注册，无需手工点选。
+#
+# uid 固定为 aw-prometheus：dashboard JSON 里按 uid 引用数据源。
+# 若改了这里，必须同步改 dashboards/aw-overview.json 的 datasource.uid，
+# 否则看板打开后所有 panel 报「Datasource not found」。
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: aw-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
+      # 与 prometheus.yml 的 scrape_interval 保持一致：Grafana 默认 rate 窗口
+      # 会按它推荐，不一致时会算出比实际更粗的曲线。
+      httpMethod: POST

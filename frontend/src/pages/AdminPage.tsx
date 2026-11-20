@@ -7,12 +7,14 @@ import {
   type BlacklistRule,
   type EgressAccess,
   type ExternalInvocationAudit,
+  type ExternalObservability,
   createBlacklist,
   deleteBlacklist,
   fetchAuditLogs,
   fetchBlacklist,
   fetchEgressAccesses,
   fetchExternalInvocationAudit,
+  fetchExternalObservability,
 } from '../api/endpoints'
 import { extractError } from '../api/client'
 import { ExternalToolServers } from '../components/admin/ExternalToolServers'
@@ -93,6 +95,9 @@ export function AdminPage() {
   const [egressBusy, setEgressBusy] = useState(false)
   const [egressError, setEgressError] = useState<string | null>(null)
   const [egressLoading, setEgressLoading] = useState(true)
+  const [observability, setObservability] = useState<ExternalObservability | null>(null)
+  const [observabilityError, setObservabilityError] = useState<string | null>(null)
+  const [observabilityLoading, setObservabilityLoading] = useState(true)
 
   useEffect(() => {
     let cancelled = false
@@ -149,6 +154,30 @@ export function AdminPage() {
   // 挂载即拉 + 页面级刷新按钮覆盖（reloadKey 变化时重拉）
   useEffect(() => {
     void loadEgress()
+  }, [reloadKey])
+
+  /**
+   * 外部 MCP 运行期计数器（/external-tools/observability）。
+   * 这是**进程本地**的诊断数据：多 worker 部署时每个进程各一份，
+   * 页面看到的是「其中一个 worker」的视图，不是全局限。全局口径看 Prometheus。
+   */
+  useEffect(() => {
+    let cancelled = false
+    setObservabilityError(null)
+    setObservabilityLoading(true)
+    fetchExternalObservability(60)
+      .then((data) => {
+        if (!cancelled) setObservability(data)
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setObservabilityError(extractError(cause))
+      })
+      .finally(() => {
+        if (!cancelled) setObservabilityLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [reloadKey])
 
   useEffect(() => {
@@ -467,6 +496,79 @@ export function AdminPage() {
       </Card>
 
       <ExternalToolServers />
+
+      <Card>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold text-ink">外部 MCP 运行指标</h2>
+            <p className="mt-1 text-xs text-ink-muted">
+              当前 API 进程的诊断计数器（告警窗口 60 分钟）：认证失败、策略拒绝、验证漂移、
+              目标地址变更、结果截断、审计缺口。
+              <span className="text-ink-faint">
+                {' '}
+                多 worker 部署时每个进程各持一份计数，这里看到的是其中一个 worker 的视图；
+                需要全局口径请看 Prometheus。
+              </span>
+            </p>
+          </div>
+          {observability &&
+            (observability.alerts.length > 0 ? (
+              <Badge tone="rose">{observability.alerts.length} 项告警</Badge>
+            ) : (
+              <Badge tone="emerald">无告警</Badge>
+            ))}
+        </div>
+
+        {observabilityError && (
+          <ErrorBanner error={observabilityError} onDismiss={() => setObservabilityError(null)} />
+        )}
+
+        {observabilityLoading ? (
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <Skeleton key={index} className="h-14" />
+            ))}
+          </div>
+        ) : observability && Object.keys(observability.counters).length > 0 ? (
+          <div className="mt-4 space-y-4">
+            {observability.alerts.length > 0 && (
+              <ul className="space-y-1.5">
+                {observability.alerts.map((alert) => (
+                  <li
+                    key={alert.name}
+                    className="flex flex-wrap items-center gap-2 rounded-md border border-rose-200 bg-rose-50/60 px-3 py-2 text-xs dark:border-rose-500/30 dark:bg-rose-500/10"
+                  >
+                    <Badge tone="rose">{alert.name}</Badge>
+                    <span className="font-mono text-ink">计数 {alert.count}</span>
+                    <span className="text-ink-muted">最近 {formatTime(alert.last_seen)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              {Object.entries(observability.counters)
+                .sort((a, b) => b[1] - a[1])
+                .map(([name, count]) => (
+                  <div
+                    key={name}
+                    className="rounded-md border border-line-subtle bg-surface-muted px-3 py-2"
+                  >
+                    <dt className="truncate font-mono text-micro text-ink-muted" title={name}>
+                      {name}
+                    </dt>
+                    <dd className="mt-0.5 text-base font-semibold tabular-nums text-ink">
+                      {count}
+                    </dd>
+                  </div>
+                ))}
+            </dl>
+          </div>
+        ) : (
+          <p className="mt-4 text-xs text-ink-muted">
+            暂无计数。该进程启动后还没有外部工具调用或验证事件。
+          </p>
+        )}
+      </Card>
 
       <Card>
         <div className="flex flex-wrap items-end gap-3">

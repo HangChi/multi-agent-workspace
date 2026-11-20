@@ -1,0 +1,18 @@
+# 看板自动加载：把 dashboards/ 目录下的 JSON 挂进 Grafana。
+#
+# allowUiUpdates=false 是刻意的：看板是仓库里的代码，界面上改了会被下次
+# 重启覆盖。要改看板请改 JSON 并提交——「谁在什么时候改了告警口径」
+# 才是需要留痕的东西，不是随手拖一个 panel。
+apiVersion: 1
+
+providers:
+  - name: aw-dashboards
+    orgId: 1
+    folder: Agent 工作台
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

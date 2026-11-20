@@ -29,10 +29,28 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-aw}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aw-dev-password}
       POSTGRES_DB: ${POSTGRES_DB:-agent_workbench}
+    # PITR（时间点恢复）的写入端：把每个 WAL 段归档到 /wal-archive 卷。
+    # 只开归档不建基础备份是没用的——恢复必须从一份 base backup 开始，
+    # 再重放其后的 WAL。基础备份见 deploy/backup/pg_basebackup.sh。
+    # `test ! -f` 前置判断是 Postgres 官方推荐写法：archive_command 返回非 0
+    # 会被视为失败并不断重试，重复覆盖同名段会让恢复链断在半截。
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - 'archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f'
+      # 低写入量的库可能几小时不切段，归档会一直是旧的。
+      # 60s 强制切一次，代价是低峰期多几个小段文件。
+      - -c
+      - archive_timeout=60
     ports:
       - '127.0.0.1:5432:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - pgwal:/wal-archive
     logging: *default-logging
     deploy:
       resources:
@@ -426,6 +444,38 @@ services:
       api:
         condition: service_healthy
 
+  # ---------- Grafana（observability profile，默认不启动）----------
+  # 用法：docker compose -p aw -f deploy/docker-compose.yml --profile observability up -d grafana
+  # 看板与数据源全部由 provisioning 挂载，容器起来就是可用状态，不需要手工点选。
+  # 只绑定 127.0.0.1：看板里有成本与错误率，属于内部运维视图。
+  grafana:
+    image: grafana/grafana:11.5.2
+    container_name: aw-grafana
+    restart: unless-stopped
+    profiles: ['observability']
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # 关掉注册与匿名访问：这是一个只有运维会用的内部面板
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - '127.0.0.1:3000:3000'
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256m
+    depends_on:
+      - prometheus
+
   frontend:
     build:
       context: ../frontend
@@ -450,6 +500,8 @@ services:
 
 volumes:
   pgdata:
+  pgwal:
   redisdata:
   miniodata:
   promdata:
+  grafanadata:
