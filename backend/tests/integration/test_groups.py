@@ -6,7 +6,7 @@
 - 移除成员 204
 - 排序保存（交换 position）
 - 删除组级联清空成员 204
-- 非 owner 操作 403
+- 非 owner 操作 404（016 统一为「不存在」同响应）
 """
 
 GROUPS_URL = "/api/v1/groups"
@@ -224,8 +224,8 @@ async def test_delete_group_cascades_members(client, make_headers, db_session):
 # ---------- 归属校验 ----------
 
 
-async def test_group_operations_non_owner_forbidden(client, auth_headers):
-    """非 owner 操作他人组 → 403（含成员增删）。"""
+async def test_group_operations_non_owner_not_found(client, auth_headers):
+    """非 owner 操作他人组 → 404（016，含成员增删）。"""
     owner_headers, _ = await auth_headers(role="member")
     group = await _create_group(client, owner_headers)
     agent = await _create_agent(client, owner_headers)
@@ -238,30 +238,30 @@ async def test_group_operations_non_owner_forbidden(client, auth_headers):
         headers=other_headers,
         json={"name": "hacked"},
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 404
     # 加成员
     other_agent = await _create_agent(client, other_headers, name="other-agent")
     resp = await _add_member(client, other_headers, group["id"], other_agent["id"], 2)
-    assert resp.status_code == 403
+    assert resp.status_code == 404
     # 删成员
     resp = await client.delete(
         f"{GROUPS_URL}/{group['id']}/members/{agent['id']}", headers=other_headers
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 404
     # 删组
     resp = await client.delete(f"{GROUPS_URL}/{group['id']}", headers=other_headers)
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
-async def test_group_add_member_other_agent_forbidden(client, auth_headers):
-    """把自己的 Agent 加入他人组 → 403（归属校验双向）。"""
+async def test_group_add_member_other_agent_not_found(client, auth_headers):
+    """把自己的 Agent 加入他人组 → 404（组不归你，016）。"""
     owner_headers, _ = await auth_headers(role="member")
     group = await _create_group(client, owner_headers)
 
     other_headers, _ = await auth_headers(role="member")
     other_agent = await _create_agent(client, other_headers, name="my-agent")
     resp = await _add_member(client, other_headers, group["id"], other_agent["id"], 1)
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
 async def test_list_groups_with_members(client, make_headers):

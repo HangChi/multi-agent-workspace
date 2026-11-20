@@ -134,14 +134,19 @@ async def test_owned_resource_missing_is_404(db_session):
     assert exc.value.status_code == 404
 
 
-async def test_owned_resource_of_other_user_is_403(db_session):
+async def test_owned_resource_of_other_user_is_404(db_session):
+    """016：非 owner 与「不存在」同响应（404 + 同一 detail），不再回 403。"""
     owner = await _user(db_session)
     stranger = await _user(db_session)
     agent = await _agent(db_session, owner)
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(HTTPException) as foreign:
         await get_owned_resource(Agent, agent.id, stranger, db_session)
-    assert exc.value.status_code == 403
+    with pytest.raises(HTTPException) as missing:
+        await get_owned_resource(Agent, str(uuid.uuid4()), stranger, db_session)
+
+    assert foreign.value.status_code == missing.value.status_code == 404
+    assert foreign.value.detail == missing.value.detail
 
 
 async def test_owned_resource_returns_row_for_owner(db_session):

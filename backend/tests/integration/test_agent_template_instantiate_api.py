@@ -437,13 +437,13 @@ async def test_clone_archived_source_yields_active_agent(
 
 
 @pytest.mark.asyncio
-async def test_clone_foreign_agent_403(client, db_session, auth_headers):
+async def test_clone_foreign_agent_404(client, db_session, auth_headers):
     _h, owner = await auth_headers()
     source = await _make_agent(db_session, owner.id)
     headers, _stranger = await auth_headers()
 
     resp = await client.post(f"/api/v1/agents/{source.id}/clone", headers=headers)
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio

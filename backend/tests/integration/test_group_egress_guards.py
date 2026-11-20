@@ -88,7 +88,8 @@ async def test_add_member_rejects_foreign_agent(db_session):
             agent_id=foreign.id,
             position=1,
         )
-    assert exc.value.code == "FORBIDDEN"
+    # 016：他人 Agent 与「不存在」同响应（上面那条用例断言的就是 NOT_FOUND）
+    assert exc.value.code == "NOT_FOUND"
 
 
 async def test_add_member_rejects_archived_agent(db_session):

@@ -48,7 +48,9 @@ async def _ensure_agent_owner(
     if agent is None:
         raise AppError("NOT_FOUND", "Agent 不存在")
     if role != "admin" and agent.owner_id != user_id:
-        raise AppError("FORBIDDEN", "无权操作他人 Agent")
+        # 016：非 owner（且非 admin 运维）与「不存在」同响应。
+        # admin 分支保留原样：管理员本就能看到全部 Agent，拒绝时不携带存在性增量。
+        raise AppError("NOT_FOUND", "Agent 不存在")
 
 
 async def list_agent_rules(

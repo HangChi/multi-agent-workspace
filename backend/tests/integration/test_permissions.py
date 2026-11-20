@@ -4,7 +4,7 @@
 - viewer 创建 Agent → 403
 - member 访问 admin 接口 → 403
 - 未认证 → 401
-- 非 owner 访问他人资源 → 403
+- 非 owner 访问他人资源 → 404（016：与「不存在」同响应，防存在性枚举）
 """
 
 REGISTER_URL = "/api/v1/auth/register"
@@ -98,7 +98,7 @@ async def test_member_create_agent_allowed(client, make_headers, db_session):
 
 
 async def test_non_owner_access_resource(client, auth_headers, db_session):
-    """非 owner 访问他人资源 → 403（归属校验）。"""
+    """非 owner 访问他人资源 → 404（016：与「不存在」同响应）。"""
     owner_headers, _ = await auth_headers(role="member")
 
     # owner 创建一个 Agent
@@ -114,14 +114,14 @@ async def test_non_owner_access_resource(client, auth_headers, db_session):
     assert resp.status_code == 201
     agent_id = resp.json()["id"]
 
-    # 另一个用户访问/编辑该 Agent → 403
+    # 另一个用户访问/编辑该 Agent → 404
     other_headers, _ = await auth_headers(role="member")
     resp = await client.patch(
         f"/api/v1/agents/{agent_id}",
         headers=other_headers,
         json={"name": "hacked-name"},
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
 async def test_owner_access_own_resource(client, auth_headers, db_session):

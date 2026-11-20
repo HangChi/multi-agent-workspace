@@ -21,8 +21,9 @@ from app.schemas.group import GroupCreate, GroupUpdate
 
 
 def _check_owner(group: AgentGroup, user_id: str) -> None:
+    """非 owner 一律 404（016）：与「组不存在」同响应。"""
     if group.owner_id != user_id:
-        raise AppError("FORBIDDEN", "无权操作他人组")
+        raise AppError("NOT_FOUND", "组不存在")
 
 
 def _with_members() -> Any:
@@ -117,7 +118,9 @@ async def add_member(
     if agent is None:
         raise AppError("NOT_FOUND", "Agent 不存在")
     if agent.owner_id != user_id:
-        raise AppError("FORBIDDEN", "无权将他人 Agent 加入自己的组")
+        # 016：他人的 Agent 与「不存在」同响应，否则可以拿组的成员接口探测
+        # 某个 Agent id 是否存在（403 = 存在但不归你）。
+        raise AppError("NOT_FOUND", "Agent 不存在")
     if agent.status != "active":
         raise AppError("INVALID_INPUT", "归档 Agent 不可加入组")
 

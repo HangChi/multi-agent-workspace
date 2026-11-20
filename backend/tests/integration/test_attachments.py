@@ -122,8 +122,8 @@ async def test_object_store_enforces_size_limit(client, make_headers):
     assert "EntityTooLarge" in resp.text or "too large" in resp.text.lower()
 
 
-async def test_upload_to_other_users_request_forbidden(client, auth_headers):
-    """给他人需求传附件 → 403。"""
+async def test_upload_to_other_users_request_not_found(client, auth_headers):
+    """给他人需求传附件 → 404（016 统一，不暴露需求存在性）。"""
     owner_headers, _ = await auth_headers(role="member")
     req = await _create_request(client, owner_headers)
 
@@ -133,7 +133,7 @@ async def test_upload_to_other_users_request_forbidden(client, auth_headers):
         headers=other_headers,
         params=_attachment_payload(),
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
 # ---------- 大小/类型校验 ----------

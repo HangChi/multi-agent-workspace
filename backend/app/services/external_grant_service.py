@@ -146,7 +146,8 @@ async def create_grant(
         .where(ToolInstallation.id == installation_id)
     )
     if installation is None or installation.owner_id != user_id:
-        raise AppError("FORBIDDEN", "安装不属于当前用户")
+        # 016：他人的安装与「不存在」同响应（此前是 403，可被用来枚举安装 id）
+        raise AppError("NOT_FOUND", "工具安装不存在")
     listing = installation.listing
     version = await db.scalar(
         select(ExternalToolVersion).where(ExternalToolVersion.id == tool_version_id)
@@ -174,7 +175,9 @@ async def create_grant(
             )
         )
         if credential is None:
-            raise AppError("FORBIDDEN", "凭证不属于该服务器或当前用户")
+            # 016：查询本身已按 scope_owner_id 过滤，所以「不属于你」与「不存在」
+            # 在这里就是同一件事，响应用 404 而不是 403。
+            raise AppError("NOT_FOUND", "凭证不存在")
     existing = await db.scalar(
         select(ExternalToolGrant).where(
             ExternalToolGrant.agent_id == agent_id,
@@ -314,7 +317,8 @@ async def upgrade_installation(
     if installation is None:
         raise AppError("NOT_FOUND", "工具安装不存在")
     if installation.owner_id != user_id:
-        raise AppError("FORBIDDEN", "无权升级他人的工具安装")
+        # 016：与上面「installation is None」走同一响应，避免 403/404 差异可枚举
+        raise AppError("NOT_FOUND", "工具安装不存在")
     if installation.status != "installed":
         raise AppError("CONFLICT", "只有活动安装可以升级")
     new_listing = await db.scalar(

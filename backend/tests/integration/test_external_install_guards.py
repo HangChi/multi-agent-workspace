@@ -145,7 +145,7 @@ async def test_list_installations_is_owner_scoped(db_session, make_user):
 
 
 async def test_upgrade_rejects_foreign_installation(db_session, make_user):
-    """升级别人的安装 → 403：否则能改别人的工具链。"""
+    """升级别人的安装 → NOT_FOUND：与「安装不存在」同响应，不暴露安装存在（016）。"""
     owner, _ = await make_user()
     stranger, _ = await make_user()
     listing = await _published_listing(db_session, owner.id)
@@ -166,7 +166,7 @@ async def test_upgrade_rejects_foreign_installation(db_session, make_user):
             user_id=stranger.id,
             reason="尝试升级别人的工具",
         )
-    assert exc.value.code == "FORBIDDEN"
+    assert exc.value.code == "NOT_FOUND"
 
 
 async def test_installation_endpoints_round_trip(

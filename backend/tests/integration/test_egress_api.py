@@ -58,15 +58,15 @@ async def test_agent_egress_rules_crud_permissions_and_duplicate(client, make_he
 
     other_headers = await make_headers(role="member")
     forbidden_list = await client.get(endpoint, headers=other_headers)
-    assert forbidden_list.status_code == 403
+    assert forbidden_list.status_code == 404
     forbidden_create = await client.post(
         endpoint, headers=other_headers, json=rule_data
     )
-    assert forbidden_create.status_code == 403
+    assert forbidden_create.status_code == 404
     forbidden_delete = await client.delete(
         f"{endpoint}/{rule['id']}", headers=other_headers
     )
-    assert forbidden_delete.status_code == 403
+    assert forbidden_delete.status_code == 404
 
     deleted = await client.delete(f"{endpoint}/{rule['id']}", headers=owner_headers)
     assert deleted.status_code == 204
@@ -96,7 +96,8 @@ async def test_agent_rule_delete_audits_actor_agent_rule_and_target(
     )
 
     forbidden = await client.delete(url, headers=await make_headers())
-    assert forbidden.status_code == 403
+    # 016：他人 Agent 的规则与「不存在」同响应（404）
+    assert forbidden.status_code == 404
     assert (await db_session.execute(audit_query)).scalars().all() == []
 
     assert (await client.delete(url, headers=headers)).status_code == 204

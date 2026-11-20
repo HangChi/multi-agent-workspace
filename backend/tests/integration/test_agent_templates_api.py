@@ -288,8 +288,8 @@ async def test_save_as_template_foreign_agent_404(client, db_session, auth_heade
         json={"name": "偷"},
         headers=stranger_headers,
     )
-    # 与既有 Agent 端点一致：他人资源 403（模板才是 404，见契约 §1.5 的说明）
-    assert resp.status_code == 403
+    # 016：他人资源与「不存在」同响应（此前是 403，与模板的 404 不对称）
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio

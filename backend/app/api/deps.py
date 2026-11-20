@@ -66,12 +66,23 @@ def require_role(*roles: str):
 async def get_owned_resource(
     model: type[Any], resource_id: str, user: CurrentUser, db: DB
 ) -> Any:
-    """资源归属校验：资源必须存在且 owner 是当前用户，否则 404/403。"""
+    """资源归属校验：资源必须存在且 owner 是当前用户。
+
+    **016：非 owner 回 404，不再是 403。** 此前这里回 403，与「资源不存在」的
+    404 形成可枚举差异（403 = 存在但不归你）。保留这个工具函数是因为它把
+    「先查存在、再判归属、两种情况同响应」这一串判断收在一处，新端点直接复用
+    比每次手写更容易保持一致。
+
+    注意：本函数只适用于「归属即访问权」的资源（Agent / 组 / 模板等）。
+    需求的访问权是「创建者 ∪ 接收人 ∪ 项目成员」，用它会把接收人拦掉，
+    那类端点走 `request_service.get_request`。
+    """
     resource: Any = await db.get(model, resource_id)
     if resource is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="资源不存在")
     if getattr(resource, "owner_id", None) != user.id:
-        raise _forbidden()
+        # 与「不存在」同响应：detail 必须一致，否则 message 自身泄露存在性
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="资源不存在")
     return resource
 
 

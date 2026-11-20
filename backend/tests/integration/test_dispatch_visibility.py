@@ -87,10 +87,10 @@ async def test_stranger_cannot_see_or_touch_request(db_session, client, make_hea
     assert resp.json()["status"] == "pending"
 
     s_headers = await make_headers(stranger)
-    # 既有端点维持 006 契约：非相关人员 403 FORBIDDEN（test_requests.py 锁定，
-    # FR-014 零变化）；007 新分派端点用 404（dispatch_service 口令径）。
+    # 016 起口径统一：非相关人读详情也是 404（此前既有端点回 403、
+    # 007 的新分派端点回 404，两种语义并存，可被用来枚举需求 id）。
     detail = await client.get(f"/api/v1/requests/{req.id}", headers=s_headers)
-    assert detail.status_code == 403
+    assert detail.status_code == 404
     assign = await client.post(
         f"/api/v1/requests/{req.id}/assign",
         json={"assignee_type": "user", "assignee_id": stranger.id},

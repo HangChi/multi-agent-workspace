@@ -151,7 +151,7 @@ async def test_grant_rejects_wrong_owner_permission_escalation_and_viewer(
             "permissions": ["records.read"],
         },
     )
-    assert wrong_owner.status_code == 403
+    assert wrong_owner.status_code == 404
 
     viewer_headers = await make_headers(role="viewer")
     denied = await client.post(

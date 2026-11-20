@@ -78,14 +78,18 @@ def test_dsn_set_with_fake_sdk_passes_sanitized_options(
 
     monkeypatch.setitem(sys.modules, "sentry_sdk", fake_sdk)
     monkeypatch.setitem(
-        sys.modules, "sentry_sdk.integrations", types.ModuleType("sentry_sdk.integrations")
+        sys.modules,
+        "sentry_sdk.integrations",
+        types.ModuleType("sentry_sdk.integrations"),
     )
     for dotted, class_name in (
         ("sentry_sdk.integrations.celery", "CeleryIntegration"),
         ("sentry_sdk.integrations.fastapi", "FastApiIntegration"),
         ("sentry_sdk.integrations.sqlalchemy", "SqlalchemyIntegration"),
     ):
-        monkeypatch.setitem(sys.modules, dotted, _integration_module(dotted, class_name))
+        monkeypatch.setitem(
+            sys.modules, dotted, _integration_module(dotted, class_name)
+        )
 
     assert sentry_module.init_sentry() is True
     assert captured["dsn"] == "https://key@sentry.example.com/1"
@@ -95,7 +99,9 @@ def test_dsn_set_with_fake_sdk_passes_sanitized_options(
     assert isinstance(integrations, list) and len(integrations) == 3
 
 
-def test_negative_sample_rate_is_clamped_to_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_negative_sample_rate_is_clamped_to_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """负数采样率夹到 0，而不是让 SDK 抛 ValueError。"""
     monkeypatch.setattr(settings, "sentry_dsn", "https://key@sentry.example.com/1")
     monkeypatch.setattr(settings, "sentry_traces_sample_rate", -3.0)
@@ -111,14 +117,18 @@ def test_negative_sample_rate_is_clamped_to_zero(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setitem(sys.modules, "sentry_sdk", fake_sdk)
     monkeypatch.setitem(
-        sys.modules, "sentry_sdk.integrations", types.ModuleType("sentry_sdk.integrations")
+        sys.modules,
+        "sentry_sdk.integrations",
+        types.ModuleType("sentry_sdk.integrations"),
     )
     for dotted, class_name in (
         ("sentry_sdk.integrations.celery", "CeleryIntegration"),
         ("sentry_sdk.integrations.fastapi", "FastApiIntegration"),
         ("sentry_sdk.integrations.sqlalchemy", "SqlalchemyIntegration"),
     ):
-        monkeypatch.setitem(sys.modules, dotted, _integration_module(dotted, class_name))
+        monkeypatch.setitem(
+            sys.modules, dotted, _integration_module(dotted, class_name)
+        )
 
     assert sentry_module.init_sentry() is True
     assert captured["traces_sample_rate"] == 0.0

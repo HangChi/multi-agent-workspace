@@ -73,7 +73,7 @@ def test_rejects_redirect_targets_before_following():
 
 # ---------- 015 覆盖率补齐：SSRF 边界逐条钉死 ----------
 
-from app.executors.mcp_security import _validate_address, ValidatedEndpoint  # noqa: E402
+from app.executors.mcp_security import _validate_address
 
 
 @pytest.mark.parametrize(

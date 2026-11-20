@@ -238,7 +238,9 @@ async def test_unread_count_counts_only_unread(db_session):
     db_session.add(user)
     await db_session.commit()
 
-    db_session.add(Notification(user_id=user.id, type="request_dispatched", title="未读"))
+    db_session.add(
+        Notification(user_id=user.id, type="request_dispatched", title="未读")
+    )
     db_session.add(
         Notification(
             user_id=user.id,

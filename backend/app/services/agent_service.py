@@ -20,8 +20,9 @@ from app.services.tool_service import (
 
 
 def _check_owner(agent: Agent, user_id: str) -> None:
+    """非 owner 一律 404（016）：与「Agent 不存在」同响应，避免枚举他人 Agent。"""
     if agent.owner_id != user_id:
-        raise AppError("FORBIDDEN", "无权操作他人 Agent")
+        raise AppError("NOT_FOUND", "Agent 不存在")
 
 
 async def create_agent(
@@ -43,7 +44,7 @@ async def create_agent(
     """
     if prebuilt is not None:
         if prebuilt.owner_id != user_id:
-            raise AppError("FORBIDDEN", "无权操作他人 Agent")
+            raise AppError("NOT_FOUND", "Agent 不存在")
         await validate_grants(db, prebuilt.tools)
         db.add(prebuilt)
         await db.flush()

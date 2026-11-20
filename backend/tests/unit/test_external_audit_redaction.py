@@ -107,7 +107,7 @@ def test_lists_and_dicts_are_capped_at_fifty_items():
 def test_dict_keys_are_capped_at_eighty_chars():
     """键名本身也截断：超长键能把行存储撑大。"""
     safe = _safe_value({"k" * 200: "v"})
-    assert list(safe)[0] == "k" * 80
+    assert next(iter(safe)) == "k" * 80
 
 
 def test_long_strings_are_capped_at_512_chars():

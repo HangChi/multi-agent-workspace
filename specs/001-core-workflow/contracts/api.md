@@ -38,7 +38,7 @@
 201 → Agent（含 id/owner_id/created_at）。
 
 ### PATCH /agents/{id}
-编辑（归属校验，403 非 owner）。请求部分字段。→ 200 Agent。
+编辑（归属校验：非 owner 回 404，与「不存在」同响应；见 016）。请求部分字段。→ 200 Agent。
 
 ### POST /agents/{id}/archive
 归档。→ 200 `{"status": "archived"}`。被组引用的 Agent 仅可归档不可删除。
@@ -182,8 +182,8 @@
 |---|---|---|
 | 400 | INVALID_INPUT | 参数校验失败 |
 | 401 | UNAUTHORIZED | 未认证/token 失效 |
-| 403 | FORBIDDEN | 无权限/非资源 owner |
-| 404 | NOT_FOUND | 资源不存在 |
+| 403 | FORBIDDEN | 角色不足（viewer 写）/ 参与者缺字段权限 |
+| 404 | NOT_FOUND | 资源不存在 **或非相关人**（016 起统一，防存在性枚举） |
 | 409 | CONFLICT | 状态冲突（已在执行/终态/邮箱重复/组引用） |
 | 422 | VALIDATION_ERROR | schema 校验失败 |
 | 429 | RATE_LIMITED | 配额/频率限制 |

@@ -2,7 +2,7 @@
 
 覆盖 SC-005「无权限 100% 拒绝」与资源生命周期：
 - 创建 201（member/admin；viewer 403 已在 test_permissions 覆盖）
-- 编辑 200 / 非 owner 编辑 403
+- 编辑 200 / 非 owner 编辑 404（016 统一为「不存在」同响应）
 - 归档 200，归档后不出现在可分配列表
 - 删除 204（无组引用）/ 被组引用删除 409（仅可归档）
 """
@@ -85,8 +85,8 @@ async def test_update_agent_success(client, make_headers):
     assert resp.json()["temperature"] == 0.2
 
 
-async def test_update_agent_non_owner_forbidden(client, auth_headers):
-    """非 owner 编辑他人 Agent → 403（归属校验）。"""
+async def test_update_agent_non_owner_not_found(client, auth_headers):
+    """非 owner 编辑他人 Agent → 404（016 统一，与「不存在」同响应）。"""
     owner_headers, _ = await auth_headers(role="member")
     agent = await _create_agent(client, owner_headers, name="owner-agent")
 
@@ -96,8 +96,8 @@ async def test_update_agent_non_owner_forbidden(client, auth_headers):
         headers=other_headers,
         json={"name": "hacked"},
     )
-    assert resp.status_code == 403
-    assert resp.json()["error"]["code"] == "FORBIDDEN"
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "NOT_FOUND"
 
 
 async def test_update_agent_not_found(client, make_headers):
@@ -123,8 +123,8 @@ async def test_archive_agent(client, make_headers):
     assert resp.json()["status"] == "archived"
 
 
-async def test_archive_non_owner_forbidden(client, auth_headers):
-    """非 owner 归档他人 Agent → 403。"""
+async def test_archive_non_owner_not_found(client, auth_headers):
+    """非 owner 归档他人 Agent → 404（016）。"""
     owner_headers, _ = await auth_headers(role="member")
     agent = await _create_agent(client, owner_headers)
 
@@ -132,7 +132,7 @@ async def test_archive_non_owner_forbidden(client, auth_headers):
     resp = await client.post(
         f"{AGENTS_URL}/{agent['id']}/archive", headers=other_headers
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
 async def test_archived_agent_not_in_assignable_list(client, make_headers):

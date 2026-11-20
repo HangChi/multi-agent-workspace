@@ -4,7 +4,7 @@
 - 创建 201（status=created，priority 默认 normal）
 - 详情 200（含 attachments）
 - 分页与 `?status=&q=&priority=` 过滤
-- 归属校验 403 / 404
+- 归属校验 404（016 起「非相关人」与「不存在」同响应）
 """
 
 REQUESTS_URL = "/api/v1/requests"
@@ -92,15 +92,15 @@ async def test_get_request_not_found(client, make_headers):
     assert resp.status_code == 404
 
 
-async def test_get_request_non_owner_forbidden(client, auth_headers):
-    """非 owner 查看他人需求 → 403（归属校验）。"""
+async def test_get_request_non_owner_not_found(client, auth_headers):
+    """非 owner 查看他人需求 → 404（016 统一，防存在性枚举）。"""
     owner_headers, _ = await auth_headers(role="member")
     req = await _create_request(client, owner_headers)
 
     other_headers, _ = await auth_headers(role="member")
     resp = await client.get(f"{REQUESTS_URL}/{req['id']}", headers=other_headers)
-    assert resp.status_code == 403
-    assert resp.json()["error"]["code"] == "FORBIDDEN"
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "NOT_FOUND"
 
 
 # ---------- 列表与过滤 ----------

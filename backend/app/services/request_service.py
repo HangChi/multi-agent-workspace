@@ -174,18 +174,19 @@ async def run_outcome_summaries(
 
 
 def _check_owner(request: Request, user_id: str) -> None:
-    """资源访问权（007）：创建者**或当前接收人**。
+    """资源访问权（007）：创建者**或当前接收人**；010 起项目成员另行放行。
 
     旧口径仅 owner——分派后接收人会被拒，员工对「派给自己的需求」
     毫无操作权（research R-02）。
 
-    错误码沿用既有契约：**非相关人员 403 FORBIDDEN**（test_requests.py
-    明确锁定，FR-014 要求零变化）。注意这与 agent/组（404）及 007 新的
-    分派端点 accept/reject/dispatch（404）不同——三者的差异是历史形成的，
-    统一收敛不在 007 范围（spec §US6 已记录该偏差）。
+    错误码（016 起统一）：**非相关人 404**，message 与「真的不存在」逐字相同。
+    此前这里回 403，与 007 之后的新端点（分派、依赖、项目成员）不一致，
+    让「403 存在 / 404 不存在」的差异可被用来枚举他人需求 id
+    （spec 016 research R-01）。注意 403 仍用于「参与者缺某个字段权限」，
+    例如 assignee 改 project_id —— 他知道需求存在，只是没这个权限。
     """
     if request.owner_id != user_id and request.assignee_id != user_id:
-        raise AppError("FORBIDDEN", "无权操作他人需求")
+        raise AppError("NOT_FOUND", "需求不存在")
 
 
 async def create_request(

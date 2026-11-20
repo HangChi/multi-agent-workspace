@@ -1,8 +1,8 @@
 """010 共享可见性与协作谓词集成测试（T011，US2/US3/FR-004~007）。
 
 本特性的回归面全在这里：扩的是「相关人员」集合，不是错误码。
-既有测试里那些「陌生人 403」的用例全部仍是非成员——它们一条不断
-（SC-004）；本文件钉新增的那一肢。
+（016 之后「陌生人」统一为 404；本文件里原本写 403 的断言已按 016 调整，
+「成员改 project_id 仍 403」这类**参与者缺字段权限**的断言保持不变。）
 """
 
 import uuid
@@ -123,7 +123,7 @@ async def test_visibility_revoked_immediately(db_session, client, make_headers):
     assert resp.status_code == 204
 
     gone = await client.get(f"{REQUESTS_URL}/{req.id}", headers=member_headers)
-    assert gone.status_code == 403  # 非相关人员维持 007 错误码
+    assert gone.status_code == 404  # 016：非相关人统一 404，不再泄露需求存在性
     listing = await client.get(REQUESTS_URL, headers=member_headers)
     assert all(r["id"] != req.id for r in listing.json()["items"])
 
@@ -301,7 +301,7 @@ async def test_accept_still_assignee_only(db_session, client, make_headers):
 
 
 async def test_stranger_still_isolated(db_session, client, make_headers):
-    """陌生人（非 owner 非成员）对共享项目与其需求维持 404/403。"""
+    """陌生人（非 owner 非成员）对共享项目与其需求都是 404（016 统一）。"""
     owner = await _user(db_session)
     member = await _user(db_session)
     stranger = await _user(db_session)
@@ -318,7 +318,7 @@ async def test_stranger_still_isolated(db_session, client, make_headers):
 
     stranger_headers = await make_headers(stranger)
     detail = await client.get(f"{REQUESTS_URL}/{req.id}", headers=stranger_headers)
-    assert detail.status_code == 403
+    assert detail.status_code == 404
     project_view = await client.get(
         f"{PROJECTS_URL}/{project.id}", headers=stranger_headers
     )
