@@ -34,18 +34,23 @@ services:
     # 再重放其后的 WAL。基础备份见 deploy/backup/pg_basebackup.sh。
     # `test ! -f` 前置判断是 Postgres 官方推荐写法：archive_command 返回非 0
     # 会被视为失败并不断重试，重复覆盖同名段会让恢复链断在半截。
-    command:
-      - postgres
+    #
+    # 为什么要包一层 entrypoint：named volume 首次创建时属主是 root:root，
+    # 而 postgres 进程以 postgres 用户运行 —— 直接挂上去 archive_command 会
+    # 一直报 `cp: can't create ...: Permission denied`，归档静默积压。
+    # 官方 entrypoint 只 chown PGDATA，不管我们自定义的卷，所以在这里先修属主。
+    entrypoint:
+      - /bin/sh
       - -c
-      - wal_level=replica
-      - -c
-      - archive_mode=on
-      - -c
-      - 'archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f'
-      # 低写入量的库可能几小时不切段，归档会一直是旧的。
-      # 60s 强制切一次，代价是低峰期多几个小段文件。
-      - -c
-      - archive_timeout=60
+      - |
+        set -e
+        mkdir -p /wal-archive
+        chown postgres:postgres /wal-archive
+        exec docker-entrypoint.sh postgres \
+          -c wal_level=replica \
+          -c archive_mode=on \
+          -c "archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f" \
+          -c archive_timeout=60
     ports:
       - '127.0.0.1:5432:5432'
     volumes:
