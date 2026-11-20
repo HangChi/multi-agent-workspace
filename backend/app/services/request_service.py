@@ -318,11 +318,12 @@ async def list_requests(
         await db.execute(select(func.count()).select_from(Request).where(*conditions))
     ).scalar_one()
 
-    # 分页列表（默认按创建时间倒序）
+    # 分页列表（默认按创建时间倒序）。id 作 tie-breaker：同批创建的需求
+    # created_at 可能相同，只按时间排序翻页会重复或漏项。
     stmt = (
         select(Request)
         .where(*conditions)
-        .order_by(Request.created_at.desc())
+        .order_by(Request.created_at.desc(), Request.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )

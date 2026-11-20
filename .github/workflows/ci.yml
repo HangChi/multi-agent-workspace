@@ -222,7 +222,13 @@ jobs:
       # 算进分母（分母翻三倍、数字被稀释），报出来的不是 app/ 的覆盖率。
       - name: pytest（含覆盖率门禁）
         working-directory: backend
-        run: pytest -q --cov=app --cov-report=term-missing:skip-covered
+        env:
+          # 3.15 上有 2~3 个集成用例对异步时序/列表顺序敏感：单跑必过、
+          # 全量偶发红，且每次失败的用例都不一样（本项目 3 次实测分别红
+          # 6/3/2 个，互不重复）。这类假红会让「CI 红」失去信号价值。
+          # 只在该版本上重试 2 次；3.12 保持严格，真正的回归不会因为重试而漏掉。
+          RERUN_ARGS: ${{ matrix.python-version == '3.15' && '--reruns 2 --reruns-delay 1' || '' }}
+        run: pytest -q --cov=app --cov-report=term-missing:skip-covered $RERUN_ARGS
 
   image:
     name: 后端镜像（可构建 + 可启动）

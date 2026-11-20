@@ -86,7 +86,8 @@ async def list_groups(
         select(AgentGroup)
         .options(_with_members())
         .where(*conditions)
-        .order_by(AgentGroup.created_at.desc())
+        # id 作 tie-breaker：同批创建的组 created_at 相同，只按时间排序不稳定
+        .order_by(AgentGroup.created_at.desc(), AgentGroup.id.desc())
     )
     if not fetch_all:
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)

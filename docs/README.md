@@ -34,14 +34,14 @@
 | [006-run-retry](../specs/006-run-retry/spec.md) | 运行自动重试：瞬时失败重试、不重复执行、成本跨次累计 | ✅ 39/39 |
 | [007-request-dispatch](../specs/007-request-dispatch/spec.md) | 需求分派给员工、收件箱、站内通知、经手链 | ✅ 41/41（s8 真实栈 7/7） |
 | [008-project-entity](../specs/008-project-entity/spec.md) | 项目容器：需求归类、看板项目筛选、项目 CRUD/归档/删除 | ✅ 30/30（s9 真实栈 5/5） |
-| [009-request-dependency](../specs/009-request-dependency/spec.md) | 需求依赖：有向边、硬门禁（409 逐条）、解锁通知、成环拒绝 | ✅ 29/29（s10 真实栈 4/4） |
+| [009-request-dependency](../specs/009-request-dependency/spec.md) | 需求依赖：有向边、硬门禁（409 逐条）、解锁通知、成环拒绝 | ✅ 30/30（s10 真实栈 4/4） |
 | [010-project-sharing](../specs/010-project-sharing/spec.md) | 项目共享：成员管理、共享可见性、协作谓词（owner+成员两层） | ✅ 26/26（s11 真实栈 4/4） |
 | [011-browser-walkthrough](../specs/011-browser-walkthrough/spec.md) | 浏览器走查基建：s12 脚本自动化三份前端清单，零应用改动 | ✅ 21/21（s12 终态 15/15） |
 | [012-error-message-passthrough](../specs/012-error-message-passthrough/spec.md) | ErrorBanner 字符串直通：修 011 抓出的「后端错误消息全被兜底文案吃掉」 | ✅ 10/10（s12 B4 复跑转 ✅） |
 | [013-s12-findings-fix](../specs/013-s12-findings-fix/spec.md) | s12 挂账三项：viewer 入口/共享项目可见/依赖弹层刷新 | ✅ 11/11（s12 15/15） |
 | [014-test-data-hygiene](../specs/014-test-data-hygiene/spec.md) | 测试数据卫生：清理验收账号 + 分配目标面板三行分区重设计 | ✅ 12/12（303→1 用户实测） |
-| [015-ui-refresh](../specs/015-ui-refresh/spec.md) | 前端全模块 UI 整改：焦点/表单/缓存键基建收敛 + 三轮定点视觉迭代 | ✅ 22/22（17 提交 / 69 文件；143 例 + s12 15/15） |
-| [016-error-code-unification](../specs/016-error-code-unification/spec.md) | 错误码语义统一：非相关人 403 → 404（防存在性枚举），参与者缺权限仍 403 | ✅ 13/14（2001 例 + 覆盖率 95%） |
+| [015-ui-refresh](../specs/015-ui-refresh/spec.md) | 前端全模块 UI 整改：焦点/表单/缓存键基建收敛 + 三轮定点视觉迭代 | ✅ 23/24（17 提交 / 69 文件；143 例 + s12 15/15）。T024 视觉回归基线按决议暂缓，原因见 tasks.md |
+| [016-error-code-unification](../specs/016-error-code-unification/spec.md) | 错误码语义统一：非相关人 403 → 404（防存在性枚举），参与者缺权限仍 403 | ✅ 14/14（2003 例 + 覆盖率 95.00%） |
 
 > `research.md` 是每个特性里最值得先读的文件：它记录每个关键决策「为什么更简单的做法不行」，
 > 例如 005 的「内置模板唯一性必须用部分唯一索引」（PostgreSQL 唯一约束遇 NULL 不生效）。

@@ -107,7 +107,14 @@ async def list_agents(
         await db.execute(select(func.count()).select_from(Agent).where(*conditions))
     ).scalar_one()
 
-    stmt = select(Agent).where(*conditions).order_by(Agent.created_at.desc())
+    # 加 id 作为 tie-breaker：created_at 只到微秒，同一批创建的 Agent 常常相同，
+    # 只按时间排序时 PostgreSQL 不保证稳定顺序 —— 翻页会看到重复项或漏项
+    # （实测 3.15 下 4 条同批数据两页取到同一个 id）。
+    stmt = (
+        select(Agent)
+        .where(*conditions)
+        .order_by(Agent.created_at.desc(), Agent.id.desc())
+    )
     if not fetch_all:
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
     rows = list((await db.execute(stmt)).scalars().all())
