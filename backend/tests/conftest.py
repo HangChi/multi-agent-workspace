@@ -56,6 +56,38 @@ if "agent_workbench_test" not in _TEST_DATABASE_URL:
     )
 os.environ["DATABASE_URL"] = _TEST_DATABASE_URL
 
+
+def _isolate_test_redis() -> None:
+    """把测试从开发栈的 Redis db 0 上挪开（0 → 15）。
+
+    为什么必须隔离：本地 `docker compose` 的 api/worker 就在 db 0 上存会话、
+    限流计数、分布式锁、通知游标。测试若也用 db 0，双方会互相踩：
+
+    - 开发栈写的 rate-limit 计数让测试偶发 429；
+    - 测试清理 keyspace 又把开发栈的锁/会话抹掉；
+    - 结果是「同一份代码，单文件跑绿、全量跑随机红」，而且**每次失败的用例
+      都不一样**（实测 3.15 上三次全量分别红 6 / 3 / 1 个，互不重复）。
+
+    CI 里是独立的 redis service，所以这个问题只在本地出现 —— 也正因如此，
+    它长期被误判成「测试本身不稳」。
+
+    规则：只在 url 指向 db 0 时才改。用户显式指定别的库（比如 CI 的 db 9）
+    就尊重原值，不猜。
+    """
+    url = os.getenv("REDIS_URL")
+    if not url:
+        # 没给就用与 app.core.config 默认值同源的主机，只换库号
+        os.environ["REDIS_URL"] = "redis://127.0.0.1:6379/15"
+        return
+    parts = urlsplit(url)
+    db = (parts.path or "/0").strip("/") or "0"
+    if db != "0":
+        return
+    os.environ["REDIS_URL"] = urlunsplit(parts._replace(path="/15"))
+
+
+_isolate_test_redis()
+
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import asdict
 from typing import Any
