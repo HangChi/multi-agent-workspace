@@ -54,10 +54,10 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any, Literal, Self
 
-import docker
 import requests
 from docker.errors import APIError, DockerException, ImageNotFound
 
+import docker
 from app.core.config import settings
 from app.executors.egress_network import (
     NetworkCapture,

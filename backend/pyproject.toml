@@ -36,8 +36,12 @@ dev = [
     # 仅给「运行期版本矩阵」用：3.15 上有几个集成用例对异步时序敏感
     # （单跑必过、全量偶发红），CI 只在该版本上允许重试，3.12 保持严格。
     "pytest-rerunfailures>=14.0",
-    "ruff>=0.5",
-    "mypy>=1.10",
+    # 静态检查工具**钉死版本**：它们的规则集会随补丁版本变化。
+    # 实测 ruff 0.17.5 → 0.17.6 就改了 isort 对「import x 与 from x.y import」
+    # 的排序，结果同一个提交本地绿、CI 红 —— 而 `>=` 让 CI 每次都装最新。
+    # lint 工具用精确版本是常规做法（同 pre-commit 的 rev 固定）。
+    "ruff==0.17.6",
+    "mypy==2.4.1",
     # 011 浏览器走查验收（s12）：只进 dev extras——Dockerfile 是
     # uv sync --locked --no-dev，生产镜像不装（运行时不变量不受影响）。
     # 安装需经代理（沙箱直连 pythonhosted 502）：HTTPS_PROXY=...:7897。
