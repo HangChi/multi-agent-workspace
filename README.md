@@ -380,17 +380,22 @@ Agent 可挂载的工具由执行器注册表提供，当前实现 5 个：
 
 ## 测试与质量门禁
 
-当前套件规模：后端 **1462 个用例**（unit + integration，真实 PostgreSQL 16）、
-前端 **143 例 / 25 文件**、浏览器走查 **15 项**（`deploy/verify/s12_browser_walkthrough.py`，
+当前套件规模：后端 **2003 个用例**（unit + integration，真实 PostgreSQL 16）、
+前端 **143 例 / 26 文件**、浏览器走查 **15 项**（`deploy/verify/s12_browser_walkthrough.py`，
 真实 Chromium）。CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）在每次
 push / PR 跑以下流水线：
 
 - **后端**：`ruff check` → `ruff format --check` → `mypy app` → `alembic upgrade head`
   （空库可达性）→ `pytest --cov`（带覆盖率门禁）
-  （Postgres 16 + Redis 7 service，MinIO 用 `docker run` 起，因为 service 不允许自定义启动命令）
+  （Postgres 16 + Redis 7 service，MinIO 用 `docker run` 起，因为 service 不允许自定义启动命令）。
+  **跑两个版本**：`3.12`（requires-python 下限，也是最严格的一档）与 `3.15`
+  （镜像实际运行的版本）。lint / mypy / 迁移只在 3.12 跑（与解释器无关），
+  测试两边都跑；3.15 允许 `--reruns 2` 过滤已知的时序敏感用例，3.12 不给重试。
 - **前端**：`eslint` → `prettier --check` → `tsc --noEmit` → `vitest run` → `vite build`
-  （并断言 CSS 产物 > 5KB，专防 PostCSS/Tailwind 配置丢失导致整站零样式回归）
+  （并断言 CSS 产物 > 5KB，专防 PostCSS/Tailwind 配置丢失导致整站零样式回归）。
+  同样跑 `node 22` 与 `26`（后者是镜像 build 阶段的版本）。
 - **镜像**：`docker build backend` → 起容器 → 容器内自请求 `/openapi.json` 探活 → 断言非 root
+  → **镜像内导入全部模块**（用镜像真实安装的那套依赖做冒烟，与矩阵的 pip 依赖互补）
 
 三道门禁解决的是同一类问题：**代码没问题、但交付物坏了**。
 
@@ -401,6 +406,10 @@ push / PR 跑以下流水线：
   覆盖率只会单向下降。
 - 镜像构建 + 启动探活：没有它，`Dockerfile` 可以长期失修而 CI 全绿 ——
   依赖清单改了忘同步 lock、基础镜像 tag 消失，都要拖到部署当天才发现。
+  **这不是假设**：2026-11-20 加了 `[sentry]` extra 却没跑 `uv lock`，
+  `uv sync --locked` 直接拒绝构建，image 与 002/003 验收一起红。
+  同理，lint 工具用 `>=` 会让补丁版本（ruff 0.17.5→0.17.6）改变规则，
+  造成「本地绿、CI 红」—— 因此 `ruff` / `mypy` 在 `pyproject.toml` 里钉了精确版本。
 
 本地等价命令：
 
