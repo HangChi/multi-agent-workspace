@@ -19,7 +19,7 @@
 
 ## 功能规格（Spec Kit，`../specs/`）
 
-十四个特性都按 SDD + TDD 走完，每个目录结构一致：
+十五个特性都按 SDD + TDD 走完，每个目录结构一致：
 `spec.md`（WHAT/WHY）→ `plan.md` / `research.md` / `data-model.md` /
 `contracts/api.md` → `checklists/requirements.md` → `tasks.md`（逐条勾选 + 实测记录）
 → `quickstart.md`（真实栈验收）。

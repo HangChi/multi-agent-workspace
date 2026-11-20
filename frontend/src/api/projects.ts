@@ -2,7 +2,7 @@ import { apiClient } from './client'
 
 // ---------- 项目（008）----------
 
-/** 项目：需求的业务容器。单人归属，无成员（research R-01）。 */
+/** 项目：需求的业务容器。创建者为 owner；成员与共享由 010 补齐（两层权限，无 role 列）。 */
 export interface Project {
   id: string
   owner_id: string

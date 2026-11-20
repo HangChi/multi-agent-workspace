@@ -228,7 +228,7 @@ frontend/
     hooks/          # useAuth / useRequests / useRunSocket
 deploy/             # docker-compose / Caddyfile / .env.example / mock-llm / verify
 docs/               # 架构文档（入口见 docs/README.md）
-specs/              # Spec Kit 规格（001–010，SDD + TDD 工作流）
+specs/              # Spec Kit 规格（001–015，SDD + TDD 工作流）
 ```
 
 ---
@@ -335,7 +335,7 @@ GET           /health, /health/ready       存活 / 就绪探针
 `REFRESH_GRACE_SECONDS` 给多标签页并发刷新留宽限期，避免互相踢下线。
 
 > 以上是概览。完整的请求/响应 schema、错误码与边界语义在各特性的
-> `specs/NNN-*/contracts/api.md`（001–010 十份），运行时以 `/docs` 的 OpenAPI 为准。
+> `specs/NNN-*/contracts/api.md`（001–015 十五份），运行时以 `/docs` 的 OpenAPI 为准。
 
 ### 内置工具
 
@@ -396,7 +396,8 @@ push / PR 跑以下流水线：
 
 - `ruff format --check` / `prettier --check`：没有它，格式会随各自编辑器的保存钩子漂移，
   最终每次 diff 都夹带无关改动。`ruff check` 只看语义，不管排版，两者必须都有。
-- 覆盖率门禁（阈值见 `backend/pytest.ini` 的 `fail_under`）：没有它，删测试不会有任何反馈，
+- 覆盖率门禁（阈值 `fail_under = 85` 在 `backend/.coveragerc`；pytest.ini 不读
+  `[coverage:*]` 段，写在那里等于没写）：没有它，删测试不会有任何反馈，
   覆盖率只会单向下降。
 - 镜像构建 + 启动探活：没有它，`Dockerfile` 可以长期失修而 CI 全绿 ——
   依赖清单改了忘同步 lock、基础镜像 tag 消失，都要拖到部署当天才发现。
@@ -507,8 +508,9 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
     新端点按后一条写；改老端点需要单独立项（`016`），不要顺手改。
 - 邀请码：发放与吊销在 `/settings/admin`（015 之前只能改库）；**没有**用量统计报表、
   批量发码、按部门限额，也没有「申请-审批」流程。码泄露的处置只有吊销 + 重发。
-- 项目容器（008）：项目为**单人归属**（无成员/共享，组织形态后置 P2）；
-  删除项目是物理删除 + 需求归属清空（迁移 downgrade 同样会丢项目实体，已记入回滚面）。
+- 项目容器（008）：项目**创建者即 owner**；成员与共享由 010 补齐（owner 全权 +
+  成员项目内读写，两层模型，无 role 列）。删除项目是物理删除 + 需求归属清空
+  （迁移 downgrade 同样会丢项目实体，已记入回滚面）。
 - 需求依赖（009）：门禁是**分配时的前置校验**而非需求状态（不加 blocked 态）；
   只做「硬门禁 + 完成通知」，不做拓扑排序/关键路径/自动级联启动（用户范围确认）；
   依赖目标不做可见性校验（内部协作定位，「B 等隔壁团队的 A」是核心场景，
@@ -551,5 +553,5 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 | [docs/llm-pricing.md](docs/llm-pricing.md) | LLM 单价表口径（成本核算与熔断的基准） |
 | [docs/load-test-2026-11-17.md](docs/load-test-2026-11-17.md) | 100/200 并发压测记录 |
 | [docs/code-audit-2026-11-17.md](docs/code-audit-2026-11-17.md) | 2026-11-17 全量代码审查报告（含修复进度） |
-| [specs/](specs/) | 001–010 十个特性的规格四件套 + 任务清单 + 实测记录 |
+| [specs/](specs/) | 001–015 十五个特性的规格四件套 + 任务清单 + 实测记录 |
 | [.specify/memory/constitution.md](.specify/memory/constitution.md) | 项目宪法（SDD + TDD、质量门禁、安全边界） |
