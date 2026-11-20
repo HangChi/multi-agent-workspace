@@ -87,7 +87,9 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: '沙箱非成功执行速率 {{ $value }}/s'
+          # 用 humanize 而不是裸 $value：rate() 的结果常有 4.999999999999999
+          # 这类浮点尾巴，值班时看到一长串数字既难读、也会让规则测试不稳定。
+          summary: '沙箱非成功执行速率 {{ $value | humanize }}/s'
           description: '持续失败通常是镜像缺失、磁盘/内存配额被打满，或出网策略挡了必需域名。'
 
   - name: aw-cost

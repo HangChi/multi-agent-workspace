@@ -65,6 +65,27 @@ receivers:
 另外它还强制：每条规则必须有 `severity`、`for`、`summary`；每个暴露的指标要么
 出现在某条规则里，要么在 `intentionally_unwatched` 里显式登记。
 
+## 规则行为测试（promtool）
+
+契约测试只看「指标名对不对」，看不出「阈值写反、`for` 写成 0、分母写错」——
+这些规则语法合法、指标名也对，只是永远不响或一有流量就响。
+
+`alerts_test.yml` 用构造的时间序列验证每条规则的**触发行为**，两类断言都有：
+该触发时必须触发，不该触发时必须沉默。
+
+```bash
+docker run --rm --entrypoint promtool \
+  -v "$PWD/deploy/observability:/cfg:ro" -w /cfg \
+  prom/prometheus:v3.14.0 test rules alerts_test.yml
+# SUCCESS
+```
+
+CI 的 image 作业会跑这一步（runner 自带 docker，不需要额外的 Prometheus 服务）。
+
+> ⚠️ promtool 要求 `exp_annotations` 与告警文案**逐字一致**，包括 `{{ $value }}`
+> 渲染后的值。改措辞或改输入序列时必须同步期望值——这不是多余负担：
+> 告警文案是值班时唯一的信息来源，改它本来就该有人看一眼。
+
 ## Grafana 面板
 
 `grafana/` 下是完整的 provisioning，容器起来就是可用状态（不需要手工点选数据源、
@@ -105,9 +126,9 @@ LLM 成本（元/小时，按模型）、LLM 调用速率（按 outcome）、Run
 
 ## 尚未验证的部分（如实记录）
 
-- **告警阈值本身没有在真实负载下验证过**。规则能通过 `promtool check rules`、
-  指标名有契约测试保证一致，但「5xx > 5% 持续 5 分钟」这类阈值是否合适，
-  需要真实流量才能调。这也是 003 `release-status.md` 里「告警阈值验证」至今
-  未闭环的原因 —— 它依赖真实部署，不是代码问题。
+- **告警阈值是否贴合真实负载，仍未验证**。规则能通过语法检查、指标名一致性检查，
+  以及上面的行为测试，但「5xx > 5% 持续 5 分钟」「成本 24h > 50 元」这些**数字**
+  是否合适，需要真实流量才能调。这也是 003 `release-status.md` 里「告警阈值验证」
+  至今未闭环的原因 —— 它依赖真实部署，不是代码问题。
 - Grafana 看板的 panel 表达式按 `metrics.py` 的指标名写，但**没有跑过数据回放**：
   它是「有真实流量时才看得出对不对」的东西，与告警阈值同属待真机验证项。

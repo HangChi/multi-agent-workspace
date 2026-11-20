@@ -271,6 +271,16 @@ jobs:
           echo "容器内 uid=$uid"
           test "$uid" != "0"
 
+      # 告警规则的**行为**测试：构造时间序列验证「该触发时触发、不该触发时不触发」。
+      # 与 deploy/verify/test_alert_rules.py 互补 —— 那个只校验指标名与必填字段，
+      # 查不出「阈值写反 / for 写成 0 / 分母写错」这类语法合法但永远不响的错误，
+      # 而这类错误在真出事时才会发现「告警像是配了，一条都没响」。
+      - name: 告警规则行为测试（promtool）
+        run: |
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/deploy/observability:/cfg:ro" -w /cfg \
+            prom/prometheus:v3.14.0 test rules alerts_test.yml
+
       # 与 backend 作业的 3.15 矩阵互补，两者查的不是同一件事：
       #   - backend 矩阵用 pip 装的依赖 + setup-python 解释器跑全量测试（行为）；
       #   - 这里用**镜像里真实安装的**那套依赖（uv.lock 锁定版本 + slim 基础镜像的
