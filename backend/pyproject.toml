@@ -40,6 +40,12 @@ dev = [
     # 安装需经代理（沙箱直连 pythonhosted 502）：HTTPS_PROXY=...:7897。
     "playwright>=1.40",
 ]
+# 异常上报（可选）。不在主依赖里：SENTRY_DSN 为空时应用完全不 import 它，
+# 装了也只是多几十 MB 依赖。要用时 `pip install -e '.[sentry]'` 并填 DSN。
+# 三个 extra 分别对应 FastAPI 请求、SQLAlchemy 查询、Celery 任务三个层次。
+sentry = [
+    "sentry-sdk[fastapi,sqlalchemy,celery]>=2.0",
+]
 
 [build-system]
 requires = ["setuptools>=69"]
@@ -71,6 +77,17 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["app.core.config"]
 disallow_untyped_defs = false
+
+# docker-py 7.x 不带 py.typed，但 mypy 2.x 会去用捆绑 typeshed 里那份**不完整的**
+# docker 存根，于是 `docker.DockerClient` / `docker.from_env` 全被报成 name-defined。
+# 这不是代码问题（运行时完全正常），是存根与库版本错配。
+# 两个选择：给存根提 PR，或者明确「不要跟这个包的存根」。
+# follow_imports=skip 让 mypy 把 docker 当 Any 处理 —— 与 ignore_missing_imports
+# 的意图一致，但那个开关对「**有**存根只是存根不全」的包不生效，必须用这个。
+[[tool.mypy.overrides]]
+module = ["docker", "docker.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

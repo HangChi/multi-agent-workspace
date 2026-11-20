@@ -94,9 +94,20 @@ jobs:
           retention-days: 7
 
   backend:
-    name: 后端（lint + 类型 + 测试）
+    name: 后端（lint + 类型 + 测试）py${{ matrix.python-version }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+
+    # 两个版本都必须跑测试：
+    #   3.12 是 pyproject 的 requires-python 下限，也是开发/CI 的历史基准；
+    #   3.15 是 **镜像实际运行的版本**（backend/Dockerfile 的 python:3.15-slim）。
+    # 此前只在 3.12 上跑全量、在镜像里做一次 import 冒烟 —— 那只能发现「import 就崩」，
+    # 发现不了运行期才出现的行为差异（asyncio 语义、标准库弃用告警、typing 收紧）。
+    # lint / mypy / 迁移可逆性只跑基准版本：它们与解释器版本无关，重复跑纯浪费时间。
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.15']
 
     services:
       postgres:
@@ -141,7 +152,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: backend/pyproject.toml
 
@@ -150,6 +161,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+
+      - name: 报告解释器版本
+        working-directory: backend
+        run: python -c "import sys; print('pytest 将在', sys.version)"
 
       # services 的 minio 镜像默认命令无法直接当服务跑，单独拉起
       - name: 启动 MinIO（附件测试需要真实预签名 PUT/GET）
@@ -181,6 +196,8 @@ jobs:
           alembic current
 
       - name: ruff
+        # 静态检查与解释器版本无关，只在基准版本跑一次
+        if: matrix.python-version == '3.12'
         working-directory: backend
         # alembic/ 必须在内：迁移文件同样是交付代码，此前的 app tests 范围
         # 让迁移里的旧式 Union 注解（UP007 等）永远过不了CI也看不见。
@@ -189,15 +206,18 @@ jobs:
       # 格式检查放在 lint 之后：ruff check 只看语义，ruff format 看排版，
       # 两者互补。没有这一步，格式化风格会随作者编辑器配置漂移。
       - name: ruff format（格式一致性）
+        if: matrix.python-version == '3.12'
         working-directory: backend
         run: ruff format --check .
 
       - name: mypy
+        if: matrix.python-version == '3.12'
         working-directory: backend
         run: mypy app
 
-      # 带覆盖率跑：门槛写在 pytest.ini 的 [coverage:report] fail_under，
-      # 低于阈值非零退出。--cov 是显式加的，本地快速循环可以不带。
+      # 带覆盖率跑：门槛写在 backend/.coveragerc 的 [report] fail_under=85，
+      # 低于阈值非零退出。pytest.ini 不读 [coverage:*] 段，写在那里等于没写。
+      # --cov 是显式加的，本地快速循环可以不带。
       # 必须写成 --cov=app：裸 --cov 等价于 --cov=.，会把 tests/ 自己
       # 算进分母（分母翻三倍、数字被稀释），报出来的不是 app/ 的覆盖率。
       - name: pytest（含覆盖率门禁）
@@ -245,27 +265,36 @@ jobs:
           echo "容器内 uid=$uid"
           test "$uid" != "0"
 
-      # 测试作业跑的是 setup-python 3.12，镜像跑的却是 Dockerfile 里的 3.15：
-      # 真正会跑的版本此前从未被验证过（dependabot 一次 base 镜像 bump 就能把
-      # 「CI 绿」和「线上 import 就崩」分开）。这里在镜像内做一次全模块导入，
-      # 覆盖最常见的版本差异（标准库移除、C 扩展 ABI、typing 行为变化）。
-      # 全量测试仍只在 3.12 上跑：双版本跑全量会把 CI 时间翻倍，而 import 期
-      # 差异才是这类版本漂移的主要风险面。
+      # 与 backend 作业的 3.15 矩阵互补，两者查的不是同一件事：
+      #   - backend 矩阵用 pip 装的依赖 + setup-python 解释器跑全量测试（行为）；
+      #   - 这里用**镜像里真实安装的**那套依赖（uv.lock 锁定版本 + slim 基础镜像的
+      #     精简系统库）做一次全模块导入，能抓到「镜像内缺 .so / 缺 locale /
+      #     依赖被 lock 钉在旧版本」这类只有镜像才会有的问题。
+      # 两边都保留：删掉任一边，都会留下一类灰区。
       - name: 镜像内导入全部模块（运行期 Python 版本冒烟）
         run: |
           docker run --rm --entrypoint /opt/aw/.venv/bin/python aw-backend:ci -c "import sys, app.main, app.tasks.execute_run, app.tasks.celery_app, app.executors.sandbox, app.executors.mcp_client, app.api.v1.ws, app.core.redis; print('runtime python', sys.version.split()[0], 'imports ok')"
 
   frontend:
-    name: 前端（lint + 类型 + 单测 + 构建）
+    name: 前端（lint + 类型 + 单测 + 构建）node${{ matrix.node-version }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    # 与后端同一个理由：frontend/Dockerfile 的 build 阶段是 node:26-alpine，
+    # 而 CI 一直只在 22 上验证。构建期差异（Vite 的 Node API 用法、依赖的
+    # engines 字段、ESM/CJS 解析行为）只会在真正构建的版本上暴露。
+    # lint/prettier 只跑基准版本：规则与解释器版本无关。
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['22', '26']
 
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          node-version: ${{ matrix.node-version }}
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -274,10 +303,12 @@ jobs:
         run: npm ci
 
       - name: eslint
+        if: matrix.node-version == '22'
         working-directory: frontend
         run: npm run lint
 
       - name: prettier（格式一致性）
+        if: matrix.node-version == '22'
         working-directory: frontend
         run: npm run format:check
 
