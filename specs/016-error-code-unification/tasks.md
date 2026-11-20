@@ -11,6 +11,6 @@
 - [X] T009 更新既有测试里的 403 断言（17 个用例，含 6 个文件头注释）
 - [X] T010 同步 `specs/001|005/contracts/api.md` 的错误码（FR-009）
 - [X] T011 README「已知限制」删除「两套并存」，改为统一口径（SC-004）
-- [X] T012 后端全量 + 覆盖率门禁：**2001 passed / 95.00%**（NFR-002）
+- [X] T012 后端全量 + 覆盖率门禁：**2004 passed / 95.00%**（NFR-002）
 - [X] T013 前端回归：tsc / eslint / vitest(143) / build 全绿（NFR-003）
 - [X] T014 quickstart.md + docs/README 索引 + 合回 master

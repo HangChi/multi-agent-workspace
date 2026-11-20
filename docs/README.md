@@ -42,7 +42,7 @@
 | [013-s12-findings-fix](../specs/013-s12-findings-fix/spec.md) | s12 挂账三项：viewer 入口/共享项目可见/依赖弹层刷新 | ✅ 11/11（s12 15/15） |
 | [014-test-data-hygiene](../specs/014-test-data-hygiene/spec.md) | 测试数据卫生：清理验收账号 + 分配目标面板三行分区重设计 | ✅ 12/12（303→1 用户实测） |
 | [015-ui-refresh](../specs/015-ui-refresh/spec.md) | 前端全模块 UI 整改：焦点/表单/缓存键基建收敛 + 三轮定点视觉迭代 | ✅ 23/24（17 提交 / 69 文件；143 例 + s12 15/15）。T024 视觉回归基线按决议暂缓，原因见 tasks.md |
-| [016-error-code-unification](../specs/016-error-code-unification/spec.md) | 错误码语义统一：非相关人 403 → 404（防存在性枚举），参与者缺权限仍 403 | ✅ 14/14（2003 例 + 覆盖率 95.00%） |
+| [016-error-code-unification](../specs/016-error-code-unification/spec.md) | 错误码语义统一：非相关人 403 → 404（防存在性枚举），参与者缺权限仍 403 | ✅ 14/14（2004 例 + 覆盖率 95.00%） |
 
 > `research.md` 是每个特性里最值得先读的文件：它记录每个关键决策「为什么更简单的做法不行」，
 > 例如 005 的「内置模板唯一性必须用部分唯一索引」（PostgreSQL 唯一约束遇 NULL 不生效）。
