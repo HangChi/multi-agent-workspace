@@ -15,9 +15,21 @@ class Base(DeclarativeBase):
     """ORM 声明基类。"""
 
 
-# 测试环境（TESTING=1）使用 NullPool：每个连接独立创建/关闭，避免跨 event loop 复用。
-# Celery worker 同理（DB_POOL=null）：worker 用 asyncio.run 每次新建事件循环，
-# 连接池的连接绑定旧 loop 会报 "attached to a different loop"。
+# 测试与 Celery worker 都用 NullPool：每个连接独立创建/关闭，避免跨 event loop 复用。
+#
+# 为什么不给测试上连接池（2026-11-20 实测过，已回退）：
+# pytest.ini 把 test loop 设成 session 级，看起来可以池化，但 **WebSocket 测试
+# 用的是另一个 event loop**（TestClient 的 portal）。池里的连接绑定在旧 loop，
+# 关闭时报 `RuntimeError: Event loop is closed`，一次挂了 12 个 ws 用例。
+# 顺带发现：池化还会把会话级状态（如某测试的 `SET search_path`）带给后续用例，
+# 表现为「跑了几百个用例后突然 relation users does not exist」——
+# 那条 `SET` 已修为 `SET LOCAL`（test_migration_0009），但结论不变：
+# 测试隔离性比连接复用更重要。
+#
+# 代价是 ~2000 个用例各建各的连接，在本机经宿主端口映射连库时会偶发连接超时
+# （`asyncpg... compat.timeout -> TimeoutError`，表现为随机几个用例失败、每次不同）。
+# 该现象在 CI（service 容器 localhost 直连）上更罕见，目前用 `--reruns 2` 兜住，
+# 见 .github/workflows/ci.yml。
 _is_worker_or_test = os.getenv("TESTING") == "1" or os.getenv("DB_POOL") == "null"
 _pool_kwargs = (
     {"poolclass": NullPool}

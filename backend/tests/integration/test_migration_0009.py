@@ -194,7 +194,11 @@ async def test_null_owner_names_are_unique_but_owner_scoped_duplicates_are_not()
             async def try_insert(owner, name: str) -> str | None:
                 """在新连接里试插；返回 None 表示成功，否则返回错误文本。"""
                 async with engine.connect() as c:
-                    await c.execute(text(f'SET search_path TO "{schema}"'))
+                    # SET LOCAL 而非 SET：会话级的 search_path 会跟着连接一起
+                    # 还回连接池，后续用例复用该连接时就看不到 public 的表
+                    # （表现为「跑了几百个用例后突然 relation users does not
+                    # exist」）。事务结束会自动恢复默认 search_path。
+                    await c.execute(text(f'SET LOCAL search_path TO "{schema}"'))
                     try:
                         await c.execute(insert, {"owner": owner, "name": name})
                         await c.commit()
@@ -212,7 +216,11 @@ async def test_null_owner_names_are_unique_but_owner_scoped_duplicates_are_not()
                 """
                 a_id, b_id = str(uuid.uuid4()), str(uuid.uuid4())
                 async with engine.connect() as c:
-                    await c.execute(text(f'SET search_path TO "{schema}"'))
+                    # SET LOCAL 而非 SET：会话级的 search_path 会跟着连接一起
+                    # 还回连接池，后续用例复用该连接时就看不到 public 的表
+                    # （表现为「跑了几百个用例后突然 relation users does not
+                    # exist」）。事务结束会自动恢复默认 search_path。
+                    await c.execute(text(f'SET LOCAL search_path TO "{schema}"'))
                     await c.execute(
                         text("INSERT INTO users (id) VALUES (:i), (:i2)"),
                         {"i": a_id, "i2": b_id},

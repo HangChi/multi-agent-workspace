@@ -114,7 +114,11 @@ pytest_plugins = ["tests.sandbox_fixtures"]
 # 测试数据库 URL：环境变量已指向测试库（见文件头部），直接复用，避免二次 replace 出错
 TEST_DATABASE_URL = settings.database_url
 
-# NullPool：每个连接独立创建/关闭，避免跨 event loop 复用连接
+# NullPool：每个连接独立创建/关闭。
+# 2026-11-20 试过改成小连接池以减少建连次数（应对偶发连接超时），已回退：
+# WebSocket 测试跑在另一个 event loop 上，池化后连接关闭会报
+# `RuntimeError: Event loop is closed`；池化还会把 `SET search_path`
+# 这类会话级状态带给后续用例。详见 app/core/db.py 的注释。
 engine = create_async_engine(TEST_DATABASE_URL, echo=False, poolclass=NullPool)
 TestSession = async_sessionmaker(
     engine, class_=AsyncSession, expire_on_commit=False, autoflush=False

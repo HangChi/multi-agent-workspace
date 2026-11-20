@@ -36,6 +36,10 @@ dev = [
     # 仅给「运行期版本矩阵」用：3.15 上有几个集成用例对异步时序敏感
     # （单跑必过、全量偶发红），CI 只在该版本上允许重试，3.12 保持严格。
     "pytest-rerunfailures>=14.0",
+    # 仅为 tests/unit/test_sentry_capture.py 提供 SDK：验证「异常真的能进
+    # transport」。运行时仍靠 [sentry] extra + DSN 才启用，dev 装它不会
+    # 让应用开始上报（DSN 为空时 init_sentry 直接返回）。
+    "sentry-sdk[fastapi,sqlalchemy,celery]>=2.0",
     # 静态检查工具**钉死版本**：它们的规则集会随补丁版本变化。
     # 实测 ruff 0.17.5 → 0.17.6 就改了 isort 对「import x 与 from x.y import」
     # 的排序，结果同一个提交本地绿、CI 红 —— 而 `>=` 让 CI 每次都装最新。

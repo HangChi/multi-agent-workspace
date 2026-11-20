@@ -555,9 +555,20 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
   3.15 上有 2~3 个集成用例对异步时序/列表顺序敏感——单跑必过、全量偶发红，且
   每次失败的用例都不一样（三次实测分别红 6 / 3 / 2 个，互不重复）。处理方式：
   CI **只在 3.15 的 job 上**允许 `--reruns 2`，3.12 保持严格，真正的回归不会因为
-  重试而漏掉。已修的根因：`agents` / `requests` / `groups` 列表排序缺 tie-breaker
-  （同批创建时 `created_at` 相同，翻页会重复或漏项）——这是**产品 bug**，不只是测试问题。
-  剩余偶发项尚未定位到根因，属后续清理项。
+  重试而漏掉。
+  - **已修**：`agents` / `requests` / `groups` 列表排序缺 tie-breaker（同批创建时
+    `created_at` 相同，翻页会重复或漏项）——这是**产品 bug**，不只是测试问题。
+  - **根因已定位**（2026-11-20，抓到了 traceback）：`TESTING=1` 用 NullPool，
+    ~2000 个用例各建各的连接；在容器内经宿主端口映射连库时偶发
+    `asyncpg ... compat.timeout -> TimeoutError`——失败与用例逻辑无关，所以
+    「随机、每次不同」。
+  - **为什么不能靠池化解决**：试过改小连接池，一次挂了 12 个 ws 用例
+    （`RuntimeError: Event loop is closed`——WS 测试跑在另一个 event loop，池里的
+    连接绑在旧 loop）；池化还会把某测试的 `SET search_path` 带给后续用例
+    （表现为「跑了几百个用例后突然 relation users does not exist」）。
+    后者已修为 `SET LOCAL`，但结论不变：**测试隔离性优先于连接复用**，
+    因此保留 NullPool + `--reruns` 兜底。CI 用 service 容器 localhost 直连，
+    不经过端口转发，命中率远低于本机容器内跑测试。
 - 许可证：[MIT](LICENSE)；仓库原本私有自用，开源前请复核依赖许可与部署配置中的密钥处理。
 
 ---

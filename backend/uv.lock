@@ -43,6 +43,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "pytest-rerunfailures" },
     { name = "ruff" },
+    { name = "sentry-sdk", extra = ["celery", "fastapi", "sqlalchemy"] },
 ]
 sentry = [
     { name = "sentry-sdk", extra = ["celery", "fastapi", "sqlalchemy"] },
@@ -73,6 +74,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "redis", specifier = ">=5.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.17.6" },
+    { name = "sentry-sdk", extras = ["fastapi", "sqlalchemy", "celery"], marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "sentry-sdk", extras = ["fastapi", "sqlalchemy", "celery"], marker = "extra == 'sentry'", specifier = ">=2.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
     { name = "structlog", specifier = ">=24.1" },

@@ -27,9 +27,9 @@
 
 | 项 | 状态 | 为什么现在不做 |
 |---|---|---|
-| 3.15 上 2~3 个集成用例偶发失败 | 已缓解（CI 仅 3.15 job 允许 `--reruns 2`） | 单跑必过、全量偶发红，每次失败用例不同。已修掉确认的根因（分页排序），剩余需逐个用 `-p no:randomly`/固定顺序复现，属独立排期 |
+| 3.15 上 2~3 个集成用例偶发失败 | **根因已定位**；缓解措施保留（CI 仅 3.15 job 允许 `--reruns 2`） | 抓到 traceback：`asyncpg connect -> TimeoutError`。NullPool 下 ~2000 用例各建连接，容器内经端口映射连库时偶发超时。尝试改池化被否决——WS 测试跨 event loop（`Event loop is closed`），且 `SET search_path` 会泄漏给后续用例（已修为 `SET LOCAL`）。结论：隔离性优先，保留 NullPool + 重试 |
 | 视觉回归基线（015 T024） | 暂缓 | 需要常驻 Playwright e2e 基建；没有稳定基线时截图 diff 全是噪声 |
-| Sentry 实际上报 | 只留接线 | 需要用户提供 DSN 才能验证，且涉及数据留存策略 |
+| Sentry 真实上报到项目 | 接线已**验证**（`test_sentry_capture.py` 用假 transport 断言异常能出 SDK） | 剩下的只是填 DSN 与确认留存策略，属配置而非代码。不往真实项目发测试事件的理由：CI 不该依赖外部服务，也不该污染别人的事件流 |
 | 真机 PITR 恢复 / 生产部署 smoke | 未做 | 需要有目标主机与域名；容器内一次性实例的恢复演练已通过 |
 | 告警阈值调优 | 未做 | 依赖真实流量；阈值是实测基线推的，但没在生产量级下验证 |
 | `external-tools/observability` 的多 worker 聚合 | 未做 | 计数器是进程本地，页面已注明只代表单个 worker；全局口径看 Prometheus |
