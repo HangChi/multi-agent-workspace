@@ -14,6 +14,8 @@
 | postgres | aw-postgres | `127.0.0.1:5432` | PostgreSQL 16，仅本机可连 |
 | redis | aw-redis | `127.0.0.1:6379` | 队列 / 事件 Pub-Sub / 结果后端 |
 | minio | aw-minio | `127.0.0.1:9000` / `9001` | S3 兼容对象存储（附件与制品） |
+| prometheus | aw-prometheus | `127.0.0.1:9090` | 指标抓取 + 8 条告警规则（`--profile observability`） |
+| grafana | aw-grafana | `127.0.0.1:3000` | 总览看板（`--profile observability`，provisioning 自动加载） |
 | llm-gateway | aw-llm-gateway | 仅容器内 4000 | **仅验证用** Mock LLM，`--profile mock` 才启动 |
 
 ## 启动
@@ -247,7 +249,7 @@ docker logs aw-api 2>&1 | grep '"request_id": "a1b2c3d4e5f6a7b8"'
 
 ## 数据备份
 
-只用命名卷，目录在 `/var/lib/docker/volumes/aw_{pgdata,miniodata,redisdata}`。
+只用命名卷，目录在 `/var/lib/docker/volumes/aw_{pgdata,pwal,miniodata,redisdata}`。
 
 ```bash
 # PostgreSQL 逻辑备份（推荐，可跨版本恢复）
@@ -257,6 +259,29 @@ docker exec -i aw-postgres pg_restore -U aw -d agent_workbench --clean < backup-
 ```
 
 MinIO 附件建议额外同步 `miniodata` 卷或用 `mc mirror` 到外部存储。
+
+### 时间点恢复（PITR，016 阶段补齐）
+
+postgres 已开 WAL 归档（`archive_mode=on`，写入 `aw_pgwal` 卷的 `/wal-archive`），
+配合 `deploy/backup/pg_basebackup.sh` 的基础备份可以恢复到任意时间点：
+
+```bash
+# 每天基础备份 + 每周恢复演练（脚本内含归档开关自检）
+0 2 * * *   cd /opt/agent-workbench && BACKUP_DIR=/var/backups/aw deploy/backup/pg_basebackup.sh
+0 4 * * 0   cd /opt/agent-workbench && BACKUP_DIR=/var/backups/aw deploy/backup/pitr_restore_drill.sh
+```
+
+演练脚本起一次性容器恢复并断言 alembic 版本与表数，**不碰生产库**。
+完整说明（含按时间点恢复的手工步骤、`pgwal` 卷的删除风险）见
+[`backup/README.md`](backup/README.md)。
+
+> ⚠️ `docker compose down -v` 会连 `aw_pgwal` 归档一起删。清卷前先确认基础备份已落到卷外。
+
+### 异常上报（Sentry，可选）
+
+`SENTRY_DSN` 留空时应用完全不加载 SDK（零开销）。启用需要两步：
+装 `.[sentry]` extra + 填 DSN。只填 DSN 没装依赖时应用照常启动，只留一条 warning。
+见 `.env.example` 的「异常上报」段。
 
 ## 升级
 

@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
 
+from app import __version__
 from app.api import errors
 from app.api.middleware import RequestContextMiddleware
 from app.api.v1.admin import router as admin_router
@@ -66,7 +67,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
-        version="0.1.0",
+        version=__version__,
         lifespan=_lifespan,
         # 生产关闭交互式文档：避免对外暴露完整 API 结构
         docs_url=None if settings.is_production else "/docs",

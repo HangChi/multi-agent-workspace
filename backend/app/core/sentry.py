@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import structlog
 
+from app import __version__
 from app.core.config import settings
 
 logger = structlog.get_logger(__name__)
@@ -45,7 +46,7 @@ def init_sentry() -> bool:
     sentry_sdk.init(
         dsn=settings.sentry_dsn,
         environment=settings.app_env,
-        release=f"{settings.app_name}@0.1.0",
+        release=f"{settings.app_name}@{__version__}",
         # 夹紧到 [0, 1]：填成 5 或 -1 都会被 SDK 拒绝，不如在这里收口
         traces_sample_rate=max(0.0, min(1.0, settings.sentry_traces_sample_rate)),
         # 默认关：请求体里有需求正文、Agent 提示词，属于业务数据。
