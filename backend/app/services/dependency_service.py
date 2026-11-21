@@ -36,6 +36,10 @@ logger = structlog.get_logger(__name__)
 # 用 `from ... import` 引入后，模块属性 `dependency_service.TERMINAL_STATUSES`
 # 仍可访问（api/v1/requests.py 依赖它），无需额外赋值。
 
+#: `_adjacency_for` 的 BFS 深度上限（安全阀，见函数注释）。
+#: 依赖链正常只有几层；上限只是防止异常数据让一次加边请求吃掉整库。
+_MAX_ADJACENCY_DEPTH = 16
+
 
 class DependencyBlockedError(AppError):
     """门禁异常（009）：assign 被未完成前置挡下。
@@ -80,18 +84,47 @@ def would_create_cycle(
 async def _adjacency_for(db: AsyncSession, request_id: str) -> dict[str, set[str]]:
     """取某个需求所在连通域的邻接表（被依赖方 → 前置集合）。
 
-    全量表扫在这个数据量下可接受（依赖边总数 ≪ 需求总数的一个数量级），
-    且避免了「从两个方向各自 BFS」的二次查询。数据量增长后再按需收窄
-    为连通域查询。
+    R3 观察项：原实现 `SELECT request_id, dependency_id` 无条件全表扫，
+    每次加边都拉一遍**所有**依赖边。注释当时写的是「数据量小可接受」，
+    但这是唯一一条会随租户数据总量线性劣化的路径——别人的依赖图也会
+    被读出来，加上边是交互式操作，代价会随系统变老单调上升。
+
+    改为按连通域收窄（双向 BFS，一条 SQL 取完整层）：
+      - 下游层：谁依赖我
+      - 上游层：我依赖谁
+    成环判定只需要「从 dependency_id 出发能否到达 request_id」这一条路径
+    所在的连通域，域外节点永远不影响结果。
+
+    深度上限 `_MAX_ADJACENCY_DEPTH` 是安全阀：依赖链正常情况下只有几层，
+    真出现超深链（或数据异常）时宁可退化成「按已读到的部分判定」，
+    也不让一次加边请求吃掉整库。
     """
-    rows = (
-        await db.execute(
-            select(RequestDependency.request_id, RequestDependency.dependency_id)
-        )
-    ).all()
     graph: dict[str, set[str]] = {}
-    for rid, did in rows:
-        graph.setdefault(rid, set()).add(did)
+    seen: set[str] = {request_id}
+    frontier: list[str] = [request_id]
+    for _ in range(_MAX_ADJACENCY_DEPTH):
+        if not frontier:
+            break
+        # 双向一次取全：给定一批 id，取出「谁依赖它们」（下游）与
+        # 「它们依赖谁」（上游）两组边。这两组边一起构成连通域的自环邻域。
+        rows = (
+            await db.execute(
+                select(
+                    RequestDependency.request_id, RequestDependency.dependency_id
+                ).where(
+                    RequestDependency.request_id.in_(frontier)
+                    | RequestDependency.dependency_id.in_(frontier)
+                )
+            )
+        ).all()
+        next_frontier: list[str] = []
+        for rid, did in rows:
+            graph.setdefault(rid, set()).add(did)
+            for node in (rid, did):
+                if node not in seen:
+                    seen.add(node)
+                    next_frontier.append(node)
+        frontier = next_frontier
     return graph
 
 
@@ -311,6 +344,7 @@ async def ready_dependents(
     exclude_statuses：后续需求需要排除的状态（已终态/running——它们不需要
     「可以启动了」的通知，FR-007 场景 4/5）。
 
+    查询数固定为 2 次（候选一次、其余前置一次），与候选个数无关。
     """
     # R3：原 skip 是手写字面量，还混进了 `"timeout"`——那是 **Run** 状态，
     # `request_status` 枚举里没有这个值。它只是恰好没造成故障（这处是
@@ -332,16 +366,31 @@ async def ready_dependents(
         .scalars()
         .all()
     )
-    ready: list[Request] = []
-    for candidate in candidates:
-        if candidate.status in skip:
-            continue
-        # 其余前置是否都已终态：把 candidate 的全部前置查出来内存判定
-        # （candidate 的前置数量是个位数，不值得再 JOIN）
-        deps = [target for _, target in await list_dependency_edges(db, candidate.id)]
-        if all(d.status in TERMINAL_STATUSES for d in deps):
-            ready.append(candidate)
-    return ready
+    pending = [c for c in candidates if c.status not in skip]
+    if not pending:
+        return []
+
+    # 其余前置是否都已终态：一次查出所有候选的全部前置边（含状态），
+    # 再在内存里按候选归组判定。
+    #
+    # 原实现是 `for candidate: await list_dependency_edges(...)` —— 每个候选
+    # 一次查询，N 个后续需求就是 N+1 次往返。settle 是终态汇聚点，一次批量
+    # 收敛可能解锁几十个后续方，被放大得很明显。
+    blocked_ids = {
+        rid
+        for rid, dep_status in (
+            await db.execute(
+                select(RequestDependency.request_id, Request.status)
+                .join(Request, Request.id == RequestDependency.dependency_id)
+                .where(
+                    RequestDependency.request_id.in_([c.id for c in pending]),
+                    Request.status.not_in(TERMINAL_STATUSES),
+                )
+            )
+        ).all()
+    }
+    # 有任一未终态前置的候选被排除；其余前置全终态（或无前置）即为就绪。
+    return [c for c in pending if c.id not in blocked_ids]
 
 
 async def user_exists(db: AsyncSession, user_id: str) -> bool:

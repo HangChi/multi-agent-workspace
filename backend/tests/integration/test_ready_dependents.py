@@ -111,7 +111,6 @@ async def test_ready_dependents_ignores_run_status_word(db_session):
     assert [r.id for r in ready] == [dependent.id]
 
 
-
 async def test_dependent_with_unmet_prerequisite_is_not_ready(db_session):
     """语义正确性：其余前置未终态 → 不算就绪（别为了降查询数把逻辑改错）。"""
     owner = await _user(db_session)
@@ -136,3 +135,88 @@ async def test_running_dependent_is_skipped(db_session):
     assert ready == []
 
 
+# ---------- 成本：候选数不放大查询次数 ----------
+
+
+async def test_query_count_is_flat_in_dependent_count(db_session):
+    """N 个后续需求不再产生 N+1 次查询。
+
+    原实现 `for candidate: await list_dependency_edges(...)`，每个候选一次
+    JOIN 查询。10 个后续方 → 1 + 10 = 11 条 SELECT。
+
+    `settle` 是终态汇聚点，一次收敛可能解锁几十个后续方，放大得很明显。
+
+    反向验证：把 `ready_dependents` 换回逐候选版本，实测 11 次，本用例变红。
+    """
+    owner = await _user(db_session)
+    prerequisite = await _request(db_session, owner, "公共前置", status="completed")
+    # 每条后续需求再挂一个已终态的前置，确保「其余前置」分支真的被走到。
+    extra = await _request(db_session, owner, "另一前置", status="completed")
+
+    dependents = []
+    for i in range(10):
+        d = await _request(db_session, owner, f"后续{i}", status="created")
+        await _edge(db_session, d, prerequisite)
+        await _edge(db_session, d, extra)
+        dependents.append(d)
+
+    db_session.expunge_all()
+    with _select_counter(db_session) as counter:
+        ready = await dependency_service.ready_dependents(db_session, prerequisite.id)
+
+    assert {r.id for r in ready} == {d.id for d in dependents}
+    # 2 条：候选一次 + 全部候选的前置一次。留一点余量给会话级探测查询，
+    # 但不能随候选数增长（旧实现是 11 条）。
+    assert counter["n"] <= 3, f"查询数 {counter['n']} 次，疑似 N+1 回归"
+
+
+# ---------- `_adjacency_for` 连通域收窄 ----------
+
+
+async def test_adjacency_only_reads_the_connected_component(db_session):
+    """邻接表不再整表加载：域外的边不该出现在结果里。
+
+    原实现无条件 `SELECT request_id, dependency_id`，别人的依赖图也会被读出来。
+    反向验证：换回全表扫的实现，`x`/`y` 会出现在邻接表中，本用例变红。
+    """
+    owner = await _user(db_session)
+    a = await _request(db_session, owner, "A")
+    b = await _request(db_session, owner, "B")
+    c = await _request(db_session, owner, "C")
+    # 无关连通域
+    x = await _request(db_session, owner, "X")
+    y = await _request(db_session, owner, "Y")
+
+    await _edge(db_session, b, a)  # B 依赖 A
+    await _edge(db_session, c, b)  # C 依赖 B
+    await _edge(db_session, y, x)  # X/Y 与本域无关
+
+    adjacency = await dependency_service._adjacency_for(db_session, b.id)
+
+    assert adjacency == {b.id: {a.id}, c.id: {b.id}}
+    assert x.id not in adjacency and y.id not in adjacency
+
+
+async def test_adjacency_still_detects_cycles(db_session):
+    """收窄不能破坏成环判定（这是 `_adjacency_for` 存在的唯一理由）。
+
+    已有边：B 依赖 A（B→A）、C 依赖 B（C→B），即 A ← B ← C。
+    `would_create_cycle(adj, request_id, dependency_id)` 问的是「加一条
+    request_id 依赖 dependency_id 的边会不会闭合环」——从 dependency_id
+    沿既有边找 request_id。
+    """
+    owner = await _user(db_session)
+    a = await _request(db_session, owner, "A")
+    b = await _request(db_session, owner, "B")
+    c = await _request(db_session, owner, "C")
+    await _edge(db_session, b, a)
+    await _edge(db_session, c, b)
+
+    adjacency = await dependency_service._adjacency_for(db_session, c.id)
+
+    # 加「A 依赖 C」→ 从 C 出发能走到 B、再走到 A → 成环。
+    assert dependency_service.would_create_cycle(adjacency, a.id, c.id) is True
+    # 加「B 依赖 C」→ 从 C 出发走到 B → 成环。
+    assert dependency_service.would_create_cycle(adjacency, b.id, c.id) is True
+    # 顺链方向（C 依赖 A，即补一条早已隐含的传递边）不成环。
+    assert dependency_service.would_create_cycle(adjacency, c.id, a.id) is False
