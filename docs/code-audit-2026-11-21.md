@@ -364,7 +364,7 @@ agents/groups 设了 `staleTime: 60_000`（:67/:73），`useToolsCatalog` 设了
 
 这一类的共同危害：**改一处不漏另一处**。都能量化。
 
-### R1 归属判权被复制 10 处，且 admin 口径不一致
+### R1 归属判权被复制 10 处，且 admin 口径不一致 ✅ 已修（`9245073`）
 
 | 谓词 | 处数 | 位置 |
 |---|---|---|
@@ -382,7 +382,7 @@ agents/groups 设了 `staleTime: 60_000`（:67/:73），`useToolsCatalog` 设了
 （`can_view_request` / `load_agent_for(..., allow_admin=)` ），10 处改为调用；
 `deps.get_owned_resource` 删掉或改成真正被使用的依赖工厂。
 
-### R2 错误文案硬编码，且被字符串匹配依赖
+### R2 错误文案硬编码，且被字符串匹配依赖 ✅ 已修（`feb092a`）
 
 ```
 "项目不存在"  13 处      "Agent 不存在" 12 处
@@ -396,7 +396,7 @@ agents/groups 设了 `staleTime: 60_000`（:67/:73），`useToolsCatalog` 设了
 **修法**：抽 `app/api/messages.py` 常量类；`_translate_assign_failure` 改为读 `exc.code` +
 service 抛错时带 `detail={"reason": "archived"}`，彻底摆脱字符串匹配。
 
-### R3 状态集合定义 6 份，其中一份混入了别的领域
+### R3 状态集合定义 6 份，其中一份混入了别的领域 ✅ 已修（`daed578`）
 
 ```python
 dependency_service.py:31      TERMINAL_STATUSES = {"completed","failed","cancelled"}
@@ -418,7 +418,11 @@ schedule_service.py:51        _UNFINISHED_REQUEST_STATUSES = {"created","assigne
 **修法**：两个 state_machine 各导出 `TERMINAL_REQUEST_STATUSES` / `ACTIVE_RUN_STATUSES` /
 `TERMINAL_RUN_STATUSES`，其余模块引用；`ready_dependents` 的 skip 删掉 `timeout`。
 
-### R4 三个超大函数，且内部有 7 份相同的「状态迁移 + 落库 + 发事件」三连
+### R4 三个超大函数，且内部有 7 份相同的「状态迁移 + 落库 + 发事件」三连 ✅ 已修
+
+> 落地记录见文末「R4 落地记录」与「R4 过程中对本报告的四处修正」。
+> 一处提法需先更正：报告说「三连被复制 7 次」，连 `execute_run` 一起实为 **13 处**
+> （runner 7 处 + `_execute` 6 处）。
 
 | 函数 | 行数 | 混了几件事 |
 |---|---|---|
@@ -442,7 +446,7 @@ transition(run, RunStatus.FAILED); run.error = ...; await set_status(...); await
 两个终结器替换 7 处；再把工具分派整段抽成 `_execute_tool_calls(resp, ctx)`；
 `_execute` 里的沙箱回调搬到 `tasks/sandbox_callbacks.py`。
 
-### R5 小规模重复（顺手清理）
+### R5 小规模重复（顺手清理）✅ 已修（`23f8428`）
 
 - **工具 schema 三处硬编码**：`read_url.py:140` / `calc.py:148` / `http.py:27` 各自手写一份，
   与 `catalog.py:57-115` 完全相同。`sandbox.py:163` 已示范正确做法（`CATALOG[self.name]`）。
@@ -474,17 +478,17 @@ transition(run, RunStatus.FAILED); run.error = ...; await set_status(...); await
 | 3 | **P1 + P2 + P3**（后端 N+1） | 各 20 行内 | 往返次数可在测试里量化，回归风险低 | ✅ |
 | 4 | **D5 + D6**（并发正确性） | 各 20~30 行 | 概率低但属"能造成生产事故"，复用已有 CAS 片段 | ✅ |
 | 5 | **P6 + P7**（前端渲染与缓存） | ~100 行 | 一次性消除重复 key + 5 个页面翻页闪空 | ✅ |
-| 6 | **R1 归属判权收敛** | 中等 | 先统一 admin 口径，否则后续任何权限特性都要改 10 遍 | ⏸ |
-| 7 | **R4 拆巨型函数** | 大（分 PR） | 先做机械化的终结器抽取，再做 DAG 无关的搬迁 | ⏸ |
-| 8 | P4 / P5 / R2 / R3 / R5 | 零散 | 随时可插空做 | ⏸（P4/P5 见正文说明） |
+| 6 | **R1 归属判权收敛** | 中等 | 先统一 admin 口径，否则后续任何权限特性都要改 10 遍 | ✅ |
+| 7 | **R4 拆巨型函数** | 大（分 PR） | 先做机械化的终结器抽取，再做 DAG 无关的搬迁 | ✅ |
+| 8 | P4 / P5 / R2 / R3 / R5 | 零散 | 随时可插空做 | ✅（R2/R3/R5）；P4/P5 保留见正文 |
 
-第 6、7 步没有做，因为它们是**重构而非修复**：R1 要统一 10 处判权口径（会改变既有
-403/404 行为，需逐条核对契约），R4 要拆三个数百行的函数（必须分 PR、每步跑全量）。
-二者都不该和「修 bug」混在同一批提交里。
+第 6、7 步**已做完**（R1 见 `9245073`，R4 见下文 6 个提交）。原本排在这里的理由是
+「重构不该和修 bug 混在同一批提交」——这一点仍然成立：它们全部在 `fix/audit-2026-11-21`
+分支上单独成提交，每个都跑了全量门禁。
 
-**不建议**在本轮做的：`ready_dependents` 的 N+1（:330-338，逐候选查前置边）和
-`_adjacency_for` 的全表加载（:74-89）。二者都真实存在，但当前依赖图规模下影响有限，
-改成递归 CTE 的收益要等真实数据量验证后才成立 —— 记为观察项，不列为待办。
+**两个观察项也已落地**（`dcff7be`），复查后确认它们都不是「等数据量大了再说」：
+`ready_dependents` 的 N+1 会随租户数据总量线性劣化，`_adjacency_for` 的整表加载
+在既有业务路径上就会被放大。已改为固定 2 次查询 + 只取相关边。
 
 ## 五、核对结论
 
@@ -513,3 +517,42 @@ transition(run, RunStatus.FAILED); run.error = ...; await set_status(...); await
 创建时不可能已有依赖边（`RequestDependency` 只能经 `dependencies.py` 创建，已 grep 确认）。
 该分支是防御性的，因此 D4 的实际影响面比原文描述小；但提交顺序的修法本身仍然正确
 （换成「先写触发记录再提交」后，即便将来该分支变为可达也不会卡死）。
+
+### R4 落地记录（6 个提交，逐条可查）
+
+| 提交 | 做了什么 | 核心结论 |
+|---|---|---|
+| `e9793ae` | 终结器：`runner._settle` + `execute_run._fail_run`，替换 13 处三连 | `event_type` 逐处显式，不按 status 推导；`settle` 刻意不给默认值 |
+| `ccaadf7` | 沙箱回调搬出 `_execute`（131 行 → `tasks/sandbox_callbacks.py`） | 搬迁前这两个回调**零直接测试**，补 11 条 |
+| `619e25e` | 给 `build_external_executors` 补 23 条策略覆盖 | 拆之前先有覆盖，否则「行为不变」无从证明 |
+| `42fdc29` | `build_external_executors` 244 → 6 个函数 | 判定顺序本身是契约 |
+| `58873db` | 越权阈值熔断补 4 条覆盖 | 该分支此前**零覆盖**，是 `run()` 里唯一「主动放弃模型」的分支 |
+| `1293ca1` | 工具分派抽成 `_execute_tool_calls`（`run()` 580 → 252 行） | 抽取时 ruff 报 `tools` 未使用，牵出一个**真实缺陷**（见下） |
+
+### R4 过程中对本报告的四处修正
+
+1. **「`compile_iptables_commands` 与运行时实现已分叉」不成立**。两者共用
+   `_compile_with_chains`，规则必然一致。真正的危险是**包装里独有的 bridge 格式校验
+   运行时从没有过**——「测试比生产更严格」让人误以为有保护。已把校验移入
+   `compile_runtime_commands`（`23f8428`）。
+2. **「三处工具 schema 硬编码」实为四处**。`sandbox.py:163` 也手写，只是从
+   `CATALOG[self.name]` 取值。另外「删掉两份比对测试」的判断也要改：schema 从
+   `to_openai_schema()` 派生后，「两份比对」在数学上恒真，必须换成「monkeypatch 替换
+   CATALOG，执行器 schema 必须跟着变」才有信息量。
+3. **「沙箱 137 分支发 `sandbox_finished` 与外部工具 `run_failed` 不一致」属层级错配**。
+   沙箱失败只让**工具步**失败，Run 仍可继续；`sandbox_finished` 是步骤级事件，与
+   Run 级 `run_failed` 不在同一层，对齐会让一次沙箱报错连带整个 Run 死掉。已在
+   `test_sandbox_callbacks.py` 里把这条写成反向约束（`test_failed_sandbox_marks_step_failed_but_does_not_touch_the_run`）。
+4. **`_execute` 的「421 行混七件事」里，沙箱回调占 131 行**，比预估的多。搬走后
+   `_execute` 为 289 行；剩余部分是路由/配额/授权/续写/pipeline，彼此共享 DB 会话与
+   `run` 对象，继续机械切分收益递减，就此打住。
+
+### 抽取过程中新发现的一个真实缺陷（`1293ca1`）
+
+`run()` 里的工具清单只在 `while` 循环**之前**算一次，而撤销授权那段重新算了一份
+赋给循环内的局部变量——**下一轮 LLM 读的仍是循环外那份**。后果：管理员在 Run 执行
+期间撤销某个工具后，执行器确实被摘掉（再调会被拒），但模型下一轮仍拿到旧清单、
+继续尝试调用已禁用的工具，只能靠越权熔断兜底（默认要累积 5 次）。
+
+`authorize_tool` 此前零测试。新增用例断言**第二次 LLM 调用收到的 `tools` 参数**——
+正是原来漏掉的地方。反向验证：把修复改回写无人读的局部变量，测试立刻红。
