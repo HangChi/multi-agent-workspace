@@ -21,17 +21,31 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.request import Request
 from app.models.run import Run
-from app.orchestrator.state_machine import RunStatus, transition
+from app.orchestrator.request_state_machine import RequestStatus
+from app.orchestrator.state_machine import ACTIVE_RUN_STATUSES, RunStatus, transition
 
 logger = structlog.get_logger(__name__)
 
-# 非终态：只要还有这些状态的 Run，需求就不该被回收
-# 006 注意：`retrying` **刻意不在此列**。重试等待中的 Run 有一个已计划的
-# `next_retry_at`，它既没卡住也没失败——reaper 把它回收成 failed 会直接杀掉
-# 一次本来会成功的重试（spec FR-012）。
-# 这条不变量由 tests/integration/test_run_retry.py::
-# test_reaper_does_not_reap_retrying_runs 固化：往后再加状态时必须复查这里。
-_ACTIVE_STATUSES = ("queued", "running", "needs_input")
+# 非终态：只要还有这些状态的 Run，需求就不该被「回收成 failed」。
+#
+# R3：改为引用状态机导出的 `ACTIVE_RUN_STATUSES`（= 全部非终态，含 `retrying`）。
+# 这里有个容易混淆的区分，务必看清：
+#
+# - **「Run 还没结束」**（本集合的语义）：`retrying` 明确属于此类——它在等
+#   `next_retry_at` 到点，既没卡住也没失败。
+# - **「哪些 Run 该被 reaper 判为僵尸」**：`retrying` 明确不属于此类
+#   （006 FR-012）。它不该被**选中**回收，但必须算作「仍然活跃」，
+#   否则「该需求下已无活跃 Run」的判断会误判。
+#
+# 同一份集合原来把这两件事混在一起：字面量 `{queued, running, needs_input}`
+# 既漏了 `retrying`（于是重试等待中的 Run 被当成「已无活跃」），又靠注释
+# 声称「刻意不含 retrying」。现在拆开——选中逻辑看 `_REAPABLE_QUEUED/RUNNING`，
+# 活跃判定看 `ACTIVE_RUN_STATUSES`。
+#
+# 选中条件（见 `reap_stale_runs` 的 WHERE）本身就只有 queued/running 两种，
+# 它从来没机会选中 retrying；真正的问题是「活跃集合漏了它」。
+_REAPABLE_QUEUED = RunStatus.QUEUED.value
+_REAPABLE_RUNNING = RunStatus.RUNNING.value
 
 
 async def reap_stale_runs(
@@ -65,9 +79,12 @@ async def reap_stale_runs(
 
     stmt = select(Run).where(
         or_(
-            and_(Run.status == "queued", Run.created_at < queued_before),
             and_(
-                Run.status == "running",
+                Run.status == _REAPABLE_QUEUED,
+                Run.created_at < queued_before,
+            ),
+            and_(
+                Run.status == _REAPABLE_RUNNING,
                 func.coalesce(Run.started_at, Run.created_at) < running_before,
             ),
         )
@@ -107,13 +124,16 @@ async def reap_stale_runs(
             await db.execute(
                 select(func.count())
                 .select_from(Run)
-                .where(Run.request_id == request_id, Run.status.in_(_ACTIVE_STATUSES))
+                .where(
+                    Run.request_id == request_id,
+                    Run.status.in_(ACTIVE_RUN_STATUSES),
+                )
             )
         ).scalar_one()
         if active:
             continue
         request = await db.get(Request, request_id)
-        if request is not None and request.status == "running":
+        if request is not None and request.status == RequestStatus.RUNNING.value:
             request.status = "failed"
             logger.warning("stale_request_recovered", request_id=request_id[:8])
 

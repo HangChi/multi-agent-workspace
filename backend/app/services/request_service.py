@@ -18,13 +18,25 @@ from app.models.request import Request
 from app.models.request_dispatch import RequestDispatch
 from app.models.run import Run
 from app.models.user import User
+from app.orchestrator.request_state_machine import RequestStatus
+from app.orchestrator.state_machine import (
+    ACTIVE_RUN_STATUSES,
+    FAILED_RUN_STATUSES,
+    SUCCESS_RUN_STATUSES,
+)
 from app.schemas.request import RequestCreate, RequestUpdate, RunOutcomeSummary
 from app.services import dependency_service, project_member_service, project_service
 
 logger = structlog.get_logger(__name__)
 
 # Run 的非终态：只要还有一个没结束，需求就仍在执行中。
-_ACTIVE_RUN_STATUSES = frozenset({"queued", "running", "needs_input"})
+#
+# R3：改为引用状态机导出的集合。此前这里是 `{queued, running, needs_input}`
+# 的字面量，006 引入 `retrying` 后没同步——等待重试的 Run 既不算「活跃」，
+# 于是 `settle` 会把它当成「所有 Run 都已结束」，在重试真正跑完之前就把需求
+# 收敛成 completed/failed。看板会在重试期间闪现错误终态，重试成功后再被
+# 后续 settle 纠回来（若重试路径没再调 settle 就永久错了）。
+_ACTIVE_RUN_STATUSES = ACTIVE_RUN_STATUSES
 
 
 async def assignee_emails(db: AsyncSession, user_ids: list[str]) -> dict[str, str]:
@@ -69,7 +81,11 @@ async def settle_request_status(db: AsyncSession, request_id: str) -> str | None
     天然保证幂等（R-02）。
     """
     request = await db.get(Request, request_id)
-    if request is None or request.status != "running":
+    # 只收口**执行中**的需求：created/pending/accepted 不该被 settle 提前推进
+    # （它们要么还没有 Run，要么还在分派链路里），assigned 是遗留中间态、
+    # 保留旧口径不动。这里刻意不用 `not in TERMINAL_STATUSES`——那会把
+    # created/assigned 也纳进来，是行为变更而非重构。
+    if request is None or request.status != RequestStatus.RUNNING.value:
         return None
     statuses = list(
         (await db.execute(select(Run.status).where(Run.request_id == request_id)))
@@ -78,7 +94,7 @@ async def settle_request_status(db: AsyncSession, request_id: str) -> str | None
     )
     if not statuses or any(status in _ACTIVE_RUN_STATUSES for status in statuses):
         return None
-    if any(status in {"failed", "timeout"} for status in statuses):
+    if any(status in FAILED_RUN_STATUSES for status in statuses):
         request.status = "failed"
     elif any(status == "cancelled" for status in statuses):
         request.status = "cancelled"
@@ -184,9 +200,9 @@ async def run_outcome_summaries(
     for request_id, status, count in rows:
         summary = counts.setdefault(request_id, RunOutcomeSummary())
         summary.total += count
-        if status == "completed":
+        if status in SUCCESS_RUN_STATUSES:
             summary.completed += count
-        elif status in {"failed", "timeout"}:
+        elif status in FAILED_RUN_STATUSES:
             summary.failed += count
         elif status == "cancelled":
             summary.cancelled += count

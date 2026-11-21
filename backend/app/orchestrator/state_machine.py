@@ -40,6 +40,27 @@ class RunStatus(str, Enum):
 _TERMINAL = frozenset({RunStatus.COMPLETED, RunStatus.CANCELLED})
 _RETRYABLE_TERMINAL = frozenset({RunStatus.FAILED, RunStatus.TIMEOUT})
 
+# 对外导出的状态集合（R3）。
+#
+# 一律从上面的 `_TERMINAL` / `_RETRYABLE_TERMINAL` 派生，其它模块不要再写
+# 字面量。这不是「风格统一」：006 引入 `retrying` 时，
+# `request_service._ACTIVE_RUN_STATUSES`、`reaper_service._ACTIVE_STATUSES`、
+# `stats_service._NON_TERMINAL` 三处都漏了它，且都没被测试发现——
+# 需求会在还有 Run 等待重试时被提前收敛到终态。
+TERMINAL_RUN_STATUSES: frozenset[str] = frozenset(
+    s.value for s in _TERMINAL | _RETRYABLE_TERMINAL
+)
+#: 非终态（= 「这次执行还没结束」）。用差集而不是列举，新增状态时自动纳入。
+ACTIVE_RUN_STATUSES: frozenset[str] = (
+    frozenset(s.value for s in RunStatus) - TERMINAL_RUN_STATUSES
+)
+#: 成功 / 失败二分（统计口径）。`cancelled` 两边都不算：它既不成功也不失败，
+#: 而是用户主动放弃，计入任何一个都会让成功率说谎。
+SUCCESS_RUN_STATUSES: frozenset[str] = frozenset({RunStatus.COMPLETED.value})
+FAILED_RUN_STATUSES: frozenset[str] = frozenset(
+    {RunStatus.FAILED.value, RunStatus.TIMEOUT.value}
+)
+
 # 允许迁移表：from → {to, ...}
 _TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
     RunStatus.QUEUED: frozenset({RunStatus.RUNNING, RunStatus.CANCELLED}),

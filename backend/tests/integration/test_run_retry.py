@@ -466,6 +466,65 @@ async def test_reaper_does_not_reap_retrying_runs(
     assert run.status == RunStatus.RETRYING.value
 
 
+@pytest.mark.asyncio
+async def test_reaping_a_sibling_does_not_settle_request_with_retrying_run(
+    db_session, monkeypatch, make_headers
+):
+    """R3 回归：还有 Run 在重试等待时，不得把需求回收成 failed。
+
+    `_ACTIVE_STATUSES` 原值是 `{queued, running, needs_input}` 的字面量，
+    006 引入 `retrying` 后没同步。注释说「retrying 刻意不在此列」，意图是
+    **不被选中回收**（FR-012）——但它顺带也被判成「不活跃」，于是
+    「该需求下已无活跃 Run」成立，需求被误标 failed。
+
+    场景：一个需求下两条 Run，一条 queued 卡死（该被回收），
+    另一条在 retrying 等待重试（还有救）。回收前者时，
+    后者必须仍然算「活跃」，需求保持 running。
+
+    反向验证：把 `ACTIVE_RUN_STATUSES` 换回旧字面量，本用例变红。
+    """
+    owner = await _user(db_session)
+    agent = await _agent(db_session, owner.id)
+    # 直接造需求，让两条 Run 挂在同一个需求下（`_run` 每次会新建需求）
+    request = await _request(db_session, owner_id=owner.id)
+    await db_session.commit()
+
+    # 卡死的 queued：该被回收
+    stale = await _run(
+        db_session,
+        owner_id=owner.id,
+        agent_id=agent.id,
+        status="queued",
+        request_id=request.id,
+    )
+    await db_session.execute(
+        Run.__table__.update()
+        .where(Run.id == stale.id)
+        .values(created_at=datetime.now(UTC) - timedelta(hours=3))
+    )
+    # 等待重试：不该被回收，但必须算「仍然活跃」
+    retrying = await _run(
+        db_session,
+        owner_id=owner.id,
+        agent_id=agent.id,
+        status="retrying",
+        attempt=1,
+        next_retry_at=datetime.now(UTC) + timedelta(seconds=30),
+        request_id=request.id,
+    )
+    await db_session.commit()
+
+    swept = await reaper_service.reap_stale_runs(db_session)
+    # reaper 返回的是被回收的 run_id 列表（字符串），不是 ORM 对象
+    assert stale.id in swept
+    assert retrying.id not in swept
+
+    # 直接读内存中的对象，**不能** refresh：reaper 只改内存、不 commit，
+    # refresh 会从数据库读回旧值，把断言变成永远成立的空转
+    # （第一版就是这么写的，反向验证时没变红才发现）。
+    assert request.status == "running", "还有 Run 在等重试，需求不该被回收成 failed"
+
+
 # ---------- T026/T027：查询面 ----------
 
 

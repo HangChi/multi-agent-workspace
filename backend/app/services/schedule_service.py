@@ -25,6 +25,7 @@ from app.models.group import AgentGroup
 from app.models.request import Request
 from app.models.schedule import Schedule, ScheduleTrigger
 from app.models.user import User
+from app.orchestrator.request_state_machine import OPEN_STATUSES
 from app.schemas.schedule import (
     ScheduleCreate,
     ScheduleOut,
@@ -47,9 +48,18 @@ from app.services.schedule_cron import (
 
 logger = structlog.get_logger(__name__)
 
-#: 判定"前次未结束"时的非终态集合。与 request_service 的口径一致：
-#: 只要还有一个 Run 没结束，需求就仍在执行中。
-_UNFINISHED_REQUEST_STATUSES = frozenset({"created", "assigned", "running"})
+#: 判定"前次未结束"时的非终态集合（R3）。
+#:
+#: 原值是 `{"created", "assigned", "running"}`，注释还声称「与 request_service
+#: 的口径一致」——两者其实毫无关系（那边是 Run 状态，这边是需求状态），
+#: 而列举又漏了 `pending`/`accepted`。漏掉的后果：员工把上次触发的需求
+#: 转交给同事（pending→accepted，尚未拖给 Agent）后，下一次触发会因为
+#: 「上次那个不在未完成集合里」而照常建单——同一条规则在人工分派环节
+#: 被绕过，同时堆积两份在途需求。
+#:
+#: 改为「终态的补集」：只要不是终态就挡下一次触发，比列举可靠，
+#: 将来新增需求状态（如 `paused`）也自动覆盖。
+_UNFINISHED_REQUEST_STATUSES = OPEN_STATUSES
 
 
 def _missed_grace() -> timedelta:

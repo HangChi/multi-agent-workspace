@@ -15,10 +15,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.agent import Agent
 from app.models.run import Run
 from app.models.sandbox_execution import SandboxExecution
+from app.orchestrator.state_machine import (
+    ACTIVE_RUN_STATUSES,
+    FAILED_RUN_STATUSES,
+    SUCCESS_RUN_STATUSES,
+    RunStatus,
+)
 
-_TERMINAL_SUCCESS = {"completed"}
-_TERMINAL_FAIL = {"failed", "timeout"}
-_NON_TERMINAL = {"queued", "running", "needs_input"}
+# R3：三份口径统一从状态机导出，不再各写字面量。
+#
+# 尤其是 `_NON_TERMINAL`：原值 `{queued, running, needs_input}` 漏了
+# 006 新增的 `retrying`，而它的用处是让「本周窗口之外但仍在跑」的 Run
+# 也进入聚合（见下方 `or_(this_week, ...)`）。漏掉 `retrying` 的后果是
+# 一个已排队、挂着 `next_retry_at` 的 Run 如果是一周前创建的，就整个从
+# 统计里消失——用户看到「进行中 0」却发现看板上卡片还在转。
+_TERMINAL_SUCCESS = SUCCESS_RUN_STATUSES
+_TERMINAL_FAIL = FAILED_RUN_STATUSES
+_NON_TERMINAL = ACTIVE_RUN_STATUSES
 _STATS_CACHE_TTL_SECONDS = 15.0
 _STATS_CACHE_MAX_ENTRIES = 256
 _stats_cache: dict[str, tuple[float, dict]] = {}
@@ -66,13 +79,13 @@ async def overview(db: AsyncSession, owner_id: str, *, cache: bool = False) -> d
     week_ago = today_start - timedelta(days=6)  # 含今日共 7 天
     completed = Run.status.in_(_TERMINAL_SUCCESS)
     failed = Run.status.in_(_TERMINAL_FAIL)
-    billable = Run.status != "cancelled"
+    billable = Run.status != RunStatus.CANCELLED.value
     today = Run.created_at >= today_start
     this_week = Run.created_at >= week_ago
 
     columns = [
-        func.count().filter(Run.status == "running").label("running"),
-        func.count().filter(Run.status == "queued").label("queued"),
+        func.count().filter(Run.status == RunStatus.RUNNING.value).label("running"),
+        func.count().filter(Run.status == RunStatus.QUEUED.value).label("queued"),
         func.count().filter(today, completed).label("completed_today"),
         func.count().filter(today, failed).label("failed_today"),
         func.count().filter(this_week, completed).label("success_7d"),

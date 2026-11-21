@@ -21,9 +21,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.request import Request
 from app.models.request_dependency import RequestDependency
+from app.orchestrator.request_state_machine import TERMINAL_STATUSES
 
 MAX_NODES = 300
-TERMINAL = {"completed", "failed", "cancelled"}
+#: R3：原为 `{"completed", "failed", "cancelled"}` 的第四份副本，改为引用状态机导出。
+TERMINAL = TERMINAL_STATUSES
 
 
 async def downstream_graph(

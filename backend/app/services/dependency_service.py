@@ -20,15 +20,21 @@ from app.api.errors import AppError
 from app.models.request import Request
 from app.models.request_dependency import RequestDependency
 from app.models.user import User
+from app.orchestrator.request_state_machine import ACTIVE_STATUSES, TERMINAL_STATUSES
 from app.services import project_member_service
 
 logger = structlog.get_logger(__name__)
 
 # 终态集合（**需求**状态，FR-006/R-01）：门禁看「是否终态」而非「是否成功」——
 # failed/cancelled 的前置同样解锁，成败判断交给人（通知说明实际终态）。
-# 注意不含 timeout：那是 Run 状态，settle 已把超时收敛为需求的 failed
-# （0010 迁移的枚举里没有 timeout，塞进来会让 NOT IN 绑定直接报错）。
-TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
+#
+# R3：`TERMINAL_STATUSES` 现在是上面 `request_state_machine` 的引用，本模块
+# 不再各写一份。原注释已指出「不含 timeout（那是 Run 状态，枚举里没有，
+# NOT IN 绑定会报错）」，但同文件 `ready_dependents` 的 skip 集合里偏偏混进了
+# `"timeout"`——同一个文件内自相矛盾，正是字面量散落的典型后果。
+#
+# 用 `from ... import` 引入后，模块属性 `dependency_service.TERMINAL_STATUSES`
+# 仍可访问（api/v1/requests.py 依赖它），无需额外赋值。
 
 
 class DependencyBlockedError(AppError):
@@ -304,14 +310,13 @@ async def ready_dependents(
 
     exclude_statuses：后续需求需要排除的状态（已终态/running——它们不需要
     「可以启动了」的通知，FR-007 场景 4/5）。
+
     """
-    skip = exclude_statuses or {
-        "completed",
-        "failed",
-        "cancelled",
-        "timeout",
-        "running",
-    }
+    # R3：原 skip 是手写字面量，还混进了 `"timeout"`——那是 **Run** 状态，
+    # `request_status` 枚举里没有这个值。它只是恰好没造成故障（这处是
+    # Python 层 `in` 判定而非 SQL 绑定）。现在由状态机导出集合拼装，
+    # `timeout` 自然消失。
+    skip = exclude_statuses or (TERMINAL_STATUSES | ACTIVE_STATUSES)
     # 候选：直接依赖 dependency_id 的后续需求（一次 IN 查询）
     candidates = list(
         (

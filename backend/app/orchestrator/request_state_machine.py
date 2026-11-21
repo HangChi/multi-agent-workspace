@@ -42,6 +42,27 @@ _TERMINAL = frozenset(
     {RequestStatus.COMPLETED, RequestStatus.FAILED, RequestStatus.CANCELLED}
 )
 
+# 对外导出的状态集合（R3）。
+#
+# 此前这些集合在 6 个模块里各写一份字面量，其中
+# `dependency_service.ready_dependents` 的 skip 里混进了 `"timeout"`——
+# 那是 **Run** 状态，`request_status` 枚举根本没有这个值，属于领域串味
+# （PG 枚举上 NOT IN 带未定义值会直接报错，只是那处走的是 Python 层判定
+# 才一直没炸）。集中到这里之后，新增需求状态只需改本文件，不会再漏。
+#
+# 注意区分：
+# - `TERMINAL_STATUSES`（需求终态）≠ Run 的 `{completed, cancelled}`——
+#   需求没有「重试离开终态」规则，`failed` 对它也是终态。
+# - `ACTIVE_STATUSES`（需求未终结、看板该显示「还在跑」）只含 `running`；
+#   `pending`/`accepted` 是分派链路的前置态，不是执行中。
+TERMINAL_STATUSES: frozenset[str] = frozenset(s.value for s in _TERMINAL)
+ACTIVE_STATUSES: frozenset[str] = frozenset({RequestStatus.RUNNING.value})
+#: 非终态全集（终态的补集）。`schedule_service` 判「上次触发的需求还在跑吗」
+#: 用的是它——只要不是终态就挡下一次触发，比列举 pending/accepted/... 可靠。
+OPEN_STATUSES: frozenset[str] = (
+    frozenset(s.value for s in RequestStatus) - TERMINAL_STATUSES
+)
+
 # 允许迁移表：from → {to, ...}
 #
 # created → running 是**既有链路的真实路径**（assign 端点直接把需求置 running，

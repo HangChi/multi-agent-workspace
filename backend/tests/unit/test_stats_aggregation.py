@@ -220,3 +220,38 @@ class StatsAggregationTests(IsolatedAsyncioTestCase):
                 self.assertEqual(empty["success_rate_7d"], 0.0)
         finally:
             engine.dispose()
+
+    async def test_non_terminal_scope_includes_retrying(self):
+        """R3 回归：`retrying` 必须在「非终态」口径里。
+
+        原 `_NON_TERMINAL = {"queued", "running", "needs_input"}` 漏了
+        006 的 `retrying`。它的用处是让**窗口之外但仍未结束**的 Run 也进聚合
+        （`or_(this_week, status.in_(...))`）。漏掉后的症状很隐蔽：
+        一条三天前创建、正在等重试的 Run 会整个从仪表盘消失，
+        用户看到「进行中 0」却看见看板上卡片还在转。
+
+        上面那条等值断言抓不到——`retrying` 漏掉不改变任何数值（只少算了
+        一类行，而测试数据里没有它）。所以这里直接查 WHERE 子句里的绑定值。
+
+        反向验证：把 `_NON_TERMINAL` 换回旧字面量，本用例变红。
+        """
+        db = RecordingSession()
+        with patch("app.services.stats_service.datetime", FrozenDatetime):
+            await overview(db, OWNER)
+
+        # 必须用 literal_binds 展开：IN (...) 走的是 expanding 参数，
+        # `compiled.params` 只会给出一个占位值，看不到集合全貌。
+        sql = str(
+            db.statements[0].compile(
+                dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+            )
+        ).lower()
+
+        # 非终态集合出现在 `runs.status IN (...)` 里；确认四个非终态都在。
+        for status in ("queued", "running", "needs_input", "retrying"):
+            self.assertIn(
+                f"'{status}'", sql, f"{status} 必须算非终态（否则窗口外任务漏统计）"
+            )
+
+        # 反向保护：终态不该混进非终态 IN（否则窗口过滤失效、退化成扫全表）
+        self.assertNotIn("runs.status not in", sql)

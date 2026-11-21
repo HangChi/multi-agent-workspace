@@ -89,3 +89,26 @@ async def test_a_settled_or_unassigned_request_is_never_rewritten(db_session):
         await db_session.commit()
         await db_session.refresh(request)
         assert request.status == status
+
+
+async def test_a_retrying_run_keeps_the_request_running(db_session):
+    """006 回归：等待重试的 Run 尚未结束，需求不得提前收敛（R3）。
+
+    原 `_ACTIVE_RUN_STATUSES` 是 `{queued, running, needs_input}` 的字面量，
+    006 引入 `retrying` 后没同步。于是「completed + retrying」这种组合会被
+    判定为「所有 Run 都已结束」→ 需求立刻收敛成 completed；随后重试若失败，
+    需求就永久停在「已完成」，看板说谎。
+
+    反向验证：把 `_ACTIVE_RUN_STATUSES` 换回旧字面量，本用例必须变红。
+    """
+    request = await _request_with_runs(db_session, ["completed", "retrying"])
+    assert await settle_request_status(db_session, request.id) is None
+    await db_session.commit()
+    await db_session.refresh(request)
+    assert request.status == "running"
+
+
+async def test_a_needs_input_run_keeps_the_request_running(db_session):
+    """挂起等用户回复同样不是结束——这条旧实现是对的，一并钉住防止回退。"""
+    request = await _request_with_runs(db_session, ["needs_input"])
+    assert await settle_request_status(db_session, request.id) is None

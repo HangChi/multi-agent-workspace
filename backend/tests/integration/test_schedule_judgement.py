@@ -304,6 +304,54 @@ class TestJudgementOrder:
         # 没有新需求
         assert len(await _requests_for(db_session, schedule.id)) == 1
 
+    async def test_in_dispatch_previous_request_still_counts_as_busy(
+        self, client, db_session, make_headers
+    ):
+        """R3 回归：前次需求停在分派链路（pending/accepted）也算「未结束」。
+
+        原 `_UNFINISHED_REQUEST_STATUSES = {"created", "assigned", "running"}`
+        漏了 `pending` / `accepted`。员工把上次触发的需求转交给同事后
+        （pending→accepted，还没拖给 Agent），下一次触发会误判「上次已结束」
+        而照常建单——同一条规则在人工分派环节被绕过，在途需求越堆越多。
+
+        反向验证：把集合换回旧字面量，`pending`/`accepted` 两个用例变红。
+        """
+        h = await make_headers(role="member")
+        agent = await _make_agent(client, h)
+        me = await _me(client, h)
+
+        for mid_status in ("pending", "accepted"):
+            planned = datetime(2026, 11, 17, 1, 0, tzinfo=UTC)
+            schedule = await _make_schedule(
+                db_session,
+                owner_id=me["id"],
+                target_id=agent["id"],
+                cron_expr="*/5 * * * *",
+                next_run_at=planned,
+            )
+            first = await schedule_service.fire_schedule(
+                db_session, schedule, now=planned + timedelta(seconds=5)
+            )
+            assert first.result == "fired"
+
+            # 把前次需求挪到分派链路中间态（真人接收/转交后的形态）
+            req = await db_session.get(Request, first.request_id)
+            req.status = mid_status
+            req.assignee_id = me["id"]
+            req.accepted_at = datetime.now(UTC) if mid_status == "accepted" else None
+            await db_session.commit()
+
+            await db_session.refresh(schedule)
+            second = await schedule_service.fire_schedule(
+                db_session,
+                schedule,
+                now=schedule.next_run_at + timedelta(seconds=5),
+            )
+            assert second.result == "skipped_busy", (
+                f"前次需求处于 {mid_status} 时仍算未结束，不该再建单"
+            )
+            assert len(await _requests_for(db_session, schedule.id)) == 1
+
     async def test_completed_previous_request_fires_normally(
         self, client, db_session, make_headers
     ):
