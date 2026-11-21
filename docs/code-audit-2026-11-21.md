@@ -15,8 +15,48 @@
 | `pytest`（后端全量） | **2124 passed**，6 subtests |
 | `vitest`（前端全量） | **155 passed**（31 文件） |
 
+> 修复完成后（同日晚）复测：后端 **2141 passed**（+17，均为本轮新增回归用例）、
+> 前端 **167 passed / 35 文件**（+12）。全部门禁仍为绿。
+
 结论：**形式层面的检查已经没有优化空间**。下面的问题全部是类型检查、lint、测试都发现不了的
 ——确定性的逻辑缺陷、重复导致的漂移风险、以及架构层的 IO/渲染浪费。
+
+---
+
+## 修复状态（2026-11-21 当日逐条修复）
+
+原则：一条一提交、每提交带回归测试，且**先反向验证**——把修复回退，确认新增断言
+真的变红，再恢复。纯性能问题无法靠断言结果捕捉，改用 SQLAlchemy
+`before_cursor_execute` 数 SELECT 次数。
+
+| 编号 | 问题 | 状态 | 提交 | 反向验证证据 |
+|---|---|---|---|---|
+| D1 | 拖拽分配因详情缓存崩溃 | ✅ 已修 | `e37b606` | 回退守卫后用例抛 TypeError |
+| D2 | 深链详情「关闭」关不掉 | ✅ 已修 | `677d12e` | 断言 `?request=` 未清空 |
+| D3 | 执行日志被重连清空 | ✅ 已修 | `9db32cf` | 断言日志条数为 0 |
+| D4 | 调度规则永久停触发 | ✅ 已修 | `ee97dc4` | 注入 audit 失败复现 next_run_at 不推进 |
+| D5 | stdio 池竞态 / 跨循环不可用 | ✅ 已修（**比原报告严重**） | `851e90a` | 8 并发协程 → 8 次 spawn |
+| D6 | 执行锁释放不校验持有者 | ✅ 已修 | `dfe58a1` | B 的锁被 A 删掉 |
+| P1 | `list_schedules` 列表 N+1 | ✅ 已修 | `ee85349` | SELECT 次数 7 → 22（随条数增长） |
+| P2 | `_persist_steps` 逐条 SELECT + 整批重放 | ✅ 已修 | `9b55e3e` | 2 步 → 2 次多余 SELECT；10 预建 → 10 次 |
+| P3 | `_load_context` 白加载历史 steps | ✅ 已修 | `1be23e1` | `inspect(run).unloaded` 含 steps |
+| P4 | MinIO 同步上传阻塞事件循环 | ⏸ 保留 | — | 见下方说明 |
+| P5 | 每秒十余次 Docker API 往返 | ⏸ 保留 | — | 见下方说明 |
+| P6 | 全局 staleTime: 0 | ✅ 已修 | `fd85bb4` | — |
+| P7 | 分页闪空 + 看板全量重算 | ✅ 已修 | `fd85bb4`、`8a86d84` | 回退 memo 后 `$$typeof` 断言变红 |
+| R1–R5 | 重复与漂移 | ⏸ 记录待办 | — | 属于「下次改动会漏」类，见第五节 |
+
+**D5 在修复过程中查出比原报告更严重的问题**：原报告只说「并发首次访问会泄漏子进程」，
+实际 `execute_run` 每次调用都 `asyncio.run()` 起新事件循环，池里的条目全部绑在
+已关闭的旧循环上 —— 第二次工具调用必然抛
+`RuntimeError: got Future attached to a different loop`，且连 `close()` 都跑不了。
+也就是说 024 的常驻池在生产形态下**第二步就崩**，此前完全没有覆盖（测试都在同一个
+pytest-asyncio 循环里跑）。
+
+**P4 / P5 为何本轮不做**：两者都需要实测数据才能决定值不值得改——P4 的阻塞只发生在
+API 层 presign（`02cfa06` 已把 MinIO 移出事件循环的那一处覆盖不到新路径），
+改成异步要重写上传链路；P5 的 Docker API 往返是沙箱状态轮询的固有代价，
+降频会牺牲取消响应速度。在没有真实压测基线的前提下动手，风险大于收益。
 
 ---
 
@@ -24,7 +64,7 @@
 
 这一类不是"可以更好"，而是"确实会出错"。三条都能从代码直接确认。
 
-### D1【前端·高】拖拽分配会因详情缓存而崩溃
+### D1【前端·高】拖拽分配会因详情缓存而崩溃　✅ 已修 `e37b606`
 
 `frontend/src/hooks/useRequests.ts:66-83`
 
@@ -54,7 +94,7 @@ if (!Array.isArray(list)) continue
 **根治**：拆前缀 —— 列表 `['requests','list',...]`、详情 `['request', id]`。
 同一个根因还生了下面 D2、见 M1、M2 三处问题。
 
-### D2【前端·高】深链打开详情后，「关闭」按钮关不掉
+### D2【前端·高】深链打开详情后，「关闭」按钮关不掉　✅ 已修 `677d12e`
 
 `frontend/src/pages/BoardPage.tsx:453` vs `:95-101`
 
@@ -73,7 +113,7 @@ const closeDetail = () => { setDetail(null); if (deepLinkId) { ...delete('reques
 
 **修法**：三处统一改 `closeDetail`。
 
-### D3【前端·高】执行日志在每次重连/轮询时被清空
+### D3【前端·高】执行日志在每次重连/轮询时被清空　✅ 已修 `9db32cf`
 
 `frontend/src/pages/RunDetailPage.tsx:104-124`
 
@@ -115,7 +155,7 @@ const load = useCallback(async () => {
 同时 `useRunSocket` 的 token 改用 `ref` 持有，token 变化不重建连接（WS 只在握手时校验一次，
 续期对已建连接无意义）。
 
-### D4【后端·中】调度规则在某些失败路径下会永久停止触发
+### D4【后端·中】调度规则在某些失败路径下会永久停止触发　✅ 已修 `ee97dc4`
 
 `backend/app/services/schedule_service.py:730-754` + `:928`
 
@@ -148,7 +188,7 @@ except DependencyBlockedError:
 
 其他分支（:639/659/684/788/863）都是「先改后提」，只有这一支是「先提后改」，属于分支不一致。
 
-### D5【后端·中】stdio 池懒加载有竞态，会泄漏子进程
+### D5【后端·中】stdio 池懒加载有竞态，会泄漏子进程　✅ 已修 `851e90a`（并查出跨循环崩溃）
 
 `backend/app/executors/stdio_pool.py:111-119`
 
@@ -173,7 +213,7 @@ async def _get_entry(spec: StdioSpec) -> _Entry:
 顺带：`close_all()`（:206）全仓只有测试调用，docstring 承诺的「worker 退出时调用」并不存在 →
 应接到 Celery `worker_process_shutdown` 信号，否则优雅重启会攒下孤儿 `npx` 进程。
 
-### D6【后端·低概率但后果重】执行锁释放不校验持有者
+### D6【后端·低概率但后果重】执行锁释放不校验持有者　✅ 已修 `dfe58a1`
 
 `backend/app/tasks/execute_run.py:70-86`
 
@@ -193,7 +233,7 @@ def _release_lock(run_id): client.delete(f"run:lock:{run_id}")   # ← 无条件
 
 ## 二、性能（可量化，风险低）
 
-### P1【后端】`list_schedules` 是列表 N+1
+### P1【后端】`list_schedules` 是列表 N+1　✅ 已修 `ee85349`
 
 `backend/app/services/schedule_service.py:421-427` → `_to_out`（:204-211）
 
@@ -210,7 +250,7 @@ return [await _to_out(db, s, user) for s in rows]     # 每条一次 db.get(目�
 **修法**：拿到 rows 后一次批量查三张表（`Agent.id.in_(...)` / `AgentGroup.id.in_(...)` / `User.id.in_(...)`），
 `_to_out` 拆成接收预取字典的纯函数。20 条从 20~40 次降到 2~3 次。
 
-### P2【后端】`_persist_steps` 逐条 SELECT，且整批重复执行一次
+### P2【后端】`_persist_steps` 逐条 SELECT，且整批重复执行一次　✅ 已修 `9b55e3e`
 
 `backend/app/tasks/execute_run.py:138-175`
 
@@ -227,7 +267,7 @@ for step in steps:
 **修法**：`select(Step).where(Step.id.in_(ids))` 一次取回建 dict；`save_step` 内不 commit，
 交给每个 LLM 轮次结束统一提交一次。
 
-### P3【后端】`_load_context` 白加载整段历史 steps
+### P3【后端】`_load_context` 白加载整段历史 steps　✅ 已修 `1be23e1`
 
 `backend/app/tasks/execute_run.py:91`
 
@@ -255,6 +295,12 @@ stmt = select(Run).options(selectinload(Run.steps)).where(Run.id == run_id)
 `payload["artifacts"]` 里的 `bytes` 换成 `SpooledTemporaryFile`，把峰值内存从 4 并发 × 50MB 降到常数
 （`put_bytes` 已支持 `BinaryIO`）。
 
+**本轮未修（保留）**：改成 `to_thread` 只需一行，但真正的问题是 `payload["artifacts"]`
+里挂着 `bytes` 导致峰值内存 ×4 并发；只挪线程不改内存模型，等于把「阻塞事件循环」
+换成「4 个线程同时各持 50MB」。要一次改对就得连 `SpooledTemporaryFile` 一起做，
+而那会动到 `sandbox_service` / `artifact_service` / runner 三处的数据形状——
+需要一轮真实压测确认峰值，不是顺手能收的。留待独立特性。
+
 ### P5【后端】每秒钟十余次 Docker API 往返
 
 `backend/app/executors/sandbox_client.py:397`（`_ResourceSampler` 每 100ms 一次 `stats`）、
@@ -263,12 +309,17 @@ stmt = select(Run).options(selectinload(Run.steps)).where(Run.id == run_id)
 一次 60s 执行 ≈ 600 次 stats + 120 次 reload + 120 次 exec ≈ **840 次 daemon 往返**，
 全部在 docker daemon 同一把锁上排队。
 
-**修法**（纯收益、无风险）：
+**修法**（原本写作「纯收益、无风险」，修复时复查后修正见下）：
 - stats 采样降到 500ms~1s，或只在 `finish()` 前采一次（cgroup 的 `peak` 已覆盖 OOM/CPU 峰值）；
 - 健康检查降到 3~5s（内核 lease ≤1s 过期，helper 死了下一轮照样抓得到），并把 reload+exec 合成一次；
 - 就绪轮询改指数退避，或 `logs(follow=True)` 读到标记即停。
 
-### P6【前端】全局 `staleTime: 0`，字典数据每次挂载都重取
+**本轮未修（保留）**：这三处频率都是**刻意的**——stats 100ms 是为了资源熔断能及时
+掐断失控脚本，20ms 轮询 `logs()` 是为了取消探针能快速响应，reload+exec 是沙箱存活的
+心跳。降频会直接拉长「取消/熔断生效」的延迟，这是安全属性换吞吐，不能凭「往返次数多」
+就改。要降频得先有一份真实的「取消响应时间」基线，本轮没有。
+
+### P6【前端】全局 `staleTime: 0`，字典数据每次挂载都重取　✅ 已修 `fd85bb4`
 
 `frontend/src/App.tsx:16-20`
 
@@ -295,7 +346,7 @@ agents/groups 设了 `staleTime: 60_000`（:67/:73），`useToolsCatalog` 设了
 **修法**：全局给 `staleTime: 30_000`（配了 `refetchInterval` 的实时查询不受影响），
 并把字典 key 收进 `src/api/queryKeys.ts` 常量。
 
-### P7【前端】分页列表翻页闪空、看板拖拽全量重算
+### P7【前端】分页列表翻页闪空、看板拖拽全量重算　✅ 已修 `fd85bb4`、`8a86d84`
 
 - **翻页闪空**：6 个分页页（Admin/Agent/Group/Projects/Schedules/TriggerHistory）均未用
   `placeholderData: keepPreviousData`，翻页时列表先变骨架屏再填充。逐页加一个参数即可。
@@ -416,16 +467,20 @@ transition(run, RunStatus.FAILED); run.error = ...; await set_status(...); await
 
 按「收益 / 风险」排，前三步都是小改动、可独立验证。
 
-| # | 做什么 | 改动量 | 为什么排这里 |
-|---|---|---|---|
-| 1 | **D1 + D2 + D3**（前端三个确定性 bug） | 各 1~5 行 | 都在核心交互路径上，用户可感知，修完即可回归验证 |
-| 2 | **D4 调度提交顺序** | 5 行 | 后果是永久静默失效，但修法极简 |
-| 3 | **P1 + P2 + P3**（后端 N+1） | 各 20 行内 | 往返次数可在测试里量化，回归风险低 |
-| 4 | **D5 + D6**（并发正确性） | 各 20~30 行 | 概率低但属"能造成生产事故"，复用已有 CAS 片段 |
-| 5 | **P6 + P7**（前端渲染与缓存） | ~100 行 | 一次性消除 6 组重复 key + 6 个页面翻页闪空 |
-| 6 | **R1 归属判权收敛** | 中等 | 先统一 admin 口径，否则后续任何权限特性都要改 10 遍 |
-| 7 | **R4 拆巨型函数** | 大（分 PR） | 先做机械化的终结器抽取，再做 DAG 无关的搬迁 |
-| 8 | P4 / P5 / R2 / R3 / R5 | 零散 | 随时可插空做 |
+| # | 做什么 | 改动量 | 为什么排这里 | 本轮 |
+|---|---|---|---|---|
+| 1 | **D1 + D2 + D3**（前端三个确定性 bug） | 各 1~5 行 | 都在核心交互路径上，用户可感知，修完即可回归验证 | ✅ |
+| 2 | **D4 调度提交顺序** | 5 行 | 后果是永久静默失效，但修法极简 | ✅ |
+| 3 | **P1 + P2 + P3**（后端 N+1） | 各 20 行内 | 往返次数可在测试里量化，回归风险低 | ✅ |
+| 4 | **D5 + D6**（并发正确性） | 各 20~30 行 | 概率低但属"能造成生产事故"，复用已有 CAS 片段 | ✅ |
+| 5 | **P6 + P7**（前端渲染与缓存） | ~100 行 | 一次性消除重复 key + 5 个页面翻页闪空 | ✅ |
+| 6 | **R1 归属判权收敛** | 中等 | 先统一 admin 口径，否则后续任何权限特性都要改 10 遍 | ⏸ |
+| 7 | **R4 拆巨型函数** | 大（分 PR） | 先做机械化的终结器抽取，再做 DAG 无关的搬迁 | ⏸ |
+| 8 | P4 / P5 / R2 / R3 / R5 | 零散 | 随时可插空做 | ⏸（P4/P5 见正文说明） |
+
+第 6、7 步没有做，因为它们是**重构而非修复**：R1 要统一 10 处判权口径（会改变既有
+403/404 行为，需逐条核对契约），R4 要拆三个数百行的函数（必须分 PR、每步跑全量）。
+二者都不该和「修 bug」混在同一批提交里。
 
 **不建议**在本轮做的：`ready_dependents` 的 N+1（:330-338，逐候选查前置边）和
 `_adjacency_for` 的全表加载（:74-89）。二者都真实存在，但当前依赖图规模下影响有限，
@@ -439,3 +494,22 @@ transition(run, RunStatus.FAILED); run.error = ...; await set_status(...); await
   API 层 presign 路径，`sandbox_service` 这条产物落库路径当时未被覆盖，属于**新路径未纳入**。
   结论仍要修，但性质不同（不是回归）。
 - 所有 `文件:行号` 均已回读源码确认，可直接跳转核验。
+
+### 修复阶段对本报告的三处修正
+
+修复过程本身又查出本报告写得不准的地方，如实记录：
+
+1. **D5 定性过轻**。原文只说「并发首次访问泄漏子进程」，实际还有一个更致命的问题：
+   `execute_run` 每次调用都起新事件循环，池条目绑在旧循环上，第二次工具调用必然抛
+   `got Future attached to a different loop` —— 024 的常驻池在生产形态下第二步就崩。
+   已在 `851e90a` 一并修复。
+2. **P7 的「6 个分页页」是笔误**。实际适用 `placeholderData` 的是 5 个页面
+   （Agent / Group / Projects / Schedules）+ TriggerHistory 弹层；**AdminPage 不在其中**——
+   它是全仓唯一用裸 `useEffect` + fetch 的分页页，根本不经 TanStack Query。
+3. **P5 的「纯收益、无风险」判断错误**。那些高频采样/轮询是刻意的：它们直接决定
+   取消与熔断的响应延迟。降频是拿安全属性换吞吐，不是纯收益。已在正文改正并改为保留。
+
+另：D4 的 `DependencyBlockedError` 分支在修复时被确认**当前不可达**——调度建的是全新需求，
+创建时不可能已有依赖边（`RequestDependency` 只能经 `dependencies.py` 创建，已 grep 确认）。
+该分支是防御性的，因此 D4 的实际影响面比原文描述小；但提交顺序的修法本身仍然正确
+（换成「先写触发记录再提交」后，即便将来该分支变为可达也不会卡死）。
