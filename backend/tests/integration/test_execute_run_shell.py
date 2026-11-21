@@ -117,11 +117,17 @@ class _FakeSession:
 
 @pytest.fixture
 def shell(monkeypatch):
-    """让任务壳真正跑起来：清掉 TESTING 短路，锁默认拿得到。"""
+    """让任务壳真正跑起来：清掉 TESTING 短路，锁默认拿得到。
+
+    `_acquire_lock` 返回持有者 token（不再是 bool）；`_release_lock` 收两个
+    参数并按 token 做 CAS。替身保持同一形状，顺带记录释放时传的是哪个 token。
+    """
     monkeypatch.delenv("TESTING", raising=False)
-    monkeypatch.setattr(er, "_acquire_lock", lambda _run_id: True)
-    released: list[str] = []
-    monkeypatch.setattr(er, "_release_lock", lambda run_id: released.append(run_id))
+    monkeypatch.setattr(er, "_acquire_lock", lambda _run_id: "test-token")
+    released: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        er, "_release_lock", lambda run_id, token: released.append((run_id, token))
+    )
 
     def _install(run: _FakeRun | None) -> _FakeSession:
         session = _FakeSession(run)
@@ -156,7 +162,7 @@ def test_testing_short_circuit_returns_before_touching_broker(monkeypatch):
 def test_lock_busy_returns_without_loading_run(shell, monkeypatch):
     """拿不到锁说明已有 Worker 在执行——直接返回 busy，不读库。"""
     session = shell(None)
-    monkeypatch.setattr(er, "_acquire_lock", lambda _run_id: False)
+    monkeypatch.setattr(er, "_acquire_lock", lambda _run_id: None)
     assert er.execute_run("run-busy") == "busy"
     assert session.commits == 0
 
@@ -268,7 +274,10 @@ def test_fatal_error_recycles_queued_run_through_running(shell, monkeypatch):
 
 
 def test_lock_is_released_even_when_task_fails(shell, monkeypatch):
-    """锁必须无条件释放：漏放会让该 Run 在 TTL 内彻底无法重跑。"""
+    """锁必须无条件释放：漏放会让该 Run 在 TTL 内彻底无法重跑。
+
+    同时验证释放带上的是**本次**获取到的 token——否则 CAS 形同虚设。
+    """
     run = _FakeRun(status=RunStatus.QUEUED.value)
     shell(run)
 
@@ -279,7 +288,7 @@ def test_lock_is_released_even_when_task_fails(shell, monkeypatch):
     monkeypatch.setattr(er.run_events, "run_failed", lambda *_a, **_k: None)
 
     er.execute_run(run.id)
-    assert shell.released == [run.id]  # type: ignore[attr-defined]
+    assert shell.released == [(run.id, "test-token")]  # type: ignore[attr-defined]
 
 
 def test_successful_run_returns_final_status(shell, monkeypatch):

@@ -66,21 +66,41 @@ logger = structlog.get_logger(__name__)
 _LOCK_TTL_SECONDS = 3600  # 与 Agent.max_run_seconds 上限对齐（默认 1800，留余量）
 
 
-def _acquire_lock(run_id: str) -> bool:
-    """Redis SET NX EX：获取执行锁，失败说明已有 Worker 在执行。"""
+def _acquire_lock(run_id: str) -> str | None:
+    """Redis SET NX EX：获取执行锁，成功返回持有者 token，失败返回 None。
+
+    值不是固定 "1" 而是每次唯一：释放时要靠它判断「这把锁还是我的吗」。
+    见 `_release_lock` 与 docs/code-audit-2026-11-21.md D6。
+    """
+    token = new_uuid()
     client = redis.from_url(settings.redis_url, decode_responses=True)
     try:
-        return bool(
-            client.set(f"run:lock:{run_id}", "1", nx=True, ex=_LOCK_TTL_SECONDS)
-        )
+        ok = client.set(f"run:lock:{run_id}", token, nx=True, ex=_LOCK_TTL_SECONDS)
+        return token if ok else None
     finally:
         client.close()
 
 
-def _release_lock(run_id: str) -> None:
+def _release_lock(run_id: str, token: str | None) -> None:
+    """只释放自己持有的锁（compare-and-delete）。
+
+    无条件 `DELETE` 有个低概率但后果重的漏洞：Worker 被 SIGKILL 卡过 TTL
+    （3600s）后恢复，此时锁已被别的 Worker 重新获取，它却会把**别人的锁**
+    删掉 → 第三个 Worker 又能拿到 → 同一 Run 并发执行（seq 唯一约束冲突、
+    成本重复累加）。用与 `sandbox_service.release_concurrency_slot` 相同的
+    Lua CAS 片段即可。
+    """
+    if token is None:
+        return
     client = redis.from_url(settings.redis_url, decode_responses=True)
     try:
-        client.delete(f"run:lock:{run_id}")
+        client.eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] "
+            "then return redis.call('del', KEYS[1]) else return 0 end",
+            1,
+            f"run:lock:{run_id}",
+            token,
+        )
     finally:
         client.close()
 
@@ -885,7 +905,8 @@ def execute_run(self, run_id: str) -> str:
         # 测试环境短路：不连 broker/DB，直接返回（集成测试自行 mock 执行链）
         return "skipped-test"
 
-    if not _acquire_lock(run_id):
+    lock_token = _acquire_lock(run_id)
+    if lock_token is None:
         logger.warning("run_lock_busy", run_id=run_id)
         return "busy"
 
@@ -954,4 +975,4 @@ def execute_run(self, run_id: str) -> str:
         asyncio.run(_fail())
         return "failed"
     finally:
-        _release_lock(run_id)
+        _release_lock(run_id, lock_token)

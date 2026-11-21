@@ -375,13 +375,13 @@ async def test_lock_contention_prevents_double_execution(
     # 注意：execute_run 在 TESTING=1 时会短路返回 skipped-test，
     # 这里显式关掉该短路，直接验锁竞争（生产上「两个执行体撞锁」的路径）。
     monkeypatch.delenv("TESTING", raising=False)
-    with patch.object(task_module, "_acquire_lock", return_value=False):
+    with patch.object(task_module, "_acquire_lock", return_value=None):
         result = await asyncio.to_thread(task_module.execute_run.run, str(run.id))
     assert result == "busy"
     assert executed == []  # 一次都没执行
 
     # 释放锁后正常执行一次
-    with patch.object(task_module, "_acquire_lock", return_value=True):
+    with patch.object(task_module, "_acquire_lock", return_value="test-token"):
         result = await asyncio.to_thread(task_module.execute_run.run, str(run.id))
     assert result == "completed"
     assert len(executed) == 1
@@ -423,7 +423,7 @@ async def test_delayed_retry_message_discarded_after_terminal(
     monkeypatch.setattr("app.tasks.execute_run.LiteLLMClient.chat", counting_chat)
 
     monkeypatch.delenv("TESTING", raising=False)
-    with patch.object(task_module, "_acquire_lock", return_value=True):
+    with patch.object(task_module, "_acquire_lock", return_value="test-token"):
         result = await asyncio.to_thread(task_module.execute_run.run, str(run.id))
 
     assert executed == []  # 没有执行

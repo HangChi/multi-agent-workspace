@@ -305,3 +305,84 @@ async def test_persist_steps_selects_once_for_precreated_batch(db_session):
     )
     assert len(refreshed) == 10, "不应插入重复行"
     assert all(row.status == "completed" for row in refreshed)
+
+
+# ---------- D6：执行锁只释放自己持有的那份 ----------
+
+
+@pytest.fixture
+def redis_client():
+    """真连本机 Redis：CAS 只有在真 Redis 上才能验证（Lua 语义）。
+
+    用独立的 key 前缀（d6-*）并由用例自行清理，避免污染开发环境的库。
+    """
+    import redis as redis_lib
+
+    from app.core.config import settings
+
+    client = redis_lib.from_url(settings.redis_url, decode_responses=True)
+    try:
+        client.ping()
+    except Exception:  # noqa: BLE001
+        client.close()
+        pytest.skip("本机 Redis 不可用，跳过锁所有权用例")
+    try:
+        yield client
+    finally:
+        for key in client.scan_iter("run:lock:d6-*"):
+            client.delete(key)
+        client.close()
+
+
+class TestRunLockOwnership:
+    """`_release_lock` 必须是 compare-and-delete。
+
+    D6 背景：原先无条件 `DELETE`。Worker 被 SIGKILL 卡过 TTL（3600s）后恢复时，
+    锁早已被别的 Worker 重新获取，它却会把**别人的锁**删掉 → 第三个 Worker
+    又能拿到 → 同一 Run 并发执行（seq 唯一约束冲突、成本重复累加）。
+    """
+
+    def test_release_removes_own_lock(self, redis_client):
+        run_id = f"d6-{uuid.uuid4().hex[:8]}"
+        token = er._acquire_lock(run_id)
+        assert token is not None
+        assert redis_client.get(f"run:lock:{run_id}") == token
+
+        er._release_lock(run_id, token)
+        assert redis_client.get(f"run:lock:{run_id}") is None
+
+    def test_release_does_not_delete_someone_elses_lock(self, redis_client):
+        """核心用例：A 超时后 B 拿到锁，A 的释放不能删掉 B 的锁。"""
+        run_id = f"d6-{uuid.uuid4().hex[:8]}"
+
+        # A 拿锁后被卡住（模拟 SIGKILL 卡过 TTL），锁过期，B 重新获取
+        token_a = er._acquire_lock(run_id)
+        assert token_a is not None
+        redis_client.delete(f"run:lock:{run_id}")  # 模拟 TTL 到期
+        token_b = er._acquire_lock(run_id)
+        assert token_b is not None and token_b != token_a
+
+        # A 恢复后释放：必须无效
+        er._release_lock(run_id, token_a)
+        assert redis_client.get(f"run:lock:{run_id}") == token_b, (
+            "A 的释放删掉了 B 的锁——第三个 Worker 会拿到锁并并发执行同一个 Run"
+        )
+
+        # B 自己释放才有效
+        er._release_lock(run_id, token_b)
+        assert redis_client.get(f"run:lock:{run_id}") is None
+
+    def test_second_acquire_fails_while_held(self, redis_client):
+        """同一 Run 重复获取返回 None（替代原来 bool 语义的回归保护）。"""
+        run_id = f"d6-{uuid.uuid4().hex[:8]}"
+        assert er._acquire_lock(run_id) is not None
+        assert er._acquire_lock(run_id) is None
+        redis_client.delete(f"run:lock:{run_id}")
+
+    def test_release_without_token_is_noop(self, redis_client):
+        """拿不到锁时 token 为 None，finally 里的释放必须安全跳过。"""
+        run_id = f"d6-{uuid.uuid4().hex[:8]}"
+        redis_client.set(f"run:lock:{run_id}", "someone-else")
+        er._release_lock(run_id, None)
+        assert redis_client.get(f"run:lock:{run_id}") == "someone-else"
+        redis_client.delete(f"run:lock:{run_id}")
