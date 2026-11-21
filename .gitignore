@@ -51,6 +51,9 @@ backend/.backups/
 # 验收脚本产物（截图/DOM 摘要——证据不进仓库）
 deploy/verify/.artifacts/
 
+# 常驻 e2e 的失败留证（截图 + 页面文本）
+e2e/.artifacts/
+
 # 数据库备份（本地证据，不进仓库）
 deploy/backup/*.sql
 .pytest-tmp/

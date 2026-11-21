@@ -558,7 +558,15 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
   采样率默认 `0.0`，不送 PII。
 - **压力验证**：`deploy/verify/load_test.py` 实测 100 并发 818 req/s、200 并发 0 错误，
   但 P95 在 100 并发下突破 500ms（2 vCPU 开发机），详见 `docs/load-test-2026-11-17.md`。
-- 前端单测覆盖页面、store 与组件（26 文件 / 143 例）；真实浏览器的端到端验证依靠人工或按需脚本，仓库内没有常驻 Playwright e2e（008/009/010 的清单由 `deploy/verify/s12_browser_walkthrough.py` 覆盖）。
+- 前端单测覆盖页面、store 与组件（26 文件 / 143 例）；浏览器回归另有**常驻 e2e 套件**
+  （`e2e/`，pytest + Playwright，14 例：登录 / 五个主导航 / 设置二级页 / 项目新建改名 /
+  成员共享可见 / 需求项目归属 / 看板 project 深链筛选 / 前置依赖阻塞与移除刷新）。
+  跑法 `cd e2e && AW_E2E_INVITE=<码> ../backend/.venv/bin/python -m pytest -q`，
+  没起栈或缺邀请码时全部 skip 而不是报红；失败自动落截图与页面文本到 `e2e/.artifacts/`。
+  008/009/010 的 15 项历史清单仍由 `deploy/verify/s12_browser_walkthrough.py` 承载。
+  CI 另有独立的手动 / 每周触发的 e2e job（`.github/workflows/e2e.yml`，**尚未在远端实测**）。
+- **视觉回归（像素级截图对比）仍未做**：015 的 T024 保持未勾——跨平台字体渲染差异大，
+  维护基线图的成本高于收益。现在 e2e 基建已具备，需要时可把关键页接 `toHaveScreenshot`。
 - **测试稳定性（如实记录）**：CI 现在在 **Python 3.12 与 3.15 两个版本**上跑全量测试。
   3.15 上有 2~3 个集成用例对异步时序/列表顺序敏感——单跑必过、全量偶发红，且
   每次失败的用例都不一样（三次实测分别红 6 / 3 / 2 个，互不重复）。处理方式：

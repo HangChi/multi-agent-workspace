@@ -54,6 +54,13 @@
 | [../deploy/README.md](../deploy/README.md) | 服务清单、启动、LLM 端点接入、生产注意、日志排查、备份、升级、验证脚本 |
 | [../deploy/DEPLOY.md](../deploy/DEPLOY.md) | 部署命令速查（`deploy.sh` 的顺序与理由） |
 
+## 测试与验收（`../e2e/` 与 `../deploy/verify/`）
+
+| 位置 | 内容 |
+|---|---|
+| [../e2e/README.md](../e2e/README.md) | **常驻浏览器 e2e**：pytest + Playwright，登录/导航/项目/需求/依赖五组共 14 例；环境变量、失败留证、加用例的三条约定（数据经 API 造 / 详情等两段式 / select 用 value） |
+| [../deploy/verify/](../deploy/verify/) | 真实栈验收与一次性走查：s1–s12 场景脚本、压测、验收账号清理、告警规则门禁 |
+
 ## 其他位置
 
 | 位置 | 内容 |
