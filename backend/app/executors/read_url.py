@@ -13,15 +13,21 @@
 """
 
 import asyncio
-import ipaddress
 import re
-import socket
 from collections.abc import Awaitable, Callable
 from typing import Any, ClassVar
 from urllib.parse import urlparse
 
 import httpx
 
+from app.core.net_guard import (
+    NetGuardError,
+    is_blocked_ip,
+    normalize_http_url,
+)
+from app.core.net_guard import (
+    resolve_public_hosts as _resolve_public_hosts,
+)
 from app.executors.base import ToolExecutor
 
 _MAX_BYTES = 2 * 1024 * 1024
@@ -36,74 +42,22 @@ _MAX_CONNECT_ATTEMPTS = 2
 # DNS rebinding 的口子。
 _RESOLVE_ROUNDS = 2
 
-_BLOCKED_NETS = tuple(
-    ipaddress.ip_network(net)
-    for net in (
-        "0.0.0.0/8",
-        "10.0.0.0/8",
-        "100.64.0.0/10",  # CGNAT
-        "127.0.0.0/8",
-        "169.254.0.0/16",  # link-local / 云元数据
-        "172.16.0.0/12",
-        "192.0.0.0/24",
-        "192.168.0.0/16",
-        "198.18.0.0/15",
-        "224.0.0.0/4",  # 组播
-        "240.0.0.0/4",
-        "::1/128",
-        "fc00::/7",
-        "fe80::/10",
-    )
-)
-
 
 class FetchError(RuntimeError):
     """抓取失败（网络、策略或内容问题）。"""
 
 
 def _is_blocked_ip(raw: str) -> bool:
-    try:
-        ip = ipaddress.ip_address(raw)
-    except ValueError:
-        return True  # 解析不出 IP 一律视为不安全
-    if ip.version == 6 and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
-    return any(ip in net for net in _BLOCKED_NETS)
+    """保留旧名（内部与测试按它断言），实现见 core.net_guard。"""
+    return is_blocked_ip(raw)
 
 
 async def resolve_public_hosts(host: str) -> list[str]:
-    """解析主机并按公网策略过滤，返回**可直接连接**的 IP 列表。
-
-    返回的就是随后要连的地址：调用方不能再解析一次，否则校验与连接之间会出现
-    DNS rebinding 窗口（第一次返回公网 IP 通过校验，第二次返回 127.0.0.1）。
-    """
-    if not host:
-        raise FetchError("URL 缺少主机名")
-
+    """委托 core.net_guard，异常换成 FetchError（调用方按 FetchError 处理）。"""
     try:
-        resolved = [str(ipaddress.ip_address(host))]
-    except ValueError:
-        resolved = []
-
-    if not resolved:
-        try:
-            infos = await asyncio.to_thread(socket.getaddrinfo, host, None)
-        except OSError as exc:
-            raise FetchError(f"域名解析失败: {host}") from exc
-        seen: list[str] = []
-        for info in infos:
-            address = str(info[4][0])
-            if address not in seen:
-                seen.append(address)
-        resolved = seen
-
-    if not resolved:
-        raise FetchError(f"域名解析失败: {host}")
-    for raw_ip in resolved:
-        if _is_blocked_ip(raw_ip):
-            raise FetchError(f"目标地址不允许访问（内网/保留地址）: {host}")
-    # IPv4 优先：双栈环境里先试 A 记录，避免没有 IPv6 出口时白等一轮超时。
-    return sorted(resolved, key=lambda value: ":" in value)[:_MAX_CONNECT_ATTEMPTS]
+        return await _resolve_public_hosts(host)
+    except NetGuardError as exc:
+        raise FetchError(str(exc)) from exc
 
 
 async def _assert_public_host(host: str) -> None:
@@ -112,31 +66,15 @@ async def _assert_public_host(host: str) -> None:
 
 
 def _normalize_url(raw: str) -> str:
-    """校验 scheme 并补全协议。
+    """委托 core.net_guard.normalize_http_url（异常换成 FetchError）。
 
-    注意不能只看 "://"：`javascript:alert(1)` 没有 "://"，若直接补 https
-    就绕过了 scheme 检查。
+    为什么不再本地实现：018 的 webhook 也要同一套 scheme 判定，
+    两处各写一份必然分叉（`javascript:` 那种没有 `://` 的写法最容易漏）。
     """
-    url = (raw or "").strip()
-    if not url:
-        raise FetchError("URL 为空")
-
-    if "://" in url:
-        scheme = url.split("://", 1)[0].lower()
-        if scheme not in ("http", "https"):
-            raise FetchError(f"仅支持 http/https，收到: {scheme or '空'}")
-    else:
-        head = url.split("/", 1)[0]
-        if ":" in head:
-            _, _, port = head.partition(":")
-            if not port.isdigit():
-                raise FetchError(f"仅支持 http/https，收到: {head.split(':', 1)[0]}")
-        url = f"https://{url}"
-
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        raise FetchError(f"仅支持 http/https，收到: {parsed.scheme or '空'}")
-    return url
+    try:
+        return normalize_http_url(raw)
+    except NetGuardError as exc:
+        raise FetchError(str(exc)) from exc
 
 
 _SCRIPT_STYLE = re.compile(r"(?is)<(script|style|noscript|svg)[^>]*>.*?</\1>")

@@ -20,6 +20,7 @@ from app.models.group import AgentGroup
 from app.models.group_member import GroupMember
 from app.models.invite_code import InviteCode
 from app.models.notification import Notification
+from app.models.notification_channel import NotificationChannel, NotificationDelivery
 from app.models.project import Project
 from app.models.project_member import ProjectMember
 from app.models.request import Request
@@ -49,6 +50,8 @@ __all__ = [
     "InviteCode",
     "MarketplaceListing",
     "Notification",
+    "NotificationChannel",
+    "NotificationDelivery",
     "Project",
     "ProjectMember",
     "Request",

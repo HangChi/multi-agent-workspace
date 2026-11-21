@@ -149,9 +149,11 @@ def test_blocked_nets_cover_documented_ranges():
 
 
 def _blocked_nets():
-    from app.executors import read_url
+    # 017 起判定搬到 core.net_guard（018 的 webhook 也要用同一套，不能各写一份）；
+    # 这里断言的是那份共享名单，不是 read_url 的副本。
+    from app.core.net_guard import BLOCKED_NETS
 
-    return read_url._BLOCKED_NETS
+    return BLOCKED_NETS
 
 
 # ---------- 015 覆盖率补齐：执行链分支（注入 client + resolver） ----------

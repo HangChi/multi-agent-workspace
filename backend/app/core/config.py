@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     sentry_traces_sample_rate: float = 0.0
     sentry_send_default_pii: bool = False
 
+    # 外部通知通道是否允许私网目标（018）。默认 False：用户填的 URL 由**服务器**
+    # 去请求，任意外网地址 + 内网可达性 = SSRF。默认只放行公网。
+    # 纯内网部署（接收端就是 10.x 的内部告警网关）时由运维开启；开启后仍拦
+    # 云元数据地址（169.254.169.254）——那个没有任何业务用途，只有攻击价值。
+    notification_allow_private_hosts: bool = False
+
     # 数据库（默认对齐 deploy/docker-compose.yml 的本地开发配置）
     database_url: str = (
         "postgresql+asyncpg://aw:aw-dev-password@localhost:5432/agent_workbench"

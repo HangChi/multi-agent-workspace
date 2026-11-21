@@ -105,6 +105,7 @@ celery_app.autodiscover_tasks(["app.tasks"])
 
 # 显式导入任务模块，确保 Worker 注册（兜底 autodiscover 不递归的局限）
 from app.tasks import (  # noqa: F401  (must be after celery_app is defined)
+    deliver_notification,
     execute_run,
     maintenance,
     schedule,

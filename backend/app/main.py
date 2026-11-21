@@ -28,6 +28,9 @@ from app.api.v1.external_tool_grants import router as external_tool_grants_route
 from app.api.v1.external_tool_servers import router as external_tool_servers_router
 from app.api.v1.groups import router as groups_router
 from app.api.v1.marketplace import router as marketplace_router
+from app.api.v1.notification_channels import (
+    router as notification_channels_router,
+)
 from app.api.v1.notifications import router as notifications_router
 from app.api.v1.project_members import router as project_members_router
 from app.api.v1.projects import router as projects_router
@@ -108,6 +111,7 @@ def create_app() -> FastAPI:
     api_v1.include_router(projects_router)
     api_v1.include_router(project_members_router)
     api_v1.include_router(notifications_router)
+    api_v1.include_router(notification_channels_router)
     api_v1.include_router(admin_router)
     api_v1.include_router(admin_egress_router)
     api_v1.include_router(admin_invite_codes_router)

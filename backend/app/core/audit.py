@@ -102,6 +102,12 @@ PROJECT_MEMBER_REMOVE = "project_member_remove"
 # （data-model §6：无迁移，但数据不会因回退代码而自动退回）。
 PROJECT_TRANSFER = "project_transfer"
 
+# ===== 外部通知通道（018）=====
+# 只记创建动作：这是「往外发数据」的配置，第一次建立必须有痕。
+# 改 URL / 开关 / 重置密钥不单独记（高频且可从前端操作日志推断），
+# 真要审计追溯可以在需要时补——避免审计表被「改了个开关」淹没。
+NOTIFICATION_CHANNEL_CREATE = "notification_channel_create"
+
 
 async def write_audit(
     db: AsyncSession,

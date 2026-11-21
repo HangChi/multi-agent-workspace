@@ -12,6 +12,7 @@
 只改变「我见过没有」。
 """
 
+import os
 from datetime import UTC, datetime
 from typing import Any
 
@@ -24,6 +25,41 @@ from app.core.events import publish_user_notification
 from app.models.notification import Notification
 
 logger = structlog.get_logger(__name__)
+
+
+async def _enqueue_external_deliveries(
+    db: AsyncSession, notification: Notification
+) -> None:
+    """018：为订阅了该事件的外部通道建投递记录并交给 Celery。
+
+    三个刻意的设计：
+    1. **失败不阻断站内通知**：站内是主通道，外部是增强。Celery/broker 不可用
+       （本地只起 API 不起 worker）时只记 warning，不让派单/结算整体失败；
+    2. **只建记录、不在这里发 HTTP**：业务事务里发请求会拖长事务（FR-005）；
+    3. **局部 import**：`app.tasks.*` 依赖 celery_app，而 celery_app 末尾会 import
+       各任务模块——放进模块顶层会形成 import 环。
+    """
+    if os.getenv("TESTING") == "1":
+        # 测试环境没有 broker：跳过入队（与 execute_run 的 TESTING 短路同款纪律）。
+        # 需要验投递链路的测试直接调 service（enqueue_for_notification）、
+        # 或调 task 函数本体，不经过 .delay。
+        return
+
+    try:
+        from app.services import notification_channel_service
+        from app.tasks.deliver_notification import deliver_notification
+
+        delivery_ids = await notification_channel_service.enqueue_for_notification(
+            db, notification
+        )
+        for delivery_id in delivery_ids:
+            deliver_notification.delay(delivery_id)
+    except Exception as exc:  # noqa: BLE001 - 外部通道故障不能反噬主流程
+        logger.warning(
+            "external_notification_enqueue_failed",
+            notification_id=notification.id,
+            error=f"{type(exc).__name__}: {exc}"[:200],
+        )
 
 
 async def list_notifications(
@@ -117,6 +153,7 @@ async def create_notification(
     db.add(notification)
     await db.flush()
     metrics.NOTIFICATIONS_CREATED.inc(type=type_)
+    await _enqueue_external_deliveries(db, notification)
     await publish_user_notification(
         user_id,
         {

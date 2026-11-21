@@ -227,6 +227,9 @@ services:
       MONTHLY_QUOTA_CENTS: ${MONTHLY_QUOTA_CENTS:-1000000}
       # 003-mcp-tool-market：生产模式下强制校验，缺失/弱默认值会导致启动失败
       MCP_CREDENTIAL_KEY: ${MCP_CREDENTIAL_KEY}
+      # 018：外部通知是否允许私网目标。默认 false（只放行公网，防 SSRF）；
+      # 纯内网部署、接收端是内网告警网关时置 true（仍拦云元数据地址）。
+      NOTIFICATION_ALLOW_PRIVATE_HOSTS: ${NOTIFICATION_ALLOW_PRIVATE_HOSTS:-false}
     logging: *default-logging
     depends_on:
       postgres:
