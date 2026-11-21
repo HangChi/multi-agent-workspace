@@ -208,3 +208,48 @@ describe('useRunSocket 事件回调', () => {
     expect(onEvent).toHaveBeenCalledTimes(1) // 非法 JSON 不触发回调
   })
 })
+
+/**
+ * token 续期不得重建连接（docs/code-audit-2026-11-21.md D3）。
+ *
+ * 401 静默刷新会把新 token 写进 authStore。早前 accessToken 在 effect 依赖里，
+ * 于是每次续期都要断连重建：connected 经历 true→false→true，调用方据此重拉
+ * 详情、清空日志。WS 子协议只在握手校验一次，续期对已建连接毫无意义。
+ */
+describe('useRunSocket token 续期', () => {
+  it('token 刷新后不重建连接，已连状态保持', () => {
+    const { result } = setup()
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+    expect(result.current.status).toBe('connected')
+
+    // 模拟 axios 拦截器静默续期
+    act(() => {
+      useAuthStore.setState({ accessToken: 'rotated-token' })
+    })
+
+    // 连接没重建：实例数不变，且旧连接仍打开
+    expect(MockWebSocket.instances).toHaveLength(1)
+    expect(ws.closed).toBe(false)
+    expect(result.current.status).toBe('connected')
+  })
+
+  it('续期后确实断线重连时，用新 token 握手', () => {
+    vi.useFakeTimers()
+    setup()
+    const ws = MockWebSocket.instances[0]
+    act(() => ws.open())
+
+    // 续期，然后模拟非终态断开 -> 自动重连应读最新 token
+    act(() => {
+      useAuthStore.setState({ accessToken: 'rotated-token' })
+    })
+    act(() => ws.close())
+    act(() => {
+      vi.advanceTimersByTime(1000) // BASE_DELAY_MS
+    })
+
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(MockWebSocket.instances[1].protocols).toEqual(['aw.bearer', 'rotated-token'])
+  })
+})

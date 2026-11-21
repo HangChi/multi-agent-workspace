@@ -100,17 +100,35 @@ export function RunDetailPage() {
   const [replying, setReplying] = useState(false)
   const [acting, setActing] = useState<'cancel' | 'retry' | null>(null)
   const [logs, setLogs] = useState<{ line: string; level: string; at: string }[]>([])
+  /** 当前 run 是否已经成功加载过一次（区分首屏与后台补数） */
+  const loadedRunRef = useRef(false)
+
+  /**
+   * 切 run（路由参数变化，组件复用）时清空上一 run 的日志与回复草稿：
+   * 否则旧日志会混在新 run 日志顶部，直到被挤出。
+   *
+   * 必须放在只依赖 runId 的 effect 里，**不能**放进 load()：
+   * load 同时被「WS 重连成功补数」与「WS 放弃后 10s 降级轮询」调用，
+   * 放进去会让用户已经看到的日志在每次重连/每 10 秒被清空一次
+   * （docs/code-audit-2026-11-21.md D3）。
+   */
+  useEffect(() => {
+    setLogs([])
+    setReplyMessage('')
+    loadedRunRef.current = false
+  }, [runId])
 
   const load = useCallback(async () => {
     if (!runId) return
-    setLoading(true)
+    // 首屏才给整页骨架屏；补数（重连/轮询）走静默刷新，避免每次闪一下。
+    // 用 ref 判断「这一轮 run 是否已有数据」，避免把 run 塞进依赖导致
+    // load 每次补数都重建、进而重跑首屏 effect。
+    const firstLoad = !loadedRunRef.current
+    if (firstLoad) setLoading(true)
     setError(null)
     try {
       setRun(await api.fetchRun(runId))
-      // 切 run（路由参数变化，组件复用）时必须清空上一 run 的日志与
-      // 回复草稿：否则旧日志会混在新 run 日志顶部，直到被挤出
-      setLogs([])
-      setReplyMessage('')
+      loadedRunRef.current = true
     } catch (e) {
       setError(extractError(e))
     } finally {

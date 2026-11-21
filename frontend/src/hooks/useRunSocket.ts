@@ -61,8 +61,21 @@ export function useRunSocket(
   const retriesRef = useRef(0)
   const timerRef = useRef<number | null>(null)
   const onEventRef = useRef(onEvent)
+  /**
+   * token 放 ref：子协议只在**握手**时校验一次，已建立的连接不因续期失效。
+   * 若把 accessToken 写进 effect 依赖，任何一次 401 静默刷新（axios 拦截器
+   * setTokens）都会重建连接 -> connected 跳变 -> 调用方以为断线过而重拉详情、
+   * 清空日志（docs/code-audit-2026-11-21.md D3 的连锁一半来自这里）。
+   * 这里只读最新值用于建连，不触发 effect 重跑。
+   */
+  const tokenRef = useRef(accessToken)
+  useEffect(() => {
+    tokenRef.current = accessToken
+  }, [accessToken])
   /** effect 内建立的连接函数：reconnect() 通过它手动触发新一轮 */
   const connectRef = useRef<(() => void) | null>(null)
+  /** 是否有可用 token —— 用 ref 判断，避免 effect 依赖它 */
+  const hasToken = accessToken !== null && accessToken !== undefined
 
   // 回调最新引用放 effect：写在 render body 里在 React 并发下可能撕裂
   useEffect(() => {
@@ -70,7 +83,7 @@ export function useRunSocket(
   }, [onEvent])
 
   useEffect(() => {
-    if (!runId || !accessToken || !enabled) {
+    if (!runId || !hasToken || !enabled) {
       setStatus('connecting')
       setConnected(false)
       return
@@ -108,7 +121,8 @@ export function useRunSocket(
       if (closedByUnmount || terminal) return
       // 重试中的连接尝试要显示「重连中」而不是「连接中」
       setStatus(retries > 0 ? 'reconnecting' : 'connecting')
-      const ws = new WebSocket(wsUrl(runId), [BEARER_PROTOCOL, accessToken])
+      // 用 ref 里的最新 token 建连（握手只校验一次，续期不影响已建连接）
+      const ws = new WebSocket(wsUrl(runId), [BEARER_PROTOCOL, tokenRef.current ?? ''])
       wsRef.current = ws
 
       ws.onopen = () => {
@@ -171,7 +185,7 @@ export function useRunSocket(
       connectRef.current = null
       cleanup()
     }
-  }, [runId, accessToken, enabled])
+  }, [runId, enabled, hasToken])
 
   return {
     connected,
