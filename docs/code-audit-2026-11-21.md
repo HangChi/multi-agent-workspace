@@ -528,6 +528,8 @@ transition(run, RunStatus.FAILED); run.error = ...; await set_status(...); await
 | `42fdc29` | `build_external_executors` 244 → 6 个函数 | 判定顺序本身是契约 |
 | `58873db` | 越权阈值熔断补 4 条覆盖 | 该分支此前**零覆盖**，是 `run()` 里唯一「主动放弃模型」的分支 |
 | `1293ca1` | 工具分派抽成 `_execute_tool_calls`（`run()` 580 → 252 行） | 抽取时 ruff 报 `tools` 未使用，牵出一个**真实缺陷**（见下） |
+| `3272f60` | 补齐第四处 schema 派生（`sandbox.py`）+ 一条能真正拦住手写的测试 | 「替换 CATALOG」拦不住手写，得替换拼装函数 |
+| `47e1f0d` | `authorize_tool` 从 `_execute` 抽出 + 10 条授权复核覆盖 | 缺陷修复了，但「撤销怎么被发现」当时仍零覆盖 |
 
 ### R4 过程中对本报告的四处修正
 
@@ -565,3 +567,10 @@ transition(run, RunStatus.FAILED); run.error = ...; await set_status(...); await
 
 `authorize_tool` 此前零测试。新增用例断言**第二次 LLM 调用收到的 `tools` 参数**——
 正是原来漏掉的地方。反向验证：把修复改回写无人读的局部变量，测试立刻红。
+
+不过「撤销被发现了」和「撤销是怎么被发现的」是两件事。前者在 runner 侧（`1293ca1`
+的 `test_revoked_tool_disappears_from_the_next_llm_tool_list`），后者是 `_execute` 里
+那段查库判定——当时仍是零覆盖。`47e1f0d` 把它抽成模块级
+`_authorize_tool_now(db, *, name, agent, run, external_executors)` 并补 10 条，
+把四条规则逐条钉住（快照 ∧ 当前、外部工具短路、无 Agent 拒绝、None 快照按无授权）。
+三个方向的反向验证都先红后绿：只信快照红 3 条、只看当前红 2 条、去掉外部工具短路红 1 条。
