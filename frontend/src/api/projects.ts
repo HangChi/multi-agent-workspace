@@ -71,3 +71,25 @@ export async function updateProject(id: string, payload: ProjectUpdateRequest): 
 export async function deleteProject(id: string): Promise<void> {
   await apiClient.delete(`/projects/${id}`)
 }
+
+/** 移交入参（017）：目标必须是项目现有成员。 */
+export interface ProjectTransferRequest {
+  new_owner_id: string
+  /** 默认 true：移交后我仍是成员，可继续查看（离职场景显式传 false）。 */
+  keep_as_member?: boolean
+}
+
+/**
+ * 移交项目所有权（017）：200 + ProjectOut（owner_id 已是新值）。
+ *
+ * 为什么不用 updateProject 改 owner_id：移交要同时增删成员行、发通知、
+ * 写独立审计，且 409 有四种语义（自移交/非成员/只读/同名）——
+ * 独立端点才能让每种冲突给出可读提示（spec research R-01）。
+ */
+export async function transferProject(
+  id: string,
+  payload: ProjectTransferRequest
+): Promise<Project> {
+  const { data } = await apiClient.post<Project>(`/projects/${id}/transfer`, payload)
+  return data
+}

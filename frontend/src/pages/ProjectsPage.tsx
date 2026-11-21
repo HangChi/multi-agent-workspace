@@ -17,6 +17,7 @@ import { extractError } from '../api/client'
 import { createProject, deleteProject, fetchProjects, updateProject } from '../api/endpoints'
 import type { Project } from '../api/endpoints'
 import { MemberSection } from '../components/project/MemberSection'
+import { ProjectTransferDialog } from '../components/project/ProjectTransferDialog'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -49,6 +50,8 @@ export function ProjectsPage() {
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 20
   const [renameDraft, setRenameDraft] = useState('')
+  // 017：待移交的项目（null = 弹层关闭）
+  const [transferTarget, setTransferTarget] = useState<Project | null>(null)
 
   const { data, isLoading } = useQuery({
     // 010：默认 relevant（我创建的 + 共享给我的）——页面用「我的/共享的」
@@ -332,6 +335,18 @@ export function ProjectsPage() {
                     >
                       {project.status === 'active' ? '归档' : '恢复'}
                     </Button>
+                    {/* 017：移交入口。owner 且至少还有另一个成员才给——
+                        没有其他成员时移交必然 409，不给走不通的路 */}
+                    {project.owner_id === user?.id && project.member_count > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        leftIcon="users"
+                        onClick={() => setTransferTarget(project)}
+                      >
+                        移交
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -361,6 +376,15 @@ export function ProjectsPage() {
           total={totalProjects}
           loading={isLoading}
           onChange={setPage}
+        />
+      )}
+
+      {/* 017：移交弹层挂一次（不是每张卡片一个），project 由 state 决定 */}
+      {transferTarget && (
+        <ProjectTransferDialog
+          project={transferTarget}
+          open
+          onClose={() => setTransferTarget(null)}
         />
       )}
     </Page>
