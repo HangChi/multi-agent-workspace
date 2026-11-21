@@ -507,6 +507,52 @@ async def _schedule_auto_retry(db, run: Run, exc: BaseException) -> bool:
     return True
 
 
+async def _authorize_tool_now(
+    db: AsyncSession,
+    *,
+    name: str,
+    agent: Agent | None,
+    run: Run,
+    external_executors: dict[str, Any],
+) -> bool:
+    """**每一次调用前**复核工具此刻是否还有效（从 `_execute` 内嵌闭包抽出）。
+
+    为什么需要 call-time 复核而不是用调度时那份授权快照：Run 可能跑几分钟，
+    这期间管理员可能禁用某个工具、改 Agent 的授权。快照是「开始时的意思」，
+    不是「现在的意思」。
+
+    两条放行规则：
+
+    - 外部工具直接放行：它自己的 `authorize_call` 会在每次 execute 前复核
+      当前状态（provider 是否 publish、授权是否 active、凭据是否有效），
+      在这里再查一遍是重复劳动。
+    - 其余工具要**同时**满足：在本次 Run 的授权快照里，且当前仍未撤销。
+
+    只查标量列（`Agent.tools` / `Tool.name`）而不是拿 ORM 对象：Worker 用的是
+    长驻会话，改配置的人在别的连接上提交，ORM 身份映射里的旧对象看不见变化。
+    """
+    if name in external_executors:
+        return True
+    if agent is None:
+        return False
+    current_rows = (
+        await db.execute(
+            select(Agent.tools, Tool.name)
+            .select_from(Agent)
+            .outerjoin(
+                Tool,
+                and_(Tool.enabled.is_(True), Tool.name.in_(CATALOG)),
+            )
+            .where(Agent.id == agent.id)
+        )
+    ).all()
+    current_grants = current_rows[0][0] if current_rows else []
+    current_enabled = [row[1] for row in current_rows if row[1] is not None]
+    return name in (run.tool_grants_snapshot or []) and name in filter_grants(
+        current_grants, current_enabled
+    )
+
+
 async def _execute(
     db, run: Run, agent: Agent | None, *, last_seq_hint: int = 0
 ) -> None:
@@ -630,29 +676,12 @@ async def _execute(
     )
 
     async def authorize_tool(name: str) -> bool:
-        if name in external_executors:
-            return (
-                True  # Per-call current-state check runs inside the external executor.
-            )
-        if agent is None:
-            return False
-        # Query scalar columns so operator disables and Agent edits committed
-        # during an LLM call are visible despite this long-lived ORM session.
-        current_rows = (
-            await db.execute(
-                select(Agent.tools, Tool.name)
-                .select_from(Agent)
-                .outerjoin(
-                    Tool,
-                    and_(Tool.enabled.is_(True), Tool.name.in_(CATALOG)),
-                )
-                .where(Agent.id == agent.id)
-            )
-        ).all()
-        current_grants = current_rows[0][0] if current_rows else []
-        current_enabled = [row[1] for row in current_rows if row[1] is not None]
-        return name in (run.tool_grants_snapshot or []) and name in filter_grants(
-            current_grants, current_enabled
+        return await _authorize_tool_now(
+            db,
+            name=name,
+            agent=agent,
+            run=run,
+            external_executors=external_executors,
         )
 
     runner.authorize_tool = authorize_tool
