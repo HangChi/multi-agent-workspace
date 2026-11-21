@@ -4,6 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     Enum,
     ForeignKey,
@@ -93,6 +94,15 @@ class Request(Base):
     # 写入点只有两处（service）：建/改需求、项目改名；删项目时 service 显式清空
     # （外键 SET NULL 只动 project_id，不清它——不清会留下孤儿名字）。
     project_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # 021：前置全部终态后是否自动交给 auto_agent_id 执行（默认关——自动花钱要有
+    # 显式意图）。只在这里存「预置目标」，真正的分配仍走 assignment_service
+    # （配额、门禁、状态机一条都不少）。
+    auto_start: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    auto_agent_id: Mapped[str | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

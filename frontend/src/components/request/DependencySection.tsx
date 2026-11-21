@@ -15,7 +15,14 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { extractError } from '../../api/client'
-import { addDependency, fetchRequests, removeDependency } from '../../api/endpoints'
+import {
+  addDependency,
+  fetchAgents,
+  fetchDependencyGraph,
+  fetchRequests,
+  removeDependency,
+  updateRequest,
+} from '../../api/endpoints'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { ErrorBanner } from '../ui/ErrorBanner'
@@ -236,7 +243,145 @@ export function DependencySection({ requestId, blocked, dependencies, onChanged 
         )}
       </div>
 
+      <DependencyChain requestId={requestId} />
+
       {error && <ErrorBanner error={error} onDismiss={() => setError(null)} />}
+    </div>
+  )
+}
+
+/**
+ * 下游依赖链（021）：拓扑序 + 关键路径 + 自动启动开关。
+ *
+ * 为什么放这里而不是独立页：依赖的上下文只在详情里成立——用户点开一条需求，
+ * 看到的应该是「这条活后面还挂着谁」。单独一个「依赖图页面」要先选根节点，
+ * 多一步且没人会去。
+ *
+ * 自动启动默认关：它会真的花配额（分配即建 Run）。开关 + agent 预置放在
+ * 同一处，是因为「打开但没选 agent」是一个说不通的中间态。
+ */
+function DependencyChain({ requestId }: { requestId: string }) {
+  const qc = useQueryClient()
+  const toast = useToast()
+  const [error, setError] = useState<string | null>(null)
+  const [autoStart, setAutoStart] = useState(false)
+  const [agentId, setAgentId] = useState('')
+
+  const { data: graph } = useQuery({
+    queryKey: ['dependencyGraph', requestId],
+    queryFn: () => fetchDependencyGraph(requestId),
+  })
+  const { data: agents } = useQuery({
+    queryKey: ['agents', 'options'],
+    queryFn: () => fetchAgents(),
+  })
+
+  const rootNode = graph?.nodes.find((n) => n.id === requestId)
+  useEffect(() => {
+    if (!rootNode) return
+    setAutoStart(rootNode.auto_start)
+    if (rootNode.auto_start && !agentId) {
+      setAgentId((prev) => prev)
+    }
+  }, [rootNode, agentId])
+
+  const saveMut = useMutation({
+    mutationFn: () =>
+      updateRequest(requestId, {
+        auto_start: autoStart,
+        auto_agent_id: autoStart ? agentId || null : null,
+      }),
+    onSuccess: () => {
+      toast.success('已更新自动启动设置')
+      void qc.invalidateQueries({ queryKey: ['dependencyGraph', requestId] })
+      void qc.invalidateQueries({ queryKey: ['requests'] })
+    },
+    onError: (err) => setError(extractError(err)),
+  })
+
+  const successors = (graph?.nodes ?? []).filter((n) => n.id !== requestId)
+  const critical = new Set(graph?.critical_path ?? [])
+  const byId = new Map((graph?.nodes ?? []).map((n) => [n.id, n]))
+
+  return (
+    <div className="space-y-2 rounded-lg border border-line-subtle bg-surface-subtle/40 p-2.5">
+      <div className="flex items-center justify-between">
+        <p className="text-ui font-medium text-ink-soft">
+          下游链
+          {successors.length > 0 && (
+            <span className="ml-1 text-xs font-normal text-ink-faint">
+              {successors.length} 条依赖它
+            </span>
+          )}
+        </p>
+        {graph?.truncated && (
+          <span className="text-xs text-amber-600">节点过多，仅显示前 {graph.nodes.length} 条</span>
+        )}
+      </div>
+
+      {successors.length === 0 ? (
+        <p className="text-xs text-ink-faint">还没有需求依赖这条需求</p>
+      ) : (
+        <ol className="space-y-1">
+          {(graph?.topo_order ?? [])
+            .filter((id) => id !== requestId)
+            .map((id) => {
+              const node = byId.get(id)
+              if (!node) return null
+              return (
+                <li key={id} className="flex items-center gap-2 text-ui">
+                  <span className="min-w-0 flex-1 truncate text-ink-soft">{node.title}</span>
+                  {critical.has(id) && <Badge tone="amber">关键路径</Badge>}
+                  <Badge tone={STATUS_TONE[node.status] ?? 'slate'}>
+                    {STATUS_LABEL[node.status] ?? node.status}
+                  </Badge>
+                  {node.unmet_count > 0 && (
+                    <span className="text-xs text-ink-faint">还差 {node.unmet_count} 个前置</span>
+                  )}
+                </li>
+              )
+            })}
+        </ol>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2 border-t border-line-subtle pt-2">
+        <label className="flex cursor-pointer items-center gap-1.5 text-ui text-ink-soft">
+          <input
+            type="checkbox"
+            checked={autoStart}
+            onChange={(e) => setAutoStart(e.target.checked)}
+            className="h-4 w-4 cursor-pointer accent-brand-600"
+          />
+          前置全部完成后自动启动
+        </label>
+        {autoStart && (
+          <Select
+            value={agentId}
+            onChange={(e) => setAgentId(e.target.value)}
+            controlSize="sm"
+            aria-label="自动启动使用的 Agent"
+            wrapperClassName="w-48"
+          >
+            <option value="">选择 Agent…</option>
+            {(agents?.items ?? []).map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </Select>
+        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          loading={saveMut.isPending}
+          disabled={autoStart && !agentId}
+          onClick={() => saveMut.mutate()}
+        >
+          保存
+        </Button>
+      </div>
+
+      {error && <ErrorBanner error={error} variant="inline" />}
     </div>
   )
 }

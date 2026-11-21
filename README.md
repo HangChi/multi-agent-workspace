@@ -230,7 +230,7 @@ frontend/
     hooks/          # useAuth / useRequests / useRunSocket
 deploy/             # docker-compose / Caddyfile / .env.example / mock-llm / verify
 docs/               # 架构文档（入口见 docs/README.md）
-specs/              # Spec Kit 规格（001–020，SDD + TDD 工作流）
+specs/              # Spec Kit 规格（001–021，SDD + TDD 工作流）
 ```
 
 ---
@@ -337,7 +337,7 @@ GET           /health, /health/ready       存活 / 就绪探针
 `REFRESH_GRACE_SECONDS` 给多标签页并发刷新留宽限期，避免互相踢下线。
 
 > 以上是概览。完整的请求/响应 schema、错误码与边界语义在各特性的
-> `specs/NNN-*/contracts/api.md`（001–020 二十份），运行时以 `/docs` 的 OpenAPI 为准。
+> `specs/NNN-*/contracts/api.md`（001–021 二十一份），运行时以 `/docs` 的 OpenAPI 为准。
 
 ### 内置工具
 
@@ -527,8 +527,10 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 - 项目容器（008）：项目**创建者即 owner**；成员与共享由 010 补齐（owner 全权 +
   成员项目内读写，两层模型，无 role 列）。删除项目是物理删除 + 需求归属清空
   （迁移 downgrade 同样会丢项目实体，已记入回滚面）。
-- 需求依赖（009）：门禁是**分配时的前置校验**而非需求状态（不加 blocked 态）；
-  只做「硬门禁 + 完成通知」，不做拓扑排序/关键路径/自动级联启动（用户范围确认）；
+- 需求依赖（009 + 021）：门禁是**分配时的前置校验**而非需求状态（不加 blocked 态）。
+  021 补齐流水线视图与自动化：详情里的「下游链」（拓扑序 + 关键路径，按跳数算）
+  与逐需求的「前置完成后自动启动」（默认关，需预置 Agent；权限=创建者或项目 owner）。
+  不做甘特图/工期估算/批量启动（后者要专门的确认流，避免一次点爆配额）；
   依赖目标不做可见性校验（内部协作定位，「B 等隔壁团队的 A」是核心场景，
   research R-05 记录取舍）。
 - 项目共享（010）+ 成员角色（019）：owner 全权 + 成员按角色读写（`editor` 可改、
@@ -615,5 +617,5 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 | [docs/llm-pricing.md](docs/llm-pricing.md) | LLM 单价表口径（成本核算与熔断的基准） |
 | [docs/load-test-2026-11-17.md](docs/load-test-2026-11-17.md) | 100/200 并发压测记录 |
 | [docs/code-audit-2026-11-17.md](docs/code-audit-2026-11-17.md) | 2026-11-17 全量代码审查报告（含修复进度） |
-| [specs/](specs/) | 001–020 二十个特性的规格四件套 + 任务清单 + 实测记录 |
+| [specs/](specs/) | 001–021 二十一个特性的规格四件套 + 任务清单 + 实测记录 |
 | [.specify/memory/constitution.md](.specify/memory/constitution.md) | 项目宪法（SDD + TDD、质量门禁、安全边界） |

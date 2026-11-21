@@ -139,6 +139,9 @@ export async function updateRequest(
     expected_output?: string | null
     priority?: RequestPriority
     project_id?: string | null
+    /** 021：前置全部终态后自动交给 auto_agent_id 执行 */
+    auto_start?: boolean
+    auto_agent_id?: string | null
   }
 ): Promise<WorkRequest> {
   const { data } = await apiClient.patch<WorkRequest>(`/requests/${id}`, payload)
@@ -190,4 +193,36 @@ export async function requestAttachmentUpload(
 /** 附件下载链接（预签名 GET URL，302 跟随后为真实下载）。 */
 export function attachmentDownloadUrl(requestId: string, key: string): string {
   return `/api/v1/requests/${requestId}/attachments/${encodeURIComponent(key)}`
+}
+
+
+// ---------- 依赖图谱（021）----------
+
+export interface DependencyGraphNode {
+  id: string
+  title: string
+  status: string
+  owner_id: string
+  assignee_id: string | null
+  auto_start: boolean
+  /** 该需求还有几个未完成前置（含子图之外的） */
+  unmet_count: number
+}
+
+export interface DependencyGraph {
+  root_id: string
+  nodes: DependencyGraphNode[]
+  edges: { dependent_id: string; dependency_id: string }[]
+  /** 拓扑序（前置在前）；有环时只含已排序部分 */
+  topo_order: string[]
+  /** 最长依赖链（按跳数）；没有下游时为空数组 */
+  critical_path: string[]
+  has_cycle: boolean
+  truncated: boolean
+}
+
+/** 下游依赖图谱：谁依赖这条需求、谁又依赖它们（021）。 */
+export async function fetchDependencyGraph(id: string): Promise<DependencyGraph> {
+  const { data } = await apiClient.get<DependencyGraph>(`/requests/${id}/dependency-graph`)
+  return data
 }

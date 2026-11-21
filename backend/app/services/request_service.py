@@ -6,6 +6,8 @@
 - GET /requests/{id}: 详情（含 attachments）
 """
 
+import os
+
 import structlog
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -134,6 +136,26 @@ async def _notify_ready_dependents(db: AsyncSession, request: Request) -> None:
                     "dependency_status": request.status,
                 },
             )
+    # 021：前置齐了 → 对「预置了自动启动」的后续方投一条 Celery 消息。
+    # 只入队、不在这里建 Run：settle 是终态汇聚点，不该被分配链路拖长；
+    # 幂等与门禁由任务自己再校验一遍。
+    if os.getenv("TESTING") != "1":
+        for dependent in dependents:
+            if dependent.auto_start and dependent.auto_agent_id:
+                try:
+                    from app.tasks.auto_start_request import auto_start_request
+
+                    auto_start_request.delay(dependent.id)
+                    logger.info(
+                        "dependency_auto_start_enqueued", request_id=dependent.id
+                    )
+                except Exception as exc:  # noqa: BLE001 - 入队失败不该影响 settle
+                    logger.warning(
+                        "dependency_auto_start_enqueue_failed",
+                        request_id=dependent.id,
+                        error=f"{type(exc).__name__}: {exc}"[:200],
+                    )
+
     if dependents:
         logger.info(
             "dependency_ready_notified",
@@ -373,6 +395,24 @@ async def update_request(
 
     if "project_id" in data and not await _can_change_project(db, request, user_id):
         raise AppError("FORBIDDEN", "仅创建者或项目创建者可变更需求的项目归属")
+    # 021：自动启动会真的花钱（配额按需求创建者算），权限与项目归属同档
+    if ("auto_start" in data or "auto_agent_id" in data) and not (
+        await _can_change_project(db, request, user_id)
+    ):
+        raise AppError("FORBIDDEN", "仅创建者或项目创建者可设置自动启动")
+    if "auto_start" in data:
+        request.auto_start = bool(data["auto_start"])
+    if "auto_agent_id" in data:
+        agent_id = data["auto_agent_id"]
+        if agent_id:
+            from app.models.agent import Agent
+
+            agent = await db.get(Agent, str(agent_id))
+            if agent is None or agent.owner_id != request.owner_id:
+                raise AppError("NOT_FOUND", "Agent 不存在")
+            request.auto_agent_id = str(agent_id)
+        else:
+            request.auto_agent_id = None
     if "project_id" in data:
         if data["project_id"]:
             project = await project_service.load_active_owned_project(

@@ -8,6 +8,7 @@
 
 from datetime import datetime
 from enum import Enum
+from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -100,6 +101,10 @@ class RequestUpdate(BaseModel):
     # 008：业务归属。字段级权限：仅创建者可改（service 分流，R-05）；
     # 显式传 null = 解除归属（创建者特权）。
     project_id: str | None = None
+    # 021：前置全部终态后自动交给该 agent 执行（默认关——自动花钱要有显式意图）。
+    # 只允许创建者或项目 owner 设置（service 里与 project_id 同一道权限）。
+    auto_start: bool | None = None
+    auto_agent_id: UUID | None = None
 
     @field_validator("title")
     @classmethod
@@ -173,6 +178,9 @@ class RequestOut(BaseModel):
     # 未归类两者皆 null——既有字段一个不改，SC-006 零回归据此判定。
     project_id: str | None = None
     project_name: str | None = None
+    # 021：自动启动配置（详情/列表都要能看出「这个需求会不会自己跑起来」）
+    auto_start: bool = False
+    auto_agent_id: str | None = None
     # 009：依赖派生字段。dependencies 仅**详情端**返回（列表端只给 blocked
     # 布尔——逐条查边是 N+1，data-model §4）；blocked = 有未完成前置。
     dependencies: list["DependencyBrief"] | None = None

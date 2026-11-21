@@ -46,6 +46,7 @@ from app.schemas.request import (
 from app.services import (
     artifact_service,
     assignment_service,
+    dependency_graph_service,
     dependency_service,
     dispatch_service,
     request_service,
@@ -378,6 +379,20 @@ async def reject_request(
         },
     )
     return DispatchActionOut(request_id=request.id, status=request.status)
+
+
+@router.get("/{request_id}/dependency-graph", response_model=dict)
+async def get_dependency_graph(
+    request_id: ResourceId, user: CurrentUser, _m: MemberUser, db: DB
+):
+    """依赖图谱（021）：下游子图 + 拓扑序 + 关键路径。
+
+    读权限与需求详情一致（owner ∪ assignee ∪ 项目参与者）；子图里可能包含
+    别人的需求，这里**不逐节点鉴权**——依赖边本身已经决定了「能看到这条链」，
+    而标题不是敏感数据（同 009 的 R-05：依赖目标不做可见性校验）。
+    """
+    await request_service.get_request(db, request_id, user.id, allow_member=True)
+    return await dependency_graph_service.downstream_graph(db, request_id)
 
 
 @router.post(
