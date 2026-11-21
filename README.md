@@ -228,7 +228,7 @@ frontend/
     hooks/          # useAuth / useRequests / useRunSocket
 deploy/             # docker-compose / Caddyfile / .env.example / mock-llm / verify
 docs/               # 架构文档（入口见 docs/README.md）
-specs/              # Spec Kit 规格（001–016，SDD + TDD 工作流）
+specs/              # Spec Kit 规格（001–017，SDD + TDD 工作流）
 ```
 
 ---
@@ -335,7 +335,7 @@ GET           /health, /health/ready       存活 / 就绪探针
 `REFRESH_GRACE_SECONDS` 给多标签页并发刷新留宽限期，避免互相踢下线。
 
 > 以上是概览。完整的请求/响应 schema、错误码与边界语义在各特性的
-> `specs/NNN-*/contracts/api.md`（001–016 十六份），运行时以 `/docs` 的 OpenAPI 为准。
+> `specs/NNN-*/contracts/api.md`（001–017 十七份），运行时以 `/docs` 的 OpenAPI 为准。
 
 ### 内置工具
 
@@ -527,9 +527,15 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
   只做「硬门禁 + 完成通知」，不做拓扑排序/关键路径/自动级联启动（用户范围确认）；
   依赖目标不做可见性校验（内部协作定位，「B 等隔壁团队的 A」是核心场景，
   research R-05 记录取舍）。
-- 项目共享（010）：两层权限（owner 全权 + 成员项目内读写），**无 role 列**、
-  不做部门树/所有权移交/成员审批流（用户范围确认外）；owner 不能退出自己创建的
-  项目（无主项目是脏状态，移交是后续特性）。
+- 项目共享（010）：两层权限（owner 全权 + 成员项目内读写），**无 role 列**。
+- **所有权移交（017）**：`POST /projects/{id}/transfer` 把项目交给现有成员，
+  `keep_as_member` 决定原 owner 移交后是否保留访问（默认保留；离职场景传 `false`）。
+  校验顺序固定（归属 404/403 → 自移交 409 → 目标存在 404 → 停用 400 → 只读 409 →
+  非成员 409 → 同名 409），同名冲突会在事务回滚前拒绝，归属不变。
+  移交给**现有成员**是刻意限制（移交是接力不是空降）；移交历史只留在审计
+  （`project_transfer`），不建历史表。原 owner 自移除的 409 文案已指向此路径。
+- 项目共享（010）仍**无 role 列**、不做部门树/成员审批流（用户范围确认外）；
+  多 owner / 共同所有权不在范围内。
 - `Agent.tools` 已按工具目录过滤实际注入 LLM 的工具集；未授权目录工具会返回 `denied` 结构并写入审计日志。
 - `run_python` / `run_shell` 已接入 Docker 一次性容器，支持超时、取消、资源限制、输出截断与制品回收；原生 Linux 的 iptables/nftables 出网验收已在 CI 的原生 VM 上通过（`iptables-save` / `ip6tables-save` / `nft` 残留全 0，域名矩阵 18/18）。唯一例外是 `public HTTPS with DNS attribution`：它依赖宿主公网，按非门禁用例运行并在产物里留证。
 - 出网规则管理、Agent 限制模式和访问查询端点已接入；TLS 解密、URL 路径/请求体级记录仍不在范围内。
@@ -599,5 +605,5 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 | [docs/llm-pricing.md](docs/llm-pricing.md) | LLM 单价表口径（成本核算与熔断的基准） |
 | [docs/load-test-2026-11-17.md](docs/load-test-2026-11-17.md) | 100/200 并发压测记录 |
 | [docs/code-audit-2026-11-17.md](docs/code-audit-2026-11-17.md) | 2026-11-17 全量代码审查报告（含修复进度） |
-| [specs/](specs/) | 001–016 十六个特性的规格四件套 + 任务清单 + 实测记录 |
+| [specs/](specs/) | 001–017 十七个特性的规格四件套 + 任务清单 + 实测记录 |
 | [.specify/memory/constitution.md](.specify/memory/constitution.md) | 项目宪法（SDD + TDD、质量门禁、安全边界） |
