@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from app.core.config import settings
 from app.orchestrator.runner import (
     CostLimitExceeded,
     ExecutionTimeout,
@@ -597,3 +598,103 @@ async def test_external_tool_step_is_created_before_the_executor_runs():
     assert started[0]["version"] == "1.0.0+digest"
     assert sink.steps[1]["tool_name"] == "mcp_search_v1"
     assert sink.steps[1]["status"] == "completed"
+
+
+# ---------- 越权阈值熔断（安全边界） ----------
+
+
+def _denied_tool_call(name: str = "run_shell") -> FakeToolCall:
+    """构造一个「越权」调用：工具在 CATALOG 里，但没授权给这个 Agent。
+
+    越权判据是 `executor is None and tc.name in CATALOG`——两件事缺一不可：
+    不在 CATALOG 里叫「未知工具」（回填错误继续跑），在 CATALOG 里但没授权
+    才是越权（会计数，累积到阈值就熔断）。
+    """
+    return FakeToolCall(name, {"command": "rm -rf /"})
+
+
+async def test_denied_tool_calls_below_threshold_keep_running(monkeypatch):
+    """阈值以内：只回填拒绝原因，Run 继续跑，不提前终止。"""
+    monkeypatch.setattr(settings, "tool_deny_threshold", 3)
+    llm = FakeLLM(
+        [
+            FakeLLMResponse(tool_calls=[_denied_tool_call()], cost_cents=1),
+            FakeLLMResponse(tool_calls=[_denied_tool_call()], cost_cents=1),
+            FakeLLMResponse(content="我放弃调用工具了", cost_cents=1),
+        ]
+    )
+    runner, run, sink = _make_runner(llm, executors={})
+
+    assert await _run(runner, run, sink) == RunStatus.COMPLETED.value
+    assert run.status == RunStatus.COMPLETED.value
+    # 每次越权都发了 tool_denied，前端能看见
+    denied_events = [e for e in sink.events if e["type"] == "tool_denied"]
+    assert len(denied_events) == 2
+    assert all(e["tool"] == "run_shell" for e in denied_events)
+
+
+async def test_denied_tool_calls_reaching_threshold_fail_the_run(monkeypatch):
+    """累积到阈值：**熔断**，不是「再回填一次让 LLM 继续试」。
+
+    这条分支此前零覆盖。它是安全边界：模型被诱导反复尝试越权时，光回填
+    错误等于把决定权又交回给模型；熔断才真正止损。
+    """
+    monkeypatch.setattr(settings, "tool_deny_threshold", 3)
+    llm = FakeLLM(
+        [
+            FakeLLMResponse(tool_calls=[_denied_tool_call()], cost_cents=1)
+            for _ in range(5)
+        ]
+    )
+    runner, run, sink = _make_runner(llm, executors={})
+
+    assert await _run(runner, run, sink) == RunStatus.FAILED.value
+    assert "越权" in (run.error or "")
+    assert "3" in (run.error or ""), (
+        "错误文案要带出实际阈值，否则排查时不知道为什么中断"
+    )
+    # 第 3 次即熔断，没有第 4 次 LLM 调用
+    assert len(llm.calls) == 3
+
+
+async def test_successful_tool_call_resets_the_deny_counter(monkeypatch):
+    """成功调用要把计数清零——否则长跑 Run 里的零星越权会累积成误熔断。"""
+    monkeypatch.setattr(settings, "tool_deny_threshold", 3)
+    allowed = FakeExecutor("ok")
+    llm = FakeLLM(
+        [
+            FakeLLMResponse(tool_calls=[_denied_tool_call()], cost_cents=1),
+            FakeLLMResponse(tool_calls=[_denied_tool_call()], cost_cents=1),
+            # 中间夹一次合法调用
+            FakeLLMResponse(tool_calls=[FakeToolCall("web_search", {})], cost_cents=1),
+            FakeLLMResponse(tool_calls=[_denied_tool_call()], cost_cents=1),
+            FakeLLMResponse(tool_calls=[_denied_tool_call()], cost_cents=1),
+            FakeLLMResponse(content="完成", cost_cents=1),
+        ]
+    )
+    runner, run, sink = _make_runner(llm, executors={"web_search": allowed})
+
+    assert await _run(runner, run, sink) == RunStatus.COMPLETED.value
+
+
+async def test_deny_counter_is_per_run_not_global(monkeypatch):
+    """计数是 Run 局部的，不能跨 Run 累积（否则一次长历史会把新 Run 秒熔断）。"""
+    monkeypatch.setattr(settings, "tool_deny_threshold", 3)
+    llm = FakeLLM(
+        [
+            FakeLLMResponse(tool_calls=[_denied_tool_call()], cost_cents=1),
+            FakeLLMResponse(tool_calls=[_denied_tool_call()], cost_cents=1),
+            FakeLLMResponse(content="第一个 Run 结束", cost_cents=1),
+        ]
+    )
+    runner, run, sink = _make_runner(llm, executors={})
+    assert await _run(runner, run, sink) == RunStatus.COMPLETED.value
+
+    llm2 = FakeLLM(
+        [
+            FakeLLMResponse(tool_calls=[_denied_tool_call()], cost_cents=1),
+            FakeLLMResponse(content="第二个 Run 也正常", cost_cents=1),
+        ]
+    )
+    runner2, run2, sink2 = _make_runner(llm2, executors={})
+    assert await _run(runner2, run2, sink2) == RunStatus.COMPLETED.value
