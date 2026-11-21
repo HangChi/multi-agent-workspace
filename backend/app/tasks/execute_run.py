@@ -13,7 +13,6 @@
 
 import asyncio
 import os
-from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -47,7 +46,6 @@ from app.orchestrator.runner import (
     ReActRunner,
 )
 from app.orchestrator.state_machine import RunStatus, transition
-from app.services import egress_service, sandbox_service
 from app.services.external_invocation_service import (
     build_external_executors,
     ensure_external_snapshots,
@@ -61,6 +59,10 @@ from app.services.tool_service import (
 )
 from app.tasks import events as run_events
 from app.tasks.celery_app import celery_app
+from app.tasks.sandbox_callbacks import (
+    persist_sandbox_result,
+    publish_sandbox_started,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -715,139 +717,17 @@ async def _execute(
         """FR-018 取消检查：每轮循环前查 DB 最新状态，外部 cancel 则终止执行。"""
         return await _is_cancelled(db, run.id)
 
-    async def persist_sandbox_result(detail: dict) -> None:
-        """执行完成时写入沙箱事实、制品和审计，并发布运行详情事件。"""
-        if agent is None:
-            raise RuntimeError("沙箱执行缺少 Agent 归属")
-        step = detail["step"]
-        step_id = str(detail["step_id"])
-        persisted_step = await db.get(Step, step_id)
-        if persisted_step is None:
-            raise RuntimeError(f"沙箱步骤 {step_id} 未初始化")
-        persisted_step.output = step.get("output")
-        persisted_step.duration_ms = step.get("duration_ms", 0)
-        persisted_step.status = (
-            "failed" if not detail["result"].get("ok", False) else "completed"
-        )
-        await db.flush()
-        payload = detail["payload"]
-        result = detail["result"]
-        execution = await sandbox_service.persist_sandbox_result(
-            db,
-            run_id=run.id,
-            step_id=step_id,
-            agent_id=agent.id,
-            user_id=run.owner_id,
-            payload=payload,
-            result=result,
-        )
-        egress_records = await egress_service.record_accesses(
-            db,
-            run_id=run.id,
-            execution_id=execution.id,
-            agent_id=agent.id,
-            user_id=run.owner_id,
-            accesses=list(payload.get("egress_accesses") or []),
-        )
-        for access in egress_records:
-            if access.action != "deny":
-                continue
-            access_detail: dict[str, Any] = {
-                "execution_id": execution.id,
-                "target_ip": str(access.target_ip),
-                "target_domain": access.target_domain or "ip-direct",
-                "port": access.port,
-                "matched_rule_id": access.matched_rule_id,
-            }
-            await write_audit(
-                db,
-                user_id=run.owner_id,
-                action="egress_denied",
-                target_type="sandbox_execution",
-                target_id=execution.id,
-                detail=access_detail,
-            )
-            run_events.egress_denied(
-                run.id,
-                execution.id,
-                target_ip=access_detail["target_ip"],
-                target_domain=access_detail["target_domain"],
-                port=access_detail["port"],
-                matched_rule_id=access_detail["matched_rule_id"],
-            )
-        await db.commit()
-        run_events.sandbox_finished(
-            run.id,
-            execution.id,
-            execution.status,
-            execution.exit_code,
-            execution.duration_ms,
-            artifacts=len(payload.get("artifacts") or []),
-        )
+    # 沙箱回调从本函数搬到了 `tasks/sandbox_callbacks.py`（R4）：原先两个内嵌
+    # 闭包占了 131 行，把它们捕获的 db/run/agent 改成显式参数即可，行为不变。
+    # 这里用 partial 绑定，保持 runner 的 `Callable[[dict], Awaitable]` 契约。
+    async def on_sandbox_started(detail: dict) -> None:
+        await publish_sandbox_started(db, run, agent, runner.executors, detail)
 
-    async def publish_sandbox_started(detail: dict) -> None:
-        if agent is None:
-            raise RuntimeError("沙箱执行缺少 Agent 归属")
-        executor = runner.executors.get(str(detail["tool_name"]))
-        set_output_callback = getattr(executor, "set_output_callback", None)
-        if callable(set_output_callback):
-            run_id, execution_id = str(run.id), str(detail["execution_id"])
+    async def on_sandbox_result(detail: dict) -> None:
+        await persist_sandbox_result(db, run, agent, detail)
 
-            def publish_output(stream: str, text: str) -> None:
-                # 事件发布已是同步单例客户端（线程安全），沙箱读取线程可直接调用：
-                # 不再经 loop.call_soon_threadsafe 绕一圈，也就不会阻塞事件循环。
-                run_events.sandbox_output(run_id, execution_id, stream, text)
-
-            set_output_callback(publish_output)
-        set_egress_snapshot = getattr(executor, "set_egress_snapshot", None)
-        if callable(set_egress_snapshot):
-            (
-                mode,
-                global_rules,
-                agent_rules,
-            ) = await egress_service.snapshot_for_execution(db, agent_id=agent.id)
-            set_egress_snapshot(
-                {
-                    "mode": mode,
-                    "global_rules": [asdict(rule) for rule in global_rules],
-                    "agent_rules": [asdict(rule) for rule in agent_rules],
-                }
-            )
-        step_id = str(detail["step_id"])
-        db.add(
-            Step(
-                id=step_id,
-                run_id=run.id,
-                seq=int(detail["step_seq"]),
-                kind="tool",
-                input={"tool_name": detail["tool_name"]},
-                output=None,
-                tool_name=str(detail["tool_name"]),
-                status="running",
-            )
-        )
-        await db.flush()
-        await sandbox_service.start_execution(
-            db,
-            run_id=run.id,
-            step_id=step_id,
-            agent_id=agent.id,
-            language=str(detail["language"]),
-            code=str(detail["code"]),
-            limits=dict(detail["limits"]),
-            execution_id=str(detail["execution_id"]),
-        )
-        await db.commit()
-        run_events.sandbox_started(
-            run.id,
-            str(detail["execution_id"]),
-            int(detail["step_seq"]),
-            str(detail["language"]),
-            dict(detail["limits"]),
-        )
-
-    runner.on_sandbox_started = publish_sandbox_started
-    runner.on_sandbox_result = persist_sandbox_result
+    runner.on_sandbox_started = on_sandbox_started
+    runner.on_sandbox_result = on_sandbox_result
 
     # pipeline：非首阶段的输入 = 原始需求 + 上一阶段产出
     request_text = _request_text(request)
