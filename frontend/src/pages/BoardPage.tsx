@@ -181,7 +181,7 @@ export function BoardPage() {
   const { accept, isPending: accepting } = useAcceptRequest((err) => {
     if (err) setError(err)
     else {
-      setDetail(null)
+      closeDetail()
       toast.success('已接收，现在可以把需求拖给 Agent 了')
     }
   })
@@ -189,7 +189,7 @@ export function BoardPage() {
   const { reject, isPending: rejecting } = useRejectRequest((err) => {
     if (err) setError(err)
     else {
-      setDetail(null)
+      closeDetail()
       setShowReject(false)
       toast.success('已退回，创建者会收到通知')
     }
@@ -450,7 +450,9 @@ export function BoardPage() {
             </IconTile>
           }
           footer={
-            <Button variant="secondary" onClick={() => setDetail(null)}>
+            // 必须走 closeDetail：深链场景下 detail 为 null、现显示的是 inList，
+            // 只 setDetail(null) 不会让 currentDetail 变空 → 点关闭弹层不动
+            <Button variant="secondary" onClick={closeDetail}>
               关闭
             </Button>
           }
