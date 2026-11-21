@@ -49,7 +49,7 @@
 - [X] T304 部署配置：compose 与 `.env.example` 加 `NOTIFICATION_ALLOW_PRIVATE_HOSTS`
 - [X] T305 文档同步：README 已知限制、docs/README 特性表与数量（17 → 18）
 - [X] T306 本文件与 checklists 回填
-- [ ] T307 合并回 master 并删除特性分支
+- [X] T307 合并回 master 并删除特性分支（2026-11-21，快进合并）
 
 ## 实测记录（2026-11-21）
 
