@@ -160,3 +160,56 @@ async def test_is_cancelled_reads_committed_status(db_session):
     run.status = "cancelled"
     await db_session.commit()
     assert await er._is_cancelled(db_session, run.id) is True
+
+
+# ---------- P3：_load_context 不再白加载历史 steps ----------
+
+
+async def test_load_context_returns_last_seq_without_loading_steps(db_session):
+    """`_load_context` 顺带返回续写起点 seq，且不把历史 steps 塞进 identity map。
+
+    P3 背景：此前 `selectinload(Run.steps)` 白加载整段历史——下游从不读
+    run.steps，而 step.output 可能含大段 sandbox stdout；重试/恢复一个跑了
+    多步的 Run，每次都会把这些全量反序列化。续写序号另有 max(seq) 查询。
+    现在把 max(seq) 合并进 _load_context，并去掉那次无用的 selectinload。
+    """
+    run = await _run(db_session)
+
+    # 造 3 条历史步骤，seq 1..3
+    for seq in (1, 2, 3):
+        db_session.add(
+            Step(
+                run_id=run.id,
+                seq=seq,
+                kind="llm",
+                input={"messages": []},
+                output={"text": "x" * 1000},
+                status="completed",
+            )
+        )
+    await db_session.commit()
+
+    # 清掉 identity map，确保断言针对真实的加载行为
+    db_session.expunge_all()
+
+    loaded_run, agent, request, last_seq = await er._load_context(db_session, str(run.id))
+
+    assert last_seq == 3  # 续写起点正确
+    assert loaded_run.id == run.id
+    assert request.id == run.request_id
+    assert agent is None  # assignee_id 是个不存在的 uuid
+
+    # 关键：steps 没有被预加载（访问才会触发惰性查询/报错）
+    # 用 inspect 的 unloaded 集合判断，不触发 IO
+    from sqlalchemy import inspect
+
+    state = inspect(loaded_run)
+    assert "steps" in state.unloaded, "steps 不该被 selectinload 预加载"
+
+
+async def test_load_context_last_seq_is_zero_for_fresh_run(db_session):
+    """新 Run（无历史步骤）续写起点是 0。"""
+    run = await _run(db_session)
+    db_session.expunge_all()
+    _, _, _, last_seq = await er._load_context(db_session, str(run.id))
+    assert last_seq == 0

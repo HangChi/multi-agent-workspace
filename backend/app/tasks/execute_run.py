@@ -20,7 +20,6 @@ from typing import Any
 import redis
 import structlog
 from sqlalchemy import and_, func, select
-from sqlalchemy.orm import selectinload
 
 from app.core.audit import write_audit
 from app.core.config import settings
@@ -86,10 +85,15 @@ def _release_lock(run_id: str) -> None:
         client.close()
 
 
-async def _load_context(db, run_id: str) -> tuple[Run, Agent | None, Request]:
-    """加载 Run（含 steps 惰性）+ Agent（按 assignee_id）+ Request。"""
-    stmt = select(Run).options(selectinload(Run.steps)).where(Run.id == run_id)
-    run = (await db.execute(stmt)).scalars().first()
+async def _load_context(db, run_id: str) -> tuple[Run, Agent | None, Request, int]:
+    """加载 Run + Agent（按 assignee_id）+ Request，并返回续写起点 seq。
+
+    刻意**不** selectinload(Run.steps)：下游从不读 run.steps（续写序号靠
+    这里顺带查的 max(seq)），而历史 step 的 output 可能含大段 sandbox stdout。
+    重试/恢复一个跑了多步的 Run，每次都会把它们全量反序列化进 identity map，
+    纯属浪费。见 docs/code-audit-2026-11-21.md P3。
+    """
+    run = (await db.execute(select(Run).where(Run.id == run_id))).scalars().first()
     if run is None:
         raise RuntimeError(f"Run {run_id} 不存在")
 
@@ -101,7 +105,15 @@ async def _load_context(db, run_id: str) -> tuple[Run, Agent | None, Request]:
     if request is None:
         raise RuntimeError(f"Request {run.request_id} 不存在")
 
-    return run, agent, request
+    # 续写起点（FR-021）：与上下文一次取回，避免 _execute 里再发一条查询
+    last_seq = int(
+        (
+            await db.execute(select(func.max(Step.seq)).where(Step.run_id == run.id))
+        ).scalar()
+        or 0
+    )
+
+    return run, agent, request, last_seq
 
 
 def _build_runner(
@@ -406,8 +418,14 @@ async def _schedule_auto_retry(db, run: Run, exc: BaseException) -> bool:
     return True
 
 
-async def _execute(db, run: Run, agent: Agent | None) -> None:
-    """真正的执行链：状态机 → runner → 持久化。"""
+async def _execute(
+    db, run: Run, agent: Agent | None, *, last_seq_hint: int = 0
+) -> None:
+    """真正的执行链：状态机 → runner → 持久化。
+
+    `last_seq_hint`：`_load_context` 顺带查到的历史最大 seq（FR-021 续写起点）。
+    传 0 时本地再查一次，保持单独调用本函数时的正确性。
+    """
     # 已取消/终态：不再执行（Worker 发现取消直接跳过）
     if run.status == "cancelled":
         logger.info("run_cancelled_before_exec", run_id=_run_id_for_log(run))
@@ -573,7 +591,9 @@ async def _execute(db, run: Run, agent: Agent | None) -> None:
     # 最大 seq 之后续写，而不是把它们删掉。删除会让审计丢失整段执行过程，也会让
     # external_tool_invocations.step_id / sandbox_executions.step_id 指向不存在的行，
     # 运行详情里就会出现悬挂的调用记录。
-    last_seq = int(
+    #
+    # 生产路径由 _load_context 顺带查好（last_seq_hint），避免这里再发一条查询。
+    last_seq = last_seq_hint or int(
         (
             await db.execute(select(func.max(Step.seq)).where(Step.run_id == run.id))
         ).scalar()
@@ -846,7 +866,7 @@ def execute_run(self, run_id: str) -> str:
 
     async def _main() -> str:
         async with SessionLocal() as db:
-            run, agent, _ = await _load_context(db, run_id)
+            run, agent, _, last_seq = await _load_context(db, run_id)
             if run.status == "cancelled":
                 return "cancelled"
             # 006 三道防线的第二道（FR-011）：终态后延迟的重试消息到点时丢弃。
@@ -881,7 +901,7 @@ def execute_run(self, run_id: str) -> str:
                 if await settle_request_status(db, run.request_id):
                     await db.commit()
                 return "failed"
-            await _execute(db, run, agent)
+            await _execute(db, run, agent, last_seq_hint=last_seq)
             await db.refresh(run)
             return run.status
 
