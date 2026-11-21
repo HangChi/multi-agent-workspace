@@ -240,10 +240,49 @@ class ReActRunner:
                 控制流终止（run 状态已设置，异常上抛由调用方捕获）
         """
         run_id = str(getattr(run, "id", ""))
+
+        async def _settle(
+            status: RunStatus,
+            *,
+            event_type: str,
+            error: str | None = None,
+            **extra: Any,
+        ) -> None:
+            """把一次 Run 的状态迁移 + 落库 + 发事件收成**一次**调用（R4）。
+
+            原先这段三连在本函数里复制了 7 次：
+
+                transition(run, RunStatus.FAILED); run.error = ...;
+                await set_status(run.status); await publish_event({...})
+
+            复制出来的版本已经产生语义分叉——同样是「取消」，第 277 行发
+            `status_change`、第 658 行发 `run_cancelled`；同样是「失败」，
+            一处带 `error` 字段一处不带。这些分叉靠读 500 行才找得到，测试也不会报。
+            （注意 `execute_run.py` 的 `_execute` 里还有同一形态的版本，它走
+            `run_events.*` 直发，两者的 sink 不同，见该文件说明。）
+
+            `event_type` 保持**逐处显式**，不做「按 status 自动推导」：
+            前端对不同事件类型有不同渲染（`run_timeout` 显示超时、`run_failed`
+            显示错误原文），把它们统一成按状态推导等于**改变行为**。
+            终结器消的是三连的重复，不是事件语义的差异。
+
+            `error` 只在传入时写入（**不传就保持原值**——进入 running 这一步
+            不该清掉之前已经记下的错误），且在 publish 之前写，事件里带同一份文案。
+            """
+            if error is not None:
+                run.error = error
+            transition(run, status)
+            await set_status(run.status)
+            payload: dict[str, Any] = {"type": event_type}
+            if event_type == "status_change":
+                payload["status"] = run.status
+            if error is not None:
+                payload["error"] = error
+            payload.update(extra)
+            await publish_event(payload)
+
         # 进入 running
-        transition(run, RunStatus.RUNNING)
-        await set_status(run.status)
-        await publish_event({"type": "status_change", "status": run.status})
+        await _settle(RunStatus.RUNNING, event_type="status_change")
 
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": self.system_prompt},
@@ -271,24 +310,21 @@ class ReActRunner:
         while True:
             # 0. 取消检查（FR-018）：外部已取消则终止，不继续执行
             if should_abort is not None and await should_abort():
-                transition(run, RunStatus.CANCELLED)
-                await set_status(run.status)
-                await publish_event({"type": "status_change", "status": run.status})
+                await _settle(RunStatus.CANCELLED, event_type="status_change")
                 return "cancelled"
 
             # 1. 超时检查（进入下一轮前）
             if time.monotonic() - start > self.timeout_seconds:
-                transition(run, RunStatus.TIMEOUT)
-                await set_status(run.status)
-                await publish_event({"type": "run_timeout"})
+                await _settle(RunStatus.TIMEOUT, event_type="run_timeout")
                 raise ExecutionTimeout(f"运行超过 {self.timeout_seconds}s 上限")
 
             # 2. max_steps 检查
             if step_count >= self.max_steps:
-                transition(run, RunStatus.FAILED)
-                run.error = f"已超过最大步骤数（{self.max_steps}），执行终止"
-                await set_status(run.status)
-                await publish_event({"type": "run_failed", "error": run.error})
+                await _settle(
+                    RunStatus.FAILED,
+                    event_type="run_failed",
+                    error=f"已超过最大步骤数（{self.max_steps}），执行终止",
+                )
                 raise MaxStepsExceeded(run.error)
 
             # 3. LLM 调用
@@ -316,10 +352,11 @@ class ReActRunner:
                 raise
             except Exception as exc:  # noqa: BLE001 - LLM 兜底：任何异常转可读错误（FR-017）
                 # LLM 异常 → 可读错误（FR-017），正常返回
-                transition(run, RunStatus.FAILED)
-                run.error = f"LLM 调用失败: {exc}"
-                await set_status(run.status)
-                await publish_event({"type": "run_failed", "error": run.error})
+                await _settle(
+                    RunStatus.FAILED,
+                    event_type="run_failed",
+                    error=f"LLM 调用失败: {exc}",
+                )
                 return run.status
 
             duration_ms = int((time.monotonic() - started) * 1000)
@@ -338,13 +375,14 @@ class ReActRunner:
             await publish_event({"type": "cost_update", "cost_cents": run.cost_cents})
             # 熔断按微分判定：按分比较会放过「差一点到 1 分」的超支
             if run_cost_micros > self.cost_limit_cents * 1_000_000:
-                transition(run, RunStatus.FAILED)
-                run.error = (
-                    f"成本超限（{run.cost_cents} 分 > 上限 {self.cost_limit_cents} 分），"
-                    "已熔断终止"
+                await _settle(
+                    RunStatus.FAILED,
+                    event_type="run_failed",
+                    error=(
+                        f"成本超限（{run.cost_cents} 分 > 上限 "
+                        f"{self.cost_limit_cents} 分），已熔断终止"
+                    ),
                 )
-                await set_status(run.status)
-                await publish_event({"type": "run_failed", "error": run.error})
                 raise CostLimitExceeded(run.error)
 
             # 5. 写 LLM 步骤 + 发布事件
@@ -371,10 +409,12 @@ class ReActRunner:
 
             # 6. needs_input 挂起（FR-021）
             if resp.needs_input:
-                transition(run, RunStatus.NEEDS_INPUT)
                 message = resp.needs_input_message or "需要补充信息"
-                await set_status(run.status)
-                await publish_event({"type": "needs_input", "message": message})
+                await _settle(
+                    RunStatus.NEEDS_INPUT,
+                    event_type="needs_input",
+                    message=message,
+                )
                 raise NeedsInput(message)
 
             # 7. tool_call → 执行 → 回填
@@ -653,14 +693,15 @@ class ReActRunner:
                             }
                         )
                         if external_failure.category == "cancelled":
-                            transition(run, RunStatus.CANCELLED)
-                            await set_status(run.status)
-                            await publish_event({"type": "run_cancelled"})
+                            await _settle(
+                                RunStatus.CANCELLED, event_type="run_cancelled"
+                            )
                             return run.status
-                        transition(run, RunStatus.FAILED)
-                        run.error = f"外部工具调用失败（{external_failure.category}）"
-                        await set_status(run.status)
-                        await publish_event({"type": "run_failed", "error": run.error})
+                        await _settle(
+                            RunStatus.FAILED,
+                            event_type="run_failed",
+                            error=f"外部工具调用失败（{external_failure.category}）",
+                        )
                         return run.status
 
                     if getattr(executor, "is_external_tool", False):
@@ -686,13 +727,15 @@ class ReActRunner:
                     if not denied:
                         denied_count = 0
                     if denied and denied_count >= settings.tool_deny_threshold:
-                        transition(run, RunStatus.FAILED)
-                        run.error = (
-                            f"工具越权调用连续达到 {settings.tool_deny_threshold} 次，"
-                            "为安全起见已中止当前运行"
+                        await _settle(
+                            RunStatus.FAILED,
+                            event_type="run_failed",
+                            error=(
+                                f"工具越权调用连续达到 "
+                                f"{settings.tool_deny_threshold} 次，"
+                                "为安全起见已中止当前运行"
+                            ),
                         )
-                        await set_status(run.status)
-                        await publish_event({"type": "run_failed", "error": run.error})
                         return run.status
 
                     # 回填给 LLM（assistant tool_call + tool 结果）
@@ -744,8 +787,10 @@ class ReActRunner:
             await save_step(final_step)
             await publish_event({"type": "step_update", "step": final_step})
 
-            transition(run, RunStatus.COMPLETED)
             run.result = {"answer": resp.content}
-            await set_status(run.status)
-            await publish_event({"type": "run_completed", "result": run.result})
+            await _settle(
+                RunStatus.COMPLETED,
+                event_type="run_completed",
+                result=run.result,
+            )
             return run.status

@@ -20,6 +20,7 @@ from typing import Any
 import redis
 import structlog
 from sqlalchemy import and_, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import write_audit
 from app.core.config import settings
@@ -384,6 +385,45 @@ def _run_id_for_log(run: Run) -> str:
     return run.id[:8]
 
 
+async def _fail_run(
+    db: AsyncSession,
+    run: Run,
+    error: str,
+    *,
+    settle: bool,
+    emit_to: str | None = None,
+) -> None:
+    """把一个 Run 标成失败并落库（R4）。
+
+    原先这段在本文件里出现 6 次，逐字相同的部分有四句：
+
+        run.error = ...; transition(run, RunStatus.FAILED)
+        await db.commit(); run_events.run_failed(<id>, run.error)
+
+    两个参数保留了两处**真实差异**，不是随手加的开关：
+
+    - `settle`：落库后要不要收敛需求状态（`finally` 与配额兜底那两处要）。
+      早失败路径（需求行不存在、组内无可用成员）不收敛——需求行本身就是问题，
+      再去 settle 只会再查一次空。
+      **刻意不给默认值**：漏传时应该报 TypeError，而不是静默按某一侧生效——
+      这两种选择都会在某个路径上多收敛或少收敛一次，且都不会被测试抓到。
+    - `emit_to`：事件用哪个 id。绝大多数传 `run.id`，但 `execute_run` 外层
+      的采集闭包里 `run` 是另一个 session 重新 `db.get` 出来的对象，那里用
+      闭包捕获的 `run_id` 更直接。两种写法语义相同，改掉任何一个都属于
+      「为了整齐而动行为」，不做。
+
+    与 `runner._settle` 是**两套 sink**：runner 通过注入的 `publish_event`
+    异步回调发事件（可测、无 Redis 依赖）；这里走 `run_events.*` 的同步单例
+    客户端（Worker 进程直发）。两者的形状相似但归属不同层，没有合并。
+    """
+    run.error = error
+    transition(run, RunStatus.FAILED)
+    await db.commit()
+    run_events.run_failed(emit_to or run.id, run.error)
+    if settle and await settle_request_status(db, run.request_id):
+        await db.commit()
+
+
 async def _is_cancelled(db, run_id: str) -> bool:
     """Read committed state, never a stale object from the long-lived Worker session."""
     status = await db.scalar(select(Run.status).where(Run.id == run_id))
@@ -480,10 +520,7 @@ async def _execute(
 
     request = await db.get(Request, run.request_id)
     if request is None:
-        run.error = "需求不存在，无法执行"
-        transition(run, RunStatus.FAILED)
-        await db.commit()
-        run_events.run_failed(run.id, run.error)
+        await _fail_run(db, run, "需求不存在，无法执行", settle=False)
         return
 
     # 组父 Run 处理：
@@ -497,11 +534,9 @@ async def _execute(
                 db, group_id=run.assignee_id, request_text=_request_text(request)
             )
             if decision is None:
-                run.error = "组内无可用成员，无法路由"
+                # 状态机要求 queued → running → failed，先迁移再终结
                 transition(run, RunStatus.RUNNING)
-                transition(run, RunStatus.FAILED)
-                await db.commit()
-                run_events.run_failed(run.id, run.error)
+                await _fail_run(db, run, "组内无可用成员，无法路由", settle=False)
                 return
             # 路由决策也是一次 LLM 调用，成本计入本 Run（不能消失在账外）
             if decision.cost_cents or decision.cost_micros:
@@ -860,10 +895,8 @@ async def _execute(
         # 006：瞬时类失败先安排自动重试；不可重试才走终态
         if await _schedule_auto_retry(db, run, exc):
             return
-        run.error = str(exc)
-        transition(run, RunStatus.FAILED)
-        await db.commit()
-        run_events.run_failed(run.id, run.error)
+        # settle=False：下面 finally 会统一收敛需求状态，这里不能抢先做
+        await _fail_run(db, run, str(exc), settle=False)
     except Exception as exc:  # 兜底：任何异常都转为可读失败（FR-017）
         logger.exception("execute_run_unexpected", run_id=_run_id_for_log(run))
         # 006：同上。未知异常按业务类处理（research R-05），因此这里
@@ -871,10 +904,7 @@ async def _execute(
         # 也能享受自动重试。
         if await _schedule_auto_retry(db, run, exc):
             return
-        run.error = f"执行异常: {exc}"
-        transition(run, RunStatus.FAILED)
-        await db.commit()
-        run_events.run_failed(run.id, run.error)
+        await _fail_run(db, run, f"执行异常: {exc}", settle=False)
     finally:
         # pipeline：无论成功/失败/挂起，都据当前状态推进链路或收敛父 Run
         if run.strategy == "pipeline" and run.parent_run_id:
@@ -940,12 +970,11 @@ def execute_run(self, run_id: str) -> str:
             try:
                 await assert_user_quota(db, run.owner_id)
             except QuotaExceeded:
-                run.error = "月配额已用尽，任务被拒绝执行"
-                transition(run, RunStatus.FAILED)
-                await db.commit()
-                run_events.run_failed(run_id, run.error)
-                if await settle_request_status(db, run.request_id):
-                    await db.commit()
+                # settle=True：需求已分配给本 Run，拒绝执行也必须把它收口成 failed，
+                # 否则需求会永久停在 running 等一个永远不会完成的任务。
+                await _fail_run(
+                    db, run, "月配额已用尽，任务被拒绝执行", settle=True, emit_to=run_id
+                )
                 return "failed"
             await _execute(db, run, agent, last_seq_hint=last_seq)
             await db.refresh(run)
@@ -961,16 +990,18 @@ def execute_run(self, run_id: str) -> str:
             async with SessionLocal() as db:
                 run = await db.get(Run, run_id)
                 if run is not None:
-                    run.error = f"执行器致命错误: {error_text}"
                     # 状态机要求 queued → running → failed；若仍在 queued（任务消费即崩），
                     # 先合法迁移到 running 再 failed，避免 TransitionError
                     if run.status == "queued":
                         transition(run, RunStatus.RUNNING)
-                    transition(run, RunStatus.FAILED)
-                    await db.commit()
-                    run_events.run_failed(run_id, run.error)
-                    if await settle_request_status(db, run.request_id):
-                        await db.commit()
+                    # settle=True：致命错误是终态，需求必须跟着收口。
+                    await _fail_run(
+                        db,
+                        run,
+                        f"执行器致命错误: {error_text}",
+                        settle=True,
+                        emit_to=run_id,
+                    )
 
         asyncio.run(_fail())
         return "failed"
