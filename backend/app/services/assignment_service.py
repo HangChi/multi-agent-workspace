@@ -195,8 +195,9 @@ async def assign(
     #    以执行分派给自己且已接收的需求。010：再加一肢「项目成员」——成员
     #    拖共享项目里的需求执行是核心协作动作（allow_member 快路，
     #    _check_owner 本身不动）。
+    # 019：分配是写操作——只读成员能看这条需求，但不能把它推去执行
     request = await get_request(
-        db, request_id, user_id, for_update=True, allow_member=True
+        db, request_id, user_id, for_update=True, allow_member=True, require_write=True
     )
 
     # 1.5 配额熔断（T077 + 007）：月用量 >= 上限 → 429 RATE_LIMITED（宪法「每个用户有月配额」）

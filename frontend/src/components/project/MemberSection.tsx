@@ -41,6 +41,8 @@ export function MemberSection({ projectId, ownerId }: Props) {
   const isOwner = user?.id === ownerId
   const [error, setError] = useState<string | null>(null)
   const [picked, setPicked] = useState('')
+  // 019：新成员的项目内角色（默认读写；只读用于「只要能看」的协作方）
+  const [pickedRole, setPickedRole] = useState<'editor' | 'viewer'>('editor')
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['projectMembers', projectId],
@@ -63,11 +65,13 @@ export function MemberSection({ projectId, ownerId }: Props) {
   }
 
   const addMut = useMutation({
-    mutationFn: (userId: string) => addProjectMember(projectId, userId),
+    mutationFn: (userId: string) => addProjectMember(projectId, userId, pickedRole),
     onSuccess: () => {
       invalidate()
       setPicked('')
-      toast.success('已添加成员，对方会收到通知')
+      toast.success(
+        pickedRole === 'viewer' ? '已添加只读成员，对方会收到通知' : '已添加成员，对方会收到通知'
+      )
     },
     onError: (err) => setError(extractError(err)),
   })
@@ -114,7 +118,12 @@ export function MemberSection({ projectId, ownerId }: Props) {
               </span>
               {m.is_owner ? (
                 <Badge tone="brand">创建者</Badge>
-              ) : isOwner ? (
+              ) : (
+                <Badge tone={m.role === 'viewer' ? 'slate' : 'sky'}>
+                  {m.role === 'viewer' ? '只读' : '可编辑'}
+                </Badge>
+              )}
+              {!m.is_owner && isOwner && (
                 <IconButton
                   icon="x"
                   label={`移除成员 ${m.user_email ?? m.user_id}`}
@@ -122,8 +131,6 @@ export function MemberSection({ projectId, ownerId }: Props) {
                   variant="danger"
                   onClick={() => removeMut.mutate(m.user_id)}
                 />
-              ) : (
-                <Badge tone="slate">成员</Badge>
               )}
             </li>
           ))}
@@ -147,6 +154,16 @@ export function MemberSection({ projectId, ownerId }: Props) {
               </option>
             ))}
           </Select>
+          <Select
+            value={pickedRole}
+            onChange={(e) => setPickedRole(e.target.value as 'editor' | 'viewer')}
+            controlSize="sm"
+            aria-label="新成员的角色"
+            wrapperClassName="w-28"
+          >
+            <option value="editor">可编辑</option>
+            <option value="viewer">只读</option>
+          </Select>
           <Button
             variant="secondary"
             size="sm"
@@ -159,7 +176,13 @@ export function MemberSection({ projectId, ownerId }: Props) {
         </div>
       )}
 
-      {!isOwner && <p className="text-xs text-ink-faint">仅项目创建者可以添加或移除成员。</p>}
+      {!isOwner && (
+        <p className="text-xs text-ink-faint">
+          {user?.id && members.some((m) => m.user_id === user.id && m.role === 'viewer')
+            ? '你在该项目是只读成员：可以查看项目与需求，不能修改或分配。'
+            : '仅项目创建者可以添加或移除成员。'}
+        </p>
+      )}
 
       {error && <ErrorBanner error={error} onDismiss={() => setError(null)} />}
     </div>

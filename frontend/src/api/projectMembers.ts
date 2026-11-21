@@ -2,12 +2,17 @@ import { apiClient } from './client'
 
 // ---------- 项目成员（010）----------
 
+/** 项目内角色（019）：owner 全权 / editor 读写 / viewer 只读。 */
+export type ProjectRole = 'owner' | 'editor' | 'viewer'
+
 /** 成员列表的一项（owner 也在列表里，is_owner 标记区分）。 */
 export interface ProjectMember {
   user_id: string
   user_email: string | null
   /** True = 项目创建者（不在 project_members 表里，后端合成） */
   is_owner: boolean
+  /** owner 行的值是 'owner'（不落在成员表里） */
+  role: ProjectRole
   joined_at: string
 }
 
@@ -16,10 +21,15 @@ export interface ProjectMemberList {
   total: number
 }
 
-/** 加成员（owner 特权；被加者收到通知）。 */
-export async function addProjectMember(projectId: string, userId: string): Promise<ProjectMember> {
+/** 加成员（owner 特权；被加者收到通知）。role 默认 editor（读写）。 */
+export async function addProjectMember(
+  projectId: string,
+  userId: string,
+  role: ProjectRole = 'editor'
+): Promise<ProjectMember> {
   const { data } = await apiClient.post<ProjectMember>(`/projects/${projectId}/members`, {
     user_id: userId,
+    role,
   })
   return data
 }

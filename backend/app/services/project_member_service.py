@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
 from app.models.project import Project
-from app.models.project_member import ProjectMember
+from app.models.project_member import ROLE_EDITOR, ROLE_VIEWER, ProjectMember
 from app.models.user import User
 from app.services.notification_service import create_notification
 
@@ -132,11 +132,60 @@ async def is_participant(db: AsyncSession, project_id: str, user_id: str) -> boo
     return await is_member(db, project_id, user_id)
 
 
+async def member_role(db: AsyncSession, project_id: str, user_id: str) -> str | None:
+    """我在该项目里的角色：`owner` / `editor` / `viewer` / None（非参与者）。
+
+    owner 不是成员行（R-01），所以必须单独判 projects.owner_id——
+    否则「创建者竟然不是 editor」会让写权限判定把 owner 自己挡住。
+    """
+    project = await db.get(Project, project_id)
+    if project is None:
+        return None
+    if project.owner_id == user_id:
+        return "owner"
+    row = (
+        (
+            await db.execute(
+                select(ProjectMember.role).where(
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.user_id == user_id,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    return row
+
+
+async def can_write_in_project(db: AsyncSession, project_id: str, user_id: str) -> bool:
+    """该项目里能不能写（改需求 / 分配执行）。
+
+    owner 与 editor 可以；viewer 与非参与者不行。读权限不走这里——
+    只读成员依然要能看到项目与需求（那正是给他 role 的目的）。
+    """
+    return await member_role(db, project_id, user_id) in ("owner", ROLE_EDITOR)
+
+
 async def add_member(
-    db: AsyncSession, *, project_id: str, user_id: str, member_user_id: str
+    db: AsyncSession,
+    *,
+    project_id: str,
+    user_id: str,
+    member_user_id: str,
+    role: str = ROLE_EDITOR,
 ) -> ProjectMember:
-    """加成员：owner 权限 + 在职校验 + 重复 409 + 通知被加者。"""
+    """加成员：owner 权限 + 在职校验 + 重复 409 + 通知被加者。
+
+    019：`role` 为 editor（默认）/ viewer（只读）。只读成员能看项目与项目内
+    需求、不能改需求或分配——「给人看，别让他动」是最常见的协作诉求。
+    """
     project = await _load_project_for_member_ops(db, project_id, user_id)
+
+    # service 层再兜一道：schema 的 Literal 只覆盖 HTTP 入口，
+    # 直接调 service（脚本/测试）时不该让非法角色落库。
+    if role not in (ROLE_EDITOR, ROLE_VIEWER):
+        raise AppError("INVALID_INPUT", "角色仅支持 editor / viewer")
 
     target = await db.get(User, member_user_id)
     if target is None:
@@ -161,7 +210,7 @@ async def add_member(
     if existing is not None:
         raise AppError("CONFLICT", "该用户已是项目成员")
 
-    edge = ProjectMember(project_id=project_id, user_id=member_user_id)
+    edge = ProjectMember(project_id=project_id, user_id=member_user_id, role=role)
     db.add(edge)
     await db.flush()
     # 通知只发给对方本人（R-05：被加者要知道「为什么多了这些需求」）
@@ -344,8 +393,11 @@ async def transfer_ownership(
 
 async def list_members(
     db: AsyncSession, project_id: str, user_id: str
-) -> list[tuple[str, str | None, bool, str]]:
+) -> list[tuple[str, str | None, bool, str, str]]:
     """成员列表（owner + 成员，owner 在前）。
+
+    返回 `(user_id, email, is_owner, role, joined_at)`；owner 行的 role 恒为
+    `owner`（不是成员行里的 editor/viewer——它在 owner_id 列上）。
 
     谓词：owner ∪ 成员（成员可见列表是 010 的可见性一部分）；
     陌生人 → 404。
@@ -362,6 +414,7 @@ async def list_members(
             project.owner_id,
             owner.email if owner else None,
             True,
+            "owner",
             project.created_at.isoformat(),
         )
     ]
@@ -374,7 +427,15 @@ async def list_members(
         )
     ).all()
     for edge, user in members:
-        rows.append((edge.user_id, user.email, False, edge.created_at.isoformat()))
+        rows.append(
+            (
+                edge.user_id,
+                user.email,
+                False,
+                edge.role,
+                edge.created_at.isoformat(),
+            )
+        )
     return rows
 
 

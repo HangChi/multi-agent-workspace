@@ -34,6 +34,7 @@ async def add_member(
         project_id=project_id,
         user_id=user.id,
         member_user_id=str(payload.user_id),
+        role=payload.role,
     )
     project = await db.get(Project, project_id)
     await write_audit(
@@ -53,6 +54,7 @@ async def add_member(
         user_id=edge.user_id,
         user_email=None,  # 响应不带邮箱：创建动作不需要展示对方邮箱
         is_owner=False,
+        role=edge.role,
         joined_at=edge.created_at.isoformat(),
     )
 
@@ -69,9 +71,10 @@ async def list_members(
                 user_id=uid,
                 user_email=email,
                 is_owner=is_owner,
+                role=role,
                 joined_at=joined_at,
             )
-            for uid, email, is_owner, joined_at in rows
+            for uid, email, is_owner, role, joined_at in rows
         ],
         "total": len(rows),
     }

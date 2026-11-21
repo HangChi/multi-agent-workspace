@@ -224,6 +224,7 @@ async def get_request(
     *,
     for_update: bool = False,
     allow_member: bool = False,
+    require_write: bool = False,
 ) -> Request:
     """取单个需求（归属校验）。
 
@@ -235,6 +236,10 @@ async def get_request(
             成员）。默认 False：既有调用方行为逐字节不变（零回归的关键）。
             成员快路在 `_check_owner` **之前**判——那个函数对非相关人员
             抛 403，不先让成员过就会误伤。
+        require_write: 019——写操作（改需求/分配）额外要求**项目内写权限**。
+            只读成员（role=viewer）能读这条需求，但不能改；这里返回 403
+            而不是 404：他知道项目与需求存在，只是不被允许动（016 的分工）。
+            owner 与 assignee 不受此限（他们不是「靠成员身份」进来的）。
     """
     if for_update:
         stmt = select(Request).where(Request.id == request_id).with_for_update()
@@ -248,6 +253,11 @@ async def get_request(
         and request.project_id
         and await project_member_service.is_participant(db, request.project_id, user_id)
     ):
+        # 019：只读成员能进到这里（可见性），但写操作要再过一道
+        if require_write and not await project_member_service.can_write_in_project(
+            db, request.project_id, user_id
+        ):
+            raise AppError("FORBIDDEN", "你在该项目是只读成员，不能修改需求或分配执行")
         return request
     _check_owner(request, user_id)
     return request
@@ -356,7 +366,9 @@ async def update_request(
     （403），其余字段维持 007 的 owner-or-assignee 谓词。判定用「键是否存在」
     而不是「值是否变化」——显式传同值也要 403，客户端才能预判行为。
     """
-    request = await get_request(db, request_id, user_id, allow_member=True)
+    request = await get_request(
+        db, request_id, user_id, allow_member=True, require_write=True
+    )
     data = payload.model_dump(exclude_unset=True)
 
     if "project_id" in data and not await _can_change_project(db, request, user_id):
