@@ -72,6 +72,14 @@ export const SETTINGS_NAV: NavItem[] = [
     description: '按 cron 周期自动建单并分配',
   },
   {
+    to: '/settings/notifications',
+    label: '通知渠道',
+    shortLabel: '通知',
+    icon: 'send',
+    memberOnly: true,
+    description: '把站内通知接到企业微信/飞书机器人或内部网关',
+  },
+  {
     to: '/settings/marketplace',
     label: '工具市场',
     shortLabel: '工具',
