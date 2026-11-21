@@ -71,6 +71,10 @@ const PRIORITY_LABEL: Record<string, string> = {
   low: '低优先级',
 }
 
+/** 空列的稳定引用：`byStatus[status] ?? []` 每次 render 都是新数组，
+ *  会让下面的 `items` 依赖永远变化，memo 全部失效。 */
+const EMPTY_ITEMS: WorkRequest[] = []
+
 type Filter = 'all' | WorkRequest['status']
 
 interface Props {
@@ -156,8 +160,23 @@ export function Board({
     )
   }, [requests, q])
 
-  const countOf = (status: WorkRequest['status']) =>
-    requests.filter((r) => r.status === status).length
+  /**
+   * 各状态计数：**一次**遍历同时填满所有桶。
+   *
+   * 此前是 `countOf(status)` 被调用 4 次（chips）+ 4 次（visibleColumns 判定）
+   * + 1 次（cancelled），每次都对全量数组 `filter()` 一遍；列渲染里又对
+   * `filtered` 逐列 filter 一次。需求上百条时，每次 render（拖拽期间每帧都在
+   * render）要扫十几遍全量数组——这是这页掉帧的主因（P7）。
+   */
+  const { counts, byStatus } = useMemo(() => {
+    const counts: Record<string, number> = {}
+    const byStatus: Record<string, WorkRequest[]> = {}
+    for (const r of filtered) {
+      counts[r.status] = (counts[r.status] ?? 0) + 1
+      ;(byStatus[r.status] ??= []).push(r)
+    }
+    return { counts, byStatus }
+  }, [filtered])
 
   /**
    * 可见列：
@@ -165,10 +184,15 @@ export function Board({
    * - 全部视图 → 四个工作状态恒定显示，「已取消」只在有数据时出现。
    *   空列在视图里就是白占宽度，而它又极少需要盯着看。
    */
-  const visibleColumns =
-    filter === 'all'
-      ? COLUMNS.filter((c) => c.status !== 'cancelled' || countOf('cancelled') > 0)
-      : COLUMNS.filter((c) => c.status === filter)
+  const visibleColumns = useMemo(
+    () =>
+      filter === 'all'
+        ? COLUMNS.filter(
+            (c) => c.status !== 'cancelled' || (counts['cancelled'] ?? 0) > 0
+          )
+        : COLUMNS.filter((c) => c.status === filter),
+    [filter, counts]
+  )
 
   const handleDragStart = (e: DragStartEvent) => {
     const id = String(e.active.id).replace(/^request:/, '')
@@ -202,10 +226,19 @@ export function Board({
     }
   }
 
-  const chips: { value: Filter; label: string; count: number }[] = [
-    { value: 'all', label: '全部', count: requests.length },
-    ...COLUMNS.map((c) => ({ value: c.status, label: c.label, count: countOf(c.status) })),
-  ]
+  // 「全部」用 requests.length（不受搜索影响），各状态计数用 filtered
+  // ——保持原有语义：搜索时总数仍显示全部，方便判断「搜出来几条 / 共几条」。
+  const chips: { value: Filter; label: string; count: number }[] = useMemo(
+    () => [
+      { value: 'all', label: '全部', count: requests.length },
+      ...COLUMNS.map((c) => ({
+        value: c.status,
+        label: c.label,
+        count: counts[c.status] ?? 0,
+      })),
+    ],
+    [requests.length, counts]
+  )
 
   /** 真正的空看板：没有任何需求、没有搜索、没有筛选——给引导而不是七列空占位。 */
   const trulyEmpty = requests.length === 0 && !q.trim() && filter === 'all' && !isLoading
@@ -334,7 +367,7 @@ export function Board({
               className="scrollbar-none flex snap-x snap-proximity items-stretch gap-3 overflow-x-auto pb-2"
             >
               {visibleColumns.map((col) => {
-                const items = filtered.filter((r) => r.status === col.status)
+                const items = byStatus[col.status] ?? EMPTY_ITEMS
                 const isRunning = col.status === 'running'
                 return (
                   <section
@@ -375,7 +408,7 @@ export function Board({
                             <RequestCard
                               request={r}
                               draggable={DRAGGABLE_STATUSES.has(r.status)}
-                              onOpen={onOpenDetail ? () => onOpenDetail(r) : undefined}
+                              onOpen={onOpenDetail}
                             />
                           </div>
                         ))

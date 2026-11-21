@@ -11,6 +11,7 @@
  */
 
 import { useDraggable } from '@dnd-kit/core'
+import { memo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 
 import { WorkRequest } from '../../api/endpoints'
@@ -30,11 +31,17 @@ interface Props {
   request: WorkRequest
   /** 是否可拖拽（created/pending/accepted/assigned 可转交或分配）。 */
   draggable?: boolean
-  /** 打开详情弹层 */
-  onOpen?: () => void
+  /**
+   * 打开详情弹层。
+   *
+   * 收 `request` 而不是闭包：父组件因此能传**同一个**函数引用（见
+   * `Board` 里的 `handleOpen`），配 `memo` 才有意义。此前是每张卡一个
+   * 新箭头函数，memo 完全失效（P7）。
+   */
+  onOpen?: (request: WorkRequest) => void
 }
 
-export function RequestCard({ request, draggable = true, onOpen }: Props) {
+function RequestCardImpl({ request, draggable = true, onOpen }: Props) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `request:${request.id}`,
     data: { kind: 'request', id: request.id, title: request.title },
@@ -42,6 +49,10 @@ export function RequestCard({ request, draggable = true, onOpen }: Props) {
   })
 
   const runId = useBoardStore((s) => s.runByRequest[request.id])
+
+  const handleOpen = useCallback(() => {
+    onOpen?.(request)
+  }, [onOpen, request])
 
   // 拖拽时原卡片退化为「占位残影」，真正的预览由 Board 的 DragOverlay 渲染，
   // 避免被列容器裁切、也不会和侧栏重叠。
@@ -60,7 +71,7 @@ export function RequestCard({ request, draggable = true, onOpen }: Props) {
       {...listeners}
       // 整卡点击开详情：拖拽有 6px 激活约束兜底，不会误触。
       // 卡片内的链接/按钮各自 stopClick，导航与开详情不打架。
-      onClick={onOpen && !isDragging ? () => onOpen() : undefined}
+      onClick={onOpen && !isDragging ? handleOpen : undefined}
       className={cn(
         // 白卡 + 柔和双层阴影 + 半透明边框：从灰底列里「浮」出来。
         // 此前 border + 无阴影，卡片像贴在列上的一张纸
@@ -187,7 +198,7 @@ export function RequestCard({ request, draggable = true, onOpen }: Props) {
                 onPointerDown={stopDrag}
                 onClick={(e) => {
                   e.stopPropagation()
-                  onOpen()
+                  handleOpen()
                 }}
                 className="ml-auto rounded px-1.5 py-0.5 text-micro text-ink-muted transition-all hover:bg-surface-subtle hover:text-ink focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 group-hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
               >
@@ -200,3 +211,12 @@ export function RequestCard({ request, draggable = true, onOpen }: Props) {
     </article>
   )
 }
+
+/**
+ * 卡片在看板上是最高频的重渲染对象（拖拽期间每帧都在 render）。
+ *
+ * 只在 `request` / `draggable` / `onOpen` 三个入参真正变化时重渲染：
+ * 拖拽时 `useDraggable` 的 `isDragging` 变化由 dnd-kit 内部订阅驱动，
+ * 不经过父组件的 props，所以不影响这里的比较。
+ */
+export const RequestCard = memo(RequestCardImpl)
