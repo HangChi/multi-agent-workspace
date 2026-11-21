@@ -1,14 +1,22 @@
 """工具目录一致性测试。
 
-`catalog.py` 是工具定义的单一事实源。R5 之前，三个内置执行器各自手写了一份
-与 catalog 逐字相同的 schema 字面量，本测试靠「两份比对」防漂移——但那只能
-证明这一刻没漂移：改参数时仍然要改两处，漏一处的表现是模型看到的参数与
-执行器真正解析的参数不一致。
+`catalog.py` 是工具定义的单一事实源。R5 之前，**四个**内置执行器各自手写了
+一份与 catalog 相同的 schema——报告只数到三个（calc / read_url / http），
+漏了 `sandbox.py`；它虽然从 `CATALOG[self.name]` 取值而非写字面量，但
+「拼 OpenAI 形状」这件事仍另写了一遍。
+
+本测试原先靠「两份比对」防漂移，那只能证明这一刻没漂移：改参数时仍然要改
+两处，漏一处的表现是模型看到的参数与执行器真正解析的参数不一致。
 
 R5 改成执行器 `schema()` 从 `to_openai_schema()` 派生。此时「两份比对」
-在数学上恒真、已经没有信息量；本测试改为证明**派生关系本身成立**：
-替换 CATALOG 中的定义，执行器的 schema 必须跟着变。谁把某个执行器改回
-手写字面量，这条会红。
+在数学上恒真、已经没有信息量；本测试改为证明**派生关系本身成立**。注意
+两条测试的分工（实测确认过，缺一不可）：
+
+- `test_executor_schema_follows_catalog_definition`：改 **catalog 数据**，
+  执行器跟着变。手写拼装也读 `CATALOG[self.name]`，所以它**拦不住**手写。
+- `test_executor_calls_the_shared_schema_builder`：替换**拼装函数本身**，
+  执行器必须跟着走。这条才拦得住手写——风险在形状（`function` 将来加字段）
+  而不是数据。
 """
 
 from dataclasses import replace
@@ -121,3 +129,45 @@ def test_executor_schema_is_never_empty_for_catalog_tools() -> None:
     """
     for name in IMPLEMENTED:
         assert _executor(name).schema(), f"{name} 的 schema 为空，检查 name 是否拼错"
+
+
+@pytest.mark.parametrize("name", IMPLEMENTED)
+def test_executor_calls_the_shared_schema_builder(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """执行器必须**调用** `to_openai_schema`，而不是自己拼一份同样形状的 dict。
+
+    这一条与 `test_executor_schema_follows_catalog_definition` 的区别值得说清：
+    后者只证明「值相等」，而**手写拼装**也读 `CATALOG[self.name]`，所以改
+    catalog 时它同样会变——两条都拦不住「另写一份拼装代码」。实测过：把
+    `sandbox.schema()` 改回手写，前两条全绿。
+
+    真正的风险不在数据，在**形状**：`_openai_schema` 将来若给 function 加字段
+    （比如 `strict`），自己拼的那份不会跟着变，而模型侧看到的工具定义会静默
+    少一块。所以这里直接替换拼装函数，看执行器是否跟着走。
+    """
+    calls: list[str] = []
+
+    def fake_builder(target: str) -> dict[str, object]:
+        calls.append(target)
+        return {
+            "type": "function",
+            "function": {
+                "name": f"replaced-{target}",
+                "description": "由测试替换的拼装函数",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+
+    monkeypatch.setattr(
+        f"{_executor(name).__class__.__module__}.to_openai_schema",
+        fake_builder,
+        raising=False,
+    )
+    schema = _executor(name).schema()
+
+    assert calls == [name], (
+        f"{name} 的 schema() 没有走共享拼装函数，可能自己拼了一份；"
+        "那样 function 形状变化时它会静默落后"
+    )
+    assert schema["function"]["name"] == f"replaced-{name}"

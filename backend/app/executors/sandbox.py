@@ -12,7 +12,7 @@ import redis
 
 from app.core.config import settings
 from app.executors.base import ToolExecutor
-from app.executors.catalog import CATALOG, ToolSpec
+from app.executors.catalog import CATALOG, ToolSpec, to_openai_schema
 from app.executors.sandbox_client import (
     SandboxInfraError,
     SandboxOutputLimit,
@@ -161,15 +161,14 @@ class SandboxExecutor(ToolExecutor):
         return CATALOG[self.name]
 
     def schema(self) -> dict[str, Any]:
-        spec = self.spec
-        return {
-            "type": "function",
-            "function": {
-                "name": spec.name,
-                "description": spec.description,
-                "parameters": spec.param_schema,
-            },
-        }
+        """工具 schema 从 catalog 派生（R5）。
+
+        这是 R5 的**第四处**手写 schema。报告只数到三处（calc / read_url /
+        http），漏了这里——它虽然是从 `CATALOG[self.name]` 取值而不是写字面量，
+        但「拼 OpenAI 形状」这件事仍然另写了一遍，`_openai_schema` 改字段时
+        这里不会跟着变。派生后与前三处同形。
+        """
+        return to_openai_schema(self.name) or {}
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
         raw = arguments.get(self.argument_name)

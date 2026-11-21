@@ -536,15 +536,24 @@ transition(run, RunStatus.FAILED); run.error = ...; await set_status(...); await
    运行时从没有过**——「测试比生产更严格」让人误以为有保护。已把校验移入
    `compile_runtime_commands`（`23f8428`）。
 2. **「三处工具 schema 硬编码」实为四处**。`sandbox.py:163` 也手写，只是从
-   `CATALOG[self.name]` 取值。另外「删掉两份比对测试」的判断也要改：schema 从
-   `to_openai_schema()` 派生后，「两份比对」在数学上恒真，必须换成「monkeypatch 替换
-   CATALOG，执行器 schema 必须跟着变」才有信息量。
+   `CATALOG[self.name]` 取值而不是写字面量。R5（`23f8428`）当时只改了 calc /
+   read_url / http 三处，第四处留到 `9f0a4d1` 才补上——**报告先写了「四处」，
+   代码只改了三处**，这个不一致本身是缺陷。
+   另外「删掉两份比对测试」的判断也要改：schema 从 `to_openai_schema()` 派生后，
+   「两份比对」在数学上恒真，必须换成「monkeypatch 替换 CATALOG，执行器 schema
+   必须跟着变」才有信息量。
+   还要再进一步：**连这条也不够**。手写拼装同样读 `CATALOG[self.name]`，改 catalog
+   时它也会变，所以「替换 CATALOG 定义」拦不住手写（实测：把 `sandbox.schema()`
+   改回手写，该条全绿）。真正能拦住的是「替换**拼装函数本身**，执行器必须跟着
+   走」——风险在 `function` 的形状（将来加 `strict` 等字段），不在数据。
+   两条测试分工见 `test_catalog.py` 文件头。
 3. **「沙箱 137 分支发 `sandbox_finished` 与外部工具 `run_failed` 不一致」属层级错配**。
    沙箱失败只让**工具步**失败，Run 仍可继续；`sandbox_finished` 是步骤级事件，与
    Run 级 `run_failed` 不在同一层，对齐会让一次沙箱报错连带整个 Run 死掉。已在
    `test_sandbox_callbacks.py` 里把这条写成反向约束（`test_failed_sandbox_marks_step_failed_but_does_not_touch_the_run`）。
 4. **`_execute` 的「421 行混七件事」里，沙箱回调占 131 行**，比预估的多。搬走后
-   `_execute` 为 289 行；剩余部分是路由/配额/授权/续写/pipeline，彼此共享 DB 会话与
+   `_execute` 为 298 行（最初记的 289 是搬完当刻的数字，后来补 `_fail_run` 调用点
+   与注释又涨了几行）；剩余部分是路由/配额/授权/续写/pipeline，彼此共享 DB 会话与
    `run` 对象，继续机械切分收益递减，就此打住。
 
 ### 抽取过程中新发现的一个真实缺陷（`1293ca1`）
