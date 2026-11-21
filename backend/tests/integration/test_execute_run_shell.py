@@ -56,8 +56,10 @@ class _FakeRun(RunState):
 class _FakeResult:
     """`db.execute(...)` 的返回值。
 
-    任务壳路径用 `.scalars().first()`，配额检查路径用 `.scalar_one()`——
-    两者都要给，否则用例会因为替身不全而走成失败分支。
+    需要覆盖三种消费方式，否则用例会因为替身不全而走成失败分支：
+    - `.scalars().first()`：任务壳取 Run
+    - `.scalar_one()`：配额检查
+    - `.scalar()`：`_load_context` 取 max(Step.seq) 作续写起点
     """
 
     def __init__(self, value) -> None:
@@ -70,6 +72,9 @@ class _FakeResult:
         return self._value
 
     def scalar_one(self):
+        return 0
+
+    def scalar(self):
         return 0
 
 
@@ -195,7 +200,7 @@ def test_retrying_run_bumps_attempt_and_enters_running(shell, monkeypatch):
     session = shell(run)
     seen: list[str] = []
 
-    async def _fake_execute(_db, target, _agent) -> None:
+    async def _fake_execute(_db, target, _agent, **_kw) -> None:
         seen.append(target.status)
 
     monkeypatch.setattr(er, "_execute", _fake_execute)
@@ -282,7 +287,7 @@ def test_successful_run_returns_final_status(shell, monkeypatch):
     run = _FakeRun(status=RunStatus.RUNNING.value)
     session = shell(run)
 
-    async def _complete(_db, target, _agent) -> None:
+    async def _complete(_db, target, _agent, **_kw) -> None:
         target.status = RunStatus.COMPLETED.value
 
     monkeypatch.setattr(er, "_execute", _complete)

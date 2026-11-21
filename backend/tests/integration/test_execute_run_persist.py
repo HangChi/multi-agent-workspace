@@ -12,6 +12,7 @@
 import uuid
 
 import pytest
+from sqlalchemy import event, select
 
 from app.models.request import Request
 from app.models.run import Run
@@ -192,7 +193,9 @@ async def test_load_context_returns_last_seq_without_loading_steps(db_session):
     # 清掉 identity map，确保断言针对真实的加载行为
     db_session.expunge_all()
 
-    loaded_run, agent, request, last_seq = await er._load_context(db_session, str(run.id))
+    loaded_run, agent, request, last_seq = await er._load_context(
+        db_session, str(run.id)
+    )
 
     assert last_seq == 3  # 续写起点正确
     assert loaded_run.id == run.id
@@ -213,3 +216,92 @@ async def test_load_context_last_seq_is_zero_for_fresh_run(db_session):
     db_session.expunge_all()
     _, _, _, last_seq = await er._load_context(db_session, str(run.id))
     assert last_seq == 0
+
+
+# ---------- P2：_persist_steps 的 SELECT 次数不随步数增长 ----------
+
+
+class _SelectCounter:
+    """统计一个 session 上发出的 SELECT 次数（P2 与 P1 用同一种手段）。
+
+    N+1 是纯性能问题：结果集本来就正确，只有数查询次数才能验证修复。
+    """
+
+    def __init__(self, session):
+        self.session = session
+        self.count = 0
+
+    def _before(self, conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            self.count += 1
+
+    def __enter__(self):
+        event.listen(
+            self.session.sync_session.bind, "before_cursor_execute", self._before
+        )
+        return self
+
+    def __exit__(self, *exc):
+        event.remove(
+            self.session.sync_session.bind, "before_cursor_execute", self._before
+        )
+        return False
+
+
+async def test_persist_steps_skips_select_for_new_steps(db_session):
+    """不带 id 的步骤必然是新行，一条 SELECT 都不该发。
+
+    P2 背景：此前对每条 `await db.get(Step, step["id"])` 都查一次库。runner
+    现场生成的 LLM / final 步骤从来不带 id，等于为「确认它不存在」白跑往返。
+    """
+    run = await _run(db_session)
+    steps = [
+        {"seq": 1, "kind": "llm", "status": "completed"},
+        {"seq": 2, "kind": "final", "status": "completed"},
+    ]
+
+    with _SelectCounter(db_session) as counter:
+        await er._persist_steps(db_session, run, steps)
+        await db_session.commit()
+
+    assert counter.count == 0, f"新建步骤不该查库，实际发了 {counter.count} 次 SELECT"
+    # id 仍然被回填，后续批次复用同一身份而不是重复插入
+    assert all(step["id"] for step in steps)
+
+
+async def test_persist_steps_selects_once_for_precreated_batch(db_session):
+    """一批预建（带 id）步骤只发 1 次 SELECT，而不是每条一次。
+
+    刻意 `expunge_all()`：预建行若是本进程 `db.add` 的，旧实现的 `db.get`
+    会命中 identity map 而**不发 SQL**，N+1 被掩盖。真正咬人的场景是
+    FR-021 恢复执行——needs_input 挂起后由另一个 Worker 续跑，session 全新，
+    预建行不在缓存里，逐条 `db.get` 就是逐条 SELECT。
+    """
+    run = await _run(db_session)
+    precreated_ids = []
+    for seq in range(1, 11):
+        row = Step(run_id=run.id, seq=seq, kind="tool", tool_name="run_python")
+        row.status = "running"
+        db_session.add(row)
+        await db_session.flush()
+        precreated_ids.append((row.id, seq))
+    await db_session.commit()
+    db_session.expunge_all()  # 模拟新 Worker 的空白 session
+
+    steps = [
+        {"id": step_id, "seq": seq, "kind": "tool", "output": {"ok": True}}
+        for step_id, seq in precreated_ids
+    ]
+
+    with _SelectCounter(db_session) as counter:
+        await er._persist_steps(db_session, run, steps)
+        await db_session.commit()
+
+    assert counter.count == 1, f"10 条预建步骤应只查 1 次，实际 {counter.count} 次"
+    refreshed = (
+        (await db_session.execute(select(Step).where(Step.run_id == run.id)))
+        .scalars()
+        .all()
+    )
+    assert len(refreshed) == 10, "不应插入重复行"
+    assert all(row.status == "completed" for row in refreshed)

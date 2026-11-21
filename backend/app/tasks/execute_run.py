@@ -148,13 +148,40 @@ def _build_runner(
 
 
 async def _persist_steps(db, run: Run, steps: list[dict]) -> None:
-    """批量写 steps 表（seq 唯一约束 per run）。"""
+    """批量写 steps 表（seq 唯一约束 per run）。
+
+    步骤分两类，只有第二类需要查库（见 docs/code-audit-2026-11-21.md P2）：
+
+    - **不带 id**：runner 现场生成的普通步骤（LLM / final / 未走预建路径的工具
+      调用），它必然是新行，直接 `add` 即可。此前对这类也逐条 `db.get()`，
+      纯属白跑往返——`db.get` 虽命中 identity map，但首次访问仍是独立 SELECT。
+    - **带 id**：沙箱执行与外部工具调用会预建一条 `running` 行（子表以
+      `step_id` 为外键），runner 事后回填。这批用一次 `IN` 取回而不是逐条查。
+    """
+    if not steps:
+        return
+
+    precreated_ids: list[str] = []
     for step in steps:
-        # Keep the identity in the runner's step dict so subsequent batch flushes
-        # reuse an already persisted step rather than duplicating its sequence.
-        if not step.get("id"):
+        if step.get("id"):
+            precreated_ids.append(step["id"])
+        else:
+            # Keep the identity in the runner's step dict so subsequent batch flushes
+            # reuse an already persisted step rather than duplicating its sequence.
             step["id"] = new_uuid()
-        persisted = await db.get(Step, step["id"])
+
+    existing: dict[str, Step] = {}
+    if precreated_ids:
+        persisted_rows = (
+            (await db.execute(select(Step).where(Step.id.in_(precreated_ids))))
+            .scalars()
+            .all()
+        )
+        # 注意：身份映射里已有的行也会出现在这里，所以只需按 id 建索引即可
+        existing = {row.id: row for row in persisted_rows}
+
+    for step in steps:
+        persisted = existing.get(step["id"])
         if persisted is not None:
             # A step pre-created as "running" so a child row could reference it
             # (sandbox execution, external tool invocation) is filled in here with
@@ -170,20 +197,20 @@ async def _persist_steps(db, run: Run, steps: list[dict]) -> None:
                 persisted.cost_cents = step.get("cost_cents", 0)
                 persisted.status = step.get("status", "completed")
             continue
-        db.add(
-            Step(
-                id=step.get("id"),
-                run_id=run.id,
-                seq=step["seq"],
-                kind=step["kind"],
-                input=step.get("input"),
-                output=step.get("output"),
-                tool_name=step.get("tool_name"),
-                duration_ms=step.get("duration_ms", 0),
-                cost_cents=step.get("cost_cents", 0),
-                status=step.get("status", "completed"),
-            )
+        row = Step(
+            id=step.get("id"),
+            run_id=run.id,
+            seq=step["seq"],
+            kind=step["kind"],
+            input=step.get("input"),
+            output=step.get("output"),
+            tool_name=step.get("tool_name"),
+            duration_ms=step.get("duration_ms", 0),
+            cost_cents=step.get("cost_cents", 0),
+            status=step.get("status", "completed"),
         )
+        db.add(row)
+        existing[row.id] = row  # 同批内重复 id 时第二次走 update 分支而不是再 add
     await db.flush()
 
 
@@ -585,7 +612,6 @@ async def _execute(
         await db.commit()
 
     runner.audit_denied = audit_denied
-    steps: list[dict] = []
 
     # FR-021 恢复执行（needs_input → running）：历史步骤已经写库，重跑的新步骤从
     # 最大 seq 之后续写，而不是把它们删掉。删除会让审计丢失整段执行过程，也会让
@@ -612,7 +638,6 @@ async def _execute(
         await db.commit()
 
     async def save_step(step: dict) -> None:
-        steps.append(step)
         # Persist the step and progress together BEFORE status/events can expose
         # it. A terminal run must never be visible with an empty/partial history.
         await _persist_steps(db, run, [step])
@@ -792,7 +817,9 @@ async def _execute(
             should_abort=check_cancelled,
             initial_seq=last_seq,
         )
-        await _persist_steps(db, run, steps)
+        # 不做整批补写：每个 step 都已在 save_step 里当场落库并提交（见那里
+        # 的注释——终态可见时历史必须已完整）。此处只需提交 run 自身的字段变更
+        # （result / status / cost），`steps` 列表只是内存副本。
         await db.commit()
         # router：把路由决策并入结果（前端/审计能看到是谁被选中、为什么）
         if routing:
@@ -804,11 +831,9 @@ async def _execute(
         else:
             run_events.run_completed(run.id, run.result)
     except NeedsInput as exc:
-        await _persist_steps(db, run, steps)
         await db.commit()
         run_events.needs_input(run.id, str(exc))
     except (MaxStepsExceeded, CostLimitExceeded, ExecutionTimeout) as exc:
-        await _persist_steps(db, run, steps)
         await db.commit()
         run_events.run_failed(run.id, run.error or str(exc))
     except LLMClientError as exc:
