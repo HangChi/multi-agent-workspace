@@ -42,14 +42,28 @@ def covered_by_builtin(payload: EgressRuleIn) -> bool:
 async def _ensure_agent_owner(
     db: AsyncSession, agent_id: str, user_id: str, role: str
 ) -> None:
+    """Agent 出站策略的判权：owner，**或 admin**（运维排障），否则 404。
+
+    R1 说明——这是全项目唯一放行 admin 的 Agent 路径，与
+    `agent_service.get_agent`（纯 owner）刻意不同：
+
+    - `agent_service` 管 CRUD（改名、删除、归档）：admin 不该替用户改配置；
+    - 本模块管**出站网络策略**：管理员要能排查「某个 Agent 出站被什么挡
+      住了」，需要看得到。
+
+    016 spec 明确「admin 读他人资源是否放行由各端点既有策略决定，
+    本特性不改」，所以这里保留 admin 分支。也正因为这条差异是**产品决策**
+    而非实现漂移，它没有并入 `agent_service.get_agent`——把 admin 塞进
+    通用谓词会让「管理员能改出站策略却改不了名字」这个既成事实
+    变成隐式的、到处生效的规则。
+    """
     from app.models.agent import Agent
 
     agent = await db.get(Agent, agent_id)
     if agent is None:
         raise AppError("NOT_FOUND", "Agent 不存在")
-    if role != "admin" and agent.owner_id != user_id:
+    if agent.owner_id != user_id and role != "admin":
         # 016：非 owner（且非 admin 运维）与「不存在」同响应。
-        # admin 分支保留原样：管理员本就能看到全部 Agent，拒绝时不携带存在性增量。
         raise AppError("NOT_FOUND", "Agent 不存在")
 
 

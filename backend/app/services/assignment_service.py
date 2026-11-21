@@ -35,7 +35,7 @@ from app.orchestrator.strategies import (
     StrategyResolver,
     Target,
 )
-from app.services import dependency_service, project_member_service
+from app.services import agent_service, dependency_service, project_member_service
 from app.services.external_invocation_service import snapshot_external_grants
 from app.services.quota_service import assert_user_quota
 from app.services.request_service import get_request
@@ -59,14 +59,13 @@ async def _load_agent(
     allowed_owner_ids（010）：项目参与者集合——共享项目里的 agent 对
     参与者开放，否则成员拖执行时用不了 owner 建的 agent，协作链断在
     分配那一步（US3 场景 3）。非共享场景不传，行为逐字节不变。
+
+    R1：归属谓词走 `agent_service.get_agent`（单一判定点），这里只额外加
+    「归档不可分配」这条业务校验——它不属于归属，不该混进归属判定里。
     """
-    agent = await db.get(Agent, agent_id)
-    if agent is None:
-        raise AppError("NOT_FOUND", "Agent 不存在")
-    if agent.owner_id != user_id and (
-        allowed_owner_ids is None or agent.owner_id not in allowed_owner_ids
-    ):
-        raise AppError("NOT_FOUND", "Agent 不存在")
+    agent = await agent_service.get_agent(
+        db, agent_id, user_id, allow_owner_ids=allowed_owner_ids
+    )
     if agent.status != "active":
         raise AppError("INVALID_INPUT", "归档 Agent 不可分配")
     return agent

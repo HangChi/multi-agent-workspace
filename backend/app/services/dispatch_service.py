@@ -26,6 +26,7 @@ from app.orchestrator.request_state_machine import (
     assert_dispatch_invariants,
     transition,
 )
+from app.services import request_service
 
 logger = structlog.get_logger(__name__)
 
@@ -41,8 +42,13 @@ async def _load_request_locked(db: AsyncSession, request_id: str) -> Request:
 
 
 def _check_access(request: Request, actor_id: str) -> None:
-    """资源访问权：创建者或当前接收人。其他人一律 404（不暴露存在性）。"""
-    if request.owner_id != actor_id and request.assignee_id != actor_id:
+    """资源访问权：创建者或当前接收人。其他人一律 404（不暴露存在性）。
+
+    R1：谓词本体收在 `request_service.is_participant`，这里只负责把
+    False 翻译成 404。此前两处各写一遍 `owner_id != x and assignee_id != x`，
+    加新放行分支时必然漏改一处。
+    """
+    if not request_service.is_participant(request, actor_id):
         raise AppError("NOT_FOUND", "需求不存在")
 
 

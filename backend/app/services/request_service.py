@@ -211,6 +211,26 @@ async def run_outcome_summaries(
     return counts
 
 
+def is_participant(request: Request, user_id: str) -> bool:
+    """「创建者 ∪ 当前接收人」——需求的基本访问权谓词（R1）。
+
+    这是需求访问权的**单一判定点**。此前同一谓词被复制了四处：
+    `request_service._check_owner`、`dispatch_service._check_access`、
+    `dependency_service._load_editable_request`、`api/v1/runs._get_owned_run`
+    （后者还多一层「先按 owner 短路、再查 request 拿 assignee」的绕路）。
+    四处一旦有一处加了新分支（例如 010 的项目成员），其余三处就静默落后。
+
+    注意这里**不含**项目成员（010 的 `allow_member`）——成员资格要走
+    `project_member_service.is_participant` 查库，放进纯谓词会让调用方
+    以为它是免费的。需要成员的场景用 `get_request(..., allow_member=True)`。
+
+    也**不含** admin：016 spec 明确「admin 读他人资源是否放行由各端点
+    既有策略决定，本特性不改」。把 admin 塞进通用谓词等于替产品做了决策，
+    所以只在确实需要 admin 的两处（WS 订阅）显式叠加，见 `ws` 的调用点。
+    """
+    return request.owner_id == user_id or request.assignee_id == user_id
+
+
 def _check_owner(request: Request, user_id: str) -> None:
     """资源访问权（007）：创建者**或当前接收人**；010 起项目成员另行放行。
 
@@ -223,7 +243,8 @@ def _check_owner(request: Request, user_id: str) -> None:
     （spec 016 research R-01）。注意 403 仍用于「参与者缺某个字段权限」，
     例如 assignee 改 project_id —— 他知道需求存在，只是没这个权限。
     """
-    if request.owner_id != user_id and request.assignee_id != user_id:
+    if not is_participant(request, user_id):
+        # 文案与「真的不存在」逐字相同——这是 016 契约 §2 的硬要求
         raise AppError("NOT_FOUND", "需求不存在")
 
 
@@ -421,11 +442,12 @@ async def update_request(
     if "auto_agent_id" in data:
         agent_id = data["auto_agent_id"]
         if agent_id:
-            from app.models.agent import Agent
+            # R1：归属谓词走 agent_service.get_agent。这里要求的是
+            # **需求创建者自己的** Agent（自动启动用创建者的配额花钱），
+            # 所以拿 request.owner_id 去判，而不是当前操作人。
+            from app.services import agent_service
 
-            agent = await db.get(Agent, str(agent_id))
-            if agent is None or agent.owner_id != request.owner_id:
-                raise AppError("NOT_FOUND", "Agent 不存在")
+            await agent_service.get_agent(db, str(agent_id), request.owner_id)
             request.auto_agent_id = str(agent_id)
         else:
             request.auto_agent_id = None

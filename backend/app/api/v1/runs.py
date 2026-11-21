@@ -31,7 +31,7 @@ from app.models.step import Step
 from app.orchestrator.state_machine import RunStatus, transition
 from app.schemas.run import RunOut, RunReplyIn
 from app.schemas.sandbox import EgressAccessList, ExecutionDetail, ExecutionSummary
-from app.services import artifact_service
+from app.services import artifact_service, request_service
 from app.services.assignment_service import _enqueue
 from app.services.external_invocation_service import list_run_invocations
 from app.services.request_service import settle_request_status
@@ -47,13 +47,18 @@ async def _get_owned_run(db: DB, run_id: str, user: CurrentUser) -> Run:
     为什么扩展：分派后执行人（接收人）≠ Run.owner_id（恒记需求创建者，
     research R-03），员工把自己接收的需求拖给 Agent 后，必须能查看进度、
     回复 needs_input、取消/重试——否则「实时可见」（US3）对经手人失效。
+
+    R1：谓词走 `request_service.is_participant`。这里刻意**不放行 admin**——
+    与 `request_service._check_owner` 一致。WS 订阅（`api/v1/ws.py`）那两处
+    额外放行 admin 是既有产品决策，016 spec 明确「本特性不改」，
+    因此不在通用谓词里统一（那会替产品做决定，见 `is_participant` 注释）。
     """
     run = await db.get(Run, run_id)
     if run is None:
         raise AppError("NOT_FOUND", "运行不存在")
     if run.owner_id != user.id:
         request = await db.get(Request, run.request_id)
-        if request is None or request.assignee_id != user.id:
+        if request is None or not request_service.is_participant(request, user.id):
             raise AppError("NOT_FOUND", "运行不存在")
     return run
 

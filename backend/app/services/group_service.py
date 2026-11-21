@@ -14,10 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.errors import AppError
-from app.models.agent import Agent
 from app.models.group import AgentGroup
 from app.models.group_member import GroupMember
 from app.schemas.group import GroupCreate, GroupUpdate
+from app.services import agent_service
 
 
 def _check_owner(group: AgentGroup, user_id: str) -> None:
@@ -115,13 +115,10 @@ async def add_member(
     """添加成员：agent 必须存在、归属当前用户、active 状态；position 不冲突。"""
     await get_group(db, group_id, user_id)
 
-    agent = await db.get(Agent, agent_id)
-    if agent is None:
-        raise AppError("NOT_FOUND", "Agent 不存在")
-    if agent.owner_id != user_id:
-        # 016：他人的 Agent 与「不存在」同响应，否则可以拿组的成员接口探测
-        # 某个 Agent id 是否存在（403 = 存在但不归你）。
-        raise AppError("NOT_FOUND", "Agent 不存在")
+    # R1：归属谓词走 `agent_service.get_agent`（单一判定点）。
+    # 016：他人的 Agent 与「不存在」同响应，否则可以拿组的成员接口探测
+    # 某个 Agent id 是否存在（403 = 存在但不归你）。
+    agent = await agent_service.get_agent(db, agent_id, user_id)
     if agent.status != "active":
         raise AppError("INVALID_INPUT", "归档 Agent 不可加入组")
 

@@ -3,6 +3,9 @@
 对齐 contracts/api.md Agent 部分：
 - 删除被组引用的 Agent → 409（仅可归档）
 - 归档后不出现在可分配列表（status=active 过滤）
+
+R1：归属判定统一收在 `get_agent`，原先独立的 `_check_owner` 已删除（它只有
+`get_agent` 一个调用方，拆成两个函数反而让「同一件事有两种写法」更容易复现）。
 """
 
 from sqlalchemy import func, or_, select
@@ -17,12 +20,6 @@ from app.services.tool_service import (
     reconcile_agent_grants,
     validate_grants,
 )
-
-
-def _check_owner(agent: Agent, user_id: str) -> None:
-    """非 owner 一律 404（016）：与「Agent 不存在」同响应，避免枚举他人 Agent。"""
-    if agent.owner_id != user_id:
-        raise AppError("NOT_FOUND", "Agent 不存在")
 
 
 async def create_agent(
@@ -69,12 +66,38 @@ async def create_agent(
     return agent
 
 
-async def get_agent(db: AsyncSession, agent_id: str, user_id: str) -> Agent:
-    """取单个 Agent（归属校验）。"""
+async def get_agent(
+    db: AsyncSession,
+    agent_id: str,
+    user_id: str,
+    *,
+    allow_owner_ids: set[str] | frozenset[str] | None = None,
+) -> Agent:
+    """取单个 Agent（归属校验）：不存在或无权限一律 404（不暴露存在性）。
+
+    R1：Agent 侧的**单一判定点**。此前同一谓词被复制在
+    `agent_service._check_owner`、`assignment_service._load_target`、
+    `group_service.add_member`、`egress_service._ensure_agent_owner`、
+    `request_service.update_request`（auto_agent 校验）五处，
+    且放行口径互不一致。
+
+    Args:
+        allow_owner_ids: 额外放行的 owner 集合（010 共享项目：参与者可用
+            owner 建的 Agent，否则成员拖执行时协作链断在分配那步）。
+            不传 = 仅本人，行为与既有调用方逐字节一致。
+
+    刻意**不放行 admin**：016 spec 明确「admin 读他人资源是否放行由各端点
+    既有策略决定，本特性不改」。`egress_service` 那处放行 admin 是既有产品
+    决策（管理员要能排查出站网络问题），所以它保留自行叠加，不并入本函数
+    —— 把 admin 塞进通用谓词等于替产品做决策。
+    """
     agent = await db.get(Agent, agent_id)
     if agent is None:
         raise AppError("NOT_FOUND", "Agent 不存在")
-    _check_owner(agent, user_id)
+    if agent.owner_id != user_id and (
+        allow_owner_ids is None or agent.owner_id not in allow_owner_ids
+    ):
+        raise AppError("NOT_FOUND", "Agent 不存在")
     return agent
 
 

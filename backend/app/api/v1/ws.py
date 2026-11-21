@@ -40,6 +40,7 @@ from app.core.security import decode_token
 from app.models.request import Request
 from app.models.run import Run
 from app.models.user import User
+from app.services import request_service
 
 logger = structlog.get_logger(__name__)
 
@@ -86,6 +87,11 @@ async def _can_access_run(run_id: str, user_id: str) -> bool:
     007：分派后执行人 ≠ Run.owner_id（成本恒记 owner，research R-03），
     经手人必须能订阅执行事件，否则「实时可见」（US3）对分派链路失效。
 
+    R1：owner-or-assignee 谓词走 `request_service.is_participant`。
+    admin 放行是**显式叠加**的既有产品决策（016 spec：admin 读他人资源
+    是否放行由各端点既有策略决定，本特性不改），刻意不并入通用谓词——
+    否则「管理员能看所有执行日志」这条规则会变成隐式的、到处生效的默认。
+
     用一次性的 NullPool engine 并在 finally dispose：
     WS 端点可能运行在任意事件循环中（生产是 uvicorn 主 loop，测试是 TestClient
     自建 loop），复用全局连接池会让 asyncpg 连接跨 loop 复用而死锁。
@@ -100,7 +106,7 @@ async def _can_access_run(run_id: str, user_id: str) -> bool:
             if run.owner_id == user_id:
                 return True
             request = await db.get(Request, run.request_id)
-            if request is not None and request.assignee_id == user_id:
+            if request is not None and request_service.is_participant(request, user_id):
                 return True
             user = await db.get(User, user_id)
             return user is not None and user.role == "admin"
@@ -120,7 +126,7 @@ async def _can_access_request(request_id: str, user_id: str) -> bool:
             request = await db.get(Request, request_id)
             if request is None:
                 return False
-            if user_id in (request.owner_id, request.assignee_id):
+            if request_service.is_participant(request, user_id):
                 return True
             user = await db.get(User, user_id)
             return user is not None and user.role == "admin"

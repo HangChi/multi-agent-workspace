@@ -21,7 +21,7 @@ from app.models.request import Request
 from app.models.request_dependency import RequestDependency
 from app.models.user import User
 from app.orchestrator.request_state_machine import ACTIVE_STATUSES, TERMINAL_STATUSES
-from app.services import project_member_service
+from app.services import project_member_service, request_service
 
 logger = structlog.get_logger(__name__)
 
@@ -131,18 +131,21 @@ async def _adjacency_for(db: AsyncSession, request_id: str) -> dict[str, set[str
 async def _load_editable_request(
     db: AsyncSession, request_id: str, user_id: str
 ) -> Request:
-    """被依赖方（request_id 侧）的编辑权校验：owner-or-assignee，否则 404。
+    """被依赖方（request_id 侧）的编辑权校验：owner-or-assignee 或项目成员，
+    否则 404。
 
-    刻意不借 request_service.get_request——那个函数对「存在但非属主」抛
-    403（006 锁定契约，既有需求端点不能动）；009 的边端点是新端点，
-    按 007 立下的「新端点不暴露存在性」纪律一律 404（contracts §1.2 步 3）。
+    R1：谓词走 `request_service.is_participant`（单一判定点），这里只补
+    「项目成员」这一肢并翻译成 404。原注释说「刻意不借 get_request，因为
+    它对非属主抛 403」——那条理由在 016 之后已不成立（`_check_owner` 早已
+    改成 404），但本函数保留独立实现仍有价值：它要的是**可编辑**语义，
+    而 `get_request` 的 `allow_member` 默认关闭，直接调用会漏掉成员分支。
 
     010：谓词加一肢「项目成员」——成员管理共享项目里的依赖边。
     """
     request = await db.get(Request, request_id)
     if request is None:
         raise AppError("NOT_FOUND", "需求不存在")
-    if request.owner_id == user_id or request.assignee_id == user_id:
+    if request_service.is_participant(request, user_id):
         return request
     if request.project_id and await project_member_service.is_participant(
         db, request.project_id, user_id
