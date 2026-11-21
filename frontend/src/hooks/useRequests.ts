@@ -40,6 +40,25 @@ export function useRequests(scope: 'relevant' | 'mine' = 'relevant') {
   return { requests, isLoading, refetch, invalidate }
 }
 
+/** 缓存里是否是「列表形状」（`{ items: [...] }`）。
+ *
+ * `['requests']` 前缀下混着两种结构完全不同的缓存：
+ * - 列表：`['requests', scope, project]` → `{ items: WorkRequest[], total }`
+ * - 详情：`['requests', 'detail', id]` → **单个** WorkRequest，没有 items
+ *
+ * 乐观更新必须只改列表型缓存。早前无条件 `data.items.map(...)`：从通知深链
+ * 点进来（详情被单独缓存）后再拖任意卡片，`data.items` 是 undefined →
+ * TypeError → onMutate 失败 → 拖拽没有任何反馈。详见
+ * docs/code-audit-2026-11-21.md D1。
+ */
+function isListCache(data: unknown): data is { items: WorkRequest[] } {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    Array.isArray((data as { items?: unknown }).items)
+  )
+}
+
 /** 分配需求：乐观更新 + 失败回滚。agent/group 落点乐观 assigned，user 落点乐观 pending。 */
 export function useAssignRequest(onSettled?: (error: string | null) => void) {
   const qc = useQueryClient()
@@ -63,10 +82,11 @@ export function useAssignRequest(onSettled?: (error: string | null) => void) {
        * 项目筛选时，可见看板得不到乐观反馈，而不可见的 relevant 键反被
        * 写入陈旧数据——乐观更新必须按实际 query key 走。
        */
-      const prevEntries = qc.getQueriesData<{ items: WorkRequest[] }>({ queryKey: ['requests'] })
+      const prevEntries = qc.getQueriesData({ queryKey: ['requests'] })
       const optimisticStatus = payload.assignee_type === 'user' ? 'pending' : 'assigned'
       for (const [key, data] of prevEntries) {
-        if (!data) continue
+        // 只改列表型缓存；详情（单对象）原样跳过，否则 data.items 是 undefined
+        if (!isListCache(data)) continue
         qc.setQueryData<{ items: WorkRequest[] }>(key, {
           ...data,
           items: data.items.map((r) =>
