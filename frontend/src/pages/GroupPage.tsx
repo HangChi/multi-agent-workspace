@@ -1,9 +1,10 @@
 /** 组管理页（T038）：列表/创建/成员管理/排序/路由策略。 */
 
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { extractError } from '../api/client'
+import { dictKeys } from '../api/queryKeys'
 import {
   addGroupMember,
   createGroup,
@@ -153,12 +154,14 @@ export function GroupPage() {
   const { data: groups, isLoading } = useQuery({
     queryKey: ['groups', 'list', page],
     queryFn: () => fetchGroups({ page, page_size: PAGE_SIZE }),
+    // 翻页时先留住上一页，避免列表闪成骨架屏（P7）
+    placeholderData: keepPreviousData,
   })
 
   // ⚠️ all: true —— 这是「加入组」的成员候选列表，必须拿全部活跃 Agent。
   // 分页截断会让第 N 页之后的 Agent 无法被加入任何组，用户完全找不到原因。
   const { data: agents } = useQuery({
-    queryKey: ['agents', 'active', 'all'],
+    queryKey: dictKeys.activeAgents,
     queryFn: () => fetchAgents({ status: 'active', all: true }),
   })
 

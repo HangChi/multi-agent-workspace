@@ -15,7 +15,23 @@ import { useThemeSync } from './stores/themeStore'
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { retry: 1, refetchOnWindowFocus: false },
+    queries: {
+      retry: 1,
+      refetchOnWindowFocus: false,
+      /**
+       * 30s 内视为新鲜，挂载时不重取。
+       *
+       * 缺省是 0，意味着每次组件挂载都重拉。字典类查询（活跃 Agent、全部组、
+       * 员工/项目选项）出现在看板、Agent 页、组页、命令面板等多处，来回切换就
+       * 反复打同一批接口——而 CommandPalette 与 useToolsCatalog 早就各自设了
+       * 60s，说明这本该是默认值（见 docs/code-audit-2026-11-21.md P6）。
+       *
+       * 不受影响的路径：
+       * - `refetchInterval` 是独立定时器，不看 staleTime（通知铃、看板统计照常轮询）
+       * - 写操作后仍走 `invalidateQueries` 显式失效，改完立刻可见
+       */
+      staleTime: 30_000,
+    },
   },
 })
 

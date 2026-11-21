@@ -1,7 +1,7 @@
 /** Agent 管理页（T037）：列表/创建/编辑/归档/删除，TanStack Query 缓存。 */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { extractError } from '../api/client'
 import {
@@ -85,6 +85,8 @@ export function AgentPage() {
         page,
         page_size: PAGE_SIZE,
       }),
+    // 翻页时先留住上一页，避免列表闪成骨架屏（P7）
+    placeholderData: keepPreviousData,
   })
 
   const createMut = useMutation({

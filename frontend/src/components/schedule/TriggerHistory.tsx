@@ -10,7 +10,7 @@
  */
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
 import { fetchScheduleTriggers } from '../../api/endpoints'
@@ -77,6 +77,8 @@ export function TriggerHistory({ open, onClose, scheduleId, scheduleName }: Prop
         page_size: PAGE_SIZE,
       }),
     enabled: open,
+    // 翻页时先留住上一页，避免列表闪成骨架屏（P7）
+    placeholderData: keepPreviousData,
   })
 
   const items = data?.items ?? []

@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { extractError } from '../api/client'
 import { createProject, deleteProject, fetchProjects, updateProject } from '../api/endpoints'
@@ -59,6 +59,9 @@ export function ProjectsPage() {
     queryKey: ['projects', 'list', 'relevant', page],
     queryFn: () => fetchProjects({ scope: 'relevant', page, page_size: PAGE_SIZE }),
     enabled: !isViewer,
+    // 翻页时先留住上一页，避免列表闪成骨架屏（P7）。顺带避免下面那个
+    // 「当页为空就退页」的 effect 在翻页瞬间被旧数据外的空数组误触发。
+    placeholderData: keepPreviousData,
   })
   const projects = data?.items ?? []
   const totalProjects = data?.total ?? 0

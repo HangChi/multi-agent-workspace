@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { fetchAgents, fetchGroups, fetchRequests } from '../../api/endpoints'
+import { dictKeys } from '../../api/queryKeys'
 import { Icon } from '../ui/Icons'
 import type { IconName } from '../ui/Icons'
 import { Skeleton } from '../ui/Skeleton'
@@ -61,13 +62,13 @@ export function CommandPalette({ open, onClose }: Props) {
   // 打开时才拉数据：面板不常驻，没必要为它提前发三个请求
   const enabled = open
   const { data: agents, isLoading: agentsLoading } = useQuery({
-    queryKey: ['agents', 'active', 'all'],
+    queryKey: dictKeys.activeAgents,
     queryFn: () => fetchAgents({ status: 'active', all: true }),
     enabled,
     staleTime: 60_000,
   })
   const { data: groups, isLoading: groupsLoading } = useQuery({
-    queryKey: ['groups', 'all'],
+    queryKey: dictKeys.allGroups,
     queryFn: () => fetchGroups({ all: true }),
     enabled,
     staleTime: 60_000,

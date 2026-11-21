@@ -12,10 +12,11 @@
  */
 
 import { useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
 import { extractError } from '../api/client'
+import { dictKeys } from '../api/queryKeys'
 import {
   createSchedule,
   deleteSchedule,
@@ -90,16 +91,18 @@ export function SchedulesPage() {
       }),
     // viewer 发出去也是 403，不如不发
     enabled: !isViewer,
+    // 翻页时先留住上一页，避免列表闪成骨架屏（P7）
+    placeholderData: keepPreviousData,
   })
 
   // 目标下拉：活跃 Agent + 全部组。all: true 避免第 N 页之后的选项静默消失
   const { data: agents } = useQuery({
-    queryKey: ['agents', 'list', 'active', 'all'],
+    queryKey: dictKeys.activeAgents,
     queryFn: () => fetchAgents({ status: 'active', all: true }),
     enabled: !isViewer,
   })
   const { data: groups } = useQuery({
-    queryKey: ['groups', 'all'],
+    queryKey: dictKeys.allGroups,
     queryFn: () => fetchGroups({ all: true }),
     enabled: !isViewer,
   })

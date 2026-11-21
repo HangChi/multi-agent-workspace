@@ -1,10 +1,11 @@
 /** 看板页（T047/T048 + T056-T058）：需求列表 + 创建 + 附件上传 + 拖拽分配。 */
 
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { extractError } from '../api/client'
+import { dictKeys } from '../api/queryKeys'
 import {
   createRequest,
   fetchAgents,
@@ -71,11 +72,26 @@ export function BoardPage() {
   const [detail, setDetail] = useState<WorkRequest | null>(null)
 
   /** 重拉单个需求的完整详情（经手链/dependencies 只有详情端有）。 */
-  const refreshDetail = (id: string) => {
+  const refreshDetail = useCallback((id: string) => {
     void fetchRequest(id)
       .then(setDetail)
       .catch(() => undefined)
-  }
+  }, [])
+
+  /**
+   * 打开详情：先用列表数据秒开弹层，再拉完整详情补经手链。
+   *
+   * `useCallback` 不是为了省一次分配，而是让 `RequestCard` 的 `memo` 生效：
+   * 它被当作 props 传给每一张卡片，每次 render 新建引用会让整列卡片全部
+   * 重渲染（看板拖拽期间每帧都在 render，P7）。
+   */
+  const handleOpenDetail = useCallback(
+    (r: WorkRequest) => {
+      setDetail(r)
+      refreshDetail(r.id)
+    },
+    [refreshDetail]
+  )
   // 007：退回原因弹窗
   const [showReject, setShowReject] = useState(false)
 
@@ -134,14 +150,14 @@ export function BoardPage() {
 
   // 007：员工拖放目标（第三类落点——转交处理责任）
   const { data: userOptions } = useQuery({
-    queryKey: ['users', 'options'],
+    queryKey: dictKeys.userOptions,
     queryFn: fetchUserOptions,
   })
 
   // 008：项目筛选下拉。scope=relevant——接收人的下拉必须含「派给他那件活
   // 所属的项目」（那可能是别人的项目，FR-010）。
   const { data: projectOptions } = useQuery({
-    queryKey: ['projects', 'options', 'relevant'],
+    queryKey: dictKeys.projectOptions,
     queryFn: () => fetchProjects({ scope: 'relevant' }),
   })
 
@@ -149,11 +165,11 @@ export function BoardPage() {
   // ⚠️ 必须 all: true —— 这两个列表是**拖拽目标集合**，分页截断会让
   // 第 N 页之后的目标从右侧面板静默消失（用户以为 Agent 被删了）。
   const { data: agents } = useQuery({
-    queryKey: ['agents', 'active', 'all'],
+    queryKey: dictKeys.activeAgents,
     queryFn: () => fetchAgents({ status: 'active', all: true }),
   })
   const { data: groups } = useQuery({
-    queryKey: ['groups', 'all'],
+    queryKey: dictKeys.allGroups,
     queryFn: () => fetchGroups({ all: true }),
   })
 
@@ -365,11 +381,7 @@ export function BoardPage() {
           setError(null)
           openAssign(r, t)
         }}
-        onOpenDetail={(r) => {
-          // 先用列表数据秒开弹层，再拉完整详情补经手链（失败则降级为列表数据）
-          setDetail(r)
-          void refreshDetail(r.id)
-        }}
+        onOpenDetail={handleOpenDetail}
         emptyAction={
           <Button variant="primary" leftIcon="plus" onClick={() => setShowForm(true)}>
             新建第一张需求
