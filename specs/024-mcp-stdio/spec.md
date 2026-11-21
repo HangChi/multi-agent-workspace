@@ -1,6 +1,6 @@
 # Feature Specification: MCP stdio 传输（024）
 
-**Status**: 部分实现（协议与进程层完成并验证；**未接进 003 的注册/发现/调用链**，理由见末节）
+**Status**: 已接线（协议 / 进程池 / 注册校验 / executor 工厂 / 前端表单）
 
 **Input**: 用户 2026-11-21「继续 A8」。003 明确「只支持 Streamable HTTP」。
 
@@ -22,14 +22,13 @@
 | 子进程生命周期（启动 / 读取 / 关闭 / 回收 / 崩溃检测） | ✅ 完成 |
 | 安全边界（命令白名单 / 不走 shell / 环境变量白名单 / 输出上限） | ✅ 完成 |
 | 真实子进程端到端测试 | ✅ 8 例 |
-| 接进 003 的 server 注册 / 校验发现 / executor 工厂 / 前端表单 | ❌ 未做（见末节） |
+| 接进 003 的 server 注册 / 校验发现 / executor 工厂 / 前端表单 | ✅ 完成（迁移 0025） |
 
-**为什么这样切**：协议与进程层是确定性最高、可独立验证的部分（用一个 fake
+**为什么分两步**：协议与进程层是确定性最高、可独立验证的部分（用一个 fake
 server 就能端到端跑）。而「接线」要动 003 的模型（`endpoint_url` 非空）、
 校验（`validate_endpoint` 的 URL 语义）、工厂（`build_external_executors`）、
 前端表单四处——这四处每一处都在服务稳定特性，改坏的症状是「已装的外部工具
-突然不能用了」。分两步做，第一步的产出（`StdioMCPClient`）不会因为第二步的
-设计变化而作废。
+突然不能用了」。先独立成型再接线，第一步的产出不会因第二步的设计变化而作废。
 
 ## 安全设计（三条底线）
 
@@ -75,17 +74,46 @@ server 就能端到端跑）。而「接线」要动 003 的模型（`endpoint_u
 - SC-004 关闭后 `process.returncode` 非空（无僵尸）。
 - SC-005 stdout 输出非 JSON → 协议错误（不是静默挂住）。
 
-## 未接线部分（下一步要改的四处）
+## 进程生命周期：常驻池 + 单进程串行 + 崩溃重建（已实现）
 
-1. **模型**：`external_tool_servers` 加 `transport`（http/stdio）/`command`/`args`。
-   `endpoint_url` 目前非空，stdio 行需要可空或存占位 URI——这是个语义决策，
-   值得单独设计（占位 URI 会污染所有展示 URL 的地方）。
-2. **校验发现**：`validate_server` 现在先 `mcp_security.validate_endpoint(url)`；
-   stdio 分支要跳过 URL 校验、改为启动进程做握手 + `tools/list`。
-3. **executor 工厂**：`build_external_executors` 里写死了 `MCPClient(endpoint)`；
-   需要按 transport 分叉，并决定**进程生命周期**（每次调用启一次 vs 常驻池）。
-   每次启动简单但慢（npx 冷启动数秒）；常驻池要处理崩溃重建与并发复用。
-4. **前端**：server 创建表单加 transport 选择与命令/参数输入，并给出白名单提示。
+`app/executors/stdio_pool.py`：
 
-第 3 点的「每次启动 vs 常驻池」是真正需要设计决策的地方——它决定并发下的行为与
-失败模式。这也是本轮没有仓促接线的核心理由。
+| 决策 | 理由 |
+|---|---|
+| **常驻**（不每次启动） | `npx -y` 冷启动数秒；MCP server 常在内存里存会话（登录态、浏览器 session），重启即丢 |
+| **每进程一把 asyncio.Lock（串行）** | stdio 只有一对 stdin/stdout，两个请求并发写会让响应交错、id 对不上 |
+| **任何 `MCPTransportError` 标记 broken，释放时移出池** | 不让坏进程污染后续所有调用，错误信息也不该指向一个死进程 |
+| **空闲 5 分钟后下次 acquire 时重建** | 不做后台定时器（worker 里后台任务生命周期难管），用的时候顺手清同样能防 fd 泄漏 |
+| **校验（validate_server）用一次性进程，不进池** | 校验是一次性动作，没必要为它留常驻进程 |
+
+## 已接线部分（替代原文的「未接线」清单）
+
+1. **模型**（迁移 0025）：`transport`（varchar + CHECK，不用枚举）/ `command` /
+   `args` / `env_keys`。`endpoint_url` 保持非空，stdio 行存 `stdio://<command>`
+   占位——改成可空会波及所有展示/校验 URL 的地方。
+2. **校验发现**：`validate_server` 按 transport 分叉；stdio 跳过 `validate_endpoint`
+   与 HTTP 凭证，改为启动一次性子进程握手 + `tools/list`。
+3. **executor 工厂**：`build_external_executors` 按 transport 选 `client_factory`
+   （`MCPClient` vs `build_stdio_client_factory(spec)`），executor 本身零改动
+   ——它的 `client_factory(endpoint, headers=..., call_timeout=...)` 签名被池适配器满足。
+4. **创建校验**（schema `model_validator`）：stdio 必填 command、命令白名单、
+   auth_mode 必须 none、endpoint 由服务端补；http 行带 command/args 直接 422
+   （半配置是最难排查的状态）。
+
+## 实测（2026-11-21）
+
+- 后端新增 **9 例**：`tests/integration/test_stdio_transport.py` 6 例
+  （创建校验 5 + 校验分叉 1）、`tests/unit/test_stdio_pool.py` 3 例
+  （复用 / 串行 / 崩溃重建）；此前 024 的 8 例客户端测试继续有效；
+- 全量 **2115 passed**，覆盖率 **94.17%**；
+- 真实栈 `deploy/verify/s20_stdio_transport.py` **3/3**：创建 → worker 探活
+  （`connection_status=passed`、`discovered_count=1`，2 秒）→ 拒绝半配置；
+- 迁移 `0023 → 0025`（0024 无 DDL）在真实库执行成功。
+
+## 仍然没做的
+
+- **前端表单的 transport 选择**（本轮只通了 API 与链路，UI 仍按 http 填表）；
+- 真实第三方包（`npx -y @scope/server`）的端到端——验收用的是本地 fake server，
+  它证明的是「协议 + 进程 + 链路」，不证明某个具体 npm 包能跑；
+- stdio server 的**并发上限**（同一 server 串行是设计，但多 server 之间的总并发
+  没有额度控制，靠 executor 层的并发槽）。

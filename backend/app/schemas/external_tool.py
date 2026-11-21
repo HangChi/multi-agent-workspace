@@ -1,9 +1,21 @@
 """Safe request/response models for governed external MCP tools."""
 
+from __future__ import annotations
+
+import os
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    field_validator,
+    model_validator,
+)
+
+from app.executors.stdio_mcp_client import DEFAULT_ALLOWED_COMMANDS, is_allowed_command
 
 
 class CredentialWrite(BaseModel):
@@ -28,17 +40,48 @@ class CredentialOut(BaseModel):
 class ExternalServerCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1, max_length=4000)
-    endpoint_url: str = Field(min_length=1, max_length=2048)
+    # 024：http = Streamable HTTP（默认，兼容既有调用方）；stdio = 本地子进程
+    transport: Literal["http", "stdio"] = "http"
+    endpoint_url: str | None = Field(default=None, max_length=2048)
+    # stdio 的启动参数（数组，绝不拼 shell 字符串）
+    command: str | None = Field(default=None, max_length=200)
+    args: list[str] = Field(default_factory=list, max_length=32)
+    # 只声明**变量名**，值在运行时从 worker 环境取（不落库）
+    env_keys: list[str] = Field(default_factory=list, max_length=16)
     source_url: str | None = Field(default=None, max_length=2048)
     maintainer: str = Field(min_length=1, max_length=100)
     auth_mode: Literal["none", "static_bearer", "static_api_key"]
     credential: CredentialWrite | None = None
 
-    @field_validator("endpoint_url")
-    @classmethod
-    def endpoint_is_url(cls, value: str) -> str:
-        HttpUrl(value)
-        return value
+    @model_validator(mode="after")
+    def validate_transport(self) -> ExternalServerCreate:
+        """两种传输互斥校验（024）。
+
+        stdio 没有 URL、也没有 HTTP 头，所以：必须给 command、命令要在白名单里、
+        auth_mode 必须是 none、endpoint_url 由服务端补成 `stdio://<cmd>` 占位。
+        http 则必须给合法 URL，且不允许带 stdio 的参数（避免半配置）。
+        """
+        if self.transport == "stdio":
+            if not self.command:
+                raise ValueError("stdio 传输必须提供 command")
+            base = os.path.basename(self.command)
+            if not is_allowed_command(self.command):
+                raise ValueError(
+                    "command 不在白名单内（允许："
+                    + ", ".join(DEFAULT_ALLOWED_COMMANDS)
+                    + "）"
+                )
+            if self.auth_mode != "none":
+                raise ValueError("stdio 传输不支持 HTTP 凭证")
+            if self.endpoint_url is None:
+                self.endpoint_url = f"stdio://{base}"
+        else:
+            if self.command or self.args:
+                raise ValueError("http 传输不接受 command/args")
+            if not self.endpoint_url:
+                raise ValueError("http 传输必须提供 endpoint_url")
+            HttpUrl(self.endpoint_url)
+        return self
 
     @field_validator("credential")
     @classmethod
@@ -86,6 +129,12 @@ class ValidationSummary(BaseModel):
 
 class ExternalServerOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
+    # 024：传输形态与 stdio 启动参数（前端展示 + 排查用）
+    transport: str = "http"
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    env_keys: list[str] = Field(default_factory=list)
 
     id: str
     owner_id: str

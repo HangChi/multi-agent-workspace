@@ -38,6 +38,11 @@ def _safe_server(
         "name": server.name,
         "description": server.description,
         "endpoint_url": server.endpoint_url,
+        # 024：传输形态与 stdio 启动参数（command/args 非敏感，env_keys 只有名字）
+        "transport": server.transport,
+        "command": server.command,
+        "args": list(server.args or []),
+        "env_keys": list(server.env_keys or []),
         "source_url": server.source_url,
         "maintainer": server.maintainer,
         "auth_mode": server.auth_mode,
@@ -108,14 +113,21 @@ def _safe_server(
 async def create_server(
     db: AsyncSession, *, owner_id: str, created_by: str, payload: ExternalServerCreate
 ) -> ExternalToolServer:
-    try:
-        endpoint = validate_endpoint(payload.endpoint_url)
-    except ValueError as exc:
-        raise AppError("INVALID_INPUT", str(exc)) from exc
+    if payload.transport == "stdio":
+        # 024：stdio 不做 URL 校验（没有 URL）。归一化键用「命令 + 参数」，
+        # 这样同一台机器上同一个命令只登记一次，参数不同算不同 server。
+        normalized = (
+            "stdio://" + " ".join([payload.command or "", *payload.args]).strip()
+        )
+    else:
+        try:
+            normalized = validate_endpoint(payload.endpoint_url or "").url
+        except ValueError as exc:
+            raise AppError("INVALID_INPUT", str(exc)) from exc
     existing = await db.scalar(
         select(ExternalToolServer.id).where(
             ExternalToolServer.owner_id == owner_id,
-            ExternalToolServer.normalized_endpoint_url == endpoint.url,
+            ExternalToolServer.normalized_endpoint_url == normalized,
         )
     )
     if existing:
@@ -125,8 +137,12 @@ async def create_server(
         created_by=created_by,
         name=payload.name.strip(),
         description=payload.description.strip(),
-        endpoint_url=payload.endpoint_url,
-        normalized_endpoint_url=endpoint.url,
+        transport=payload.transport,
+        command=payload.command,
+        args=list(payload.args),
+        env_keys=list(payload.env_keys),
+        endpoint_url=payload.endpoint_url or normalized,
+        normalized_endpoint_url=normalized,
         source_url=str(payload.source_url) if payload.source_url else None,
         maintainer=payload.maintainer.strip(),
         auth_mode=payload.auth_mode,

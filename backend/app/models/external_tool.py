@@ -38,6 +38,18 @@ class ExternalToolServer(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     endpoint_url: Mapped[str] = mapped_column(Text, nullable=False)
     normalized_endpoint_url: Mapped[str] = mapped_column(Text, nullable=False)
+    # 024：传输形态。http = Streamable HTTP（003 原有）；stdio = 本地子进程。
+    # stdio 时 endpoint_url 存 `stdio://<command>`（可读的占位标识，不参与网络），
+    # 真正的启动参数在 command/args/env_keys。
+    transport: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="http", server_default="http"
+    )
+    command: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # 启动参数（数组，绝不拼 shell 字符串）
+    args: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # 声明要透传给子进程的环境变量名（值在运行时从 worker 环境取，
+    # 不落库——落库等于把密钥复制一份到数据库）
+    env_keys: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     maintainer: Mapped[str] = mapped_column(String(100), nullable=False)
     auth_mode: Mapped[str] = mapped_column(

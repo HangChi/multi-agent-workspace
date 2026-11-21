@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.executors import mcp_security
 from app.executors.mcp_client import MCPClient, MCPError, MCPTool
+from app.executors.stdio_pool import spec_for
 from app.models.external_credential import ExternalCredential
 from app.models.external_tool import ExternalToolServer, ExternalToolVersion
 from app.models.external_validation import ServerValidation
@@ -107,36 +108,46 @@ async def validate_server(
     )
     drift_detected = False
     try:
-        endpoint = mcp_security.validate_endpoint(server.endpoint_url)
         headers: dict[str, str] = {}
-        if server.auth_mode != "none":
-            credential = (
-                (
-                    await db.execute(
-                        select(ExternalCredential)
-                        .where(
-                            ExternalCredential.server_id == server.id,
-                            ExternalCredential.scope_owner_id == server.owner_id,
-                            ExternalCredential.status == "active",
+        if server.transport == "stdio":
+            # 024：stdio 没有 URL 可校验、也没有 HTTP 凭证。
+            # 探活 = 启动一次子进程做握手 + tools/list（**不进池**：
+            # 校验是一次性动作，没必要为它留一个常驻进程）。
+            spec = spec_for(server.command or "", server.args, server.env_keys)
+            endpoint_url = server.endpoint_url
+            factory: Callable[..., Any] = lambda *_a, **_k: spec.client()
+        else:
+            endpoint = mcp_security.validate_endpoint(server.endpoint_url)
+            endpoint_url = endpoint.url
+            factory = client_factory
+            if server.auth_mode != "none":
+                credential = (
+                    (
+                        await db.execute(
+                            select(ExternalCredential)
+                            .where(
+                                ExternalCredential.server_id == server.id,
+                                ExternalCredential.scope_owner_id == server.owner_id,
+                                ExternalCredential.status == "active",
+                            )
+                            .order_by(ExternalCredential.created_at.desc())
                         )
-                        .order_by(ExternalCredential.created_at.desc())
                     )
+                    .scalars()
+                    .first()
                 )
-                .scalars()
-                .first()
-            )
-            if credential is None:
-                raise ValueError("credential unavailable")
-            if credential.key_version != "v1":
-                raise ValueError("credential key version unavailable")
-            from app.core.secrets import EncryptedCredential
+                if credential is None:
+                    raise ValueError("credential unavailable")
+                if credential.key_version != "v1":
+                    raise ValueError("credential key version unavailable")
+                from app.core.secrets import EncryptedCredential
 
-            secret = credential_cipher().decrypt(
-                EncryptedCredential(credential.ciphertext, credential.key_version)
-            )
-            value = f"Bearer {secret}" if credential.kind == "bearer" else secret
-            headers[credential.header_name] = value
-        async with client_factory(endpoint.url, headers=headers) as client:
+                secret = credential_cipher().decrypt(
+                    EncryptedCredential(credential.ciphertext, credential.key_version)
+                )
+                value = f"Bearer {secret}" if credential.kind == "bearer" else secret
+                headers[credential.header_name] = value
+        async with factory(endpoint_url, headers=headers) as client:
             await client.initialize()
             record.connection_status = "passed"
             record.auth_status = "passed"

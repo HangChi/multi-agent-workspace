@@ -42,6 +42,23 @@ from app.executors.mcp_client import (
 )
 
 DEFAULT_ALLOWED_COMMANDS = ("npx", "uvx", "python", "python3", "node")
+
+
+def is_allowed_command(
+    command: str, allowed: tuple[str, ...] = DEFAULT_ALLOWED_COMMANDS
+) -> bool:
+    """命令白名单判定（schema 校验与客户端共用同一处）。
+
+    除精确命中，还允许「版本化的解释器」——`python3.13` / `python3.12` 是同一
+    个可执行文件的不同版本，部署机上装哪个不由我们决定；只放行 `python3.` 前缀，
+    `python3-malware` 这类不带点的名字仍被拒。
+    """
+    base = os.path.basename(command)
+    if base in allowed:
+        return True
+    return any(base.startswith(f"{name}.") for name in allowed)
+
+
 # 只透传这几个环境变量（含 PATH，否则 npx 找不到 node）。
 ENV_ALLOWLIST = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "TZ", "SYSTEMROOT")
 
@@ -77,7 +94,7 @@ class StdioMCPClient:
         handshake_timeout: float = _DEFAULT_HANDSHAKE_TIMEOUT,
         call_timeout: float = _DEFAULT_CALL_TIMEOUT,
     ) -> None:
-        if os.path.basename(command) not in allowed_commands:
+        if not is_allowed_command(command, allowed_commands):
             raise StdioCommandRejected(
                 f"命令不在白名单内：{command}（允许：{', '.join(allowed_commands)}）"
             )
@@ -250,12 +267,17 @@ class StdioMCPClient:
         return tools
 
     async def call_tool(
-        self, name: str, arguments: dict[str, Any] | None = None
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         result = await self._request(
             "tools/call",
             {"name": name, "arguments": arguments or {}},
-            timeout=self.call_timeout,
+            # 调用方（executor）会按剩余预算传 timeout；不传则用客户端默认
+            timeout=timeout if timeout is not None else self.call_timeout,
         )
         if result.get("isError"):
             raise MCPToolError(f"工具 {name} 返回错误")

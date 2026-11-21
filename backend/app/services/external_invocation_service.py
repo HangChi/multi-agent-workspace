@@ -13,7 +13,9 @@ from sqlalchemy.orm import joinedload, load_only
 from app.core.config import settings
 from app.core.secrets import CredentialCipher, EncryptedCredential
 from app.executors.external_tool import ExternalToolExecutor
+from app.executors.mcp_client import MCPClient
 from app.executors.mcp_security import validate_endpoint
+from app.executors.stdio_pool import build_stdio_client_factory, spec_for
 from app.models.external_credential import ExternalCredential
 from app.models.external_invocation import ExternalToolInvocation
 from app.models.external_tool import (
@@ -198,11 +200,19 @@ async def build_external_executors(
                     )
                 except ValueError:
                     policy_error = "credential_unavailable"
-        try:
-            endpoint = validate_endpoint(server.normalized_endpoint_url).url
-        except ValueError:
-            policy_error = "endpoint_unavailable"
-            endpoint = server.normalized_endpoint_url
+        # 024：按 transport 选客户端工厂。stdio 不做 URL 校验（它没有 URL），
+        # endpoint 只作为标识传给 executor（实际连接由工厂内的 spec 决定）。
+        client_factory: Any = MCPClient
+        if server.transport == "stdio":
+            spec = spec_for(server.command or "", server.args, server.env_keys)
+            client_factory = build_stdio_client_factory(spec)
+            endpoint = server.endpoint_url
+        else:
+            try:
+                endpoint = validate_endpoint(server.normalized_endpoint_url).url
+            except ValueError:
+                policy_error = "endpoint_unavailable"
+                endpoint = server.normalized_endpoint_url
 
         async def authorize_current(
             *,
@@ -339,6 +349,7 @@ async def build_external_executors(
             ),
             required_permissions=[],
             headers=headers,
+            client_factory=client_factory,
             policy_error=policy_error,
             abort_check=abort_check,
             invocation_recorder=record,
