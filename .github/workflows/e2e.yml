@@ -1,0 +1,94 @@
+# 浏览器 e2e 回归（常驻套件，见 e2e/README.md）
+#
+# 为什么不在 push/PR 上跑：起全栈要构建镜像 + 拉 10 个容器，5～10 分钟起步，
+# 而单元测试与 s12 已覆盖大部分回归面。这里做成**手动 + 每周一次**，
+# 用来替代「改 UI 就临时写个脚本」的做法。
+#
+# ⚠️ 这个 job 尚未在远端实测过（本地 14/14 已通过）。
+# 如果首次手动触发失败，先看「等健康」步骤的 `docker compose ps` 输出。
+
+name: E2E 浏览器回归
+
+on:
+  workflow_dispatch:
+    inputs:
+      invite:
+        description: '注册用邀请码（留空则自动插入 VERIFY-E2E）'
+        required: false
+        default: ''
+  schedule:
+    - cron: '0 2 * * 1' # 每周一 02:00 UTC
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  browser-e2e:
+    name: 浏览器 e2e（8080 同源）
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 准备环境变量并起全栈
+        run: |
+          cp deploy/.env.example deploy/.env
+          docker compose -p aw -f deploy/docker-compose.yml up -d --build
+
+      - name: 等健康（最多 5 分钟）
+        run: |
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/api/v1/health >/dev/null 2>&1; then
+              echo "栈已就绪"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "栈没起来，下面是各服务状态与 api 日志尾部："
+          docker compose -p aw -f deploy/docker-compose.yml ps
+          docker logs aw-api --tail 80 || true
+          exit 1
+
+      - name: 种一个 e2e 邀请码
+        run: |
+          CODE="${{ inputs.invite }}"
+          if [ -z "$CODE" ]; then CODE="VERIFY-E2E"; fi
+          docker exec aw-postgres psql -U aw -d agent_workbench -c \
+            "INSERT INTO invite_codes (id, code, role, max_uses, used_count) \
+             VALUES (gen_random_uuid(), '$CODE', 'member', 500, 0) \
+             ON CONFLICT (code) DO NOTHING;"
+          echo "AW_E2E_INVITE=$CODE" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: 安装依赖（playwright 在 dev extras 里）
+        run: python -m pip install -e './backend[dev]'
+
+      - name: 安装 Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: 跑 e2e
+        working-directory: e2e
+        env:
+          AW_E2E_BASE: http://127.0.0.1:8080
+        run: python -m pytest -q
+
+      - name: 上传失败留证
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts-${{ github.run_id }}
+          path: e2e/.artifacts
+          if-no-files-found: ignore
+
+      - name: 收栈
+        if: always()
+        run: docker compose -p aw -f deploy/docker-compose.yml down -v
