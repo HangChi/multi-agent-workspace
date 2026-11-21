@@ -112,7 +112,9 @@ server 就能端到端跑）。而「接线」要动 003 的模型（`endpoint_u
 
 ## 仍然没做的
 
-- **前端表单的 transport 选择**（本轮只通了 API 与链路，UI 仍按 http 填表）；
+- ~~前端表单的 transport 选择~~ —— 前提不成立：前端自 003 起就没有「创建外部
+  server」的表单（创建是 API/运维动作，UI 只有列表/审核/凭证/授权）。本轮给
+  列表加了 transport 徽章与 stdio 命令展示（排查用）；
 - 真实第三方包（`npx -y @scope/server`）的端到端——验收用的是本地 fake server，
   它证明的是「协议 + 进程 + 链路」，不证明某个具体 npm 包能跑；
 - stdio server 的**并发上限**（同一 server 串行是设计，但多 server 之间的总并发

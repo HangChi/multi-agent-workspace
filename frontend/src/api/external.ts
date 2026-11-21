@@ -201,6 +201,11 @@ export async function fetchExternalObservability(minutes = 60): Promise<External
 }
 
 export interface ExternalServer {
+  /** 024：http（Streamable HTTP）/ stdio（本地子进程） */
+  transport?: 'http' | 'stdio'
+  command?: string | null
+  args?: string[]
+  env_keys?: string[]
   id: string
   name: string
   endpoint_url: string

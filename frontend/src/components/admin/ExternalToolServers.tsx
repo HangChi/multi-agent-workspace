@@ -185,10 +185,17 @@ export function ExternalToolServers() {
             .map(({ server, tool }) => (
               <div key={tool.id} className="flex flex-wrap items-center gap-3 py-3">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-ink">
+                  <p className="flex flex-wrap items-center gap-2 truncate text-sm font-medium text-ink">
                     {server.name} / {tool.external_name}
+                    {/* 024：传输形态一眼可见——stdio 的排查路径与 HTTP 完全不同 */}
+                    <Badge tone={server.transport === 'stdio' ? 'sky' : 'slate'}>
+                      {server.transport === 'stdio' ? 'stdio' : 'HTTP'}
+                    </Badge>
                   </p>
                   <p className="truncate text-xs text-ink-muted">
+                    {server.transport === 'stdio' && server.command
+                      ? `${server.command} ${(server.args ?? []).join(' ')} · `
+                      : ''}
                     v{tool.version} · {tool.description}
                   </p>
                 </div>
