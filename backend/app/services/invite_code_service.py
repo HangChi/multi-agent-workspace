@@ -17,10 +17,11 @@ from __future__ import annotations
 import secrets
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.models.department import Department
 from app.models.invite_code import InviteCode
 from app.schemas.invite_code import InviteCodeOut, invite_code_state
 
@@ -33,7 +34,7 @@ def _generate_code() -> str:
     return "".join(secrets.choice(_ALPHABET) for _ in range(_CODE_LEN))
 
 
-def to_out(row: InviteCode) -> InviteCodeOut:
+def to_out(row: InviteCode, department_name: str | None = None) -> InviteCodeOut:
     return InviteCodeOut(
         id=row.id,
         code=row.code,
@@ -43,6 +44,8 @@ def to_out(row: InviteCode) -> InviteCodeOut:
         expires_at=row.expires_at,
         revoked_at=row.revoked_at,
         created_at=row.created_at,
+        department_id=row.department_id,
+        department_name=department_name,
         state=invite_code_state(
             revoked_at=row.revoked_at,
             expires_at=row.expires_at,
@@ -60,6 +63,42 @@ async def list_invite_codes(db: AsyncSession) -> list[InviteCode]:
     return list(rows.scalars().all())
 
 
+async def _assert_department_quota(
+    db: AsyncSession, department_id: str | None, adding_seats: int
+) -> None:
+    """部门本月名额校验（022）。
+
+    「本月」按 `created_at` 的自然月；**已撤销的码也计入**——发出去就占用，
+    否则「发了再撤销」能绕过上限。配额与「已撤销」是两个概念：前者是预算，
+    后者是这张码还能不能用。
+    """
+    if department_id is None:
+        return
+    dept = await db.get(Department, department_id)
+    if dept is None:
+        raise AppError("NOT_FOUND", "部门不存在")
+    if dept.invite_quota is None:
+        return
+    month_start = datetime.now(UTC).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    )
+    issued = int(
+        (
+            await db.execute(
+                select(func.coalesce(func.sum(InviteCode.max_uses), 0)).where(
+                    InviteCode.department_id == department_id,
+                    InviteCode.created_at >= month_start,
+                )
+            )
+        ).scalar_one()
+    )
+    if issued + adding_seats > dept.invite_quota:
+        raise AppError(
+            "CONFLICT",
+            f"部门本月邀请名额不足：已发 {issued} / 上限 {dept.invite_quota}",
+        )
+
+
 async def create_invite_code(
     db: AsyncSession,
     *,
@@ -67,6 +106,7 @@ async def create_invite_code(
     max_uses: int,
     expires_in_days: int | None,
     created_by: str,
+    department_id: str | None = None,
 ) -> InviteCode:
     """发一张新码。码值随机生成，撞库时重试（32^12 空间，实际不会撞）。"""
     expires_at = (
@@ -84,6 +124,7 @@ async def create_invite_code(
     else:  # pragma: no cover - 32^12 空间下不可能走到
         raise AppError("INTERNAL_ERROR", "邀请码生成冲突，请重试")
 
+    await _assert_department_quota(db, department_id, max_uses)
     row = InviteCode(
         code=code,
         role=role,
@@ -91,6 +132,7 @@ async def create_invite_code(
         used_count=0,
         expires_at=expires_at,
         created_by=created_by,
+        department_id=department_id,
     )
     db.add(row)
     await db.flush()
@@ -106,12 +148,17 @@ async def create_invite_codes(
     max_uses: int,
     expires_in_days: int | None,
     created_by: str,
+    department_id: str | None = None,
 ) -> list[InviteCode]:
     """批量发码（1..20 张，同一批参数）。
+
+    022：整批按「count × max_uses」一次性校验部门配额——逐张校验会在中途
+    超限，留下半批码（更难解释）。
 
     为什么批量：给一个新小组开三个人是常见动作，逐个点「生成」再逐个复制
     既慢又容易漏发。上限 20 是为了让「一键发 500 张」这种误操作不存在。
     """
+    await _assert_department_quota(db, department_id, count * max_uses)
     return [
         await create_invite_code(
             db,
@@ -135,3 +182,102 @@ async def revoke_invite_code(db: AsyncSession, code_id: str) -> InviteCode:
     await db.flush()
     await db.refresh(row)
     return row
+
+
+# ---------------------------------------------------------------- 运营统计（022）
+
+
+async def invite_stats(db: AsyncSession) -> dict:
+    """邀请码运营总览：总量 / 按角色 / 按部门 / 使用最多的码。
+
+    一次聚合查询族，不逐码查用户（N+1）。「已发名额」= SUM(max_uses)，
+    「已用名额」= SUM(used_count)——两个口径分开，否则「发了 100 个名额用了 3 个」
+    和「发了 3 个用了 3 个」看起来一样。
+    """
+    month_start = datetime.now(UTC).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    )
+
+    totals = (
+        await db.execute(
+            select(
+                func.count(),
+                func.coalesce(func.sum(InviteCode.max_uses), 0),
+                func.coalesce(func.sum(InviteCode.used_count), 0),
+            )
+        )
+    ).one()
+
+    by_role = (
+        await db.execute(
+            select(
+                InviteCode.role,
+                func.count(),
+                func.coalesce(func.sum(InviteCode.max_uses), 0),
+                func.coalesce(func.sum(InviteCode.used_count), 0),
+            ).group_by(InviteCode.role)
+        )
+    ).all()
+
+    dept_rows = (
+        await db.execute(
+            select(
+                Department.id,
+                Department.name,
+                Department.invite_quota,
+                func.coalesce(func.sum(InviteCode.max_uses), 0),
+                func.coalesce(func.sum(InviteCode.used_count), 0),
+            )
+            .join(InviteCode, InviteCode.department_id == Department.id, isouter=True)
+            .where(
+                (InviteCode.department_id.is_(None))
+                | (InviteCode.created_at >= month_start)
+            )
+            .group_by(Department.id, Department.name, Department.invite_quota)
+            .order_by(Department.path)
+        )
+    ).all()
+
+    top = (
+        await db.execute(
+            select(InviteCode)
+            .where(InviteCode.used_count > 0)
+            .order_by(InviteCode.used_count.desc())
+            .limit(5)
+        )
+    ).scalars()
+
+    return {
+        "total_codes": int(totals[0]),
+        "issued_seats": int(totals[1]),
+        "used_seats": int(totals[2]),
+        "by_role": [
+            {
+                "role": role,
+                "codes": int(codes),
+                "issued_seats": int(seats),
+                "used_seats": int(used),
+            }
+            for role, codes, seats, used in by_role
+        ],
+        "by_department": [
+            {
+                "department_id": dept_id,
+                "department_name": name,
+                "quota": quota,
+                # 本月已发名额（配额校验用的同一口径）
+                "issued_seats_this_month": int(seats),
+                "used_seats_this_month": int(used),
+            }
+            for dept_id, name, quota, seats, used in dept_rows
+        ],
+        "top_codes": [
+            {
+                "code": row.code,
+                "role": row.role,
+                "max_uses": row.max_uses,
+                "used_count": row.used_count,
+            }
+            for row in top
+        ],
+    }

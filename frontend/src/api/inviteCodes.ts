@@ -20,6 +20,9 @@ export interface InviteCodeItem {
   revoked_at: string | null
   created_at: string
   state: InviteState
+  /** 022：这张码给哪个部门招人（null = 未归属） */
+  department_id: string | null
+  department_name: string | null
 }
 
 export interface InviteCodeList {
@@ -31,6 +34,8 @@ export interface CreateInviteCodePayload {
   role: InviteRole
   max_uses: number
   expires_in_days: number | null
+  /** 022：归属部门；选了的码占用该部门本月名额 */
+  department_id?: string | null
 }
 
 export async function fetchInviteCodes(): Promise<InviteCodeList> {
@@ -57,5 +62,39 @@ export async function createInviteCodesBatch(
 
 export async function revokeInviteCode(codeId: string): Promise<InviteCodeItem> {
   const { data } = await apiClient.post<InviteCodeItem>(`/admin/invite-codes/${codeId}/revoke`)
+  return data
+}
+
+
+// ---------- 运营统计（022）----------
+
+export interface InviteStatsByRole {
+  role: InviteRole
+  codes: number
+  issued_seats: number
+  used_seats: number
+}
+
+export interface InviteStatsByDepartment {
+  department_id: string
+  department_name: string
+  /** null = 不限 */
+  quota: number | null
+  issued_seats_this_month: number
+  used_seats_this_month: number
+}
+
+export interface InviteStats {
+  total_codes: number
+  issued_seats: number
+  used_seats: number
+  by_role: InviteStatsByRole[]
+  by_department: InviteStatsByDepartment[]
+  top_codes: { code: string; role: InviteRole; max_uses: number; used_count: number }[]
+}
+
+/** 邀请码运营总览（022）。 */
+export async function fetchInviteStats(): Promise<InviteStats> {
+  const { data } = await apiClient.get<InviteStats>('/admin/invite-codes/stats')
   return data
 }

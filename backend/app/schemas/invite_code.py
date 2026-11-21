@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -46,6 +47,8 @@ class InviteCodeOut(BaseModel):
     revoked_at: datetime | None
     created_at: datetime
     state: str = "active"
+    department_id: str | None = None
+    department_name: str | None = None
 
 
 class InviteCodeList(BaseModel):
@@ -63,6 +66,8 @@ class InviteCodeCreate(BaseModel):
     """
 
     role: Literal["member", "viewer"] = "member"
+    # 022：这张码给哪个部门用（null = 未归属）。部门有月度名额上限时必填。
+    department_id: UUID | None = None
     max_uses: int = Field(default=1, ge=1, le=1000)
     expires_in_days: int | None = Field(default=None, ge=1, le=365)
 

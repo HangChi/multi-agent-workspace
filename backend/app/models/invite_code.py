@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Uuid, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -33,6 +33,11 @@ class InviteCode(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # 022：这张码是给哪个部门招人用的（null = 未归属部门）。
+    # 用于部门配额校验与「这个部门今年招了几个人」的统计。
+    department_id: Mapped[str | None] = mapped_column(
+        ForeignKey("departments.id", ondelete="SET NULL"), nullable=True
+    )
     created_by: Mapped[str | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )
@@ -45,3 +50,5 @@ class InviteCode(Base):
         back_populates="invite_code",
         foreign_keys="User.invite_code_id",
     )
+
+    __table_args__ = (Index("ix_invite_codes_department_id", "department_id"),)

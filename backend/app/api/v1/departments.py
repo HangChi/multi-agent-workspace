@@ -77,6 +77,8 @@ async def update_department(
         department_id=department_id,
         name=payload.name,
         assign_scope=payload.assign_scope,
+        invite_quota=payload.invite_quota,
+        set_invite_quota="invite_quota" in payload.model_fields_set,
     )
     await db.commit()
     return _out(dept)

@@ -7,6 +7,7 @@
 """
 
 from fastapi import APIRouter
+from sqlalchemy import select
 
 from app.api.deps import DB, AdminUser, CurrentUser
 from app.core.audit import write_audit
@@ -21,13 +22,37 @@ from app.services import invite_code_service
 router = APIRouter(prefix="/admin/invite-codes", tags=["admin-invite-codes"])
 
 
+async def _department_names(db) -> dict[str, str]:
+    """部门 id → 名称（列表/统计展示用，一次查询）。"""
+    from app.models.department import Department
+
+    rows = (await db.execute(select(Department.id, Department.name))).all()
+    return {dept_id: name for dept_id, name in rows}
+
+
 @router.get("", response_model=InviteCodeList)
 async def list_invite_codes(_user: CurrentUser, _admin: AdminUser, db: DB):
     rows = await invite_code_service.list_invite_codes(db)
+    names = await _department_names(db)
     return {
-        "items": [invite_code_service.to_out(row) for row in rows],
+        "items": [
+            invite_code_service.to_out(
+                row, names.get(row.department_id) if row.department_id else None
+            )
+            for row in rows
+        ],
         "total": len(rows),
     }
+
+
+@router.get("/stats", response_model=dict)
+async def invite_code_stats(_user: CurrentUser, _admin: AdminUser, db: DB):
+    """邀请码运营总览（022）：总量 / 按角色 / 按部门（含本月已发与配额）/ 用最多的码。
+
+    与列表分开：列表回答「有哪些码」，统计回答「招人进度与预算还剩多少」——
+    两个问题的刷新频率与受众不同（统计页给管理者看趋势）。
+    """
+    return await invite_code_service.invite_stats(db)
 
 
 @router.post("", response_model=InviteCodeOut, status_code=201)
@@ -40,6 +65,7 @@ async def create_invite_code(
         max_uses=payload.max_uses,
         expires_in_days=payload.expires_in_days,
         created_by=user.id,
+        department_id=str(payload.department_id) if payload.department_id else None,
     )
     # 审计落同一事务（write_audit 不自己 commit，见 docs/code-audit #9）
     await write_audit(
@@ -52,7 +78,10 @@ async def create_invite_code(
     )
     await db.commit()
     await db.refresh(row)
-    return invite_code_service.to_out(row)
+    names = await _department_names(db)
+    return invite_code_service.to_out(
+        row, names.get(row.department_id) if row.department_id else None
+    )
 
 
 @router.post("/batch", response_model=InviteCodeList, status_code=201)
@@ -67,6 +96,7 @@ async def create_invite_codes_batch(
         max_uses=payload.max_uses,
         expires_in_days=payload.expires_in_days,
         created_by=user.id,
+        department_id=str(payload.department_id) if payload.department_id else None,
     )
     await write_audit(
         db,
@@ -84,8 +114,14 @@ async def create_invite_codes_batch(
     await db.commit()
     for row in rows:
         await db.refresh(row)
+    names = await _department_names(db)
     return {
-        "items": [invite_code_service.to_out(row) for row in rows],
+        "items": [
+            invite_code_service.to_out(
+                row, names.get(row.department_id) if row.department_id else None
+            )
+            for row in rows
+        ],
         "total": len(rows),
     }
 
@@ -104,4 +140,7 @@ async def revoke_invite_code(
     )
     await db.commit()
     await db.refresh(row)
-    return invite_code_service.to_out(row)
+    names = await _department_names(db)
+    return invite_code_service.to_out(
+        row, names.get(row.department_id) if row.department_id else None
+    )

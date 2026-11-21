@@ -112,6 +112,8 @@ async def update_department(
     department_id: str,
     name: str | None = None,
     assign_scope: str | None = None,
+    invite_quota: int | None = None,
+    set_invite_quota: bool = False,
 ) -> Department:
     """改名 / 改分派范围。**不支持换上级**（见模块 docstring）。"""
     dept = await db.get(Department, department_id)
@@ -131,6 +133,10 @@ async def update_department(
         if assign_scope not in _VALID_SCOPES:
             raise AppError("INVALID_INPUT", "分派范围仅支持 all / subtree / self")
         dept.assign_scope = assign_scope
+    # 022：显式传 null 表示「改为不限」，与「没传这个字段」必须分开
+    # （PATCH 的语义：不传 = 不改）
+    if set_invite_quota:
+        dept.invite_quota = invite_quota
     await db.flush()
     return dept
 

@@ -59,6 +59,9 @@ class Department(Base):
     assign_scope: Mapped[str] = mapped_column(
         String(20), nullable=False, default=SCOPE_ALL, server_default=SCOPE_ALL
     )
+    # 022：每月可发放的邀请名额上限（max_uses 之和）。NULL = 不限。
+    # 放在部门上而不是全局：招人预算是按部门的，全局配额只会让某个部门先到先得。
+    invite_quota: Mapped[int | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

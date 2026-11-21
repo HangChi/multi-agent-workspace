@@ -21,9 +21,11 @@ import {
   createInviteCode,
   createInviteCodesBatch,
   fetchInviteCodes,
+  fetchInviteStats,
   revokeInviteCode,
 } from '../../api/inviteCodes'
 import type { InviteCodeItem, InviteRole, InviteState } from '../../api/inviteCodes'
+import { fetchDepartments } from '../../api/departments'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
@@ -61,6 +63,17 @@ export function InviteCodes() {
   const [freshCodes, setFreshCodes] = useState<InviteCodeItem[]>([])
   const [count, setCount] = useState('1')
   const [error, setError] = useState<unknown>(null)
+  // 022：这张码给哪个部门（空 = 未归属，不占部门预算）
+  const [departmentId, setDepartmentId] = useState('')
+
+  const { data: departments = [] } = useQuery({
+    queryKey: ['departments'],
+    queryFn: fetchDepartments,
+  })
+  const { data: stats } = useQuery({
+    queryKey: ['inviteStats'],
+    queryFn: fetchInviteStats,
+  })
 
   const {
     data,
@@ -80,12 +93,14 @@ export function InviteCodes() {
       max_uses: number
       expires_in_days: number | null
       count: number
+      department_id?: string | null
     }) => {
       if (payload.count <= 1) {
         const item = await createInviteCode({
           role: payload.role,
           max_uses: payload.max_uses,
           expires_in_days: payload.expires_in_days,
+          department_id: payload.department_id ?? null,
         })
         return [item]
       }
@@ -94,6 +109,7 @@ export function InviteCodes() {
         max_uses: payload.max_uses,
         expires_in_days: payload.expires_in_days,
         count: payload.count,
+        department_id: payload.department_id ?? null,
       })
       return list.items
     },
@@ -131,7 +147,13 @@ export function InviteCodes() {
       toast.error('一次最多生成 20 张')
       return
     }
-    createMutation.mutate({ role, max_uses: uses, expires_in_days: days, count: n })
+    createMutation.mutate({
+      role,
+      max_uses: uses,
+      expires_in_days: days,
+      count: n,
+      department_id: departmentId || null,
+    })
   }
 
   async function copy(code: string) {
@@ -151,6 +173,33 @@ export function InviteCodes() {
         <span className="text-xs text-ink-faint">成员凭码注册；码用尽或泄露时吊销后重发</span>
       </div>
       {error ? <ErrorBanner error={error} onDismiss={() => setError(null)} /> : null}
+
+      {/* 022：运营概览。两个口径分开（已发 / 已用）——合成一个数会看不出
+          「发了 100 个用 3 个」和「发 3 个用 3 个」的差别 */}
+      {stats && (
+        <div className="mb-4 space-y-2 rounded-lg border border-line-subtle bg-surface-subtle/40 p-3">
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-ui">
+            <span className="text-ink-soft">
+              累计发出 <span className="font-semibold text-ink">{stats.total_codes}</span> 张码
+            </span>
+            <span className="text-ink-soft">
+              名额 已发 <span className="font-semibold text-ink">{stats.issued_seats}</span>
+              {' / '}已用 <span className="font-semibold text-ink">{stats.used_seats}</span>
+            </span>
+          </div>
+          {stats.by_department.length > 0 && (
+            <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-faint">
+              {stats.by_department.map((row) => (
+                <li key={row.department_id}>
+                  {row.department_name}：本月 {row.issued_seats_this_month}
+                  {row.quota === null ? ' / 不限' : ` / ${row.quota}`}
+                  {' '}（已用 {row.used_seats_this_month}）
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* 发放 */}
       <div className="flex flex-wrap items-end gap-3 border-b border-line pb-4">
@@ -193,6 +242,21 @@ export function InviteCodes() {
           hint="一次最多 20 张"
           wrapperClassName="w-full sm:w-24"
         />
+        <Select
+          label="归属部门"
+          value={departmentId}
+          onChange={(e) => setDepartmentId(e.target.value)}
+          hint="选了的码占用该部门本月名额"
+          wrapperClassName="w-full sm:w-44"
+        >
+          <option value="">未归属（不占部门预算）</option>
+          {departments.map((d) => (
+            <option key={d.id} value={d.id}>
+              {'　'.repeat(d.depth)}
+              {d.name}
+            </option>
+          ))}
+        </Select>
         <Button
           variant="primary"
           leftIcon="plus"

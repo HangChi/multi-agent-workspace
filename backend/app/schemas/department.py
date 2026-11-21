@@ -17,6 +17,8 @@ class DepartmentCreate(BaseModel):
 class DepartmentUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     assign_scope: Literal["all", "subtree", "self"] | None = None
+    # 022：每月邀请名额上限（max_uses 之和）；显式传 null = 不限
+    invite_quota: int | None = Field(default=None, ge=0, le=100000)
 
 
 class DepartmentOut(BaseModel):
@@ -29,6 +31,7 @@ class DepartmentOut(BaseModel):
     path: str
     depth: int
     assign_scope: str
+    invite_quota: int | None = None
     member_count: int = 0
     created_at: datetime
 
