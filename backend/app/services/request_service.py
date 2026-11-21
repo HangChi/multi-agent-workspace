@@ -13,6 +13,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.api.messages import raise_for_missing
 from app.models.project import Project
 from app.models.request import Request
 from app.models.request_dispatch import RequestDispatch
@@ -245,7 +246,7 @@ def _check_owner(request: Request, user_id: str) -> None:
     """
     if not is_participant(request, user_id):
         # 文案与「真的不存在」逐字相同——这是 016 契约 §2 的硬要求
-        raise AppError("NOT_FOUND", "需求不存在")
+        raise_for_missing("request")
 
 
 async def create_request(
@@ -306,7 +307,7 @@ async def get_request(
     else:
         request = await db.get(Request, request_id)
     if request is None:
-        raise AppError("NOT_FOUND", "需求不存在")
+        raise_for_missing("request")
     if (
         allow_member
         and request.project_id

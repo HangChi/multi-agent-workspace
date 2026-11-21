@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.api.messages import raise_for_missing
 from app.models.project import Project
 from app.models.project_member import ROLE_EDITOR, ROLE_VIEWER, ProjectMember
 from app.models.user import User
@@ -34,12 +35,12 @@ async def _load_project_for_member_ops(
     """
     project = await db.get(Project, project_id)
     if project is None:
-        raise AppError("NOT_FOUND", "项目不存在")
+        raise_for_missing("project")
     if project.owner_id != user_id:
         # 先判成员：成员做 owner 动作是 403，陌生人是 404——两种「不够权」
         # 不混码（006/007 立下、010 延续的纪律）。
         if not await is_member(db, project_id, user_id):
-            raise AppError("NOT_FOUND", "项目不存在")
+            raise_for_missing("project")
         raise AppError("FORBIDDEN", "仅项目创建者可管理成员")
     return project
 
@@ -63,10 +64,10 @@ async def _load_project_for_transfer(
         .first()
     )
     if project is None:
-        raise AppError("NOT_FOUND", "项目不存在")
+        raise_for_missing("project")
     if project.owner_id != user_id:
         if not await is_member(db, project_id, user_id):
-            raise AppError("NOT_FOUND", "项目不存在")
+            raise_for_missing("project")
         raise AppError("FORBIDDEN", "仅项目创建者可移交所有权")
     return project
 
@@ -189,7 +190,7 @@ async def add_member(
 
     target = await db.get(User, member_user_id)
     if target is None:
-        raise AppError("NOT_FOUND", "用户不存在")
+        raise_for_missing("user")
     if target.status != "active":
         # 停用 400：账号态 ≠ 成员态，但停用账号不能进新项目（R-08）。
         # 与「不存在」的 404 区分——存在但不可用。
@@ -258,7 +259,7 @@ async def remove_member(
         .first()
     )
     if edge is None:
-        raise AppError("NOT_FOUND", "成员关系不存在")
+        raise_for_missing("member")
 
     await db.delete(edge)
     await db.flush()
@@ -304,7 +305,7 @@ async def transfer_ownership(
     if target is None:
         # 016 的显式例外：user 存在性经 /users/options 已对全体成员公开，
         # 且 010 的 add_member 就是这么回目标的（research R-03）。
-        raise AppError("NOT_FOUND", "用户不存在")
+        raise_for_missing("user")
     if target.status != "active":
         # 与 add_member 同款判断：账号态 ≠ 成员态，但停用账号不能接项目。
         raise AppError("INVALID_INPUT", "用户已停用，不能接收项目")
@@ -404,9 +405,9 @@ async def list_members(
     """
     project = await db.get(Project, project_id)
     if project is None:
-        raise AppError("NOT_FOUND", "项目不存在")
+        raise_for_missing("project")
     if project.owner_id != user_id and not await is_member(db, project_id, user_id):
-        raise AppError("NOT_FOUND", "项目不存在")
+        raise_for_missing("project")
 
     owner = await db.get(User, project.owner_id)
     rows = [

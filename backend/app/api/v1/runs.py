@@ -21,6 +21,7 @@ from sqlalchemy.orm import load_only
 
 from app.api.deps import DB, CurrentUser, MemberUser, ResourceId
 from app.api.errors import AppError
+from app.api.messages import raise_for_missing
 from app.core.audit import write_audit
 from app.models.artifact import Artifact
 from app.models.egress import EgressAccess
@@ -55,11 +56,11 @@ async def _get_owned_run(db: DB, run_id: str, user: CurrentUser) -> Run:
     """
     run = await db.get(Run, run_id)
     if run is None:
-        raise AppError("NOT_FOUND", "运行不存在")
+        raise_for_missing("run")
     if run.owner_id != user.id:
         request = await db.get(Request, run.request_id)
         if request is None or not request_service.is_participant(request, user.id):
-            raise AppError("NOT_FOUND", "运行不存在")
+            raise_for_missing("run")
     return run
 
 
@@ -177,7 +178,7 @@ async def get_execution(
     run = await _get_owned_run(db, run_id, user)
     execution = await db.get(SandboxExecution, execution_id)
     if execution is None or execution.run_id != run.id:
-        raise AppError("NOT_FOUND", "沙箱执行不存在")
+        raise_for_missing("sandbox_execution")
     step = await db.get(Step, execution.step_id)
     artifacts = (
         (
@@ -217,7 +218,7 @@ async def get_execution_egress(
     run = await _get_owned_run(db, run_id, user)
     execution = await db.get(SandboxExecution, execution_id)
     if execution is None or execution.run_id != run.id:
-        raise AppError("NOT_FOUND", "沙箱执行不存在")
+        raise_for_missing("sandbox_execution")
     rows = (
         (
             await db.execute(
@@ -404,7 +405,7 @@ async def download_artifact(
     run = await _get_owned_run(db, run_id, user)
     artifact = await db.get(Artifact, artifact_id)
     if artifact is None or artifact.run_id != run.id:
-        raise AppError("NOT_FOUND", "制品不存在")
+        raise_for_missing("artifact")
     url = await artifact_service.presign_get_async(artifact.object_key)
     if not redirect:
         return JSONResponse(

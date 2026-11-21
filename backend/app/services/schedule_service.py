@@ -18,6 +18,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.api.messages import FailureKind, failure_kind_of, raise_for_missing
 from app.core.audit import SCHEDULE_TRIGGER, write_audit
 from app.core.config import settings
 from app.models.agent import Agent
@@ -162,9 +163,9 @@ async def _require_owner_view(
     """
     schedule = await db.get(Schedule, schedule_id)
     if schedule is None:
-        raise AppError("NOT_FOUND", "调度不存在")
+        raise_for_missing("schedule")
     if user.role != "admin" and schedule.owner_id != user.id:
-        raise AppError("NOT_FOUND", "调度不存在")
+        raise_for_missing("schedule")
     return schedule
 
 
@@ -184,11 +185,11 @@ async def _require_owner_write(
     """
     schedule = await db.get(Schedule, schedule_id)
     if schedule is None:
-        raise AppError("NOT_FOUND", "调度不存在")
+        raise_for_missing("schedule")
     if schedule.owner_id != user.id:
         if user.role == "admin":
             raise AppError("FORBIDDEN", "管理员只能查看他人的调度，不能修改或删除")
-        raise AppError("NOT_FOUND", "调度不存在")
+        raise_for_missing("schedule")
     return schedule
 
 
@@ -929,7 +930,25 @@ def _translate_assign_failure(exc: AppError) -> str:
     """把分配失败翻成契约 §2 的措辞白名单。
 
     契约限定了 `reason` 的取值集合，不得出现 UUID、表名、异常类名。
+
+    R2：判据从「读 message 里的关键词」改为**读异常上的结构化标记**。
+    原实现是 `"归档" in message` / `"不存在" in message` / `"配额" in message`——
+    改一个字（例如「归档 Agent 不可分配」→「已归档的 Agent 无法分配」）
+    就会静默落到兜底「目标不可用」，而且编译器、类型检查、乃至只覆盖
+    主分支的测试都发现不了。
+
+    标记由产生异常的地方打（`messages.mark_failure` / `raise_for_missing`）。
+    未标记的异常（例如别的模块新加的 AppError）仍走关键词兜底——
+    保留它是为了不改变既有行为，不是为了鼓励继续用字符串判定。
     """
+    kind = failure_kind_of(exc)
+    if kind is FailureKind.ARCHIVED:
+        return "目标已归档"
+    if kind is FailureKind.MISSING:
+        return "目标已删除"
+    if kind is FailureKind.QUOTA:
+        return "本月配额已用尽"
+    # 兜底：未打标记的历史异常。按关键词再判一次（顺序与原实现一致）。
     message = exc.message
     if "归档" in message:
         return "目标已归档"

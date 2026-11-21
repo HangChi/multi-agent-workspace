@@ -12,6 +12,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.api.messages import raise_for_missing
 from app.models.agent import Agent
 from app.models.group_member import GroupMember
 from app.schemas.agent import AgentCreate, AgentUpdate
@@ -41,7 +42,7 @@ async def create_agent(
     """
     if prebuilt is not None:
         if prebuilt.owner_id != user_id:
-            raise AppError("NOT_FOUND", "Agent 不存在")
+            raise_for_missing("agent")
         await validate_grants(db, prebuilt.tools)
         db.add(prebuilt)
         await db.flush()
@@ -93,11 +94,11 @@ async def get_agent(
     """
     agent = await db.get(Agent, agent_id)
     if agent is None:
-        raise AppError("NOT_FOUND", "Agent 不存在")
+        raise_for_missing("agent")
     if agent.owner_id != user_id and (
         allow_owner_ids is None or agent.owner_id not in allow_owner_ids
     ):
-        raise AppError("NOT_FOUND", "Agent 不存在")
+        raise_for_missing("agent")
     return agent
 
 

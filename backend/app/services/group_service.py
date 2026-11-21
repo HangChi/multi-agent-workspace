@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.errors import AppError
+from app.api.messages import raise_for_missing
 from app.models.group import AgentGroup
 from app.models.group_member import GroupMember
 from app.schemas.group import GroupCreate, GroupUpdate
@@ -23,7 +24,7 @@ from app.services import agent_service
 def _check_owner(group: AgentGroup, user_id: str) -> None:
     """非 owner 一律 404（016）：与「组不存在」同响应。"""
     if group.owner_id != user_id:
-        raise AppError("NOT_FOUND", "组不存在")
+        raise_for_missing("group")
 
 
 def _with_members() -> Any:
@@ -51,7 +52,7 @@ async def get_group(db: AsyncSession, group_id: str, user_id: str) -> AgentGroup
     stmt = select(AgentGroup).options(_with_members()).where(AgentGroup.id == group_id)
     group = (await db.execute(stmt)).scalars().first()
     if group is None:
-        raise AppError("NOT_FOUND", "组不存在")
+        raise_for_missing("group")
     _check_owner(group, user_id)
     return group
 

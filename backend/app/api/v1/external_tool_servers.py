@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from app.api.deps import DB, AdminUser, CurrentUser
 from app.api.errors import AppError
+from app.api.messages import raise_for_missing
 from app.models.external_credential import ExternalCredential
 from app.schemas.external_tool import (
     CredentialOut,
@@ -165,7 +166,7 @@ async def revoke_external_credential(
         )
     )
     if credential is None:
-        raise AppError("NOT_FOUND", "外部工具凭证不存在")
+        raise_for_missing("external_credential")
     await external_credential_service.revoke_credential(db, credential)
     await write_external_audit(
         db,

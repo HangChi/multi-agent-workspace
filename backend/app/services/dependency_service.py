@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.api.messages import raise_for_missing
 from app.models.request import Request
 from app.models.request_dependency import RequestDependency
 from app.models.user import User
@@ -144,14 +145,14 @@ async def _load_editable_request(
     """
     request = await db.get(Request, request_id)
     if request is None:
-        raise AppError("NOT_FOUND", "需求不存在")
+        raise_for_missing("request")
     if request_service.is_participant(request, user_id):
         return request
     if request.project_id and await project_member_service.is_participant(
         db, request.project_id, user_id
     ):
         return request
-    raise AppError("NOT_FOUND", "需求不存在")
+    raise_for_missing("request")
 
 
 async def add_dependency(

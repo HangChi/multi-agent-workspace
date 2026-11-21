@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.api.messages import raise_for_missing
 from app.core.config import settings
 from app.executors.egress import RuleView, rule_view_from_row
 from app.models.egress import EgressAccess, EgressRule
@@ -61,10 +62,10 @@ async def _ensure_agent_owner(
 
     agent = await db.get(Agent, agent_id)
     if agent is None:
-        raise AppError("NOT_FOUND", "Agent 不存在")
+        raise_for_missing("agent")
     if agent.owner_id != user_id and role != "admin":
         # 016：非 owner（且非 admin 运维）与「不存在」同响应。
-        raise AppError("NOT_FOUND", "Agent 不存在")
+        raise_for_missing("agent")
 
 
 async def list_agent_rules(
@@ -233,7 +234,7 @@ async def snapshot_for_execution(
 
     agent = await db.get(Agent, agent_id)
     if agent is None:
-        raise AppError("NOT_FOUND", "Agent 不存在")
+        raise_for_missing("agent")
     global_rows = await db.execute(
         select(EgressRule).where(
             EgressRule.scope == "global", EgressRule.enabled.is_(True)

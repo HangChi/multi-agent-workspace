@@ -15,6 +15,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.api.messages import raise_for_missing
 from app.models.project import Project
 from app.models.request import Request
 from app.models.user import User
@@ -43,11 +44,11 @@ async def _load_owned_project(
     stmt = select(Project).where(Project.id == project_id).with_for_update()
     project = (await db.execute(stmt)).scalars().first()
     if project is None:
-        raise AppError("NOT_FOUND", "项目不存在")
+        raise_for_missing("project")
     if project.owner_id != user_id:
         if await project_member_service.is_member(db, project_id, user_id):
             raise AppError("FORBIDDEN", "仅项目创建者可修改或删除该项目")
-        raise AppError("NOT_FOUND", "项目不存在")
+        raise_for_missing("project")
     return project
 
 
@@ -63,11 +64,11 @@ async def _load_visible_project(
     stmt = select(Project).where(Project.id == project_id)
     project = (await db.execute(stmt)).scalars().first()
     if project is None:
-        raise AppError("NOT_FOUND", "项目不存在")
+        raise_for_missing("project")
     if project.owner_id != user_id and not await project_member_service.is_member(
         db, project_id, user_id
     ):
-        raise AppError("NOT_FOUND", "项目不存在")
+        raise_for_missing("project")
     return project
 
 
@@ -323,11 +324,11 @@ async def load_active_owned_project(
     """
     project = await db.get(Project, project_id)
     if project is None:
-        raise AppError("NOT_FOUND", "项目不存在")
+        raise_for_missing("project")
     if project.owner_id != user_id and not await project_member_service.is_member(
         db, project_id, user_id
     ):
-        raise AppError("NOT_FOUND", "项目不存在")
+        raise_for_missing("project")
     if project.status != "active":
         raise AppError("INVALID_INPUT", "项目已归档，不能作为新需求归属")
     return project
@@ -377,7 +378,7 @@ async def project_exists_for_filter(
     不是静默空列表，空列表会让人以为项目被清空了。
     """
     if not await project_visible_to_user(db, project_id, user_id):
-        raise AppError("NOT_FOUND", "项目不存在")
+        raise_for_missing("project")
 
 
 async def user_exists(db: AsyncSession, user_id: str) -> bool:

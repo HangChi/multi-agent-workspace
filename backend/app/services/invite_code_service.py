@@ -21,6 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.api.messages import raise_for_missing
 from app.models.department import Department
 from app.models.invite_code import InviteCode
 from app.schemas.invite_code import InviteCodeOut, invite_code_state
@@ -76,7 +77,7 @@ async def _assert_department_quota(
         return
     dept = await db.get(Department, department_id)
     if dept is None:
-        raise AppError("NOT_FOUND", "部门不存在")
+        raise_for_missing("department")
     if dept.invite_quota is None:
         return
     month_start = datetime.now(UTC).replace(

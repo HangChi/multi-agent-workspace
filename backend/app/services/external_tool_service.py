@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.errors import AppError
+from app.api.messages import raise_for_missing
 from app.executors.mcp_security import validate_endpoint
 from app.models.external_tool import ExternalToolServer, ExternalToolVersion
 from app.models.external_validation import ServerValidation
@@ -284,7 +285,7 @@ async def get_server(
         stmt = stmt.where(ExternalToolServer.owner_id == owner_id)
     server = (await db.execute(stmt)).scalars().first()
     if server is None:
-        raise AppError("NOT_FOUND", "外部工具服务器不存在")
+        raise_for_missing("external_server")
     return server
 
 

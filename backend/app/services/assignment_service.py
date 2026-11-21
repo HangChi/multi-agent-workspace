@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.errors import AppError
+from app.api.messages import FailureKind, mark_failure, raise_for_missing
 from app.core.events import publish_run_event
 from app.models.agent import Agent
 from app.models.group import AgentGroup
@@ -67,7 +68,11 @@ async def _load_agent(
         db, agent_id, user_id, allow_owner_ids=allowed_owner_ids
     )
     if agent.status != "active":
-        raise AppError("INVALID_INPUT", "归档 Agent 不可分配")
+        # R2：打上结构化标记，`schedule_service._translate_assign_failure`
+        # 读标记而不是在 message 里找「归档」二字——改文案不再破坏归类。
+        raise mark_failure(
+            AppError("INVALID_INPUT", "归档 Agent 不可分配"), FailureKind.ARCHIVED
+        )
     return agent
 
 
@@ -88,11 +93,11 @@ async def _load_group(
     )
     group = (await db.execute(stmt)).scalars().first()
     if group is None:
-        raise AppError("NOT_FOUND", "组不存在")
+        raise_for_missing("group")
     if group.owner_id != user_id and (
         allowed_owner_ids is None or group.owner_id not in allowed_owner_ids
     ):
-        raise AppError("NOT_FOUND", "组不存在")
+        raise_for_missing("group")
     if group.status != "active":
         raise AppError("INVALID_INPUT", "归档组不可分配")
     return group
@@ -303,7 +308,7 @@ async def assign(
         for run in agent_runs:
             agent = await db.get(Agent, run.assignee_id)
             if agent is None:
-                raise AppError("NOT_FOUND", "Agent 不存在")
+                raise_for_missing("agent")
             run.tool_grants_snapshot = list(reconcile_agent_grants(agent, enabled))
             await snapshot_external_grants(
                 db,

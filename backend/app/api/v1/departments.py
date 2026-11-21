@@ -11,7 +11,7 @@ from fastapi import APIRouter, status
 from sqlalchemy import select
 
 from app.api.deps import DB, AdminUser, CurrentUser, MemberUser, ResourceId
-from app.api.errors import AppError
+from app.api.messages import raise_for_missing
 from app.core.audit import ORG_DEPARTMENT_CREATE, ORG_DEPARTMENT_DELETE, write_audit
 from app.models.department import Department
 from app.models.user import User
@@ -89,7 +89,7 @@ async def delete_department(department_id: ResourceId, admin: AdminUser, db: DB)
     """删部门（子树一并删除，成员变「未归属」）。"""
     dept = await db.get(Department, department_id)
     if dept is None:
-        raise AppError("NOT_FOUND", "部门不存在")
+        raise_for_missing("department")
     # 先取名字：删完就查不到了，而审计要留「删的是哪个部门」
     name = dept.name
     await write_audit(

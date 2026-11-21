@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.api.messages import raise_for_missing
 from app.core import metrics
 from app.models.request import Request
 from app.models.request_dispatch import RequestDispatch
@@ -37,7 +38,7 @@ async def _load_request_locked(db: AsyncSession, request_id: str) -> Request:
     stmt = select(Request).where(Request.id == request_id).with_for_update()
     request = (await db.execute(stmt)).scalars().first()
     if request is None:
-        raise AppError("NOT_FOUND", "需求不存在")
+        raise_for_missing("request")
     return request
 
 
@@ -49,14 +50,14 @@ def _check_access(request: Request, actor_id: str) -> None:
     加新放行分支时必然漏改一处。
     """
     if not request_service.is_participant(request, actor_id):
-        raise AppError("NOT_FOUND", "需求不存在")
+        raise_for_missing("request")
 
 
 async def _load_active_user(db: AsyncSession, user_id: str) -> User:
     """目标用户校验：不存在或已禁用 → 404（禁用账号不可作为接收人，US6）。"""
     user = await db.get(User, user_id)
     if user is None or user.status != "active":
-        raise AppError("NOT_FOUND", "用户不存在")
+        raise_for_missing("user")
     return user
 
 

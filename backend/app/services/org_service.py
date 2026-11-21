@@ -23,6 +23,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
+from app.api.messages import raise_for_missing
 from app.models.department import SCOPE_ALL, SCOPE_SELF, SCOPE_SUBTREE, Department
 from app.models.user import User
 
@@ -118,7 +119,7 @@ async def update_department(
     """改名 / 改分派范围。**不支持换上级**（见模块 docstring）。"""
     dept = await db.get(Department, department_id)
     if dept is None:
-        raise AppError("NOT_FOUND", "部门不存在")
+        raise_for_missing("department")
 
     if name is not None:
         stripped = name.strip()
@@ -145,7 +146,7 @@ async def delete_department(db: AsyncSession, *, department_id: str) -> None:
     """删部门：子树一并删除，成员归属清空（users.department_id SET NULL）。"""
     dept = await db.get(Department, department_id)
     if dept is None:
-        raise AppError("NOT_FOUND", "部门不存在")
+        raise_for_missing("department")
     subtree = await _subtree_ids(db, dept)
     # 先把人摘出来（SET NULL 靠 DB 也行，但显式做一次便于审计与测试断言）
     members = (
@@ -172,11 +173,11 @@ async def set_user_department(
 ) -> User:
     user = await db.get(User, user_id)
     if user is None:
-        raise AppError("NOT_FOUND", "用户不存在")
+        raise_for_missing("user")
     if department_id is not None:
         dept = await db.get(Department, department_id)
         if dept is None:
-            raise AppError("NOT_FOUND", "部门不存在")
+            raise_for_missing("department")
     user.department_id = department_id
     await db.flush()
     logger.info("user_department_set", user_id=user_id, department_id=department_id)
