@@ -230,7 +230,7 @@ frontend/
     hooks/          # useAuth / useRequests / useRunSocket
 deploy/             # docker-compose / Caddyfile / .env.example / mock-llm / verify
 docs/               # 架构文档（入口见 docs/README.md）
-specs/              # Spec Kit 规格（001–023，SDD + TDD 工作流）
+specs/              # Spec Kit 规格（001–024，SDD + TDD 工作流）
 ```
 
 ---
@@ -337,7 +337,7 @@ GET           /health, /health/ready       存活 / 就绪探针
 `REFRESH_GRACE_SECONDS` 给多标签页并发刷新留宽限期，避免互相踢下线。
 
 > 以上是概览。完整的请求/响应 schema、错误码与边界语义在各特性的
-> `specs/NNN-*/contracts/api.md`（001–023 二十三份），运行时以 `/docs` 的 OpenAPI 为准。
+> `specs/NNN-*/contracts/api.md`（001–024 二十四份），运行时以 `/docs` 的 OpenAPI 为准。
 
 ### 内置工具
 
@@ -543,6 +543,11 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
   移交给**现有成员**是刻意限制（移交是接力不是空降）；移交历史只留在审计
   （`project_transfer`），不建历史表。原 owner 自移除的 409 文案已指向此路径。
 - 成员角色**只有两档**（editor/viewer），不做自定义角色与逐动作授权。
+- MCP 传输（003 + 024）：仍只支持 Streamable HTTP。**stdio 传输的协议与进程层已完成**
+  （`app/executors/stdio_mcp_client.py`：不走 shell、命令白名单、环境变量白名单、
+  stderr 尾部诊断、无僵尸回收；8 例真实子进程测试），但**尚未接进** server 注册 /
+  校验发现 / executor 工厂 / 前端表单——那四处都默认了 URL 语义，且要先定
+  「每次启动 vs 常驻进程池」的失败模式（spec 024 的未接线清单）。
 - 模板（005 + 023）：内置 + 私有 + **团队共享**（team 可见可用、只有所有者能改）；
   每次编辑前留快照（保留 20 个，可回滚，回滚不还原名字）；导出/导入 JSON
   （`schema_version` + 创建 schema 复校验，导入重名 409）。
@@ -625,5 +630,5 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 | [docs/llm-pricing.md](docs/llm-pricing.md) | LLM 单价表口径（成本核算与熔断的基准） |
 | [docs/load-test-2026-11-17.md](docs/load-test-2026-11-17.md) | 100/200 并发压测记录 |
 | [docs/code-audit-2026-11-17.md](docs/code-audit-2026-11-17.md) | 2026-11-17 全量代码审查报告（含修复进度） |
-| [specs/](specs/) | 001–023 二十三个特性的规格四件套 + 任务清单 + 实测记录 |
+| [specs/](specs/) | 001–024 二十四个特性的规格四件套 + 任务清单 + 实测记录 |
 | [.specify/memory/constitution.md](.specify/memory/constitution.md) | 项目宪法（SDD + TDD、质量门禁、安全边界） |
