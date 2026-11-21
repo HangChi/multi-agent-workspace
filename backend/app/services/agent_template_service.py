@@ -11,12 +11,16 @@
 事务边界遵循 003 审计改造后的约定：service 只 `flush`，`commit` 在端点层。
 """
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import AppError
 from app.models.agent import Agent
-from app.models.agent_template import AgentTemplate
+from app.models.agent_template import (
+    KEEP_VERSIONS,
+    AgentTemplate,
+    AgentTemplateVersion,
+)
 from app.schemas.agent_template import AgentTemplateCreate, AgentTemplateUpdate
 
 # 从 Agent 快照进模板的字段。顺序即文档顺序，加减字段必须同步 data-model.md。
@@ -74,11 +78,20 @@ async def _find_by_name(
 async def get_template(
     db: AsyncSession, template_id: str, *, user_id: str
 ) -> AgentTemplate:
-    """取单个模板：自己的或内置；其他一律 NOT_FOUND 同措辞。"""
+    """取单个模板：自己的 / 内置 / 别人设为 team 的；其余一律 NOT_FOUND 同措辞。
+
+    023 起多一支「团队共享」：可见（可读、可从模板创建）不等于可改——
+    写操作在 `update_template` / `restore_version` 里单独判 owner。
+    """
     template = await db.get(AgentTemplate, template_id)
     if template is None:
         raise AppError("NOT_FOUND", "模板不存在")
-    if template.owner_id != user_id and not _is_builtin(template):
+    visible = (
+        template.owner_id == user_id
+        or _is_builtin(template)
+        or template.visibility == "team"
+    )
+    if not visible:
         # 不区分「不存在」与「不是你的」——措辞必须一致（FR-004）。
         raise AppError("NOT_FOUND", "模板不存在")
     return template
@@ -102,9 +115,21 @@ async def list_templates(
         conditions = [AgentTemplate.owner_id == user_id]
     elif scope == "builtin":
         conditions = [AgentTemplate.owner_id.is_(None)]
-    else:
+    elif scope == "team":
+        # 023：别人共享给团队的模板（不含自己的、不含内置——内置由 builtin 单列）
         conditions = [
-            or_(AgentTemplate.owner_id == user_id, AgentTemplate.owner_id.is_(None))
+            AgentTemplate.visibility == "team",
+            AgentTemplate.owner_id.is_not(None),
+            AgentTemplate.owner_id != user_id,
+        ]
+    else:
+        # all = 内置 + 自己的 + 团队共享的（只扩大不缩小，同 007 的 relevant 纪律）
+        conditions = [
+            or_(
+                AgentTemplate.owner_id == user_id,
+                AgentTemplate.owner_id.is_(None),
+                AgentTemplate.visibility == "team",
+            )
         ]
     if q:
         like = f"%{q}%"
@@ -143,11 +168,20 @@ async def update_template(
     template = await get_template(db, template_id, user_id=user_id)
     if _is_builtin(template):
         raise AppError("FORBIDDEN", "内置模板不可编辑")
+    # 023：团队共享让「可见」与「可改」分家了——必须显式判所有者，
+    # 否则队友能改你的模板（get_template 已经放行了可见性）。
+    if template.owner_id != user_id:
+        raise AppError("FORBIDDEN", "只能编辑自己的模板")
     changes = payload.model_dump(exclude_unset=True)
     if "name" in changes and changes["name"] != template.name:
         clash = await _find_by_name(db, owner_id=user_id, name=changes["name"])
         if clash is not None:
             raise AppError("CONFLICT", "同名模板已存在")
+    if not changes:
+        return template
+    # 023：先把**修改前**的状态存成版本，再落新值。
+    # 顺序不能反——反了就变成「存的是改后状态」，回滚永远回到同一份。
+    await _record_version(db, template, actor_id=user_id)
     for field, value in changes.items():
         setattr(template, field, value)
     await db.flush()
@@ -270,3 +304,153 @@ def _derive_clone_name(base_name: str, used_names: set[str]) -> str:
     raise AppError(
         "CONFLICT", "克隆名称冲突次数过多（10 个副本名均已存在），请先修改源 Agent 名称"
     )
+
+
+# ---------------------------------------------------------------- 版本历史（023）
+
+# 版本快照 = 既有 SNAPSHOT_FIELDS（9 个配置字段，005 定义）+ 名字。
+# 复用而不是再写一份：两份字段列表迟早分叉，而分叉的症状是「回滚少还原一个字段」。
+# 不含 visibility / owner：那是共享关系，不是配置（回滚配置不该改共享状态）。
+VERSION_SNAPSHOT_FIELDS = ("name", *SNAPSHOT_FIELDS)
+
+
+def snapshot_of(template: AgentTemplate) -> dict:
+    return {field: getattr(template, field) for field in VERSION_SNAPSHOT_FIELDS}
+
+
+async def _record_version(
+    db: AsyncSession, template: AgentTemplate, *, actor_id: str | None
+) -> AgentTemplateVersion:
+    """把模板当前状态存成一个新版本，并裁掉过旧的（保留 KEEP_VERSIONS 个）。"""
+    current_max = int(
+        (
+            await db.execute(
+                select(func.coalesce(func.max(AgentTemplateVersion.version), 0)).where(
+                    AgentTemplateVersion.template_id == template.id
+                )
+            )
+        ).scalar_one()
+    )
+    version = AgentTemplateVersion(
+        template_id=template.id,
+        version=current_max + 1,
+        snapshot=snapshot_of(template),
+        created_by=actor_id,
+    )
+    db.add(version)
+    await db.flush()
+
+    # 裁剪：只留最近 KEEP_VERSIONS 个（版本号大的新）
+    stale = (
+        (
+            await db.execute(
+                select(AgentTemplateVersion.id).where(
+                    AgentTemplateVersion.template_id == template.id,
+                    AgentTemplateVersion.version <= current_max + 1 - KEEP_VERSIONS,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if stale:
+        await db.execute(
+            delete(AgentTemplateVersion).where(AgentTemplateVersion.id.in_(stale))
+        )
+        await db.flush()
+    return version
+
+
+async def list_versions(
+    db: AsyncSession, template_id: str, *, user_id: str
+) -> list[AgentTemplateVersion]:
+    """版本列表（新的在前）。读权限 = 能看到这个模板（自己的 / 团队 / 内置）。"""
+    await get_template(db, template_id, user_id=user_id)
+    rows = (
+        await db.execute(
+            select(AgentTemplateVersion)
+            .where(AgentTemplateVersion.template_id == template_id)
+            .order_by(AgentTemplateVersion.version.desc())
+        )
+    ).scalars()
+    return list(rows.all())
+
+
+async def restore_version(
+    db: AsyncSession, template_id: str, version: int, *, user_id: str
+) -> AgentTemplate:
+    """把某个快照写回模板（只写配置与名字/描述，不动 visibility）。
+
+    回滚本身也是一次修改：先把当前状态存成新版本，否则「回滚错了再回滚回去」
+    就没有目标版本可用。
+    """
+    template = await get_template(db, template_id, user_id=user_id)
+    if _is_builtin(template):
+        raise AppError("FORBIDDEN", "内置模板不可编辑")
+    if template.owner_id != user_id:
+        raise AppError("FORBIDDEN", "只能回滚自己的模板")
+
+    row = (
+        await db.execute(
+            select(AgentTemplateVersion).where(
+                AgentTemplateVersion.template_id == template_id,
+                AgentTemplateVersion.version == version,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise AppError("NOT_FOUND", "该版本不存在")
+
+    snapshot = dict(row.snapshot)
+    # 名字可能已被别的模板占用：回滚不还原名字，避免 409 把「回滚」变成死路
+    snapshot.pop("name", None)
+    await _record_version(db, template, actor_id=user_id)
+    for field, value in snapshot.items():
+        if field in VERSION_SNAPSHOT_FIELDS and field != "name":
+            setattr(template, field, value)
+    await db.flush()
+    return template
+
+
+# ---------------------------------------------------------------- 导入导出（023）
+
+EXPORT_SCHEMA_VERSION = 1
+
+
+def export_payload(template: AgentTemplate) -> dict:
+    """导出为可移植 JSON。`schema_version` 让未来的格式变更能被识别。"""
+    payload = {"schema_version": EXPORT_SCHEMA_VERSION}
+    payload.update(snapshot_of(template))
+    return payload
+
+
+async def import_template(
+    db: AsyncSession, *, user_id: str, payload: dict
+) -> AgentTemplate:
+    """从导出的 JSON 创建一份**新**模板（不改动任何既有模板）。
+
+    名字冲突直接 409：自动加后缀（`xxx-2`）会让人在列表里看到一堆看不出
+    区别的模板，而「你导过一份了」是个应当被告诉的事实。
+    """
+    version = payload.get("schema_version")
+    if version != EXPORT_SCHEMA_VERSION:
+        raise AppError(
+            "INVALID_INPUT",
+            f"不支持的模板格式版本：{version}（当前支持 {EXPORT_SCHEMA_VERSION}）",
+        )
+
+    data = {field: payload.get(field) for field in VERSION_SNAPSHOT_FIELDS}
+    if not data.get("name"):
+        raise AppError("INVALID_INPUT", "模板内容缺少 name")
+    from app.schemas.agent_template import AgentTemplateCreate
+
+    # 用创建 schema 复校验一遍：字段范围、工具白名单都在这里，
+    # 导入不构成绕过校验的旁路（同 005 FR-022 的纪律）
+    try:
+        validated = AgentTemplateCreate(
+            **{k: v for k, v in data.items() if v is not None}
+        )
+    except Exception as exc:
+        raise AppError("INVALID_INPUT", f"模板内容不合法：{str(exc)[:300]}") from exc
+
+    return await create_template(db, user_id=user_id, payload=validated)

@@ -22,9 +22,12 @@ from app.core.audit import (
 )
 from app.models.agent_template import AgentTemplate
 from app.schemas.agent_template import (
+    AgentTemplateImportIn,
     AgentTemplateList,
     AgentTemplateOut,
     AgentTemplateUpdate,
+    AgentTemplateVersionList,
+    AgentTemplateVersionOut,
 )
 from app.services import agent_template_service
 
@@ -34,6 +37,9 @@ router = APIRouter(prefix="/agent-templates", tags=["agent-templates"])
 def _out(template: AgentTemplate) -> AgentTemplateOut:
     response = AgentTemplateOut.model_validate(template)
     response.is_builtin = template.owner_id is None
+    # 023：内置模板对所有成员可用，语义上就是 team（不落库，派生）
+    if response.is_builtin:
+        response.visibility = "team"
     return response
 
 
@@ -42,7 +48,7 @@ async def list_templates(
     user: CurrentUser,
     _m: MemberUser,
     db: DB,
-    scope: str = Query(default="all", pattern="^(all|mine|builtin)$"),
+    scope: str = Query(default="all", pattern="^(all|mine|builtin|team)$"),
     q: str | None = Query(default=None, max_length=100),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
@@ -57,6 +63,22 @@ async def list_templates(
         page_size=page_size,
     )
     return {"items": [_out(r) for r in rows], "total": total}
+
+
+@router.post("/import", response_model=AgentTemplateOut, status_code=201)
+async def import_template(
+    payload: AgentTemplateImportIn, user: CurrentUser, _m: MemberUser, db: DB
+):
+    """从导出的 JSON 建一份新模板（不改动既有模板；重名 409）。
+
+    权限：member/admin（模板是配置资产，viewer 不能建）。
+    """
+    template = await agent_template_service.import_template(
+        db, user_id=user.id, payload=payload.model_dump()
+    )
+    await db.commit()
+    await db.refresh(template)
+    return _out(template)
 
 
 @router.get("/{template_id}", response_model=AgentTemplateOut)
@@ -99,6 +121,57 @@ async def update_template(
     )
     await db.commit()
     return _out(template)
+
+
+@router.get("/{template_id}/versions", response_model=AgentTemplateVersionList)
+async def list_template_versions(
+    template_id: ResourceId, user: CurrentUser, _m: MemberUser, db: DB
+):
+    """历史版本（新的在前）。能看到模板的人都能看历史。"""
+    rows = await agent_template_service.list_versions(db, template_id, user_id=user.id)
+    return {
+        "items": [AgentTemplateVersionOut.model_validate(r) for r in rows],
+        "total": len(rows),
+    }
+
+
+@router.post(
+    "/{template_id}/versions/{version}/restore", response_model=AgentTemplateOut
+)
+async def restore_template_version(
+    template_id: ResourceId,
+    version: int,
+    user: CurrentUser,
+    _m: MemberUser,
+    db: DB,
+):
+    """把某个历史版本写回模板（只还原配置，不还原名字与共享范围）。"""
+    template = await agent_template_service.restore_version(
+        db, template_id, version, user_id=user.id
+    )
+    await write_audit(
+        db,
+        user_id=user.id,
+        action=AGENT_TEMPLATE_UPDATE,
+        target_type="agent_template",
+        target_id=template_id,
+        detail={"restored_version": version},
+        strict=True,
+    )
+    await db.commit()
+    await db.refresh(template)
+    return _out(template)
+
+
+@router.get("/{template_id}/export", response_model=dict)
+async def export_template(
+    template_id: ResourceId, user: CurrentUser, _m: MemberUser, db: DB
+):
+    """导出为可移植 JSON（含 schema_version，供导入与外部备份）。"""
+    template = await agent_template_service.get_template(
+        db, template_id, user_id=user.id
+    )
+    return agent_template_service.export_payload(template)
 
 
 @router.delete("/{template_id}", status_code=204)

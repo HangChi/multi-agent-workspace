@@ -19,9 +19,12 @@ __all__ = [
     "AgentFromTemplateIn",
     "AgentTemplateCreate",
     "AgentTemplateFromAgentIn",
+    "AgentTemplateImportIn",
     "AgentTemplateList",
     "AgentTemplateOut",
     "AgentTemplateUpdate",
+    "AgentTemplateVersionList",
+    "AgentTemplateVersionOut",
 ]
 
 
@@ -91,6 +94,8 @@ class AgentTemplateUpdate(BaseModel):
     tools: list[str] | None = None
     cost_limit_cents: int | None = Field(default=None, ge=1)
     egress_mode: Literal["default", "restricted"] | None = None
+    # 023：共享范围（只有所有者能改）
+    visibility: Literal["private", "team"] | None = None
 
     @field_validator("tools")
     @classmethod
@@ -110,6 +115,8 @@ class AgentTemplateOut(BaseModel):
     id: str
     owner_id: str | None = None
     is_builtin: bool = False
+    # 023：private / team（内置模板恒为 team）
+    visibility: str = "private"
     name: str
     description: str | None = None
     system_prompt: str
@@ -129,3 +136,40 @@ class AgentTemplateOut(BaseModel):
 class AgentTemplateList(BaseModel):
     items: list[AgentTemplateOut]
     total: int
+
+
+class AgentTemplateVersionOut(BaseModel):
+    """版本条目（列表不返回 snapshot 全文，避免一次拉几百 KB）。"""
+
+    model_config = {"from_attributes": True}
+
+    id: str
+    template_id: str
+    version: int
+    created_by: str | None = None
+    created_at: datetime
+
+
+class AgentTemplateVersionList(BaseModel):
+    items: list[AgentTemplateVersionOut]
+    total: int
+
+
+class AgentTemplateImportIn(BaseModel):
+    """导入用：结构与导出 JSON 一致（schema_version + 10 字段 + name/description）。
+
+    这里不做字段级校验——service 会用 `AgentTemplateCreate` 复校验，
+    保证「导入」不成为绕过既有约束的旁路。
+    """
+
+    schema_version: int
+    name: str
+    description: str | None = None
+    system_prompt: str
+    model: str = "gpt-4o-mini"
+    temperature: float = 0.7
+    max_steps: int = 10
+    max_run_seconds: int = 1800
+    tools: list[str] = Field(default_factory=list)
+    cost_limit_cents: int = 10000
+    egress_mode: Literal["default", "restricted"] = "default"

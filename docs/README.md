@@ -20,7 +20,7 @@
 
 ## 功能规格（Spec Kit，`../specs/`）
 
-二十二个特性都按 SDD + TDD 走完，每个目录结构一致：
+二十三个特性都按 SDD + TDD 走完，每个目录结构一致：
 `spec.md`（WHAT/WHY）→ `plan.md` / `research.md` / `data-model.md` /
 `contracts/api.md` → `checklists/requirements.md` → `tasks.md`（逐条勾选 + 实测记录）
 → `quickstart.md`（真实栈验收）。
@@ -49,6 +49,7 @@
 | [020-departments](../specs/020-departments/spec.md) | 部门与分派范围：部门树（物化路径）+ 三档 scope + 人员归属，默认不收紧 | ✅（后端 2074 例 / 前端 154 例 + 真实栈 4/4） |
 | [021-dependency-graph](../specs/021-dependency-graph/spec.md) | 依赖图谱：下游子图 + 拓扑序 + 关键路径 + 自动启动（默认关，三道幂等校验） | ✅（后端 2084 例 / e2e 21 例 + 真实栈 4/4） |
 | [022-invite-ops](../specs/022-invite-ops/spec.md) | 邀请码运营：部门月度名额配额 + 运营统计；**申请-审批流明确未做** | ⏳ 部分（后端 2091 例 + 真实栈 3/3） |
+| [023-template-sharing](../specs/023-template-sharing/spec.md) | 模板团队共享 + 版本历史（改前快照/回滚）+ 导入导出；**模板市场未做** | ✅（后端 2098 例 / 前端 155 例 + 真实栈 3/3） |
 
 > `research.md` 是每个特性里最值得先读的文件：它记录每个关键决策「为什么更简单的做法不行」，
 > 例如 005 的「内置模板唯一性必须用部分唯一索引」（PostgreSQL 唯一约束遇 NULL 不生效）。

@@ -40,7 +40,7 @@
 | `/groups` | Agent 组 | 成员增删排序 + 默认路由策略，卡片上直接看编排顺序 |
 | `/runs/:runId` | 运行详情 | 状态时间线、分步日志、成本、制品下载、取消/重试/回复 |
 | `/settings` | 设置 | 低频配置的统一入口：通用（外观/账号/系统）、Agent 模板、定时调度、工具市场、管理后台 |
-| `/settings/templates` | Agent 模板 | 内置模板（只读）+ 自己的模板：查看/编辑/删除/用模板创建（仅 member/admin） |
+| `/settings/templates` | Agent 模板 | 内置（只读）+ 我的（可改）+ **团队共享**（可用不可改）；每张模板可「历史 / 共享」（版本列表 + 回滚 + 共享开关 + 导出 JSON），支持导入 JSON（023） |
 | `/settings/schedules` | 定时调度 | cron 周期规则 + 目标（Agent/组）+ 建单模板；触发历史与错过记录（仅 member/admin） |
 | `/settings/marketplace` | 工具市场 | 外部 MCP 工具的发布列表与我的安装（003） |
 | `/settings/notifications` | 通知渠道 | Webhook 通道：URL / 事件订阅 / 启用停用 / 最近投递 / 发送测试 / 重置签名密钥（018） |
@@ -230,7 +230,7 @@ frontend/
     hooks/          # useAuth / useRequests / useRunSocket
 deploy/             # docker-compose / Caddyfile / .env.example / mock-llm / verify
 docs/               # 架构文档（入口见 docs/README.md）
-specs/              # Spec Kit 规格（001–022，SDD + TDD 工作流）
+specs/              # Spec Kit 规格（001–023，SDD + TDD 工作流）
 ```
 
 ---
@@ -337,7 +337,7 @@ GET           /health, /health/ready       存活 / 就绪探针
 `REFRESH_GRACE_SECONDS` 给多标签页并发刷新留宽限期，避免互相踢下线。
 
 > 以上是概览。完整的请求/响应 schema、错误码与边界语义在各特性的
-> `specs/NNN-*/contracts/api.md`（001–022 二十二份），运行时以 `/docs` 的 OpenAPI 为准。
+> `specs/NNN-*/contracts/api.md`（001–023 二十三份），运行时以 `/docs` 的 OpenAPI 为准。
 
 ### 内置工具
 
@@ -543,6 +543,11 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
   移交给**现有成员**是刻意限制（移交是接力不是空降）；移交历史只留在审计
   （`project_transfer`），不建历史表。原 owner 自移除的 409 文案已指向此路径。
 - 成员角色**只有两档**（editor/viewer），不做自定义角色与逐动作授权。
+- 模板（005 + 023）：内置 + 私有 + **团队共享**（team 可见可用、只有所有者能改）；
+  每次编辑前留快照（保留 20 个，可回滚，回滚不还原名字）；导出/导入 JSON
+  （`schema_version` + 创建 schema 复校验，导入重名 409）。
+  **模板市场未做**：公开浏览/审核/评分/内容责任是内容平台的工程量，内部规模
+  用「团队共享 + 搜索」就够。
 - 邀请码运营（022）：批量发码（015 既有）+ 部门月度名额配额（`departments.invite_quota`，
   撤销不释放名额）+ 运营统计（`GET /admin/invite-codes/stats`）。
   **申请-审批流未做**：正确形态是配合组织编制的 HC 管理，孤立做会得到一张没人填的表。
@@ -620,5 +625,5 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 | [docs/llm-pricing.md](docs/llm-pricing.md) | LLM 单价表口径（成本核算与熔断的基准） |
 | [docs/load-test-2026-11-17.md](docs/load-test-2026-11-17.md) | 100/200 并发压测记录 |
 | [docs/code-audit-2026-11-17.md](docs/code-audit-2026-11-17.md) | 2026-11-17 全量代码审查报告（含修复进度） |
-| [specs/](specs/) | 001–022 二十二个特性的规格四件套 + 任务清单 + 实测记录 |
+| [specs/](specs/) | 001–023 二十三个特性的规格四件套 + 任务清单 + 实测记录 |
 | [.specify/memory/constitution.md](.specify/memory/constitution.md) | 项目宪法（SDD + TDD、质量门禁、安全边界） |

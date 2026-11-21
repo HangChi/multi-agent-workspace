@@ -81,7 +81,12 @@ async def test_list_returns_builtins_and_own_templates(
     # ⚠️ total 不能写绝对数：别的测试文件 commit 过的内置模板不会回滚，
     # 全量跑时它们仍在库里。只断言「至少我们造的这些」+「没有别人的私有模板」。
     assert body["total"] >= 3
-    assert all(t["is_builtin"] or t["owner_id"] == owner.id for t in body["items"])
+    # 023：all 的口径从「内置 + 自己的」扩大为「+ 别人设为 team 的」
+    # （只扩大不缩小，同 007 relevant 的纪律）。这里断言三支里至少落一支。
+    assert all(
+        t["is_builtin"] or t["owner_id"] == owner.id or t["visibility"] == "team"
+        for t in body["items"]
+    )
     # 内置模板带只读标记，且 owner 为空
     builtin = next(t for t in body["items"] if t["is_builtin"])
     assert builtin["is_builtin"] is True

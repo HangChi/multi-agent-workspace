@@ -15,6 +15,7 @@ the rest of the board stays manual.
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0021_request_auto_start"

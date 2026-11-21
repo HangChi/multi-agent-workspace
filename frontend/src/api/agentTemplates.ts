@@ -2,12 +2,16 @@ import { apiClient } from './client'
 
 // ---------- Agent 模板与克隆（005）----------
 
+export type TemplateVisibility = 'private' | 'team'
+
 export interface AgentTemplate {
   id: string
   /** null = 内置模板（所有成员可见、只读）。 */
   owner_id: string | null
   /** 派生字段：owner_id 为空即为内置。后端不落这个布尔列。 */
   is_builtin: boolean
+  /** 023：private / team；内置模板恒为 team */
+  visibility: TemplateVisibility
   name: string
   description: string | null
   system_prompt: string
@@ -120,5 +124,59 @@ export async function saveAgentAsTemplate(
   payload: { name: string; description?: string | null }
 ): Promise<AgentTemplate> {
   const { data } = await apiClient.post<AgentTemplate>(`/agents/${id}/save-as-template`, payload)
+  return data
+}
+
+
+// ---------- 版本历史 / 导入导出（023）----------
+
+export interface TemplateVersion {
+  id: string
+  template_id: string
+  version: number
+  created_by: string | null
+  created_at: string
+}
+
+export interface TemplateExportPayload {
+  schema_version: number
+  name: string
+  description: string | null
+  system_prompt: string
+  model: string
+  temperature: number
+  max_steps: number
+  max_run_seconds: number
+  tools: string[]
+  cost_limit_cents: number
+  egress_mode: 'default' | 'restricted'
+}
+
+export async function fetchTemplateVersions(id: string): Promise<TemplateVersion[]> {
+  const { data } = await apiClient.get<{ items: TemplateVersion[]; total: number }>(
+    `/agent-templates/${id}/versions`
+  )
+  return data.items
+}
+
+/** 把某个历史版本写回模板（只还原配置，不还原名字与共享范围）。 */
+export async function restoreTemplateVersion(id: string, version: number): Promise<AgentTemplate> {
+  const { data } = await apiClient.post<AgentTemplate>(
+    `/agent-templates/${id}/versions/${version}/restore`
+  )
+  return data
+}
+
+/** 导出为可移植 JSON（含 schema_version）。 */
+export async function exportAgentTemplate(id: string): Promise<TemplateExportPayload> {
+  const { data } = await apiClient.get<TemplateExportPayload>(`/agent-templates/${id}/export`)
+  return data
+}
+
+/** 从导出的 JSON 建一份新模板（重名 409）。 */
+export async function importAgentTemplate(
+  payload: TemplateExportPayload
+): Promise<AgentTemplate> {
+  const { data } = await apiClient.post<AgentTemplate>('/agent-templates/import', payload)
   return data
 }

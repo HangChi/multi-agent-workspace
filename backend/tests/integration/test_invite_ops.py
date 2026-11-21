@@ -47,7 +47,9 @@ async def _dept(db, quota: int | None) -> Department:
     return dept
 
 
-async def test_single_code_counts_against_quota(db_session, client, make_headers) -> None:
+async def test_single_code_counts_against_quota(
+    db_session, client, make_headers
+) -> None:
     admin = await _admin(db_session)
     dept = await _dept(db_session, quota=3)
     headers = await make_headers(admin)
@@ -162,9 +164,7 @@ async def test_stats_overview(db_session, client, make_headers) -> None:
     assert body["issued_seats"] >= 3
     assert body["used_seats"] >= 2
 
-    dept_row = next(
-        d for d in body["by_department"] if d["department_id"] == dept.id
-    )
+    dept_row = next(d for d in body["by_department"] if d["department_id"] == dept.id)
     assert dept_row["quota"] == 10
     assert dept_row["issued_seats_this_month"] >= 3
     assert dept_row["used_seats_this_month"] >= 2

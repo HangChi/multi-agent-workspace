@@ -116,9 +116,7 @@ async def test_graph_requires_visibility(db_session, client, make_headers) -> No
     assert resp.status_code == 404
 
 
-async def test_project_member_can_read_graph(
-    db_session, client, make_headers
-) -> None:
+async def test_project_member_can_read_graph(db_session, client, make_headers) -> None:
     owner = await _user(db_session)
     member = await _user(db_session)
     project = Project(owner_id=owner.id, name=f"图谱项目-{uuid.uuid4().hex[:5]}")

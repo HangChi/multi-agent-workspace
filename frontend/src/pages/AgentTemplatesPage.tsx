@@ -20,10 +20,14 @@ import { extractError } from '../api/client'
 import {
   createAgentFromTemplate,
   deleteAgentTemplate,
+  exportAgentTemplate,
   fetchAgentTemplates,
+  fetchTemplateVersions,
+  importAgentTemplate,
+  restoreTemplateVersion,
   updateAgentTemplate,
 } from '../api/endpoints'
-import type { AgentTemplate } from '../api/endpoints'
+import type { AgentTemplate, TemplateExportPayload, TemplateVersion } from '../api/endpoints'
 import { AgentForm } from '../components/agent/AgentForm'
 import type { AgentFormValues } from '../components/agent/AgentForm'
 import { TemplateForm } from '../components/agent/TemplateForm'
@@ -61,6 +65,8 @@ export function AgentTemplatesPage() {
     return () => window.clearTimeout(timer)
   }, [q])
   const [using, setUsing] = useState<AgentTemplate | null>(null)
+  // 023：历史 / 共享 / 导出 合并到一个弹层
+  const [inspecting, setInspecting] = useState<AgentTemplate | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const canManage = user?.role === 'admin' || user?.role === 'member'
@@ -164,7 +170,11 @@ export function AgentTemplatesPage() {
   }
 
   const builtins = items.filter((t) => t.is_builtin)
-  const mine = items.filter((t) => !t.is_builtin)
+  const mine = items.filter((t) => !t.is_builtin && t.owner_id === user?.id)
+  // 023：别人设为 team 的（内置由 builtins 单列，自己的由 mine 单列）
+  const teamShared = items.filter(
+    (t) => !t.is_builtin && t.visibility === 'team' && t.owner_id !== user?.id
+  )
 
   return (
     <Page>
@@ -241,6 +251,31 @@ export function AgentTemplatesPage() {
             ) : undefined
           }
         />
+        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs text-ink-soft hover:bg-surface-subtle">
+          <Icon name="plus" className="h-3.5 w-3.5" />
+          导入模板
+          <input
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              e.target.value = ''
+              if (!file) return
+              void (async () => {
+                try {
+                  const text = await file.text()
+                  const payload = JSON.parse(text) as TemplateExportPayload
+                  await importAgentTemplate(payload)
+                  toast.success('已导入为你的私有模板')
+                  invalidate()
+                } catch (err) {
+                  setError(extractError(err))
+                }
+              })()
+            }}
+          />
+        </label>
         <p className="text-micro text-ink-faint">
           {qDebounced ? (
             <>
@@ -264,7 +299,32 @@ export function AgentTemplatesPage() {
                 {builtins.length} 个 · 只读
               </span>
             </h2>
-            <p className="text-micro text-ink-faint">
+            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs text-ink-soft hover:bg-surface-subtle">
+          <Icon name="plus" className="h-3.5 w-3.5" />
+          导入模板
+          <input
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              e.target.value = ''
+              if (!file) return
+              void (async () => {
+                try {
+                  const text = await file.text()
+                  const payload = JSON.parse(text) as TemplateExportPayload
+                  await importAgentTemplate(payload)
+                  toast.success('已导入为你的私有模板')
+                  invalidate()
+                } catch (err) {
+                  setError(extractError(err))
+                }
+              })()
+            }}
+          />
+        </label>
+        <p className="text-micro text-ink-faint">
               内置模板不可修改：需要改就先「用这个模板」创建 Agent，再另存为自己的模板。
             </p>
           </div>
@@ -300,6 +360,7 @@ export function AgentTemplatesPage() {
                 onUse={() => setUsing(t)}
                 onEdit={() => setEditing(t)}
                 onDelete={() => void handleDelete(t)}
+                onInspect={() => setInspecting(t)}
               />
             ))}
           </ul>
@@ -336,6 +397,39 @@ export function AgentTemplatesPage() {
             error={error}
           />
         </Modal>
+      )}
+
+      {teamShared.length > 0 && (
+        <section>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="text-ui font-medium text-ink-soft">
+              团队共享
+              <span className="ml-1.5 text-micro font-normal text-ink-faint">
+                {teamShared.length} 个 · 可用不可改
+              </span>
+            </h2>
+          </div>
+          <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {teamShared.map((t) => (
+              <TemplateCard
+                key={t.id}
+                template={t}
+                onUse={() => setUsing(t)}
+                onEdit={null}
+                onDelete={null}
+                onInspect={null}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {inspecting && (
+        <TemplateInspector
+          template={inspecting}
+          onClose={() => setInspecting(null)}
+          onChanged={invalidate}
+        />
       )}
 
       {using && (
@@ -381,11 +475,14 @@ function TemplateCard({
   onUse,
   onEdit,
   onDelete,
+  onInspect,
 }: {
   template: AgentTemplate
   onUse: () => void
   onEdit: (() => void) | null
   onDelete: (() => void) | null
+  /** 023：历史 / 共享 / 导出（仅自己的模板） */
+  onInspect?: (() => void) | null
 }) {
   return (
     <Card padding="none" interactive className="group overflow-hidden">
@@ -402,6 +499,9 @@ function TemplateCard({
                 {template.name}
               </h3>
               {template.is_builtin && <Badge tone="slate">内置</Badge>}
+              {!template.is_builtin && template.visibility === 'team' && (
+                <Badge tone="sky">团队共享</Badge>
+              )}
             </div>
             <p className="mt-1 line-clamp-2 text-ui leading-relaxed text-ink-muted">
               {template.description || '暂无描述'}
@@ -415,6 +515,11 @@ function TemplateCard({
           {onEdit && (
             <Button size="sm" variant="secondary" leftIcon="edit" onClick={onEdit}>
               编辑
+            </Button>
+          )}
+          {onInspect && (
+            <Button size="sm" variant="ghost" onClick={onInspect}>
+              历史 / 共享
             </Button>
           )}
           {onDelete && (
@@ -444,5 +549,147 @@ function TemplateCard({
         </span>
       </div>
     </Card>
+  )
+}
+
+
+/**
+ * 模板的「历史 / 共享 / 导出」弹层（023）。
+ *
+ * 三件事放一起的理由：它们都是「这个模板作为资产怎么管理」的动作。
+ * 版本历史单独开一页的话，用户要先选模板再进页面——多一步且没人会去。
+ */
+function TemplateInspector({
+  template,
+  onClose,
+  onChanged,
+}: {
+  template: AgentTemplate
+  onClose: () => void
+  onChanged: () => void
+}) {
+  const toast = useToast()
+  const [error, setError] = useState<string | null>(null)
+  const [visibility, setVisibility] = useState(template.visibility)
+
+  const { data: versions = [], refetch } = useQuery({
+    queryKey: ['template-versions', template.id],
+    queryFn: () => fetchTemplateVersions(template.id),
+  })
+
+  const shareMut = useMutation({
+    mutationFn: (next: 'private' | 'team') =>
+      updateAgentTemplate(template.id, { visibility: next }),
+    onSuccess: (updated) => {
+      setVisibility(updated.visibility)
+      toast.success(
+        updated.visibility === 'team' ? '已共享给团队（成员可用、不可改）' : '已收回共享'
+      )
+      onChanged()
+    },
+    onError: (err) => setError(extractError(err)),
+  })
+
+  const restoreMut = useMutation({
+    mutationFn: (version: number) => restoreTemplateVersion(template.id, version),
+    onSuccess: () => {
+      toast.success('已回滚到该版本（会保留一条新历史）')
+      void refetch()
+      onChanged()
+    },
+    onError: (err) => setError(extractError(err)),
+  })
+
+  async function download() {
+    try {
+      const payload = await exportAgentTemplate(template.id)
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: 'application/json',
+      })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${template.name}.agent-template.json`
+      link.click()
+      URL.revokeObjectURL(url)
+      toast.success('已导出 JSON')
+    } catch (err) {
+      setError(extractError(err))
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`模板设置：${template.name}`}
+      description="共享给人用；历史留给你改坏时回去。"
+      size="xl"
+    >
+      <div className="space-y-4">
+        {error && <ErrorBanner error={error} onDismiss={() => setError(null)} />}
+
+        <div className="rounded-lg border border-line-subtle p-3">
+          <p className="mb-2 text-ui font-medium text-ink-soft">共享范围</p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant={visibility === 'private' ? 'primary' : 'secondary'}
+              loading={shareMut.isPending}
+              onClick={() => shareMut.mutate('private')}
+            >
+              私有（只有我能用）
+            </Button>
+            <Button
+              size="sm"
+              variant={visibility === 'team' ? 'primary' : 'secondary'}
+              loading={shareMut.isPending}
+              onClick={() => shareMut.mutate('team')}
+            >
+              团队共享（成员可用不可改）
+            </Button>
+            <Button size="sm" variant="ghost" leftIcon="download" onClick={() => void download()}>
+              导出 JSON
+            </Button>
+          </div>
+        </div>
+
+        <div>
+          <p className="mb-2 text-ui font-medium text-ink-soft">
+            历史版本
+            <span className="ml-1.5 text-micro font-normal text-ink-faint">
+              {versions.length} 个 · 保留最近 20 个
+            </span>
+          </p>
+          {versions.length === 0 ? (
+            <p className="text-xs text-ink-faint">
+              还没有版本——每次编辑会在保存前记一份快照。
+            </p>
+          ) : (
+            <ul className="space-y-1">
+              {versions.map((v: TemplateVersion) => (
+                <li
+                  key={v.id}
+                  className="flex items-center gap-2 rounded-lg border border-line px-2.5 py-1.5 text-ui"
+                >
+                  <span className="font-mono text-ink">v{v.version}</span>
+                  <span className="min-w-0 flex-1 truncate text-xs text-ink-faint">
+                    {new Date(v.created_at).toLocaleString('zh-CN')}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    loading={restoreMut.isPending}
+                    onClick={() => restoreMut.mutate(v.version)}
+                  >
+                    回滚到此版本
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </Modal>
   )
 }

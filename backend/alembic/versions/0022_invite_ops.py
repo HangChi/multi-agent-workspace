@@ -12,6 +12,7 @@ cap just lets whoever asks first exhaust it.
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0022_invite_ops"
@@ -31,9 +32,7 @@ def upgrade() -> None:
             nullable=True,
         ),
     )
-    op.create_index(
-        "ix_invite_codes_department_id", "invite_codes", ["department_id"]
-    )
+    op.create_index("ix_invite_codes_department_id", "invite_codes", ["department_id"])
 
 
 def downgrade() -> None:

@@ -20,6 +20,7 @@ const builtin: AgentTemplate = {
   id: 'tpl-builtin',
   owner_id: null,
   is_builtin: true,
+    visibility: 'team',
   name: '代码审查助手',
   description: '按严重程度分组输出审查意见',
   system_prompt: '你是审查助手',
