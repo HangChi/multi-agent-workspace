@@ -27,15 +27,26 @@ logger = structlog.get_logger(__name__)
 async def _load_owned_project(
     db: AsyncSession, project_id: str, user_id: str
 ) -> Project:
-    """行级锁加载：不存在或非**owner** → 404（不暴露存在性）。
+    """行级锁加载：owner 全权；成员做写操作 403；陌生人 404。
 
     010 共享：写操作（改名/归档/删除）仍仅 owner——这里**保持 owner only**
     （放宽会让「成员改项目名」漏过去），给 PATCH/DELETE 用；读路径
     （详情/成员列表）用 `_load_visible_project`（owner ∪ 成员）。
+
+    017 修正：成员和非相关人必须分码。016 契约 §3.6 明确
+    「`PATCH /projects/{id}` 成员非 owner 改元数据 → 403」，
+    但这里原先把 owner 判定和存在性合并成一句，成员也拿 404 ——
+    016 的测试只覆盖了「成员管成员 403」（走 member_service），
+    漏了 PATCH/DELETE。移交让「原 owner 变成成员」成为常见态，
+    这个缺口才暴露出来，所以在此补齐（陌生人仍是 404，P-3 不变）。
     """
     stmt = select(Project).where(Project.id == project_id).with_for_update()
     project = (await db.execute(stmt)).scalars().first()
-    if project is None or project.owner_id != user_id:
+    if project is None:
+        raise AppError("NOT_FOUND", "项目不存在")
+    if project.owner_id != user_id:
+        if await project_member_service.is_member(db, project_id, user_id):
+            raise AppError("FORBIDDEN", "仅项目创建者可修改或删除该项目")
         raise AppError("NOT_FOUND", "项目不存在")
     return project
 
@@ -60,14 +71,24 @@ async def _load_visible_project(
     return project
 
 
-async def _assert_name_available(
-    db: AsyncSession, owner_id: str, name: str, *, exclude_id: str | None = None
+async def assert_name_available(
+    db: AsyncSession,
+    owner_id: str,
+    name: str,
+    *,
+    exclude_id: str | None = None,
+    message: str | None = None,
 ) -> None:
     """同用户名下（含已归档项目）名字唯一，否则 409。
 
     先查后建给友好错误；并发同名由 uq_projects_owner_name 约束兜底
     （service 层不捕获 IntegrityError——端点统一错误处理会转 500，
     真并发撞约束的概率极低，宁可 500 暴露也不要静默吞掉）。
+
+    017 起公开（原 `_assert_name_available`）：移交要按**目标用户**的口径
+    复用同一条检查，不能各写一份（两处口径分叉是 008/010 反复强调的坑）。
+    `message` 供移交定制文案（「目标用户已有同名项目」比「同名项目已存在」
+    更能告诉用户该修什么）。
     """
     stmt = (
         select(func.count())
@@ -77,7 +98,7 @@ async def _assert_name_available(
     if exclude_id:
         stmt = stmt.where(Project.id != exclude_id)
     if int((await db.execute(stmt)).scalar_one()) > 0:
-        raise AppError("CONFLICT", "同名项目已存在（含已归档项目）")
+        raise AppError("CONFLICT", message or "同名项目已存在（含已归档项目）")
 
 
 async def _visible_request_counts(
@@ -217,7 +238,7 @@ async def create_project(
     db: AsyncSession, *, user_id: str, payload: ProjectCreate
 ) -> Project:
     """建项目（名字查重 + 409）。"""
-    await _assert_name_available(db, user_id, payload.name)
+    await assert_name_available(db, user_id, payload.name)
     project = Project(
         owner_id=user_id,
         name=payload.name,
@@ -237,7 +258,7 @@ async def update_project(
     data = payload.model_dump(exclude_unset=True)
 
     if data.get("name"):
-        await _assert_name_available(db, user_id, data["name"], exclude_id=project.id)
+        await assert_name_available(db, user_id, data["name"], exclude_id=project.id)
         project.name = data["name"]
         # 快照同步：只此一处与 request_service 的建/改路径会写 project_name
         await db.execute(

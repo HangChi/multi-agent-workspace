@@ -6,6 +6,7 @@ ProjectOut 带 `request_count`——筛选下拉要「每个项目几件活」�
 """
 
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -58,3 +59,16 @@ class ProjectOut(BaseModel):
 class ProjectList(BaseModel):
     items: list[ProjectOut]
     total: int
+
+
+class ProjectTransferIn(BaseModel):
+    """移交给谁（017）。
+
+    为什么不是一个字段更新：移交要同时改归属、增删成员行、发通知、写独立审计，
+    且 409 有四种语义（自移交/非成员/viewer/同名）——塞进 PATCH 会让
+    前端拿到 409 无法分辨该提示什么（research R-01）。
+    """
+
+    new_owner_id: UUID
+    # 默认保留访问：交接不等于立刻断联。离职场景显式传 False（R-04）。
+    keep_as_member: bool = True

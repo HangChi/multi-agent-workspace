@@ -9,15 +9,22 @@ from fastapi import APIRouter, Query, status
 from sqlalchemy import func, select
 
 from app.api.deps import DB, CurrentUser, MemberUser, ResourceId
-from app.core.audit import PROJECT_CREATE, PROJECT_DELETE, PROJECT_UPDATE, write_audit
+from app.core.audit import (
+    PROJECT_CREATE,
+    PROJECT_DELETE,
+    PROJECT_TRANSFER,
+    PROJECT_UPDATE,
+    write_audit,
+)
 from app.models.project_member import ProjectMember
 from app.schemas.project import (
     ProjectCreate,
     ProjectList,
     ProjectOut,
+    ProjectTransferIn,
     ProjectUpdate,
 )
-from app.services import project_service
+from app.services import project_member_service, project_service
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -129,6 +136,50 @@ async def update_project(
     )
     await db.commit()
     _, count, member_count = await project_service.get_project(db, project.id, user.id)
+    return ProjectOut.model_validate(project).model_copy(
+        update={"request_count": count, "member_count": member_count}
+    )
+
+
+@router.post("/{project_id}/transfer", response_model=ProjectOut)
+async def transfer_project(
+    project_id: ResourceId,
+    payload: ProjectTransferIn,
+    user: CurrentUser,
+    _m: MemberUser,
+    db: DB,
+):
+    """移交项目所有权（017）：200 + ProjectOut（200 而非 201——没有新资源）。
+
+    响应里的 request_count / member_count 用**新 owner** 的口径读：
+    原 owner 在 keep_as_member=false 时已经不是参与者，用他的身份回读会 404。
+    """
+    new_owner_id = str(payload.new_owner_id)
+    project = await project_member_service.transfer_ownership(
+        db,
+        project_id=project_id,
+        user_id=user.id,
+        new_owner_id=new_owner_id,
+        keep_as_member=payload.keep_as_member,
+    )
+    await write_audit(
+        db,
+        user_id=user.id,
+        action=PROJECT_TRANSFER,
+        target_type="project",
+        target_id=project_id,
+        detail={
+            "from_user_id": user.id,
+            "to_user_id": new_owner_id,
+            "keep_as_member": payload.keep_as_member,
+            "project_name": project.name,
+        },
+        strict=True,
+    )
+    await db.commit()
+    _, count, member_count = await project_service.get_project(
+        db, project_id, new_owner_id
+    )
     return ProjectOut.model_validate(project).model_copy(
         update={"request_count": count, "member_count": member_count}
     )

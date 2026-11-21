@@ -1,9 +1,14 @@
 # Data Model：项目所有权移交（017）
 
-## 1. 结论先行：无 schema 变更
+## 1. 结论先行：无表/列变更，**有一条枚举值迁移**
 
-本特性**不新增表、不新增列、不新增索引、不新增迁移**。它只改变既有行的值。
-`alembic` 停在 `0016_invite_code_revoked`（017 不产生 revision）。
+不新增表、不新增列、不新增索引。唯一的 DDL 是给
+`notification_type` 枚举加一个值（`alembic/versions/0017_project_ownership_transfer.py`）。
+
+> **⚠️ 写规格时的误判（值得记）**：初稿断言「`notifications.type` 是字符串列，
+> 不需要迁移」。实际它是 `Enum(...)` → PostgreSQL 的 `notification_type` 类型，
+> 集成测试直接报 `invalid input value for enum notification_type`。
+> 教训：声称「无需迁移」之前，先看列的真实类型，别看模型里长得像 str。
 
 ## 2. 涉及的既有实体
 
@@ -28,8 +33,9 @@
 
 ### `notifications`
 
-新增一个 `type`：`project_ownership_received`（表是字符串列，无枚举约束，
-不需要迁移）。payload 结构：
+新增一个枚举值：`project_ownership_received`，追加到 `notification_type`
+（迁移 `0017_project_ownership_transfer`；`ADD VALUE` 走 autocommit block，
+理由同 0011/0013/0014——同一事务里不能用新值）。payload 结构：
 
 ```json
 {"project_id": "uuid", "project_name": "官网改版", "previous_owner_id": "uuid"}

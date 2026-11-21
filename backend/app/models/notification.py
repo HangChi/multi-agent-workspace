@@ -52,6 +52,8 @@ class Notification(Base):
             # 010：成员变动（加人/移出——只发给对方本人；删项目不发，R-05）
             "project_member_added",
             "project_member_removed",
+            # 017：你成为了某项目的创建者（只发新 owner，不广播给成员，R-07）
+            "project_ownership_received",
             name="notification_type",
         ),
         nullable=False,

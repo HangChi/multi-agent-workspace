@@ -96,6 +96,12 @@ REQUEST_DEPENDENCY_REMOVE = "request_dependency_remove"
 PROJECT_MEMBER_ADD = "project_member_add"
 PROJECT_MEMBER_REMOVE = "project_member_remove"
 
+# ===== 所有权移交（017）=====
+# detail 带 from_user_id / to_user_id / keep_as_member / project_name——
+# 这是「项目为什么换了归属」的唯一留痕；数据回滚时也要靠 from/to 人工改回
+# （data-model §6：无迁移，但数据不会因回退代码而自动退回）。
+PROJECT_TRANSFER = "project_transfer"
+
 
 async def write_audit(
     db: AsyncSession,

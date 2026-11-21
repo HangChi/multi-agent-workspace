@@ -44,6 +44,33 @@ async def _load_project_for_member_ops(
     return project
 
 
+async def _load_project_for_transfer(
+    db: AsyncSession, project_id: str, user_id: str
+) -> Project:
+    """移交前置：行锁 + 三级谓词（017，contracts §2 序 3–5）。
+
+    用 `select(...).with_for_update()` 而不是 `db.get`：
+    1. 身份映射里的对象可能是陈旧的（`_load_visible_project` 的注释同款理由）；
+    2. 行锁是「移交 vs 改名/删除/踢人」并发交错的唯一防线（research R-09）。
+    """
+    project = (
+        (
+            await db.execute(
+                select(Project).where(Project.id == project_id).with_for_update()
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if project is None:
+        raise AppError("NOT_FOUND", "项目不存在")
+    if project.owner_id != user_id:
+        if not await is_member(db, project_id, user_id):
+            raise AppError("NOT_FOUND", "项目不存在")
+        raise AppError("FORBIDDEN", "仅项目创建者可移交所有权")
+    return project
+
+
 async def is_member(db: AsyncSession, project_id: str, user_id: str) -> bool:
     """成员判定（半连接由索引 ix_project_members_user_id 支撑）。"""
     row = (
@@ -161,8 +188,13 @@ async def remove_member(
     project = await _load_project_for_member_ops(db, project_id, user_id)
 
     if member_user_id == user_id:
-        # R-04：无主项目是脏状态；所有权移交是后续特性
-        raise AppError("CONFLICT", "创建者不能退出自己创建的项目（可删除项目）")
+        # R-04：无主项目是脏状态，所以 owner 不能把自己踢出去。
+        # 017 之前这里只有「删项目」一条出路，现在多了「移交」——文案要
+        # 指向正解，否则用户被赶向销毁数据的那条路（FR-009）。
+        raise AppError(
+            "CONFLICT",
+            "创建者不能退出自己创建的项目：请先移交所有权，或删除项目",
+        )
 
     edge = (
         (
@@ -194,6 +226,120 @@ async def remove_member(
         member_user_id=member_user_id,
         by=user_id,
     )
+
+
+async def transfer_ownership(
+    db: AsyncSession,
+    *,
+    project_id: str,
+    user_id: str,
+    new_owner_id: str,
+    keep_as_member: bool = True,
+) -> Project:
+    """移交项目所有权（017）：加锁 → 六步校验 → 归属/成员行 → 通知新 owner。
+
+    为什么独立成函数而不是塞进 update_project：移交同时改归属、增删成员行、
+    发通知、写独立审计，且 409 有四种语义（research R-01）。
+
+    校验顺序（contracts §2，顺序本身是契约的一部分）：
+    ① 归属（404/403）② 自移交 ③ 目标存在 ④ 目标在职 ⑤ 目标角色 ⑥ 成员关系
+    ⑦ 同名冲突。①②③为什么必须在前见 research R-05：陌生人不能靠
+    「传一个不存在的用户」探测项目是否存在。
+    """
+    project = await _load_project_for_transfer(db, project_id, user_id)
+
+    if new_owner_id == user_id:
+        raise AppError("CONFLICT", "不能移交给自己")
+
+    target = await db.get(User, new_owner_id)
+    if target is None:
+        # 016 的显式例外：user 存在性经 /users/options 已对全体成员公开，
+        # 且 010 的 add_member 就是这么回目标的（research R-03）。
+        raise AppError("NOT_FOUND", "用户不存在")
+    if target.status != "active":
+        # 与 add_member 同款判断：账号态 ≠ 成员态，但停用账号不能接项目。
+        raise AppError("INVALID_INPUT", "用户已停用，不能接收项目")
+    if target.role == "viewer":
+        # viewer 在 010 的模型里连项目入口都没有（nav memberOnly），
+        # 让他当 owner 会造出「有项目但进不去」的怪状态。
+        raise AppError("CONFLICT", "只读角色不能接收项目")
+
+    if not await is_member(db, project_id, new_owner_id):
+        # 移交是接力不是空降（research R-02）：先加成员再移交。
+        raise AppError("CONFLICT", "目标用户不是项目成员，请先加为成员")
+
+    # 同名检查放最后：它是唯一要读「目标用户名下项目」的检查，失败无副作用。
+    # 函数内 import：project_service 顶层已 import 本模块，模块级互引会成环。
+    from app.services import project_service
+
+    await project_service.assert_name_available(
+        db,
+        new_owner_id,
+        project.name,
+        exclude_id=project.id,
+        message=f"目标用户已有同名项目「{project.name}」，请先改名或换人",
+    )
+
+    old_owner_id = project.owner_id
+    # 顺序：先删新 owner 的成员行，再改归属——避免任何中间态里
+    # 「同一个人既是 owner 又在成员表」（010 R-01 的不变式）。
+    edge = (
+        (
+            await db.execute(
+                select(ProjectMember).where(
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.user_id == new_owner_id,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if edge is not None:
+        await db.delete(edge)
+        await db.flush()
+
+    project.owner_id = new_owner_id
+
+    if keep_as_member:
+        # owner 不在成员表（010 R-01），所以原 owner 正常不会有行；
+        # 仍查一次是防御：手工改过的库不该让 flush 抛唯一约束。
+        already = (
+            (
+                await db.execute(
+                    select(ProjectMember).where(
+                        ProjectMember.project_id == project_id,
+                        ProjectMember.user_id == old_owner_id,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if already is None:
+            db.add(ProjectMember(project_id=project_id, user_id=old_owner_id))
+
+    await db.flush()
+    await create_notification(
+        db,
+        user_id=new_owner_id,
+        type_="project_ownership_received",
+        title=project.name,
+        payload={
+            "project_id": project_id,
+            "project_name": project.name,
+            "previous_owner_id": old_owner_id,
+        },
+    )
+    logger.info(
+        "project_transferred",
+        project_id=project_id,
+        from_user_id=old_owner_id,
+        to_user_id=new_owner_id,
+        keep_as_member=keep_as_member,
+        by=user_id,
+    )
+    return project
 
 
 async def list_members(
