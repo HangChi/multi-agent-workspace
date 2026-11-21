@@ -35,11 +35,15 @@ class _SelectCounter:
             self.count += 1
 
     def __enter__(self):
-        event.listen(self.session.sync_session.bind, "before_cursor_execute", self._before)
+        event.listen(
+            self.session.sync_session.bind, "before_cursor_execute", self._before
+        )
         return self
 
     def __exit__(self, *exc):
-        event.remove(self.session.sync_session.bind, "before_cursor_execute", self._before)
+        event.remove(
+            self.session.sync_session.bind, "before_cursor_execute", self._before
+        )
         return False
 
 

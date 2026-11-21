@@ -41,7 +41,9 @@ def _agent_payload(**over) -> dict:
     return payload
 
 
-async def _setup_schedule(client, db_session, make_headers) -> tuple[Schedule, datetime]:
+async def _setup_schedule(
+    client, db_session, make_headers
+) -> tuple[Schedule, datetime]:
     h = await make_headers(role="member")
     resp = await client.post(AGENTS_URL, headers=h, json=_agent_payload())
     assert resp.status_code == 201, resp.text
@@ -187,7 +189,9 @@ class TestDependencyGateCommit:
         triggers = (
             (
                 await db_session.execute(
-                    select(ScheduleTrigger).where(ScheduleTrigger.schedule_id == schedule.id)
+                    select(ScheduleTrigger).where(
+                        ScheduleTrigger.schedule_id == schedule.id
+                    )
                 )
             )
             .scalars()

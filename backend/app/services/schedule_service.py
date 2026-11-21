@@ -248,7 +248,9 @@ async def _targets_for(
     if agent_ids:
         rows = (
             await db.execute(
-                select(Agent.id, Agent.name, Agent.status).where(Agent.id.in_(agent_ids))
+                select(Agent.id, Agent.name, Agent.status).where(
+                    Agent.id.in_(agent_ids)
+                )
             )
         ).all()
         for target_id, name, status in rows:
