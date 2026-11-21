@@ -20,6 +20,7 @@ from app.models.external_validation import ServerValidation
 from app.models.group import AgentGroup
 from app.models.group_member import GroupMember
 from app.models.invite_code import InviteCode
+from app.models.invite_request import InviteRequest
 from app.models.notification import Notification
 from app.models.notification_channel import NotificationChannel, NotificationDelivery
 from app.models.project import Project
@@ -51,6 +52,7 @@ __all__ = [
     "ExternalToolVersion",
     "GroupMember",
     "InviteCode",
+    "InviteRequest",
     "MarketplaceListing",
     "Notification",
     "NotificationChannel",

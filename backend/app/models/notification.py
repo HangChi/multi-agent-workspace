@@ -54,6 +54,9 @@ class Notification(Base):
             "project_member_removed",
             # 017：你成为了某项目的创建者（只发新 owner，不广播给成员，R-07）
             "project_ownership_received",
+            # 027：邀请码申请审批结果（只发申请人）
+            "invite_request_approved",
+            "invite_request_rejected",
             name="notification_type",
         ),
         nullable=False,

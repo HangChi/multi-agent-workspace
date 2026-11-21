@@ -60,6 +60,9 @@ SUBSCRIBABLE_EVENTS: tuple[str, ...] = (
     "project_member_added",
     "project_member_removed",
     "project_ownership_received",
+    # 027：邀请码审批结果（申请人可能想第一时间知道）
+    "invite_request_approved",
+    "invite_request_rejected",
 )
 
 _MAX_ATTEMPTS = 3

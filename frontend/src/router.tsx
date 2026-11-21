@@ -55,6 +55,10 @@ const SchedulesPage = lazy(() =>
 const MarketplacePage = lazy(() =>
   import('./pages/MarketplacePage').then((m) => ({ default: m.MarketplacePage }))
 )
+/** 邀请码申请（027）：member 提申请 / admin 审批，懒加载。 */
+const InviteRequestsPage = lazy(() =>
+  import('./pages/InviteRequestsPage').then((m) => ({ default: m.InviteRequestsPage }))
+)
 /** 组织架构（020）：admin 专属，懒加载。 */
 const OrganizationPage = lazy(() =>
   import('./pages/OrganizationPage').then((m) => ({ default: m.OrganizationPage }))
@@ -129,6 +133,7 @@ const ROUTE_TITLES: [RegExp, string][] = [
   [/^\/settings\/schedules$/, '定时调度'],
   [/^\/settings\/notifications$/, '通知渠道'],
   [/^\/settings\/marketplace$/, '工具市场'],
+  [/^\/settings\/invite-requests$/, '邀请码申请'],
   [/^\/settings\/organization$/, '组织架构'],
   [/^\/settings\/admin$/, '管理后台'],
   [/^\/settings$/, '设置'],
@@ -237,6 +242,10 @@ export function AppRouter() {
             <Route
               path="notifications"
               element={<Suspended element={<NotificationChannelsPage />} />}
+            />
+            <Route
+              path="invite-requests"
+              element={<Suspended element={<InviteRequestsPage />} />}
             />
             <Route
               path="organization"

@@ -20,7 +20,7 @@
 
 ## 功能规格（Spec Kit，`../specs/`）
 
-二十六个特性都按 SDD + TDD 走完，每个目录结构一致：
+二十七个特性都按 SDD + TDD 走完，每个目录结构一致：
 `spec.md`（WHAT/WHY）→ `plan.md` / `research.md` / `data-model.md` /
 `contracts/api.md` → `checklists/requirements.md` → `tasks.md`（逐条勾选 + 实测记录）
 → `quickstart.md`（真实栈验收）。
@@ -53,6 +53,7 @@
 | [024-mcp-stdio](../specs/024-mcp-stdio/spec.md) | MCP stdio 传输：协议 + 常驻进程池 + 丝全底线，已接进 003 链路 | ✅（后端 2115 例 + 真实栈 3/3） |
 | [025-visual-baseline](../specs/025-visual-baseline/spec.md) | 视觉回归基线：三页 + Pillow 像素比对（2% 容差），回勾 015 T024 | ✅（e2e 24 例） |
 | [026-template-market](../specs/026-template-market/spec.md) | 模板市场：团队模板浏览（带作者）+ 复制为私有副本 | ✅（后端 2119 例 + 真实栈 3/3） |
+| [027-invite-approval](../specs/027-invite-approval/spec.md) | 邀请码申请与审批：申请 → 批准即发码（继承部门配额）→ 通知 | ✅（后端 2123 例 + 真实栈 4/4） |
 
 > `research.md` 是每个特性里最值得先读的文件：它记录每个关键决策「为什么更简单的做法不行」，
 > 例如 005 的「内置模板唯一性必须用部分唯一索引」（PostgreSQL 唯一约束遇 NULL 不生效）。

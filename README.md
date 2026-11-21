@@ -43,6 +43,7 @@
 | `/settings/templates` | Agent 模板 | 内置（只读）+ 我的（可改）+ **团队共享**（可用不可改）；每张模板可「历史 / 共享」（版本列表 + 回滚 + 共享开关 + 导出 JSON），支持导入 JSON（023） |
 | `/settings/schedules` | 定时调度 | cron 周期规则 + 目标（Agent/组）+ 建单模板；触发历史与错过记录（仅 member/admin） |
 | `/settings/marketplace` | 工具市场 | 外部 MCP 工具的发布列表与我的安装（003） |
+| `/settings/invite-requests` | 邀请码申请 | 成员提交申请 + 看审批结果与发到的码；admin 额外看待审批队列（批准即发码 / 拒绝）（027） |
 | `/settings/notifications` | 通知渠道 | Webhook 通道：URL / 事件订阅 / 启用停用 / 最近投递 / 发送测试 / 重置签名密钥（018） |
 | `/settings/organization` | 组织架构 | 部门树（缩进 + 成员数）/ 新建与改名 / 三档分派范围 / 人员归属（均仅 admin，020） |
 | `/settings/admin` | 管理后台 | 邀请码发放（单张/批量、可选归属部门）/ 吊销 / 运营概览（发出与已用名额、按部门本月进度与配额）/ 审计日志（均仅 admin） |
@@ -230,7 +231,7 @@ frontend/
     hooks/          # useAuth / useRequests / useRunSocket
 deploy/             # docker-compose / Caddyfile / .env.example / mock-llm / verify
 docs/               # 架构文档（入口见 docs/README.md）
-specs/              # Spec Kit 规格（001–026，SDD + TDD 工作流）
+specs/              # Spec Kit 规格（001–027，SDD + TDD 工作流）
 ```
 
 ---
@@ -337,7 +338,7 @@ GET           /health, /health/ready       存活 / 就绪探针
 `REFRESH_GRACE_SECONDS` 给多标签页并发刷新留宽限期，避免互相踢下线。
 
 > 以上是概览。完整的请求/响应 schema、错误码与边界语义在各特性的
-> `specs/NNN-*/contracts/api.md`（001–026 二十六份），运行时以 `/docs` 的 OpenAPI 为准。
+> `specs/NNN-*/contracts/api.md`（001–027 二十七份），运行时以 `/docs` 的 OpenAPI 为准。
 
 ### 内置工具
 
@@ -554,7 +555,9 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
   （重名自动加「（副本）」）。不做审核/评分/评论——内容平台那套对内部规模不成立。
 - 邀请码运营（022）：批量发码（015 既有）+ 部门月度名额配额（`departments.invite_quota`，
   撤销不释放名额）+ 运营统计（`GET /admin/invite-codes/stats`）。
-  **申请-审批流未做**：正确形态是配合组织编制的 HC 管理，孤立做会得到一张没人填的表。
+  027 补了**申请-审批流**：成员提申请（待审批上限 3 条）→ admin 批准即发码
+  （走 022 的发码路径，部门配额照旧生效；配额不足时申请保持 pending）→ 结果发通知
+  并可按事件订阅。不做多级审批、不与 HC/编制挂钩。
 - 组织（020）：部门树 + 三档分派范围（全公司 / 本部门及下级 / 仅本部门）。
   **默认不收紧**——`assign_scope` 默认 `all`，且未归属部门的成员不受限制，
   升级后无人受影响；管理员建树、设范围、把人归档后才逐步生效。
@@ -629,5 +632,5 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 | [docs/llm-pricing.md](docs/llm-pricing.md) | LLM 单价表口径（成本核算与熔断的基准） |
 | [docs/load-test-2026-11-17.md](docs/load-test-2026-11-17.md) | 100/200 并发压测记录 |
 | [docs/code-audit-2026-11-17.md](docs/code-audit-2026-11-17.md) | 2026-11-17 全量代码审查报告（含修复进度） |
-| [specs/](specs/) | 001–026 二十六个特性的规格四件套 + 任务清单 + 实测记录 |
+| [specs/](specs/) | 001–027 二十七个特性的规格四件套 + 任务清单 + 实测记录 |
 | [.specify/memory/constitution.md](.specify/memory/constitution.md) | 项目宪法（SDD + TDD、质量门禁、安全边界） |

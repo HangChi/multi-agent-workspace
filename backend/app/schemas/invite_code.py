@@ -76,3 +76,39 @@ class InviteCodeBatchCreate(InviteCodeCreate):
     """批量发码：参数同单张，另加数量。"""
 
     count: int = Field(default=3, ge=1, le=20)
+
+
+# ---------------------------------------------------------------- 申请（027）
+
+
+class InviteRequestCreate(BaseModel):
+    role: Literal["member", "viewer"] = "member"
+    count: int = Field(default=1, ge=1, le=20)
+    reason: str = Field(min_length=1, max_length=1000)
+    department_id: UUID | None = None
+
+
+class InviteRequestOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: str
+    requester_id: str
+    requester_email: str | None = None
+    department_id: str | None = None
+    department_name: str | None = None
+    role: str
+    count: int
+    reason: str
+    status: str
+    issued_codes: str | None = None
+    decided_at: datetime | None = None
+    created_at: datetime
+
+
+class InviteRequestList(BaseModel):
+    items: list[InviteRequestOut]
+    total: int
+
+
+class InviteRequestReject(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)

@@ -65,6 +65,8 @@ _EVENT_LABELS = {
     "project_member_added": "被加入项目",
     "project_member_removed": "被移出项目",
     "project_ownership_received": "成为项目创建者",
+    "invite_request_approved": "邀请码申请已通过",
+    "invite_request_rejected": "邀请码申请未通过",
 }
 
 

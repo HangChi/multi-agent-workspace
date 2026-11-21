@@ -139,7 +139,9 @@ async def update_template(
     return _out(template)
 
 
-@router.post("/{template_id}/duplicate", response_model=AgentTemplateOut, status_code=201)
+@router.post(
+    "/{template_id}/duplicate", response_model=AgentTemplateOut, status_code=201
+)
 async def duplicate_template(
     template_id: ResourceId, user: CurrentUser, _m: MemberUser, db: DB
 ):

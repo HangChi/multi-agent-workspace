@@ -87,6 +87,14 @@ export const SETTINGS_NAV: NavItem[] = [
     description: '浏览并安装已审核的第三方 MCP 工具',
   },
   {
+    to: '/settings/invite-requests',
+    label: '邀请码申请',
+    shortLabel: '申请',
+    icon: 'key',
+    memberOnly: true,
+    description: '申请邀请码，管理员审批后直接发码',
+  },
+  {
     to: '/settings/organization',
     label: '组织架构',
     shortLabel: '组织',
