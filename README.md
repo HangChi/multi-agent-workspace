@@ -43,6 +43,7 @@
 | `/settings/templates` | Agent 模板 | 内置模板（只读）+ 自己的模板：查看/编辑/删除/用模板创建（仅 member/admin） |
 | `/settings/schedules` | 定时调度 | cron 周期规则 + 目标（Agent/组）+ 建单模板；触发历史与错过记录（仅 member/admin） |
 | `/settings/marketplace` | 工具市场 | 外部 MCP 工具的发布列表与我的安装（003） |
+| `/settings/notifications` | 通知渠道 | Webhook 通道：URL / 事件订阅 / 启用停用 / 最近投递 / 发送测试 / 重置签名密钥（018） |
 | `/settings/admin` | 管理后台 | 邀请码发放/吊销（角色、次数、有效期）+ 审计日志（均仅 admin，前端有角色守卫 + 后端 403 双保险） |
 
 > 2026-11-18 起导航收敛：顶栏横栏只放看板、仪表盘、Agent、Agent 组四个业务入口，
@@ -228,7 +229,7 @@ frontend/
     hooks/          # useAuth / useRequests / useRunSocket
 deploy/             # docker-compose / Caddyfile / .env.example / mock-llm / verify
 docs/               # 架构文档（入口见 docs/README.md）
-specs/              # Spec Kit 规格（001–017，SDD + TDD 工作流）
+specs/              # Spec Kit 规格（001–018，SDD + TDD 工作流）
 ```
 
 ---
@@ -335,7 +336,7 @@ GET           /health, /health/ready       存活 / 就绪探针
 `REFRESH_GRACE_SECONDS` 给多标签页并发刷新留宽限期，避免互相踢下线。
 
 > 以上是概览。完整的请求/响应 schema、错误码与边界语义在各特性的
-> `specs/NNN-*/contracts/api.md`（001–017 十七份），运行时以 `/docs` 的 OpenAPI 为准。
+> `specs/NNN-*/contracts/api.md`（001–018 十八份），运行时以 `/docs` 的 OpenAPI 为准。
 
 ### 内置工具
 
@@ -507,8 +508,10 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 
 ## 已知限制
 
-- 需求分派与收件箱（007）：通知**仅站内**（铃铛轮询 ≤30s 刷新未读数，无邮件/Webhook 通道）；
-  「与我相关」是看板默认范围（只扩大不缩小）。
+- 需求分派与收件箱（007）：站内通知是**主通道**（铃铛轮询 ≤30s 刷新未读数）；
+  「与我相关」是看板默认范围（只扩大不缩小）。外部通道由 018 补齐：可配 Webhook
+  （企业微信/飞书机器人或内部网关），按事件类型订阅，HMAC 签名 + 3 次退避重试 +
+  投递记录可查。**邮件 / SMS 仍未做**（需要 SMTP/供应商凭据与发信合规，独立特性）。
 - **错误码口径（016 起统一，不再有两套）**：
   * **非相关人**访问任何资源端点 → **404**，`message` 与「资源不存在」逐字相同。
     403/404 的差异本身就能被用来枚举他人需求/Agent/组的 id，所以归属失败必须
@@ -605,5 +608,5 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 | [docs/llm-pricing.md](docs/llm-pricing.md) | LLM 单价表口径（成本核算与熔断的基准） |
 | [docs/load-test-2026-11-17.md](docs/load-test-2026-11-17.md) | 100/200 并发压测记录 |
 | [docs/code-audit-2026-11-17.md](docs/code-audit-2026-11-17.md) | 2026-11-17 全量代码审查报告（含修复进度） |
-| [specs/](specs/) | 001–017 十七个特性的规格四件套 + 任务清单 + 实测记录 |
+| [specs/](specs/) | 001–018 十八个特性的规格四件套 + 任务清单 + 实测记录 |
 | [.specify/memory/constitution.md](.specify/memory/constitution.md) | 项目宪法（SDD + TDD、质量门禁、安全边界） |
