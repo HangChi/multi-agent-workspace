@@ -99,24 +99,129 @@ def spec_for(
 class _Entry:
     client: StdioMCPClient
     lock: asyncio.Lock
+    # 创建这个子进程的事件循环。Celery Worker 里 `execute_run` 是同步 def，
+    # 每次调用都 `asyncio.run()` 起**全新**循环；上一条 Run 留下的条目，
+    # 其 StreamReader / _drain_stderr task 全绑在已关闭的旧循环上，跨循环
+    # 复用会抛 "got Future attached to a different loop"，且连 close() 都
+    # 跑不了（Event loop is closed）→ 进程永久泄漏。见 _get_entry 的重建逻辑。
+    loop: asyncio.AbstractEventLoop
     last_used: float = field(default_factory=time.monotonic)
 
     def expired(self) -> bool:
         return (time.monotonic() - self.last_used) > IDLE_TTL_SECONDS
 
+    def same_loop_as_current(self) -> bool:
+        try:
+            return asyncio.get_running_loop() is self.loop
+        except RuntimeError:  # 无运行中的循环
+            return False
+
 
 _entries: dict[str, _Entry] = {}
 
+# 同一个 key 同时只允许一个协程 spawn，其余就地等它——否则两个协程同时首次
+# 访问同一 server 会各起一个子进程，字典只留下后写的那个，先启动的进程再没人
+# terminate（close_all 只遍历字典）→ 泄漏一个常驻 npx。
+#
+# 为什么不是 `asyncio.Lock`：`_LoopBoundMixin` 会把锁绑定到**第一次争用**时的
+# 事件循环，之后换循环（Celery Worker 每个任务都新起循环）再争用就抛
+# "bound to a different event loop"。登记的 Future 天然属于发起者自己的循环，
+# 没有这个包袱。
+_inflight: dict[str, tuple[asyncio.AbstractEventLoop, asyncio.Future]] = {}
 
-async def _get_entry(spec: StdioSpec) -> _Entry:
+
+def _terminate_sync(client: StdioMCPClient) -> None:
+    """不经过事件循环终结子进程（供跨循环场景使用）。
+
+    `client.close()` 前半段是 async 的（`stdin.wait_closed()`），在已关闭的
+    旧循环上连调用都会抛 `Event loop is closed`。但进程对象本身还在，直接
+    用同步 API 发信号即可——这一步不需要循环。
+    """
+    process = getattr(client, "_process", None)
+    if process is None:
+        return
+    client._process = None  # type: ignore[attr-defined]
+    # 关掉 drain 任务：它绑在已死的循环上，只能取消，不能 await
+    task = getattr(client, "_stderr_task", None)
+    if task is not None:
+        task.cancel()
+        client._stderr_task = None  # type: ignore[attr-defined]
+    if process.returncode is None:
+        try:
+            process.terminate()
+        except (ProcessLookupError, OSError):
+            return
+        # 给一点时间自行退出；worker 是同步上下文，短暂阻塞可接受
+        deadline = time.monotonic() + 3.0
+        while process.returncode is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if process.returncode is None:
+            try:
+                process.kill()
+            except (ProcessLookupError, OSError):
+                pass
+
+
+def _drop_stale_entry(key: str) -> None:
+    """丢弃一个不可安全复用的条目（进程同步终结，不碰事件循环）。"""
+    entry = _entries.pop(key, None)
+    if entry is not None:
+        _terminate_sync(entry.client)
+
+
+async def _spawn_locked(spec: StdioSpec) -> _Entry:
+    """single-flight：同 key 并发首次访问只 spawn 一次，其余等这一次的结果。
+
+    `_entries` 的判空与写入之间夹着 `await client.__aenter__()`（真实 spawn，
+    npx 冷启动数秒），期间必然让出事件循环——没有这层保护就是 D5 的竞态。
+    """
+    loop = asyncio.get_running_loop()
+
     entry = _entries.get(spec.key)
     if entry is not None:
-        return entry
-    client = spec.client()
-    await client.__aenter__()
-    entry = _Entry(client=client, lock=asyncio.Lock())
-    _entries[spec.key] = entry
-    return entry
+        if entry.same_loop_as_current():
+            return entry
+        # 同 key 但绑在别的事件循环上：先同步终结再重建
+        _drop_stale_entry(spec.key)
+
+    pending = _inflight.get(spec.key)
+    if pending is not None:
+        pending_loop, fut = pending
+        if pending_loop is loop and not fut.done():
+            # 已有同循环的协程正在 spawn：等它，不重复起进程
+            await asyncio.shield(fut)
+            ready = _entries.get(spec.key)
+            if ready is not None and ready.same_loop_as_current():
+                return ready
+            # 对方建完又被清掉了（极罕见的并发 drop）：自己重来一次
+            return await _spawn_locked(spec)
+        # 属于已废弃的旧循环（永无协程来 await 它）：丢掉登记，自己起新的
+        _inflight.pop(spec.key, None)
+
+    fut = loop.create_future()
+    _inflight[spec.key] = (loop, fut)
+    try:
+        client = spec.client()
+        await client.__aenter__()
+        created = _Entry(client=client, lock=asyncio.Lock(), loop=loop)
+        _entries[spec.key] = created
+        if not fut.done():
+            fut.set_result(None)
+        return created
+    except BaseException as exc:
+        # 让等待者一起失败，而不是各自再 spawn 一遍
+        if not fut.done():
+            fut.set_exception(exc)
+            fut.exception()  # 取走异常，避免 "never retrieved" 噪音
+        raise
+    finally:
+        token = _inflight.get(spec.key)
+        if token is not None and token[1] is fut:
+            _inflight.pop(spec.key, None)
+
+
+async def _get_entry(spec: StdioSpec) -> _Entry:
+    return await _spawn_locked(spec)
 
 
 async def _drop_entry(spec: StdioSpec) -> None:
@@ -204,12 +309,36 @@ def build_stdio_client_factory(spec: StdioSpec):
 
 
 async def close_all() -> None:
-    """关闭所有常驻进程（worker 退出时调用，避免留下孤儿子进程）。"""
-    keys = list(_entries)
-    for key in keys:
+    """关闭所有常驻进程（worker 退出时调用，避免留下孤儿子进程）。
+
+    条目可能绑在**别的**事件循环上（Worker 里每条 Run 都起新循环），那种
+    情况下 `await client.close()` 会抛 `Event loop is closed`——所以按归属
+    分流：同循环的正常异步关闭，跨循环的走同步终结。
+    """
+    loop = asyncio.get_running_loop()
+    for key in list(_entries):
+        entry = _entries.pop(key, None)
+        if entry is None:
+            continue
+        if entry.loop is loop:
+            try:
+                await entry.client.close()
+            except (RuntimeError, OSError):
+                # 关闭途中的抖动不该拦住其余条目
+                _terminate_sync(entry.client)
+        else:
+            _terminate_sync(entry.client)
+    # 清掉可能残留的在途登记（它们属于已废弃的循环）
+    _inflight.clear()
+
+
+def close_all_sync() -> None:
+    """同步版本：供 Celery 信号处理器（无事件循环）调用。"""
+    for key in list(_entries):
         entry = _entries.pop(key, None)
         if entry is not None:
-            await entry.client.close()
+            _terminate_sync(entry.client)
+    _inflight.clear()
 
 
 def pool_size() -> int:

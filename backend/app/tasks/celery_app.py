@@ -3,7 +3,7 @@
 import redis
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import worker_process_init
+from celery.signals import worker_process_init, worker_process_shutdown
 
 from app.core.config import settings
 from app.core.log_setup import configure_logging
@@ -99,6 +99,30 @@ def _start_metrics_publisher(**_kwargs: object) -> None:
         )
 
     metrics.start_background_publisher(client_factory)
+
+
+@worker_process_shutdown.connect
+def _close_stdio_pool(**_kwargs: object) -> None:
+    """子进程退出前关掉常驻的 stdio MCP 进程，避免留下孤儿 npx。
+
+    `close_all` 的 docstring 早就承诺「worker 退出时调用」，但一直没有接线，
+    于是每次优雅重启都会攒下一批没人管的 `npx`。这里用**同步**版本：信号
+    处理器被调用时可能已经没有可用的事件循环（任务里的循环早关了），
+    而池里的条目也很可能绑在那些已关闭的循环上——异步 `close()` 会直接抛
+    `Event loop is closed`。
+    """
+    import structlog
+
+    log = structlog.get_logger(__name__)
+    try:
+        from app.executors.stdio_pool import close_all_sync, pool_size
+
+        size = pool_size()
+        close_all_sync()
+        if size:
+            log.info("stdio_pool_closed_on_shutdown", entries=size)
+    except Exception:  # 退出路径上的清理失败不该影响进程终止
+        log.warning("stdio_pool_close_failed", exc_info=True)
 
 
 celery_app.autodiscover_tasks(["app.tasks"])
