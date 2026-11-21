@@ -305,7 +305,9 @@ class ReActRunner:
         if not run_cost_micros and run.cost_cents:
             run_cost_micros = int(run.cost_cents) * 1_000_000
         start = time.monotonic()
-        tools = [executor.schema() for executor in self.executors.values()]
+        # 工具清单随执行变化：撤销授权会把执行器从 self.executors 里摘掉，
+        # 清单必须跟着更新，否则模型下一轮还在调一个已经禁用的工具。
+        self._tool_schemas = [executor.schema() for executor in self.executors.values()]
 
         while True:
             # 0. 取消检查（FR-018）：外部已取消则终止，不继续执行
@@ -344,7 +346,7 @@ class ReActRunner:
                 )
             started = time.monotonic()
             try:
-                resp = await self.llm.chat(messages, tools=tools or None)
+                resp = await self.llm.chat(messages, tools=self._tool_schemas or None)
             except LLMClientError:
                 # 006：已分类的 LLM 失败向上传播，由 `_execute` 决定「自动重试」
                 # 还是「终态」。在这里吞掉会让重试机制永远看不到原始异常——
@@ -417,354 +419,23 @@ class ReActRunner:
                 )
                 raise NeedsInput(message)
 
-            # 7. tool_call → 执行 → 回填
+            # 7. tool_call → 执行 → 回填（整段在 _execute_tool_calls 里）
             if resp.tool_calls:
-                for tc in resp.tool_calls:
-                    seq += 1
-                    tool_started = time.monotonic()
-                    executor = self.executors.get(tc.name)
-                    if (
-                        executor is not None
-                        and self.authorize_tool is not None
-                        and not await self.authorize_tool(tc.name)
-                    ):
-                        self.executors.pop(tc.name, None)
-                        tools = [item.schema() for item in self.executors.values()]
-                        executor = None
-                    sandbox_payload: dict[str, Any] | None = None
-                    sandbox_step_id: str | None = None
-                    external_step_id: str | None = None
-                    external_failure: ExternalToolExecutionError | None = None
-                    if executor is not None and getattr(
-                        executor, "is_external_tool", False
-                    ):
-                        external_step_id = str(uuid.uuid4())
-                        set_invocation_context = getattr(
-                            executor, "set_invocation_context", None
-                        )
-                        if callable(set_invocation_context):
-                            set_invocation_context(external_step_id)
-                        await publish_event(
-                            {
-                                "type": "external_tool_call_started",
-                                "step_seq": seq,
-                                "stable_name": tc.name,
-                                "version": getattr(executor, "version", None),
-                            }
-                        )
-                        if self.on_external_started is not None:
-                            # The invocation row is written with this step as its
-                            # foreign key, so the step must exist before the
-                            # executor runs -- same ordering as the sandbox path.
-                            await self.on_external_started(
-                                {
-                                    "run_id": run_id,
-                                    "step_seq": seq,
-                                    "step_id": external_step_id,
-                                    "stable_name": tc.name,
-                                    "version": getattr(executor, "version", None),
-                                }
-                            )
-                    denied = executor is None and tc.name in CATALOG
-                    if executor is None:
-                        if denied:
-                            denied_count += 1
-                            output = DeniedToolResult.build(
-                                tc.name, sorted(self.executors)
-                            )
-                        else:
-                            # 完全未知的工具名不是「越权」，保留旧的可读错误语义。
-                            output = {"error": f"未知工具 {tc.name}：执行器未注册"}
-                        tool_name = tc.name
-                        if denied:
-                            await publish_event(
-                                {
-                                    "type": "tool_denied",
-                                    "tool": tc.name,
-                                    "message": output["message"],
-                                }
-                            )
-                            if self.audit_denied is not None:
-                                await self.audit_denied(
-                                    {
-                                        "tool_name": tc.name,
-                                        "available_tools": sorted(self.executors),
-                                    }
-                                )
-                    else:
-                        # 沙箱执行在工作线程内轮询取消状态。通过线程安全桥接回当前
-                        # asyncio loop，确保运行中的容器也能响应 Run 取消，而非仅在
-                        # 下一轮 LLM 请求前取消。
-                        set_abort_check = getattr(executor, "set_abort_check", None)
-                        if callable(set_abort_check) and should_abort is not None:
-                            event_loop = asyncio.get_running_loop()
-
-                            async def cancellation_probe() -> bool:
-                                return await should_abort()
-
-                            def abort_from_worker(loop=event_loop) -> bool:
-                                try:
-                                    return bool(
-                                        asyncio.run_coroutine_threadsafe(
-                                            cancellation_probe(), loop
-                                        ).result(timeout=2)
-                                    )
-                                except (RuntimeError, TimeoutError):
-                                    # 取消状态检查失败时采取 fail-closed，避免孤儿容器。
-                                    return True
-
-                            set_abort_check(abort_from_worker)
-                        set_timeout_cap = getattr(executor, "set_timeout_cap", None)
-                        if callable(set_timeout_cap):
-                            remaining = max(
-                                0,
-                                int(self.timeout_seconds - (time.monotonic() - start)),
-                            )
-                            set_timeout_cap(remaining)
-                        prepare_execution = getattr(executor, "prepare_execution", None)
-                        if callable(prepare_execution):
-                            try:
-                                prepared = prepare_execution(tc.arguments)
-                            except TypeError:
-                                prepared = prepare_execution()
-                            if isinstance(prepared, tuple) and len(prepared) == 2:
-                                execution_id, limits = prepared
-                                sandbox_step_id = str(uuid.uuid4())
-                                if self.on_sandbox_started is not None:
-                                    await self.on_sandbox_started(
-                                        {
-                                            "run_id": run_id,
-                                            "execution_id": execution_id,
-                                            "step_seq": seq,
-                                            "step_id": sandbox_step_id,
-                                            "language": getattr(
-                                                executor, "language", "python"
-                                            ),
-                                            "limits": limits,
-                                            "code": tc.arguments.get(
-                                                getattr(
-                                                    executor, "argument_name", "code"
-                                                ),
-                                                "",
-                                            ),
-                                            "tool_name": tc.name,
-                                        }
-                                    )
-                        try:
-                            result = await executor.execute(tc.arguments)
-                            if isinstance(result, dict):
-                                raw_payload = result.pop("_sandbox_payload", None)
-                                if isinstance(raw_payload, dict):
-                                    sandbox_payload = raw_payload
-                                    sandbox_payload["artifacts"] = result.pop(
-                                        "_sandbox_artifacts",
-                                        sandbox_payload.get("artifacts", []),
-                                    )
-                                    sandbox_payload["artifact_truncated"] = result.pop(
-                                        "_sandbox_artifact_truncated",
-                                        sandbox_payload.get("artifact_truncated"),
-                                    )
-                                    sandbox_payload["egress_accesses"] = result.pop(
-                                        "_sandbox_egress_accesses",
-                                        sandbox_payload.get("egress_accesses", []),
-                                    )
-                                    sandbox_payload["policy_denied"] = bool(
-                                        result.pop(
-                                            "_sandbox_policy_denied",
-                                            sandbox_payload.get("policy_denied", False),
-                                        )
-                                    )
-                            output = _jsonable(result)
-                            if sandbox_payload is not None:
-                                sandbox_payload["_result"] = output
-                        except ExternalToolExecutionError as exc:
-                            external_failure = exc
-                            output = {
-                                "ok": False,
-                                "error_category": exc.category,
-                                "message": str(exc),
-                            }
-                        except Exception as exc:  # noqa: BLE001 - 工具异常转为可读 output.error
-                            output = {"error": f"工具 {tc.name} 执行失败: {exc}"}
-                        tool_name = tc.name
-
-                    tool_duration_ms = int((time.monotonic() - tool_started) * 1000)
-                    sandbox_step_summary = {
-                        key: output[key]
-                        for key in (
-                            "ok",
-                            "status",
-                            "error_category",
-                            "exit_code",
-                            "message",
-                            "duration_ms",
-                            "stdout_truncated",
-                            "stdout_full_bytes",
-                            "execution_id",
-                            "artifact_truncated",
-                            "policy_denied",
-                        )
-                        if sandbox_payload is not None and key in output
-                    }
-                    external_tool = bool(
-                        executor is not None
-                        and getattr(executor, "is_external_tool", False)
-                    )
-                    external_step_summary = {
-                        "status": external_failure.category
-                        if external_failure
-                        else "succeeded",
-                        "error_category": external_failure.category
-                        if external_failure
-                        else None,
-                        "result_truncated": bool(
-                            isinstance(output, dict) and output.get("result_truncated")
-                        ),
-                    }
-                    tool_step: dict[str, Any] = {
-                        "id": sandbox_step_id
-                        or external_step_id
-                        or (str(uuid.uuid4()) if sandbox_payload is not None else None),
-                        "seq": seq,
-                        "kind": "tool",
-                        "status": "failed"
-                        if denied or external_failure
-                        else "completed",
-                        "input": (
-                            {"execution_id": sandbox_payload["execution_id"]}
-                            if sandbox_payload is not None
-                            else {"argument_keys": sorted(tc.arguments)}
-                            if external_tool
-                            else tc.arguments
-                        ),
-                        "output": (
-                            sandbox_step_summary
-                            if sandbox_payload is not None
-                            else external_step_summary
-                            if external_tool
-                            else output
-                        ),
-                        "tool_name": tool_name,
-                        "cost_cents": 0,
-                        "duration_ms": tool_duration_ms,
-                    }
-                    await publish_event(
-                        {
-                            "type": "step_new",
-                            "step": {"seq": seq, "kind": "tool", "status": "running"},
-                        }
-                    )
-                    await save_step(tool_step)
-                    if (
-                        sandbox_payload is not None
-                        and self.on_sandbox_result is not None
-                    ):
-                        await self.on_sandbox_result(
-                            {
-                                "run_id": run_id,
-                                "step_seq": seq,
-                                "tool_name": tc.name,
-                                "step_id": tool_step["id"],
-                                "step": tool_step,
-                                "payload": sandbox_payload,
-                                "result": sandbox_payload.get("_result", output),
-                                "duration_ms": tool_duration_ms,
-                            }
-                        )
-                    await publish_event({"type": "step_update", "step": tool_step})
-                    if external_failure is not None:
-                        if external_failure.category == "policy_denied":
-                            await publish_event(
-                                {
-                                    "type": "external_tool_policy_denied",
-                                    "step_seq": seq,
-                                    "stable_name": tc.name,
-                                    "reason": "外部工具当前不可用",
-                                }
-                            )
-                        await publish_event(
-                            {
-                                "type": "external_tool_call_update",
-                                "step_seq": seq,
-                                "status": external_failure.category,
-                                "duration_ms": tool_duration_ms,
-                                "error_category": external_failure.category,
-                                "result_truncated": False,
-                            }
-                        )
-                        if external_failure.category == "cancelled":
-                            await _settle(
-                                RunStatus.CANCELLED, event_type="run_cancelled"
-                            )
-                            return run.status
-                        await _settle(
-                            RunStatus.FAILED,
-                            event_type="run_failed",
-                            error=f"外部工具调用失败（{external_failure.category}）",
-                        )
-                        return run.status
-
-                    if getattr(executor, "is_external_tool", False):
-                        await publish_event(
-                            {
-                                "type": "external_tool_call_update",
-                                "step_seq": seq,
-                                "status": (
-                                    "result_truncated"
-                                    if isinstance(output, dict)
-                                    and output.get("result_truncated")
-                                    else "succeeded"
-                                ),
-                                "duration_ms": tool_duration_ms,
-                                "error_category": None,
-                                "result_truncated": bool(
-                                    isinstance(output, dict)
-                                    and output.get("result_truncated")
-                                ),
-                            }
-                        )
-
-                    if not denied:
-                        denied_count = 0
-                    if denied and denied_count >= settings.tool_deny_threshold:
-                        await _settle(
-                            RunStatus.FAILED,
-                            event_type="run_failed",
-                            error=(
-                                f"工具越权调用连续达到 "
-                                f"{settings.tool_deny_threshold} 次，"
-                                "为安全起见已中止当前运行"
-                            ),
-                        )
-                        return run.status
-
-                    # 回填给 LLM（assistant tool_call + tool 结果）
-                    messages.append(
-                        {
-                            "role": "assistant",
-                            "content": resp.content or "",
-                            "tool_calls": [
-                                {
-                                    "id": f"call_{seq}",
-                                    "type": "function",
-                                    "function": {
-                                        "name": tc.name,
-                                        "arguments": json.dumps(
-                                            tc.arguments, ensure_ascii=False
-                                        ),
-                                    },
-                                }
-                            ],
-                        }
-                    )
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": f"call_{seq}",
-                            "name": tc.name,
-                            "content": json.dumps(output, ensure_ascii=False),
-                        }
-                    )
+                terminal, seq, denied_count = await self._execute_tool_calls(
+                    resp=resp,
+                    run=run,
+                    run_id=run_id,
+                    messages=messages,
+                    seq=seq,
+                    denied_count=denied_count,
+                    start=start,
+                    save_step=save_step,
+                    publish_event=publish_event,
+                    settle=_settle,
+                    should_abort=should_abort,
+                )
+                if terminal is not None:
+                    return terminal
                 continue
 
             # 8. final：产出最终结果
@@ -794,3 +465,379 @@ class ReActRunner:
                 result=run.result,
             )
             return run.status
+
+    async def _execute_tool_calls(
+        self,
+        *,
+        resp: Any,
+        run: RunLike,
+        run_id: str,
+        messages: list[dict[str, Any]],
+        seq: int,
+        denied_count: int,
+        start: float,
+        save_step: StepSink,
+        publish_event: EventSink,
+        settle: Any,
+        should_abort: Callable[[], Awaitable[bool]] | None,
+    ) -> tuple[str, int, int] | tuple[None, int, int]:
+        """执行一轮 tool_calls：分派、持久化、回填消息（R4 从 `run()` 抽出）。
+
+        原先这 347 行嵌在 `run()` 的循环里，与 LLM 调用、超时/成本熔断、上下文
+        裁剪、final 落库挤在同一个函数体（580 行），改任何一处都要通读全文。
+
+        **返回 `(terminal_status, seq, denied_count)`**：
+
+        - `terminal_status` 非 None 表示这一轮就终结了 Run（外部工具失败/取消、
+          越权阈值熔断）。调用方拿到后直接 `return run.status`——原来那是
+          `return` 语句，抽成方法后不能再从内部返回外层函数。
+        - 正常跑完返回 None，由调用方 `continue` 进下一轮 LLM。
+
+        **`seq` / `denied_count` 必须回传**：它们是跨轮次的累积量。`seq` 是全局
+        单调步骤序号（LLM/tool/final 共用，续写时从历史最大 seq 起算），
+        `denied_count` 是越权连续计数（被成功调用清零）。留在局部变量里弹出
+        方法就等于每轮重新开始计数 —— 熔断永不触发，且没有任何测试会因为
+        「返回值少了」而失败。
+
+        `messages` 反过来是**原地修改**不用回传：这个列表就是对话历史本身，
+        调用方和本方法持有的是同一个对象。回传反而制造「两份历史」的错觉。
+        """
+
+        for tc in resp.tool_calls:
+            seq += 1
+            tool_started = time.monotonic()
+            executor = self.executors.get(tc.name)
+            if (
+                executor is not None
+                and self.authorize_tool is not None
+                and not await self.authorize_tool(tc.name)
+            ):
+                self.executors.pop(tc.name, None)
+                # 立刻从「下一轮」的工具清单里摘掉。
+                # 原来这里算出的 tools 赋给的是一个再也不会被读的局部变量
+                # （tools 只在 while 循环之前算过一次），所以撤销授权后模型
+                # 下一轮仍拿到旧清单、继续尝试调用，只能靠越权熔断兜底。
+                # 改成写 `self._tool_schemas`，由循环每轮重新读取。
+                self._tool_schemas = [item.schema() for item in self.executors.values()]
+                executor = None
+            sandbox_payload: dict[str, Any] | None = None
+            sandbox_step_id: str | None = None
+            external_step_id: str | None = None
+            external_failure: ExternalToolExecutionError | None = None
+            if executor is not None and getattr(executor, "is_external_tool", False):
+                external_step_id = str(uuid.uuid4())
+                set_invocation_context = getattr(
+                    executor, "set_invocation_context", None
+                )
+                if callable(set_invocation_context):
+                    set_invocation_context(external_step_id)
+                await publish_event(
+                    {
+                        "type": "external_tool_call_started",
+                        "step_seq": seq,
+                        "stable_name": tc.name,
+                        "version": getattr(executor, "version", None),
+                    }
+                )
+                if self.on_external_started is not None:
+                    # The invocation row is written with this step as its
+                    # foreign key, so the step must exist before the
+                    # executor runs -- same ordering as the sandbox path.
+                    await self.on_external_started(
+                        {
+                            "run_id": run_id,
+                            "step_seq": seq,
+                            "step_id": external_step_id,
+                            "stable_name": tc.name,
+                            "version": getattr(executor, "version", None),
+                        }
+                    )
+            denied = executor is None and tc.name in CATALOG
+            if executor is None:
+                if denied:
+                    denied_count += 1
+                    output = DeniedToolResult.build(tc.name, sorted(self.executors))
+                else:
+                    # 完全未知的工具名不是「越权」，保留旧的可读错误语义。
+                    output = {"error": f"未知工具 {tc.name}：执行器未注册"}
+                tool_name = tc.name
+                if denied:
+                    await publish_event(
+                        {
+                            "type": "tool_denied",
+                            "tool": tc.name,
+                            "message": output["message"],
+                        }
+                    )
+                    if self.audit_denied is not None:
+                        await self.audit_denied(
+                            {
+                                "tool_name": tc.name,
+                                "available_tools": sorted(self.executors),
+                            }
+                        )
+            else:
+                # 沙箱执行在工作线程内轮询取消状态。通过线程安全桥接回当前
+                # asyncio loop，确保运行中的容器也能响应 Run 取消，而非仅在
+                # 下一轮 LLM 请求前取消。
+                set_abort_check = getattr(executor, "set_abort_check", None)
+                if callable(set_abort_check) and should_abort is not None:
+                    event_loop = asyncio.get_running_loop()
+
+                    async def cancellation_probe() -> bool:
+                        return await should_abort()
+
+                    def abort_from_worker(loop=event_loop) -> bool:
+                        try:
+                            return bool(
+                                asyncio.run_coroutine_threadsafe(
+                                    cancellation_probe(), loop
+                                ).result(timeout=2)
+                            )
+                        except (RuntimeError, TimeoutError):
+                            # 取消状态检查失败时采取 fail-closed，避免孤儿容器。
+                            return True
+
+                    set_abort_check(abort_from_worker)
+                set_timeout_cap = getattr(executor, "set_timeout_cap", None)
+                if callable(set_timeout_cap):
+                    remaining = max(
+                        0,
+                        int(self.timeout_seconds - (time.monotonic() - start)),
+                    )
+                    set_timeout_cap(remaining)
+                prepare_execution = getattr(executor, "prepare_execution", None)
+                if callable(prepare_execution):
+                    try:
+                        prepared = prepare_execution(tc.arguments)
+                    except TypeError:
+                        prepared = prepare_execution()
+                    if isinstance(prepared, tuple) and len(prepared) == 2:
+                        execution_id, limits = prepared
+                        sandbox_step_id = str(uuid.uuid4())
+                        if self.on_sandbox_started is not None:
+                            await self.on_sandbox_started(
+                                {
+                                    "run_id": run_id,
+                                    "execution_id": execution_id,
+                                    "step_seq": seq,
+                                    "step_id": sandbox_step_id,
+                                    "language": getattr(executor, "language", "python"),
+                                    "limits": limits,
+                                    "code": tc.arguments.get(
+                                        getattr(executor, "argument_name", "code"),
+                                        "",
+                                    ),
+                                    "tool_name": tc.name,
+                                }
+                            )
+                try:
+                    result = await executor.execute(tc.arguments)
+                    if isinstance(result, dict):
+                        raw_payload = result.pop("_sandbox_payload", None)
+                        if isinstance(raw_payload, dict):
+                            sandbox_payload = raw_payload
+                            sandbox_payload["artifacts"] = result.pop(
+                                "_sandbox_artifacts",
+                                sandbox_payload.get("artifacts", []),
+                            )
+                            sandbox_payload["artifact_truncated"] = result.pop(
+                                "_sandbox_artifact_truncated",
+                                sandbox_payload.get("artifact_truncated"),
+                            )
+                            sandbox_payload["egress_accesses"] = result.pop(
+                                "_sandbox_egress_accesses",
+                                sandbox_payload.get("egress_accesses", []),
+                            )
+                            sandbox_payload["policy_denied"] = bool(
+                                result.pop(
+                                    "_sandbox_policy_denied",
+                                    sandbox_payload.get("policy_denied", False),
+                                )
+                            )
+                    output = _jsonable(result)
+                    if sandbox_payload is not None:
+                        sandbox_payload["_result"] = output
+                except ExternalToolExecutionError as exc:
+                    external_failure = exc
+                    output = {
+                        "ok": False,
+                        "error_category": exc.category,
+                        "message": str(exc),
+                    }
+                except Exception as exc:  # noqa: BLE001 - 工具异常转为可读 output.error
+                    output = {"error": f"工具 {tc.name} 执行失败: {exc}"}
+                tool_name = tc.name
+
+            tool_duration_ms = int((time.monotonic() - tool_started) * 1000)
+            sandbox_step_summary = {
+                key: output[key]
+                for key in (
+                    "ok",
+                    "status",
+                    "error_category",
+                    "exit_code",
+                    "message",
+                    "duration_ms",
+                    "stdout_truncated",
+                    "stdout_full_bytes",
+                    "execution_id",
+                    "artifact_truncated",
+                    "policy_denied",
+                )
+                if sandbox_payload is not None and key in output
+            }
+            external_tool = bool(
+                executor is not None and getattr(executor, "is_external_tool", False)
+            )
+            external_step_summary = {
+                "status": external_failure.category
+                if external_failure
+                else "succeeded",
+                "error_category": external_failure.category
+                if external_failure
+                else None,
+                "result_truncated": bool(
+                    isinstance(output, dict) and output.get("result_truncated")
+                ),
+            }
+            tool_step: dict[str, Any] = {
+                "id": sandbox_step_id
+                or external_step_id
+                or (str(uuid.uuid4()) if sandbox_payload is not None else None),
+                "seq": seq,
+                "kind": "tool",
+                "status": "failed" if denied or external_failure else "completed",
+                "input": (
+                    {"execution_id": sandbox_payload["execution_id"]}
+                    if sandbox_payload is not None
+                    else {"argument_keys": sorted(tc.arguments)}
+                    if external_tool
+                    else tc.arguments
+                ),
+                "output": (
+                    sandbox_step_summary
+                    if sandbox_payload is not None
+                    else external_step_summary
+                    if external_tool
+                    else output
+                ),
+                "tool_name": tool_name,
+                "cost_cents": 0,
+                "duration_ms": tool_duration_ms,
+            }
+            await publish_event(
+                {
+                    "type": "step_new",
+                    "step": {"seq": seq, "kind": "tool", "status": "running"},
+                }
+            )
+            await save_step(tool_step)
+            if sandbox_payload is not None and self.on_sandbox_result is not None:
+                await self.on_sandbox_result(
+                    {
+                        "run_id": run_id,
+                        "step_seq": seq,
+                        "tool_name": tc.name,
+                        "step_id": tool_step["id"],
+                        "step": tool_step,
+                        "payload": sandbox_payload,
+                        "result": sandbox_payload.get("_result", output),
+                        "duration_ms": tool_duration_ms,
+                    }
+                )
+            await publish_event({"type": "step_update", "step": tool_step})
+            if external_failure is not None:
+                if external_failure.category == "policy_denied":
+                    await publish_event(
+                        {
+                            "type": "external_tool_policy_denied",
+                            "step_seq": seq,
+                            "stable_name": tc.name,
+                            "reason": "外部工具当前不可用",
+                        }
+                    )
+                await publish_event(
+                    {
+                        "type": "external_tool_call_update",
+                        "step_seq": seq,
+                        "status": external_failure.category,
+                        "duration_ms": tool_duration_ms,
+                        "error_category": external_failure.category,
+                        "result_truncated": False,
+                    }
+                )
+                if external_failure.category == "cancelled":
+                    await settle(RunStatus.CANCELLED, event_type="run_cancelled")
+                    return run.status, seq, denied_count
+                await settle(
+                    RunStatus.FAILED,
+                    event_type="run_failed",
+                    error=f"外部工具调用失败（{external_failure.category}）",
+                )
+                return run.status, seq, denied_count
+
+            if getattr(executor, "is_external_tool", False):
+                await publish_event(
+                    {
+                        "type": "external_tool_call_update",
+                        "step_seq": seq,
+                        "status": (
+                            "result_truncated"
+                            if isinstance(output, dict)
+                            and output.get("result_truncated")
+                            else "succeeded"
+                        ),
+                        "duration_ms": tool_duration_ms,
+                        "error_category": None,
+                        "result_truncated": bool(
+                            isinstance(output, dict) and output.get("result_truncated")
+                        ),
+                    }
+                )
+
+            if not denied:
+                denied_count = 0
+            if denied and denied_count >= settings.tool_deny_threshold:
+                await settle(
+                    RunStatus.FAILED,
+                    event_type="run_failed",
+                    error=(
+                        f"工具越权调用连续达到 "
+                        f"{settings.tool_deny_threshold} 次，"
+                        "为安全起见已中止当前运行"
+                    ),
+                )
+                return run.status, seq, denied_count
+
+            # 回填给 LLM（assistant tool_call + tool 结果）
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": resp.content or "",
+                    "tool_calls": [
+                        {
+                            "id": f"call_{seq}",
+                            "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": json.dumps(
+                                    tc.arguments, ensure_ascii=False
+                                ),
+                            },
+                        }
+                    ],
+                }
+            )
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": f"call_{seq}",
+                    "name": tc.name,
+                    "content": json.dumps(output, ensure_ascii=False),
+                }
+            )
+        # 正常跑完：没有终结，交给调用方 continue 进下一轮 LLM。
+        # seq / denied_count 必须带回去——它们是跨轮次的累积量，留在这里
+        # 就等于每轮重新开始计数。
+        return None, seq, denied_count

@@ -54,11 +54,16 @@ class FakeLLM:
     def __init__(self, responses: list[FakeLLMResponse]):
         self.responses = list(responses)
         self.calls: list[list[dict[str, Any]]] = []
+        # 记录每次收到的 tools 参数：撤销授权后清单是否刷新只能从这里看。
+        # 另开一个列表而不是往 messages 里塞伪元素——后者会污染所有既有
+        # 断言 `llm.calls[n][-1]` 的用例。
+        self.tools_calls: list[list[dict[str, Any]] | None] = []
 
     async def chat(
         self, messages: list[dict[str, Any]], **kwargs: Any
     ) -> FakeLLMResponse:
         self.calls.append(messages)
+        self.tools_calls.append(kwargs.get("tools"))
         if not self.responses:
             raise RuntimeError("脚本耗尽：测试预期之外的 LLM 调用")
         return self.responses.pop(0)
@@ -698,3 +703,70 @@ async def test_deny_counter_is_per_run_not_global(monkeypatch):
     )
     runner2, run2, sink2 = _make_runner(llm2, executors={})
     assert await _run(runner2, run2, sink2) == RunStatus.COMPLETED.value
+
+
+# ---------- 撤销授权立即生效 ----------
+
+
+class _CountingExecutor(FakeExecutor):
+    """可被撤销的执行器：模拟「运行中授权被改掉」。"""
+
+    def __init__(self, name: str):
+        super().__init__(f"{name} 结果")
+        self.name = name
+        self.execute_count = 0
+
+    def schema(self) -> dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.name,
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+
+    async def execute(self, arguments: dict[str, Any]) -> FakeExecutorResult:
+        self.execute_count += 1
+        return await super().execute(arguments)
+
+
+async def test_revoked_tool_disappears_from_the_next_llm_tool_list():
+    """撤销授权后，下一轮 LLM 的工具清单里不能再有它。
+
+    这条对应一个真实缺陷：`authorize_tool` 每次调用前会实时复核，撤销后
+    执行器被摘下，但当时算出的工具清单赋给了一个再也不会被读的局部变量
+    （清单只在 while 循环之前算过一次）。结果是模型下一轮仍拿到旧清单、
+    继续尝试调用一个已禁用的工具，只能靠越权熔断兜底。
+
+    断言的是**第二次 LLM 调用收到的 tools**——这正是原来漏掉的地方。
+    """
+    a, b = _CountingExecutor("tool_a"), _CountingExecutor("tool_b")
+    checked = {"tool_a": 0}
+
+    async def authorize(name: str) -> bool:
+        # 第一次放行 tool_a（让它真的跑一次），之后一律拒绝——模拟运行中
+        # 授权被管理员撤销。撤回点卡在「第二次复核」，不是 execute 之后：
+        # authorize 在 execute 之前调用，放在后面就永远测不到撤下清单那行。
+        checked[name] = checked.get(name, 0) + 1
+        return not (name == "tool_a" and checked[name] > 1)
+
+    # 模型**连续两轮**都调 tool_a：第二轮才触发复核被拒（撤下清单），
+    # 第三轮的 LLM 调用才是「撤下之后」的清单。
+    llm = FakeLLM(
+        [
+            FakeLLMResponse(tool_calls=[FakeToolCall("tool_a", {})]),
+            FakeLLMResponse(tool_calls=[FakeToolCall("tool_a", {})]),
+            FakeLLMResponse(content="完成"),
+        ]
+    )
+    runner, run, sink = _make_runner(llm, executors={"tool_a": a, "tool_b": b})
+    runner.authorize_tool = authorize
+
+    assert await _run(runner, run, sink) == RunStatus.COMPLETED.value
+
+    first_tools = [t["function"]["name"] for t in llm.tools_calls[0]]
+    after_revoke = [t["function"]["name"] for t in llm.tools_calls[2]]
+    assert set(first_tools) == {"tool_a", "tool_b"}
+    assert "tool_a" not in after_revoke, "撤销后仍在清单里 → 模型会继续尝试调用"
+    assert "tool_b" in after_revoke
