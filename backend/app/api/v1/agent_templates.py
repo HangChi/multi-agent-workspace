@@ -36,12 +36,8 @@ router = APIRouter(prefix="/agent-templates", tags=["agent-templates"])
 
 
 def _out(template: AgentTemplate) -> AgentTemplateOut:
-    response = AgentTemplateOut.model_validate(template)
-    response.is_builtin = template.owner_id is None
-    # 023：内置模板对所有成员可用，语义上就是 team（不落库，派生）
-    if response.is_builtin:
-        response.visibility = "team"
-    return response
+    """派生字段（is_builtin / visibility）在 service 里算，端点不重复推理（R5）。"""
+    return agent_template_service.to_out(template)
 
 
 @router.get("", response_model=AgentTemplateList)

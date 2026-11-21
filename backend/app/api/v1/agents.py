@@ -301,9 +301,7 @@ async def save_agent_as_template(
         strict=True,
     )
     await db.commit()
-    out = AgentTemplateOut.model_validate(template)
-    out.is_builtin = False
-    return out
+    return agent_template_service.to_out(template)
 
 
 @router.delete("/{agent_id}", status_code=204)

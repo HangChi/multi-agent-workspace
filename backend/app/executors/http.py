@@ -12,6 +12,7 @@ import httpx
 
 from app.executors.base import ToolExecutor
 from app.executors.calc import CalculateExecutor
+from app.executors.catalog import to_openai_schema
 from app.executors.read_url import ReadUrlExecutor
 
 
@@ -25,23 +26,8 @@ class WebSearchExecutor(ToolExecutor):
     name = "web_search"
 
     def schema(self) -> dict[str, Any]:
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": "联网搜索公开信息，返回相关结果列表。用于需要最新事实、外部数据的场景。",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "搜索关键词（中文/英文均可）",
-                        }
-                    },
-                    "required": ["query"],
-                },
-            },
-        }
+        """工具 schema 从 catalog 派生（R5），理由同 `read_url.schema()`。"""
+        return to_openai_schema(self.name) or {}
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
         query = arguments.get("query", "")

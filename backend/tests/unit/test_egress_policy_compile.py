@@ -8,7 +8,10 @@
 - 命令是完全参数化的（`list[list[str]]`），绝不拼 shell 字符串（防注入）
 - 端口/目标/TargetType 的每一种非法输入都变成 NetworkPolicyError，而不是
   生成一条语义不对的规则
-- conntrack / 抓包解析只认「由沙箱发起」的方向，不计入回包
+- 抓包解析只认「由沙箱发起」的方向，不计入回包
+
+（R5 删掉了 conntrack 快照解析：运行时按包抓取走 `parse_packet_output`，
+`conntrack -L` 那条路径从未接上，连同 5 条测试一起移除。）
 """
 
 import ipaddress
@@ -25,10 +28,23 @@ from app.executors.egress_network import (
     _protocol_guard,
     _rule_target,
     _rule_view,
-    compile_iptables_commands,
-    parse_conntrack_output,
+    compile_runtime_commands,
     validate_execution_id,
 )
+
+# 运行时只调用 `compile_runtime_commands`（返回 install + cleanup 两段）。
+# 这些用例只关心 install 段（规则本身对不对），所以包一层取第一段。
+# 之前它们直接调 `compile_iptables_commands`——那个包装是测试专用的，
+# 于是 11 条 iptables 断言全在测一个生产代码不走的函数，真正的运行时函数
+# 零覆盖。R5 让测试改走真函数，包装删掉。
+_FIXED_EXECUTION_ID = "f4e784e5-1dd9-4ae1-84ad-a0c66bdb761a"
+
+
+def compile_install(**kwargs) -> list[list[str]]:
+    install, _cleanup = compile_runtime_commands(
+        execution_id=_FIXED_EXECUTION_ID, **kwargs
+    )
+    return install
 
 
 def _rule(
@@ -138,7 +154,7 @@ def test_rule_view_rejects_malformed_snapshot():
 
 
 def test_compile_is_parameterized_not_shell_string():
-    commands = compile_iptables_commands(
+    commands = compile_install(
         bridge="br-abc123",
         dns_proxy_ip="172.30.0.2",
         mode="restricted",
@@ -172,7 +188,7 @@ def _v4_forward_chain(commands: list[list[str]]) -> list[str]:
 
 def test_compile_default_mode_is_blacklist_then_allow_all():
     """default 模式语义：先按黑名单 DROP，再兜底 ACCEPT（不逐条展开规则）。"""
-    commands = compile_iptables_commands(
+    commands = compile_install(
         bridge="br-abc123",
         dns_proxy_ip="172.30.0.2",
         mode="default",
@@ -203,7 +219,7 @@ def test_compile_default_mode_is_blacklist_then_allow_all():
 
 
 def test_compile_restricted_mode_emits_per_rule_and_final_drop():
-    commands = compile_iptables_commands(
+    commands = compile_install(
         bridge="br-abc123",
         dns_proxy_ip="172.30.0.2",
         mode="restricted",
@@ -222,7 +238,7 @@ def test_compile_restricted_mode_emits_per_rule_and_final_drop():
 
 def test_compile_rejects_non_docker_bridge():
     with pytest.raises(NetworkPolicyError):
-        compile_iptables_commands(
+        compile_install(
             bridge="docker0",
             dns_proxy_ip="172.30.0.2",
             mode="default",
@@ -230,76 +246,6 @@ def test_compile_rejects_non_docker_bridge():
             agent_rules=[],
             builtin_blacklist=[],
         )
-
-
-# ---------- conntrack 解析 ----------
-
-
-def _conntrack_line(
-    src, sport, dst, dport, *, proto="tcp", flags="[NEW]", cid=7, bytes_=None
-):
-    line = f"{proto} 6 120 {flags} src={src} dst={dst} sport={sport} dport={dport}"
-    line += f" packets=3 bytes={bytes_}" if bytes_ else " packets=3 bytes=120"
-    return f"    [{cid}] {line}"
-
-
-def test_conntrack_keeps_original_direction_only():
-    """回包方向（src 不是沙箱）不能计入出站事实。"""
-    out = (
-        _conntrack_line("10.0.0.5", 41234, "93.184.216.34", 443)
-        + "\n"
-        + _conntrack_line("93.184.216.34", 443, "10.0.0.5", 41234)
-    )
-
-    records = parse_conntrack_output(out, source_ip="10.0.0.5")
-
-    assert len(records) == 1
-    assert records[0]["target_ip"] == "93.184.216.34"
-    assert records[0]["port"] == 443
-    assert records[0]["protocol"] == "tcp"
-    assert records[0]["action"] == "allow"
-
-
-def test_conntrack_update_accumulates_bytes_and_destroy_closes():
-    out = "\n".join(
-        [
-            _conntrack_line("10.0.0.5", 41234, "1.1.1.1", 80, bytes_=100),
-            _conntrack_line(
-                "10.0.0.5", 41234, "1.1.1.1", 80, flags="[UPDATE]", bytes_=500
-            ),
-            _conntrack_line(
-                "10.0.0.5", 41234, "1.1.1.1", 80, flags="[DESTROY]", bytes_=900
-            ),
-        ]
-    )
-
-    records = parse_conntrack_output(out, source_ip="10.0.0.5")
-
-    assert len(records) == 1
-    assert records[0]["bytes_out"] == 900
-
-
-def test_conntrack_new_after_destroy_starts_new_record():
-    """同一五元组复用（端口回收）必须是两条事实，不能被合并成一条。"""
-    out = "\n".join(
-        (
-            _conntrack_line("10.0.0.5", 5000, "1.1.1.1", 80, bytes_=10),
-            _conntrack_line("10.0.0.5", 5000, "1.1.1.1", 80, flags="[DESTROY]"),
-            _conntrack_line("10.0.0.5", 5000, "1.1.1.1", 80, bytes_=20),
-        )
-    )
-
-    assert len(parse_conntrack_output(out, source_ip="10.0.0.5")) == 2
-
-
-def test_conntrack_ignores_unparsable_lines():
-    out = "garbage line\ntcp 6 120 [NEW] src=bad dst=1.1.1.1 sport=1 dport=2"
-    assert parse_conntrack_output(out, source_ip="10.0.0.5") == []
-
-
-def test_conntrack_accepts_bytes_input():
-    out = _conntrack_line("10.0.0.5", 5000, "1.1.1.1", 80).encode()
-    assert len(parse_conntrack_output(out, source_ip="10.0.0.5")) == 1
 
 
 # ---------- DNS 日志 → IP/域名映射 ----------

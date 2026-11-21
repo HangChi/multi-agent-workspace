@@ -45,7 +45,8 @@ async def create_project(
         strict=True,
     )
     await db.commit()
-    return ProjectOut.model_validate(project).model_copy(update={"request_count": 0})
+    # 新项目必然只有 owner 一个参与者（member_count 默认 1），无需求
+    return ProjectOut.from_model(project)
 
 
 @router.get("", response_model=ProjectList)
@@ -87,12 +88,11 @@ async def list_projects(
     )
     return {
         "items": [
-            ProjectOut.model_validate(p).model_copy(
-                update={
-                    "request_count": count,
-                    # 含 owner（+1）——「这个项目有几个人」的自然口径
-                    "member_count": member_counts.get(p.id, 0) + 1,
-                }
+            ProjectOut.from_model(
+                p,
+                request_count=count,
+                # 含 owner（+1）——「这个项目有几个人」的自然口径
+                member_count=member_counts.get(p.id, 0) + 1,
             )
             for p, count in rows
         ],
@@ -108,8 +108,8 @@ async def get_project(
     project, count, member_count = await project_service.get_project(
         db, project_id, user.id
     )
-    return ProjectOut.model_validate(project).model_copy(
-        update={"request_count": count, "member_count": member_count}
+    return ProjectOut.from_model(
+        project, request_count=count, member_count=member_count
     )
 
 
@@ -136,8 +136,8 @@ async def update_project(
     )
     await db.commit()
     _, count, member_count = await project_service.get_project(db, project.id, user.id)
-    return ProjectOut.model_validate(project).model_copy(
-        update={"request_count": count, "member_count": member_count}
+    return ProjectOut.from_model(
+        project, request_count=count, member_count=member_count
     )
 
 
@@ -180,8 +180,8 @@ async def transfer_project(
     _, count, member_count = await project_service.get_project(
         db, project_id, new_owner_id
     )
-    return ProjectOut.model_validate(project).model_copy(
-        update={"request_count": count, "member_count": member_count}
+    return ProjectOut.from_model(
+        project, request_count=count, member_count=member_count
     )
 
 

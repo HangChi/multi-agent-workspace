@@ -55,6 +55,30 @@ class ProjectOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @classmethod
+    def from_model(
+        cls,
+        project: object,
+        *,
+        request_count: int = 0,
+        member_count: int = 1,
+    ) -> "ProjectOut":
+        """由 ORM 行 + 两个计数字段构造响应（R5）。
+
+        此前 4 个端点各写一遍
+        `ProjectOut.model_validate(p).model_copy(update={...})`，计数字段的
+        默认值靠人记：新建项目传 `request_count=0`，列表传 `member_rows + 1`
+        （+1 是 owner），详情/改/移交传 service 算好的值。哪里忘了带
+        `member_count` 就用默认值 1 —— 而 1 恰好是「只有 owner」这个合法值，
+        错了也看不出来。
+
+        收敛成一处后，「含 owner 的 +1」只在 `project_member_service.member_count`
+        与这里两处出现，且后者由前者喂值。
+        """
+        return cls.model_validate(project).model_copy(
+            update={"request_count": request_count, "member_count": member_count}
+        )
+
 
 class ProjectList(BaseModel):
     items: list[ProjectOut]

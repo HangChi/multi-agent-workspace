@@ -1,7 +1,13 @@
-"""API 依赖注入：JWT 用户解析、角色权限、资源归属校验。"""
+"""API 依赖注入：JWT 用户解析、角色权限、资源 id 校验。
+
+R5 删除了 `get_owned_resource`：它把「资源存在 + 归属即访问权」收在一处，
+但 016/018 之后它已经没有任何生产调用方——需求的访问权是「创建者 ∪ 接收人
+∪ 项目参与者」，Agent 走 `agent_service.get_agent`，两者都用不上它。
+留着它的成本是**误导**：新端点会以为「归属即访问权」是通用约定而套上去，
+结果把接收人/项目成员拦在门外。"""
 
 import uuid
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -61,29 +67,6 @@ def require_role(*roles: str):
         return user
 
     return _checker
-
-
-async def get_owned_resource(
-    model: type[Any], resource_id: str, user: CurrentUser, db: DB
-) -> Any:
-    """资源归属校验：资源必须存在且 owner 是当前用户。
-
-    **016：非 owner 回 404，不再是 403。** 此前这里回 403，与「资源不存在」的
-    404 形成可枚举差异（403 = 存在但不归你）。保留这个工具函数是因为它把
-    「先查存在、再判归属、两种情况同响应」这一串判断收在一处，新端点直接复用
-    比每次手写更容易保持一致。
-
-    注意：本函数只适用于「归属即访问权」的资源（Agent / 组 / 模板等）。
-    需求的访问权是「创建者 ∪ 接收人 ∪ 项目成员」，用它会把接收人拦掉，
-    那类端点走 `request_service.get_request`。
-    """
-    resource: Any = await db.get(model, resource_id)
-    if resource is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="资源不存在")
-    if getattr(resource, "owner_id", None) != user.id:
-        # 与「不存在」同响应：detail 必须一致，否则 message 自身泄露存在性
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="资源不存在")
-    return resource
 
 
 def _resource_id(value: str) -> str:

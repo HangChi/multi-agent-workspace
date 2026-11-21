@@ -15,7 +15,7 @@
 import asyncio
 import re
 from collections.abc import Awaitable, Callable
-from typing import Any, ClassVar
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -29,6 +29,7 @@ from app.core.net_guard import (
     resolve_public_hosts as _resolve_public_hosts,
 )
 from app.executors.base import ToolExecutor
+from app.executors.catalog import to_openai_schema
 
 _MAX_BYTES = 2 * 1024 * 1024
 _MAX_TEXT_CHARS = 8000
@@ -137,26 +138,6 @@ class ReadUrlExecutor(ToolExecutor):
     """read_url：抓取网页并返回正文文本。"""
 
     name = "read_url"
-    _SCHEMA: ClassVar[dict[str, Any]] = {
-        "type": "function",
-        "function": {
-            "name": "read_url",
-            "description": (
-                "读取指定网页的正文内容（纯文本）。用于需要原文细节、"
-                "而搜索摘要不够的场景。仅支持公网 http/https 地址。"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "完整网址，如 https://example.com/post",
-                    }
-                },
-                "required": ["url"],
-            },
-        },
-    }
 
     def __init__(
         self,
@@ -172,7 +153,15 @@ class ReadUrlExecutor(ToolExecutor):
         self._resolver = resolver or resolve_public_hosts
 
     def schema(self) -> dict[str, Any]:
-        return self._SCHEMA
+        """工具 schema 从 catalog 派生（R5）。
+
+        此前这里手写了一份与 `catalog.CATALOG["read_url"]` 逐字相同的字面量，
+        `tests/unit/test_catalog.py` 靠「两份比对」来防漂移。但「两份相同的东西
+        比对通过」只能证明这一刻没漂移，改的时候仍然要改两处。改成单一来源后，
+        比对测试退化成恒真——所以那组断言改为验证「执行器 schema 就是
+        catalog 派生出来的那个对象」，而不是允许两份各自演进。
+        """
+        return to_openai_schema(self.name) or {}
 
     def _new_client(self) -> httpx.AsyncClient:
         """每跳一个客户端：不复用连接。

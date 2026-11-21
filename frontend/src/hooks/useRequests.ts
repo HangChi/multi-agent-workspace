@@ -1,44 +1,32 @@
 /** 需求数据 hook（T058 + 007）：分配乐观更新 + 失败回滚 + 错误提示。
  *
  * 007 变化：
- * - useRequests 支持 scope（relevant 默认 / mine）——「与我相关」是看板的
- *   默认视图，分派给我的需求与自己的需求在同一块板子上；
  * - useAssignRequest 同时处理两种落点：拖 Agent/组（建 Run，乐观 assigned）
  *   与拖员工（仅转交，乐观 pending）；后者没有 run_id 可记。
  * - 新增 useAcceptRequest / useRejectRequest（收件箱动作）。
+ *
+ * R5 删掉了两个零调用点的 hook，原因不同，都记在这里免得被「顺手加回来」：
+ *
+ * - `useRequests`：它用 `queryKey: ['requests', scope]`（两段），而看板实际用
+ *   `['requests', scope, project]`（三段，含项目筛选）。两者 key 不同 = 两份独立
+ *   缓存。谁把它接到看板上，项目筛选立刻串台：切了项目筛选，读到的还是不带
+ *   筛选的那份缓存，看起来像「筛选没生效」。看板自己在 BoardPage 里发请求。
+ * - `useUnreadCount`：铃铛（`NotificationBell`）自己要的是 `isLoading` 与
+ *   `refetch`，这个 hook 只返回 `unread` + `invalidate`，所以当时没接上。
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { extractError } from '../api/client'
 import {
   acceptRequest,
   assignRequest,
   AssignRequestPayload,
-  fetchRequests,
-  fetchUnreadCount,
   isDispatchResult,
   rejectRequest,
   WorkRequest,
 } from '../api/endpoints'
 import { useBoardStore } from '../stores/boardStore'
-
-/** 需求列表（看板用，含 refetch）。 */
-export function useRequests(scope: 'relevant' | 'mine' = 'relevant') {
-  const qc = useQueryClient()
-  const { data, isLoading, refetch } = useQuery({
-    queryKey: ['requests', scope],
-    queryFn: () => fetchRequests({ scope }),
-  })
-  const requests = data?.items ?? []
-
-  const invalidate = useCallback(() => {
-    void qc.invalidateQueries({ queryKey: ['requests'] })
-  }, [qc])
-
-  return { requests, isLoading, refetch, invalidate }
-}
 
 /** 缓存里是否是「列表形状」（`{ items: [...] }`）。
  *
@@ -164,18 +152,4 @@ export function useRejectRequest(onSettled?: (error: string | null) => void) {
     rejectAsync: mutate.mutateAsync,
     isPending: mutate.isPending,
   }
-}
-
-/** 未读通知数（顶栏铃铛；轮询 ≤30s，SC-007）。 */
-export function useUnreadCount() {
-  const qc = useQueryClient()
-  const { data } = useQuery({
-    queryKey: ['notifications', 'unread-count'],
-    queryFn: fetchUnreadCount,
-    refetchInterval: 30_000,
-  })
-  const invalidate = useCallback(() => {
-    void qc.invalidateQueries({ queryKey: ['notifications'] })
-  }, [qc])
-  return { unread: data ?? 0, invalidate }
 }

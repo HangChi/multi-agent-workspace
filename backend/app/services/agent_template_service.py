@@ -21,7 +21,11 @@ from app.models.agent_template import (
     AgentTemplate,
     AgentTemplateVersion,
 )
-from app.schemas.agent_template import AgentTemplateCreate, AgentTemplateUpdate
+from app.schemas.agent_template import (
+    AgentTemplateCreate,
+    AgentTemplateOut,
+    AgentTemplateUpdate,
+)
 
 # 从 Agent 快照进模板的字段。顺序即文档顺序，加减字段必须同步 data-model.md。
 SNAPSHOT_FIELDS = (
@@ -39,6 +43,26 @@ SNAPSHOT_FIELDS = (
 
 def _is_builtin(template: AgentTemplate) -> bool:
     return template.owner_id is None
+
+
+def to_out(template: AgentTemplate) -> AgentTemplateOut:
+    """ORM 行 → 响应模型，派生字段统一在这里算（R5）。
+
+    在此之前有两处各写一份：
+    - `api/v1/agent_templates.py` 的 `_out`：`is_builtin = owner_id is None`，
+      且内置模板把 visibility 强制成 team；
+    - `api/v1/agents.py` 的「另存为模板」：硬写 `out.is_builtin = False`。
+
+    后者当时是对的（另存出来的模板必然有 owner），但那是**推理**而不是**声明**：
+    哪天 `save_as_template` 允许 owner 为空（系统预置 / 迁移导入），那行会静默
+    把一个内置模板报成非内置，而「内置 = 只读」正是 005 FR-015 的判断依据。
+    """
+    out = AgentTemplateOut.model_validate(template)
+    out.is_builtin = _is_builtin(template)
+    # 023：内置模板对所有成员可用，语义上就是 team（不落库，派生）
+    if out.is_builtin:
+        out.visibility = "team"
+    return out
 
 
 async def create_template(

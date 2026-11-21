@@ -1,12 +1,17 @@
 """工具目录一致性测试。
 
-`catalog.py` 是工具定义的单一事实源，但它的 `param_schema` 是**手写数据**，
-不是从执行器反射出来的。手写就会漂移：改了执行器的参数名忘了改 catalog，
-模型看到的工具定义与真正执行时的解析就对不上。
+`catalog.py` 是工具定义的单一事实源。R5 之前，三个内置执行器各自手写了一份
+与 catalog 逐字相同的 schema 字面量，本测试靠「两份比对」防漂移——但那只能
+证明这一刻没漂移：改参数时仍然要改两处，漏一处的表现是模型看到的参数与
+执行器真正解析的参数不一致。
 
-本测试反向校验两者逐字一致——这是 catalog 设计成立的前提，缺了它
-「单一事实源」只是一句口号。
+R5 改成执行器 `schema()` 从 `to_openai_schema()` 派生。此时「两份比对」
+在数学上恒真、已经没有信息量；本测试改为证明**派生关系本身成立**：
+替换 CATALOG 中的定义，执行器的 schema 必须跟着变。谁把某个执行器改回
+手写字面量，这条会红。
 """
+
+from dataclasses import replace
 
 import pytest
 
@@ -26,23 +31,36 @@ def _executor(name: str):
 
 
 @pytest.mark.parametrize("name", IMPLEMENTED)
-def test_catalog_schema_matches_executor(name: str) -> None:
-    """catalog 的 OpenAI schema 必须与执行器 `schema()` 完全一致。"""
-    spec = CATALOG[name]
-    expected = {
-        "type": "function",
-        "function": {
-            "name": spec.name,
-            "description": spec.description,
-            "parameters": spec.param_schema,
+def test_executor_schema_is_derived_from_catalog(name: str) -> None:
+    """执行器 schema 必须与 catalog 派生结果一致。"""
+    expected = to_openai_schema(name)
+    assert expected is not None
+    assert _executor(name).schema() == expected
+
+
+@pytest.mark.parametrize("name", IMPLEMENTED)
+def test_executor_schema_follows_catalog_definition(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """改 catalog 定义，执行器 schema 必须跟着变——这是「单一来源」的实证。
+
+    手写字面量的执行器会在这里红：它读自己的 `_SCHEMA`，看不见 catalog 的改动。
+    这正是 R5 之前的形态，也是 `param_schema` 漂移的成因。
+    """
+    modified = replace(
+        CATALOG[name],
+        description=f"{CATALOG[name].description}（测试注入）",
+        param_schema={
+            "type": "object",
+            "properties": {"injected": {"type": "string"}},
+            "required": ["injected"],
         },
-    }
-    assert to_openai_schema(name) == expected
-    # 关键断言：执行器自己声明的形状与 catalog 逐字相同
-    assert _executor(name).schema() == expected, (
-        f"{name} 的 catalog 定义与执行器 schema 漂移——"
-        "改了执行器参数就必须同步改 catalog.py"
     )
+    monkeypatch.setitem(CATALOG, name, modified)
+
+    schema = _executor(name).schema()
+    assert schema["function"]["description"].endswith("（测试注入）")
+    assert "injected" in schema["function"]["parameters"]["properties"]
 
 
 def test_catalog_names_are_unique_and_wellformed() -> None:
@@ -93,3 +111,13 @@ def test_get_tool_unknown_returns_none() -> None:
     """未知工具返回 None，由调用方决定报错还是 warning（不抛异常）。"""
     assert get_tool("not_exist") is None
     assert to_openai_schema("not_exist") is None
+
+
+def test_executor_schema_is_never_empty_for_catalog_tools() -> None:
+    """`schema()` 用 `to_openai_schema(...) or {}` 兜底，但目录内工具不该走到兜底。
+
+    走到兜底说明 `name` 与 CATALOG 的 key 不一致（拼错），那是个静默的空 schema
+    ——LLM 会收到一个没有名字的工具定义。
+    """
+    for name in IMPLEMENTED:
+        assert _executor(name).schema(), f"{name} 的 schema 为空，检查 name 是否拼错"

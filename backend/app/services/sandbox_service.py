@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import mimetypes
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
@@ -15,7 +15,6 @@ from app.api.errors import AppError
 from app.core import metrics
 from app.core.audit import write_audit
 from app.core.config import settings
-from app.executors.sandbox_client import OutputFile, SandboxOutputLimit, SandboxRun
 from app.models.artifact import Artifact
 from app.models.sandbox_execution import SandboxExecution
 from app.services import artifact_service
@@ -291,48 +290,3 @@ async def persist_sandbox_result(
         )
     await db.flush()
     return execution
-
-
-async def collect_artifacts(
-    db: AsyncSession,
-    sandbox: SandboxRun,
-    *,
-    run_id: str,
-    execution_id: str,
-    step_id: str | None = None,
-    user_id: str | None = None,
-) -> list[Artifact]:
-    """从 output/ 流式回收制品并写入 MinIO 与 artifacts 表。"""
-    artifacts: list[Artifact] = []
-    used: set[str] = set()
-    try:
-        files: Iterable[OutputFile] = sandbox.iter_output_files(
-            max_files=settings.sbx_artifact_max_files,
-            max_file_bytes=settings.sbx_artifact_max_file_mb * 1024 * 1024,
-            max_total_bytes=settings.sbx_artifact_max_total_mb * 1024 * 1024,
-        )
-        for item in files:
-            artifacts.append(
-                _persist_artifact(
-                    db,
-                    run_id=run_id,
-                    execution_id=execution_id,
-                    step_id=step_id,
-                    name=item.name,
-                    data=item.data,
-                    size=item.size,
-                    used=used,
-                )
-            )
-        await db.flush()
-    except SandboxOutputLimit as exc:
-        if user_id:
-            await write_audit(
-                db,
-                user_id=user_id,
-                action="artifact_truncated",
-                target_type="sandbox_execution",
-                target_id=execution_id,
-                detail={"reason": exc.reason, "message": str(exc)},
-            )
-    return artifacts

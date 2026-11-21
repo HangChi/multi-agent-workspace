@@ -24,15 +24,15 @@ import {
   exportAgentTemplate,
   fetchAgentTemplates,
   fetchTemplateVersions,
-  importAgentTemplate,
   restoreTemplateVersion,
   updateAgentTemplate,
 } from '../api/endpoints'
-import type { AgentTemplate, TemplateExportPayload, TemplateVersion } from '../api/endpoints'
+import type { AgentTemplate, TemplateVersion } from '../api/endpoints'
 import { AgentForm } from '../components/agent/AgentForm'
 import type { AgentFormValues } from '../components/agent/AgentForm'
 import { TemplateForm } from '../components/agent/TemplateForm'
 import type { TemplateFormValues } from '../components/agent/TemplateForm'
+import { TemplateImportButton } from '../components/agent/TemplateImportButton'
 import { Badge } from '../components/ui/Badge'
 import { Button, IconButton } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
@@ -261,31 +261,7 @@ export function AgentTemplatesPage() {
             ) : undefined
           }
         />
-        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs text-ink-soft hover:bg-surface-subtle">
-          <Icon name="plus" className="h-3.5 w-3.5" />
-          导入模板
-          <input
-            type="file"
-            accept="application/json,.json"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              e.target.value = ''
-              if (!file) return
-              void (async () => {
-                try {
-                  const text = await file.text()
-                  const payload = JSON.parse(text) as TemplateExportPayload
-                  await importAgentTemplate(payload)
-                  toast.success('已导入为你的私有模板')
-                  invalidate()
-                } catch (err) {
-                  setError(extractError(err))
-                }
-              })()
-            }}
-          />
-        </label>
+        <TemplateImportButton onImported={invalidate} onError={setError} />
         <p className="text-micro text-ink-faint">
           {qDebounced ? (
             <>
@@ -309,31 +285,7 @@ export function AgentTemplatesPage() {
                 {builtins.length} 个 · 只读
               </span>
             </h2>
-            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs text-ink-soft hover:bg-surface-subtle">
-          <Icon name="plus" className="h-3.5 w-3.5" />
-          导入模板
-          <input
-            type="file"
-            accept="application/json,.json"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              e.target.value = ''
-              if (!file) return
-              void (async () => {
-                try {
-                  const text = await file.text()
-                  const payload = JSON.parse(text) as TemplateExportPayload
-                  await importAgentTemplate(payload)
-                  toast.success('已导入为你的私有模板')
-                  invalidate()
-                } catch (err) {
-                  setError(extractError(err))
-                }
-              })()
-            }}
-          />
-        </label>
+            <TemplateImportButton onImported={invalidate} onError={setError} />
         <p className="text-micro text-ink-faint">
               内置模板不可修改：需要改就先「用这个模板」创建 Agent，再另存为自己的模板。
             </p>

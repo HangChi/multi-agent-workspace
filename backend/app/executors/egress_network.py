@@ -158,11 +158,6 @@ _UUID_RE = re.compile(
 )
 _PACKET_RE = re.compile(r"\bIP6?\s+(\S+)\.(\d+)\s+>\s+(\S+)\.(\d+):\s+(.*)")
 _IP_HEADER_RE = re.compile(r"\bIP6?\s+(\S+)\s+>\s+(\S+):\s+(.*)")
-_FIELD_RE = re.compile(
-    r"src=(?P<src>[^\s]+)\s+dst=(?P<dst>[^\s]+)\s+"
-    r"sport=(?P<sport>\d+)\s+dport=(?P<dport>\d+)"
-    r"(?:\s+packets=\d+\s+bytes=(?P<bytes>\d+))?"
-)
 
 
 def _rule_view(value: RuleView | dict[str, Any]) -> RuleView:
@@ -496,33 +491,6 @@ def _family_commands(
     return commands
 
 
-def compile_iptables_commands(
-    *,
-    bridge: str,
-    dns_proxy_ip: str,
-    mode: Literal["default", "restricted"],
-    global_rules: list[RuleView],
-    agent_rules: list[RuleView],
-    builtin_blacklist: list[str],
-) -> list[list[str]]:
-    """Compile an isolated v4/v6 policy without shell interpolation."""
-    if not re.fullmatch(r"br-[0-9a-fA-F]{6,64}", bridge):
-        raise NetworkPolicyError("bridge interface is not a Docker bridge id")
-    forward, input_chain = _chain_names(str(uuid.uuid4()))
-    # The generated chain names are replaced by the caller to keep this pure helper
-    # convenient for tests; runtime uses `compile_runtime_commands` below.
-    return _compile_with_chains(
-        bridge=bridge,
-        dns_proxy_ip=dns_proxy_ip,
-        mode=mode,
-        global_rules=global_rules,
-        agent_rules=agent_rules,
-        builtin_blacklist=builtin_blacklist,
-        forward=forward,
-        input_chain=input_chain,
-    )
-
-
 def _compile_with_chains(
     *,
     bridge: str,
@@ -578,6 +546,13 @@ def compile_runtime_commands(
     builtin_blacklist: list[str],
     host_dns_upstream: str | None = None,
 ) -> tuple[list[list[str]], list[list[str]]]:
+    # bridge 名会拼进 `-i FORWARD -i <bridge>` 这类 argv。虽然这里是 argv 而非
+    # shell 字符串（注入面很小），但拼错的 bridge 名会让整套规则装到错误的接口上
+    # ——隔离静默失效。这条校验原先只在测试专用的 `compile_iptables_commands`
+    # 里，运行时路径反而没有；R5 删掉那个包装时由
+    # `test_compile_rejects_non_docker_bridge` 抓出，移到真正的入口。
+    if not re.fullmatch(r"br-[0-9a-fA-F]{6,64}", bridge):
+        raise NetworkPolicyError("bridge interface is not a Docker bridge id")
     forward, input_chain = _chain_names(execution_id)
     install = _compile_with_chains(
         bridge=bridge,
@@ -633,55 +608,6 @@ def _connection_record(
         except (ValueError, OverflowError, OSError):
             pass
     return record
-
-
-def parse_conntrack_output(
-    output: str | bytes, *, source_ip: str
-) -> list[dict[str, Any]]:
-    """Keep original-direction five-tuples and conntrack lifetimes, not targets.
-
-    UPDATE/DESTROY counters update the corresponding record. A fresh NEW event
-    (or a different conntrack id) starts a new record even if the tuple is reused.
-    A snapshot without event/id evidence cannot disambiguate tuple reuse.
-    """
-    text = output.decode("utf-8", "replace") if isinstance(output, bytes) else output
-    records: list[dict[str, Any]] = []
-    source_ip = str(ipaddress.ip_address(source_ip))
-    current: dict[tuple[str, str, int, str, int, str | None], dict[str, Any]] = {}
-    finished: set[tuple[str, str, int, str, int, str | None]] = set()
-    for line in text.splitlines():
-        protocol_match = re.search(r"\b(tcp|udp)(?:\s|$)", line)
-        match = _FIELD_RE.search(line)
-        # Only the FIRST tuple establishes initiation direction. An inbound
-        # connection's reply tuple also has src=sandbox and must not be counted.
-        if not protocol_match or not match:
-            continue
-        try:
-            source = str(ipaddress.ip_address(match.group("src")))
-            target = str(ipaddress.ip_address(match.group("dst")))
-        except ValueError:
-            continue
-        if source != source_ip:
-            continue
-        protocol, port = protocol_match.group(1), int(match.group("dport"))
-        source_port = int(match.group("sport"))
-        id_match = re.search(r"\bid=(\d+)\b", line)
-        identity = id_match.group(1) if id_match else None
-        key = (protocol, source_ip, source_port, target, port, identity)
-        record = current.get(key)
-        is_new = "[NEW]" in line
-        if record is None or (is_new and (identity is None or key in finished)):
-            record = _connection_record(source_ip, source_port, target, port, protocol)
-            records.append(record)
-            current[key] = record
-            finished.discard(key)
-        if match.group("bytes"):
-            record["bytes_out"] = max(
-                record["bytes_out"] or 0, int(match.group("bytes"))
-            )
-        if "[DESTROY]" in line:
-            finished.add(key)
-    return records
 
 
 def parse_packet_output(output: str | bytes, *, source_ip: str) -> list[dict[str, Any]]:

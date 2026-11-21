@@ -12,9 +12,10 @@
 import ast
 import math
 import operator
-from typing import Any, ClassVar
+from typing import Any
 
 from app.executors.base import ToolExecutor
+from app.executors.catalog import to_openai_schema
 
 _MAX_EXPR_LEN = 200
 _MAX_POW_EXPONENT = 1000
@@ -145,30 +146,10 @@ class CalculateExecutor(ToolExecutor):
     """calculate：执行数值计算。"""
 
     name = "calculate"
-    _SCHEMA: ClassVar[dict[str, Any]] = {
-        "type": "function",
-        "function": {
-            "name": "calculate",
-            "description": (
-                "计算数学表达式，支持 + - * / // % ** 与括号，"
-                "以及 abs/round/min/max/sqrt/log/exp/floor/ceil/sin/cos/tan、pi、e。"
-                "需要精确数值结果时使用，不要心算。"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "expression": {
-                        "type": "string",
-                        "description": "待计算的表达式，如 (1250*0.8+300)/3",
-                    }
-                },
-                "required": ["expression"],
-            },
-        },
-    }
 
     def schema(self) -> dict[str, Any]:
-        return self._SCHEMA
+        """工具 schema 从 catalog 派生（R5），理由同 `read_url.schema()`。"""
+        return to_openai_schema(self.name) or {}
 
     async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
         expression = str(arguments.get("expression") or arguments.get("input") or "")

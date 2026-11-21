@@ -78,10 +78,7 @@ def test_artifact_truncation_projection_ignores_missing_or_malformed_values(outp
     assert sandbox_service.execution_artifact_truncation(output, "exec-1") is None
 
 
-@pytest.mark.parametrize("source", ["payload", "stream"])
-async def test_artifact_persistence_keeps_names_mime_sizes_and_linkage(
-    monkeypatch, source
-):
+async def test_artifact_persistence_keeps_names_mime_sizes_and_linkage(monkeypatch):
     db = SimpleNamespace(
         add=Mock(), flush=AsyncMock(), get=AsyncMock(return_value=None)
     )
@@ -98,36 +95,19 @@ async def test_artifact_persistence_keeps_names_mime_sizes_and_linkage(
         ("binary.unknown-ext", b"x"),
     ]
 
-    if source == "payload":
-        await sandbox_service.persist_sandbox_result(
-            db,
-            run_id="run-1",
-            step_id="step-1",
-            agent_id="agent-1",
-            user_id="user-1",
-            payload={
-                "artifacts": [
-                    {"name": name, "data": data, "size": len(data)}
-                    for name, data in files
-                ]
-            },
-            result={"status": "ok"},
-        )
-    else:
-        sandbox = SimpleNamespace(
-            iter_output_files=lambda **kwargs: (
-                SimpleNamespace(name=name, data=data, size=len(data))
-                for name, data in files
-            )
-        )
-        artifacts = await sandbox_service.collect_artifacts(
-            db,
-            sandbox,
-            run_id="run-1",
-            execution_id="exec-1",
-            step_id="step-1",
-        )
-        assert len(artifacts) == 3
+    await sandbox_service.persist_sandbox_result(
+        db,
+        run_id="run-1",
+        step_id="step-1",
+        agent_id="agent-1",
+        user_id="user-1",
+        payload={
+            "artifacts": [
+                {"name": name, "data": data, "size": len(data)} for name, data in files
+            ]
+        },
+        result={"status": "ok"},
+    )
 
     rows = [call.args[0] for call in db.add.call_args_list]
     assert [row.filename for row in rows] == [
@@ -147,31 +127,48 @@ async def test_artifact_persistence_keeps_names_mime_sizes_and_linkage(
 
 
 @pytest.mark.parametrize("reason", ["files", "file_size", "total_size"])
-async def test_collect_artifacts_preserves_partial_output_and_truncation_audit(
+async def test_payload_path_audits_truncation_with_reason_and_execution_id(
     monkeypatch, reason
 ):
-    db = SimpleNamespace(add=Mock(), flush=AsyncMock())
+    """运行时产物路径（payload）的截断必须留审计，且带上原因与执行 id。
+
+    这条接替原来只走 `collect_artifacts`（流式回收）的同类用例。那条路径从未
+    接上运行时（executor 在容器退出前就把 output/ 塞进 payload），R5 已删；
+    但「截断要留证」这条语义是**运行时契约**，不能随路径一起去掉——
+    没有它，用户只会看到产物少了一半而没有任何解释。
+    """
+    db = SimpleNamespace(
+        add=Mock(), flush=AsyncMock(), get=AsyncMock(return_value=None)
+    )
     monkeypatch.setattr(
         sandbox_service.artifact_service, "put_bytes", Mock(return_value=("key", "sha"))
     )
     audit = AsyncMock()
     monkeypatch.setattr(sandbox_service, "write_audit", audit)
-
-    def files(**kwargs):
-        yield SimpleNamespace(name="first.txt", data=b"ok", size=2)
-        raise SandboxOutputLimit(reason, "超过上限")
-
-    rows = await sandbox_service.collect_artifacts(
-        db,
-        SimpleNamespace(iter_output_files=files),
-        run_id="run-1",
-        execution_id="exec-1",
-        step_id="step-1",
-        user_id="user-1",
+    execution = SimpleNamespace(id="exec-1")
+    monkeypatch.setattr(
+        sandbox_service, "start_execution", AsyncMock(return_value=execution)
     )
-    assert [row.filename for row in rows] == ["first.txt"]
+    monkeypatch.setattr(sandbox_service, "finish_execution", AsyncMock())
+
+    await sandbox_service.persist_sandbox_result(
+        db,
+        run_id="run-1",
+        step_id="step-1",
+        agent_id="agent-1",
+        user_id="user-1",
+        payload={
+            "artifacts": [{"name": "first.txt", "data": b"ok", "size": 2}],
+            "artifact_truncated": {"reason": reason, "message": "超过上限"},
+        },
+        result={"status": "ok"},
+    )
+
+    assert audit.await_args.kwargs["action"] == "artifact_truncated"
+    assert audit.await_args.kwargs["target_id"] == "exec-1"
     assert audit.await_args.kwargs["detail"] == {
         "reason": reason,
         "message": "超过上限",
     }
-    assert audit.await_args.kwargs["target_id"] == "exec-1"
+    # 部分产物仍然要落库：截断不等于全丢
+    assert [call.args[0].filename for call in db.add.call_args_list] == ["first.txt"]

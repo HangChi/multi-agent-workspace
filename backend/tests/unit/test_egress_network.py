@@ -8,10 +8,23 @@ from app.executors.egress import RuleView
 from app.executors.egress_network import (
     NetworkPolicyError,
     _dns_ip_domains,
-    compile_iptables_commands,
-    parse_conntrack_output,
+    compile_runtime_commands,
     validate_execution_id,
 )
+
+# 运行时只调用 `compile_runtime_commands`（返回 install + cleanup 两段）。
+# 这些用例只关心 install 段（规则本身对不对），所以包一层取第一段。
+# 之前它们直接调 `compile_iptables_commands`——那个包装是测试专用的，
+# 于是 11 条 iptables 断言全在测一个生产代码不走的函数，真正的运行时函数
+# 零覆盖。R5 让测试改走真函数，包装删掉。
+_FIXED_EXECUTION_ID = "f4e784e5-1dd9-4ae1-84ad-a0c66bdb761a"
+
+
+def compile_install(**kwargs) -> list[list[str]]:
+    install, _cleanup = compile_runtime_commands(
+        execution_id=_FIXED_EXECUTION_ID, **kwargs
+    )
+    return install
 
 
 def test_missing_docker_lookup_does_not_skip_network_policy(monkeypatch) -> None:
@@ -131,7 +144,7 @@ def test_runtime_tags_require_safe_uuid() -> None:
 def test_default_policy_is_deny_by_default_but_allows_public_egress_and_proxy_dns() -> (
     None
 ):
-    commands = compile_iptables_commands(
+    commands = compile_install(
         bridge="br-abc123",
         dns_proxy_ip="172.30.0.2",
         mode="default",
@@ -153,7 +166,7 @@ def test_restricted_policy_denies_fallback_and_allows_only_ip_or_cidr_allow_rule
     None
 ):
     rules = [RuleView("r1", "allow", "cidr", "203.0.113.0/24", "443")]
-    commands = compile_iptables_commands(
+    commands = compile_install(
         bridge="br-abc123",
         dns_proxy_ip="172.30.0.2",
         mode="restricted",
@@ -168,7 +181,7 @@ def test_restricted_policy_denies_fallback_and_allows_only_ip_or_cidr_allow_rule
 
 def test_domain_allow_is_rejected_as_unsupported_not_permitted() -> None:
     with pytest.raises(NetworkPolicyError, match="domain"):
-        compile_iptables_commands(
+        compile_install(
             bridge="br-abc123",
             dns_proxy_ip="172.30.0.2",
             mode="restricted",
@@ -179,7 +192,7 @@ def test_domain_allow_is_rejected_as_unsupported_not_permitted() -> None:
 
 
 def test_global_deny_cidr_has_kernel_drop_rule() -> None:
-    commands = compile_iptables_commands(
+    commands = compile_install(
         bridge="br-abc123",
         dns_proxy_ip="172.30.0.2",
         mode="default",
@@ -207,7 +220,7 @@ def test_packet_capture_includes_unconfirmed_denied_syn() -> None:
 
 
 def test_ipv6_gateway_neighbor_discovery_precedes_host_input_drop() -> None:
-    commands = compile_iptables_commands(
+    commands = compile_install(
         bridge="br-abc123",
         dns_proxy_ip="172.30.0.2",
         mode="restricted",
@@ -234,7 +247,7 @@ def test_ipv6_gateway_neighbor_discovery_precedes_host_input_drop() -> None:
 
 
 def test_dns_proxy_return_path_is_allowed_before_private_drops() -> None:
-    commands = compile_iptables_commands(
+    commands = compile_install(
         bridge="br-abc123",
         dns_proxy_ip="172.30.0.2",
         mode="restricted",
@@ -303,21 +316,6 @@ def test_packet_capture_keeps_udp_source_ports_separate() -> None:
     assert len(records) == 2
 
 
-def test_conntrack_keeps_connections_and_does_not_record_inbound_reply() -> None:
-    output = (
-        "[NEW] tcp 6 120 SYN_SENT src=172.30.0.3 dst=198.18.0.2 sport=41001 dport=80 id=1\n"
-        "[UPDATE] tcp 6 120 ESTABLISHED src=172.30.0.3 dst=198.18.0.2 sport=41001 dport=80 packets=3 bytes=160 id=1\n"
-        "[NEW] tcp 6 120 SYN_SENT src=172.30.0.3 dst=198.18.0.2 sport=41002 dport=80 id=2\n"
-        "[DESTROY] tcp 6 0 CLOSE src=172.30.0.3 dst=198.18.0.2 sport=41001 dport=80 id=1\n"
-        "[NEW] tcp 6 120 SYN_SENT src=172.30.0.3 dst=198.18.0.2 sport=41001 dport=80 id=3\n"
-        "tcp 6 120 ESTABLISHED src=198.18.0.2 dst=172.30.0.3 sport=41003 dport=80 src=172.30.0.3 dst=198.18.0.2 sport=80 dport=41003\n"
-    )
-    records = parse_conntrack_output(output, source_ip="172.30.0.3")
-    assert len(records) == 3
-    assert [r["source_port"] for r in records] == [41001, 41002, 41001]
-    assert records[0]["bytes_out"] == 160
-
-
 def test_packet_parser_normalizes_equivalent_ipv6_source_addresses() -> None:
     from app.executors.egress_network import parse_packet_output
 
@@ -327,17 +325,6 @@ def test_packet_parser_normalizes_equivalent_ipv6_source_addresses() -> None:
     )
     assert len(records) == 1
     assert records[0]["source_ip"] == "2001:db8::3"
-
-
-def test_conntrack_ids_remain_distinct_when_events_interleave() -> None:
-    records = parse_conntrack_output(
-        "[NEW] tcp 6 120 SYN_SENT src=172.30.0.3 dst=198.18.0.2 sport=41001 dport=80 id=1\n"
-        "[NEW] tcp 6 120 SYN_SENT src=172.30.0.3 dst=198.18.0.2 sport=41001 dport=80 id=2\n"
-        "[DESTROY] tcp 6 0 CLOSE src=172.30.0.3 dst=198.18.0.2 sport=41001 dport=80 packets=3 bytes=160 id=1\n",
-        source_ip="172.30.0.3",
-    )
-    assert len(records) == 2
-    assert records[0]["bytes_out"] == 160
 
 
 def test_packet_parser_uses_actual_ipv6_source_not_ipv4_source() -> None:
@@ -362,7 +349,7 @@ def test_global_domain_deny_fails_closed_without_install_time_dns(
     )
     monkeypatch.setattr("socket.getaddrinfo", resolve)
     with pytest.raises(NetworkPolicyError, match="domain"):
-        compile_iptables_commands(
+        compile_install(
             bridge="br-abc123",
             dns_proxy_ip="172.30.0.2",
             mode=mode,
@@ -567,23 +554,3 @@ def test_capture_filter_includes_reserved_ipv6_and_absolute_tcp_sequence() -> No
     command = capture.client.containers.run.call_args.kwargs["command"]
     assert "2001:db8::3" in command and "/opt/aw/packet_capture.py" in command
     assert capture.source_ipv6 == "2001:db8::3"
-
-
-def test_conntrack_parser_records_direct_ip_and_ports() -> None:
-    records = parse_conntrack_output(
-        "tcp 6 431999 ESTABLISHED src=172.19.0.3 dst=203.0.113.9 sport=42222 dport=8443 packets=3 bytes=256 src=203.0.113.9 dst=172.19.0.3 sport=8443 dport=42222 packets=4 bytes=512\n",
-        source_ip="172.19.0.3",
-    )
-    assert records == [
-        {
-            "target_ip": "203.0.113.9",
-            "domain": "ip-direct",
-            "port": 8443,
-            "protocol": "tcp",
-            "action": "allow",
-            "matched_rule_id": None,
-            "bytes_out": 256,
-            "source_ip": "172.19.0.3",
-            "source_port": 42222,
-        }
-    ]
