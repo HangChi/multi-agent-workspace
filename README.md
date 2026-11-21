@@ -539,15 +539,23 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 - 外部 MCP 工具已实现（`003`，65/65 任务）：仅支持 Streamable HTTP 传输，stdio 传输与工具市场之外的自定义 UI 不在范围内。
 - **指标与告警**：`/metrics`（Prometheus 文本格式，零依赖实现）已接入，覆盖 HTTP/WS/LLM/沙箱/队列深度/成本；
   Celery 进程通过 Redis 快照合并进同一端点。`deploy/observability/` 有抓取配置与 8 条告警规则，
-  但**阈值尚未在真实流量下验证**（这也是 003 发布状态里未闭环的那一项）。没有 Grafana 面板。
-- **备份**：`deploy/backup/backup.sh`（pg_dump + 对象目录 + manifest）与 `restore-drill.sh`
-  （还原到临时库并断言迁移版本/表数）已就绪，cron 写法见该目录 README。
-  开发机上按「备份 → 演练」完整跑通过一次（2026-11-19：备份 192K / 对象 108K，
-  还原后 alembic=0016、32 表、14 用户、20 运行，临时库已丢弃）；
-  **仍未在目标主机上做过**——真机演练要等部署链路打通。
+  但**阈值尚未在真实流量下验证**（这也是 003 发布状态里未闭环的那一项）。
+  Grafana 总览看板已就绪（`deploy/observability/grafana/`，数据源与看板全部由 provisioning
+  装配，`--profile observability` 拉起即用，默认只绑 `127.0.0.1`）；管理页也有运行指标卡片。
+- **备份**：两条链路并存，都成对配了演练脚本（cron 写法见该目录 README）。
+  ① `backup.sh`（pg_dump + 对象目录 + manifest）+ `restore-drill.sh`：开发机实测通过
+  （2026-11-19：备份 192K / 对象 108K，还原后 alembic=0016、32 表、14 用户、20 运行）；
+  ② `pg_basebackup.sh`（基础备份 + **WAL 归档**）+ `pitr_restore_drill.sh`：**PITR 已可用**，
+  开发机实测恢复到 LSN=0/76000000（alembic=0016、32 表、14 用户），临时实例已丢弃。
+  排障记录：备份结束点常落在「已归档的 WAL」与「数据目录里尚未归档的片段」之间，
+  恢复会撞上 `recovery ended before`，脚本按 manifest 的 `recovery_lsn` 对齐解决。
+  两者的**真机恢复**都还没在目标主机上做过（脚本恢复的是容器内一次性实例），
+  真机演练要等部署链路打通。
 - **部署**：`deploy/deploy.sh`（迁移 → 换容器 → 健康门禁 → 失败回滚）+ CI 手动触发的 `deploy` job；
   真正的生产环境部署 smoke 仍需有主机与域名时执行。
-- **尚未实现**：Sentry 异常上报、Grafana 面板、PITR（时间点恢复）。
+- **异常上报**：Sentry 已接线（`SENTRY_DSN` 为空时零开销，缺依赖只告警不阻断启动），
+  API 与 Celery 两侧都挂；**前端未接**（浏览器侧错误仍只有控制台与 ErrorBanner）。
+  采样率默认 `0.0`，不送 PII。
 - **压力验证**：`deploy/verify/load_test.py` 实测 100 并发 818 req/s、200 并发 0 错误，
   但 P95 在 100 并发下突破 500ms（2 vCPU 开发机），详见 `docs/load-test-2026-11-17.md`。
 - 前端单测覆盖页面、store 与组件（26 文件 / 143 例）；真实浏览器的端到端验证依靠人工或按需脚本，仓库内没有常驻 Playwright e2e（008/009/010 的清单由 `deploy/verify/s12_browser_walkthrough.py` 覆盖）。
