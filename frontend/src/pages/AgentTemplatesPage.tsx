@@ -20,6 +20,7 @@ import { extractError } from '../api/client'
 import {
   createAgentFromTemplate,
   deleteAgentTemplate,
+  duplicateAgentTemplate,
   exportAgentTemplate,
   fetchAgentTemplates,
   fetchTemplateVersions,
@@ -97,6 +98,15 @@ export function AgentTemplatesPage() {
       toast.success('模板已保存')
       setEditing(null)
       setError(null)
+      invalidate()
+    },
+    onError: (err) => setError(extractError(err)),
+  })
+
+  const duplicateMut = useMutation({
+    mutationFn: (id: string) => duplicateAgentTemplate(id),
+    onSuccess: (copy) => {
+      toast.success(`已复制为「${copy.name}」`)
       invalidate()
     },
     onError: (err) => setError(extractError(err)),
@@ -418,6 +428,7 @@ export function AgentTemplatesPage() {
                 onEdit={null}
                 onDelete={null}
                 onInspect={null}
+                onDuplicate={() => duplicateMut.mutate(t.id)}
               />
             ))}
           </ul>
@@ -476,6 +487,7 @@ function TemplateCard({
   onEdit,
   onDelete,
   onInspect,
+  onDuplicate,
 }: {
   template: AgentTemplate
   onUse: () => void
@@ -483,6 +495,8 @@ function TemplateCard({
   onDelete: (() => void) | null
   /** 023：历史 / 共享 / 导出（仅自己的模板） */
   onInspect?: (() => void) | null
+  /** 026：复制到我的（别人的 team 模板与内置模板） */
+  onDuplicate?: (() => void) | null
 }) {
   return (
     <Card padding="none" interactive className="group overflow-hidden">
@@ -500,7 +514,14 @@ function TemplateCard({
               </h3>
               {template.is_builtin && <Badge tone="slate">内置</Badge>}
               {!template.is_builtin && template.visibility === 'team' && (
-                <Badge tone="sky">团队共享</Badge>
+                <>
+                  <Badge tone="sky">团队共享</Badge>
+                  {template.owner_email && (
+                    <span className="truncate text-micro text-ink-faint">
+                      来自 {template.owner_email}
+                    </span>
+                  )}
+                </>
               )}
             </div>
             <p className="mt-1 line-clamp-2 text-ui leading-relaxed text-ink-muted">
@@ -515,6 +536,11 @@ function TemplateCard({
           {onEdit && (
             <Button size="sm" variant="secondary" leftIcon="edit" onClick={onEdit}>
               编辑
+            </Button>
+          )}
+          {onDuplicate && (
+            <Button size="sm" variant="secondary" leftIcon="plus" onClick={onDuplicate}>
+              复制到我的
             </Button>
           )}
           {onInspect && (

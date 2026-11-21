@@ -114,6 +114,8 @@ class AgentTemplateOut(BaseModel):
 
     id: str
     owner_id: str | None = None
+    # 026：模板市场里要显示「谁共享的」
+    owner_email: str | None = None
     is_builtin: bool = False
     # 023：private / team（内置模板恒为 team）
     visibility: str = "private"

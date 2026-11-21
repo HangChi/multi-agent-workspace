@@ -12,6 +12,8 @@ export interface AgentTemplate {
   is_builtin: boolean
   /** 023：private / team；内置模板恒为 team */
   visibility: TemplateVisibility
+  /** 026：共享者邮箱（模板市场里显示「谁共享的」） */
+  owner_email?: string | null
   name: string
   description: string | null
   system_prompt: string
@@ -178,5 +180,12 @@ export async function importAgentTemplate(
   payload: TemplateExportPayload
 ): Promise<AgentTemplate> {
   const { data } = await apiClient.post<AgentTemplate>('/agent-templates/import', payload)
+  return data
+}
+
+
+/** 把可见的模板复制成自己的私有副本（026 模板市场）。 */
+export async function duplicateAgentTemplate(id: string): Promise<AgentTemplate> {
+  const { data } = await apiClient.post<AgentTemplate>(`/agent-templates/${id}/duplicate`)
   return data
 }

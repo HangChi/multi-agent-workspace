@@ -13,6 +13,7 @@
 """
 
 from fastapi import APIRouter, Query
+from sqlalchemy import select
 
 from app.api.deps import DB, CurrentUser, MemberUser, ResourceId
 from app.core.audit import (
@@ -62,7 +63,22 @@ async def list_templates(
         page=page,
         page_size=page_size,
     )
-    return {"items": [_out(r) for r in rows], "total": total}
+    # 026：模板市场要显示「谁共享的」。一次 IN 查询，不逐行查用户。
+    owner_ids = {r.owner_id for r in rows if r.owner_id}
+    emails: dict[str, str] = {}
+    if owner_ids:
+        from app.models.user import User
+
+        pairs = (
+            await db.execute(select(User.id, User.email).where(User.id.in_(owner_ids)))
+        ).all()
+        emails = {uid: email for uid, email in pairs}
+    items = []
+    for row in rows:
+        out = _out(row)
+        out.owner_email = emails.get(row.owner_id) if row.owner_id else None
+        items.append(out)
+    return {"items": items, "total": total}
 
 
 @router.post("/import", response_model=AgentTemplateOut, status_code=201)
@@ -120,6 +136,22 @@ async def update_template(
         strict=True,
     )
     await db.commit()
+    return _out(template)
+
+
+@router.post("/{template_id}/duplicate", response_model=AgentTemplateOut, status_code=201)
+async def duplicate_template(
+    template_id: ResourceId, user: CurrentUser, _m: MemberUser, db: DB
+):
+    """把可见的模板复制为自己的私有副本（026 模板市场的核心动作）。
+
+    内置与别人的 team 模板都能复制；自己的模板 409（不需要复制）。
+    """
+    template = await agent_template_service.duplicate_template(
+        db, template_id, user_id=user.id
+    )
+    await db.commit()
+    await db.refresh(template)
     return _out(template)
 
 

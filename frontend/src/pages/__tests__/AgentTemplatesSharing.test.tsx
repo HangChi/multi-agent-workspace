@@ -100,5 +100,7 @@ describe('AgentTemplatesPage 团队共享', () => {
     expect(screen.getAllByRole('button', { name: '用这个模板' })).toHaveLength(2)
     expect(screen.getAllByRole('button', { name: '编辑' })).toHaveLength(1)
     expect(screen.getAllByRole('button', { name: '历史 / 共享' })).toHaveLength(1)
+    // 026：团队卡片可「复制到我的」，自己的卡片不需要（复制自己没意义）
+    expect(screen.getAllByRole('button', { name: '复制到我的' })).toHaveLength(1)
   })
 })

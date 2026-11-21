@@ -212,3 +212,71 @@ async def test_builtin_reports_team_visibility(
     if not rows:
         pytest.skip("测试库没有内置模板种子（生产由 seed 脚本注入）")
     assert all(row["visibility"] == "team" for row in rows)
+
+
+# ---------------------------------------------------------------- 模板市场（026）
+
+
+async def test_duplicate_team_template_creates_private_copy(
+    db_session, client, make_headers
+) -> None:
+    owner = await _user(db_session)
+    mate = await _user(db_session)
+    owner_h = await make_headers(owner)
+    mate_h = await make_headers(mate)
+    tpl = await _template(client, owner_h, name=f"市场-{uuid.uuid4().hex[:5]}")
+    await client.patch(
+        f"{URL}/{tpl['id']}", json={"visibility": "team"}, headers=owner_h
+    )
+
+    copied = await client.post(f"{URL}/{tpl['id']}/duplicate", headers=mate_h)
+    assert copied.status_code == 201, copied.text[:300]
+    body = copied.json()
+    assert body["id"] != tpl["id"]
+    assert body["owner_id"] == mate.id
+    assert body["visibility"] == "private", "从别人那拿来的不该默认再共享"
+    assert body["name"].endswith("（副本）")
+    assert body["system_prompt"] == tpl["system_prompt"]
+
+
+async def test_duplicate_own_template_conflicts(
+    db_session, client, make_headers
+) -> None:
+    owner = await _user(db_session)
+    headers = await make_headers(owner)
+    tpl = await _template(client, headers, name=f"自己的-{uuid.uuid4().hex[:5]}")
+
+    resp = await client.post(f"{URL}/{tpl['id']}/duplicate", headers=headers)
+    assert resp.status_code == 409
+
+
+async def test_duplicate_private_template_of_others_is_404(
+    db_session, client, make_headers
+) -> None:
+    owner = await _user(db_session)
+    mate = await _user(db_session)
+    tpl = await _template(
+        client, await make_headers(owner), name=f"私有-{uuid.uuid4().hex[:5]}"
+    )
+
+    resp = await client.post(
+        f"{URL}/{tpl['id']}/duplicate", headers=await make_headers(mate)
+    )
+    assert resp.status_code == 404
+
+
+async def test_team_list_exposes_author(db_session, client, make_headers) -> None:
+    """市场里必须能看出「这是谁共享的」——否则不敢用。"""
+    owner = await _user(db_session)
+    mate = await _user(db_session)
+    owner_h = await make_headers(owner)
+    tpl = await _template(client, owner_h, name=f"署名-{uuid.uuid4().hex[:5]}")
+    await client.patch(
+        f"{URL}/{tpl['id']}", json={"visibility": "team"}, headers=owner_h
+    )
+
+    rows = (
+        await client.get(f"{URL}?scope=team", headers=await make_headers(mate))
+    ).json()["items"]
+    row = next(r for r in rows if r["id"] == tpl["id"])
+    assert row["owner_email"] == owner.email

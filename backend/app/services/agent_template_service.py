@@ -454,3 +454,53 @@ async def import_template(
         raise AppError("INVALID_INPUT", f"模板内容不合法：{str(exc)[:300]}") from exc
 
     return await create_template(db, user_id=user_id, payload=validated)
+
+
+# ---------------------------------------------------------------- 模板市场（026）
+
+
+async def _unique_copy_name(db: AsyncSession, owner_id: str, base: str) -> str:
+    """给自己复制一份时的名字：原名 + 「副本」；再冲突就加序号。
+
+    这里**自动加后缀**是合理的（与 023 导入的 409 相反）：复制是显式的「我要
+    再来一份」，系统拒绝它没有任何好处；而导入是「这份我是不是已经有了」的
+    疑问，需要用户自己判断。
+    """
+    candidate = f"{base}（副本）"
+    if await _find_by_name(db, owner_id=owner_id, name=candidate) is None:
+        return candidate
+    for index in range(2, 100):
+        numbered = f"{base}（副本 {index}）"
+        if await _find_by_name(db, owner_id=owner_id, name=numbered) is None:
+            return numbered
+    raise AppError("CONFLICT", "同名副本过多，请先清理")
+
+
+async def duplicate_template(
+    db: AsyncSession, template_id: str, *, user_id: str
+) -> AgentTemplate:
+    """把一个可见的模板复制成自己的私有副本（026「模板市场」的核心动作）。
+
+    能复制的前提是「能看到」（自己的 / 内置 / 别人的 team），这一点由
+    `get_template` 保证；复制结果恒为 private——从别人那里拿来的东西，
+    不该默认再共享出去。
+    """
+    source = await get_template(db, template_id, user_id=user_id)
+    if source.owner_id == user_id:
+        raise AppError("CONFLICT", "这已经是你的模板，不需要复制")
+
+    from app.schemas.agent_template import AgentTemplateCreate
+
+    payload = AgentTemplateCreate(
+        name=await _unique_copy_name(db, user_id, source.name),
+        description=source.description,
+        system_prompt=source.system_prompt,
+        model=source.model,
+        temperature=source.temperature,
+        max_steps=source.max_steps,
+        max_run_seconds=source.max_run_seconds,
+        tools=list(source.tools or []),
+        cost_limit_cents=source.cost_limit_cents,
+        egress_mode=source.egress_mode,
+    )
+    return await create_template(db, user_id=user_id, payload=payload)

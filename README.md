@@ -230,7 +230,7 @@ frontend/
     hooks/          # useAuth / useRequests / useRunSocket
 deploy/             # docker-compose / Caddyfile / .env.example / mock-llm / verify
 docs/               # 架构文档（入口见 docs/README.md）
-specs/              # Spec Kit 规格（001–024，SDD + TDD 工作流）
+specs/              # Spec Kit 规格（001–026，SDD + TDD 工作流）
 ```
 
 ---
@@ -337,7 +337,7 @@ GET           /health, /health/ready       存活 / 就绪探针
 `REFRESH_GRACE_SECONDS` 给多标签页并发刷新留宽限期，避免互相踢下线。
 
 > 以上是概览。完整的请求/响应 schema、错误码与边界语义在各特性的
-> `specs/NNN-*/contracts/api.md`（001–024 二十四份），运行时以 `/docs` 的 OpenAPI 为准。
+> `specs/NNN-*/contracts/api.md`（001–026 二十六份），运行时以 `/docs` 的 OpenAPI 为准。
 
 ### 内置工具
 
@@ -550,8 +550,8 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 - 模板（005 + 023）：内置 + 私有 + **团队共享**（team 可见可用、只有所有者能改）；
   每次编辑前留快照（保留 20 个，可回滚，回滚不还原名字）；导出/导入 JSON
   （`schema_version` + 创建 schema 复校验，导入重名 409）。
-  **模板市场未做**：公开浏览/审核/评分/内容责任是内容平台的工程量，内部规模
-  用「团队共享 + 搜索」就够。
+  026 补了**模板市场**的实用形态：浏览团队模板（带作者）、「复制到我的」得到私有副本
+  （重名自动加「（副本）」）。不做审核/评分/评论——内容平台那套对内部规模不成立。
 - 邀请码运营（022）：批量发码（015 既有）+ 部门月度名额配额（`departments.invite_quota`，
   撤销不释放名额）+ 运营统计（`GET /admin/invite-codes/stats`）。
   **申请-审批流未做**：正确形态是配合组织编制的 HC 管理，孤立做会得到一张没人填的表。
@@ -629,5 +629,5 @@ node deploy/verify/ui_s4_s5.cjs    # 真实浏览器：拖拽 + 实时日志（�
 | [docs/llm-pricing.md](docs/llm-pricing.md) | LLM 单价表口径（成本核算与熔断的基准） |
 | [docs/load-test-2026-11-17.md](docs/load-test-2026-11-17.md) | 100/200 并发压测记录 |
 | [docs/code-audit-2026-11-17.md](docs/code-audit-2026-11-17.md) | 2026-11-17 全量代码审查报告（含修复进度） |
-| [specs/](specs/) | 001–024 二十四个特性的规格四件套 + 任务清单 + 实测记录 |
+| [specs/](specs/) | 001–026 二十六个特性的规格四件套 + 任务清单 + 实测记录 |
 | [.specify/memory/constitution.md](.specify/memory/constitution.md) | 项目宪法（SDD + TDD、质量门禁、安全边界） |
