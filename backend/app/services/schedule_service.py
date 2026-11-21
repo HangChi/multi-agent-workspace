@@ -10,6 +10,7 @@
    他人的调度 id（403 = 存在，404 = 不存在）。
 """
 
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 import structlog
@@ -202,7 +203,12 @@ async def _load_target_display(
 
 
 async def _to_out(db: AsyncSession, schedule: Schedule, user: User) -> ScheduleOut:
-    """组装输出。admin 视角填 owner_email，member 看自己时留 null。"""
+    """组装输出（单条路径）。admin 视角填 owner_email，member 看自己时留 null。
+
+    **批量列表不要用它**——那是 N+1（每条规则各查一次目标，admin 再多一次
+    用户）。列表走 `_targets_for` + `_owner_emails_for` 预取后调
+    `_to_out_fast`。见 docs/code-audit-2026-11-21.md P1。
+    """
     name, status = await _load_target_display(db, schedule)
 
     owner_email = None
@@ -210,6 +216,85 @@ async def _to_out(db: AsyncSession, schedule: Schedule, user: User) -> ScheduleO
         owner = await db.get(User, schedule.owner_id)
         owner_email = owner.email if owner else None
 
+    return _to_out_fast(
+        schedule,
+        user,
+        name=name,
+        status=status,
+        owner_email=owner_email,
+    )
+
+
+async def _targets_for(
+    db: AsyncSession, schedules: Sequence[Schedule]
+) -> dict[str, tuple[str | None, TargetStatus]]:
+    """批量取目标展示信息（一次 IN 查询，替代逐条 db.get）。
+
+    返回 {target_id: (name|None, status)}。缺失的 id 不放进结果，
+    由 `_to_out_fast` 按缺失处理。
+    """
+    agent_ids = {
+        s.target_id
+        for s in schedules
+        if s.target_type == ScheduleTargetType.agent.value
+    }
+    group_ids = {
+        s.target_id
+        for s in schedules
+        if s.target_type != ScheduleTargetType.agent.value
+    }
+
+    out: dict[str, tuple[str | None, TargetStatus]] = {}
+    if agent_ids:
+        rows = (
+            await db.execute(
+                select(Agent.id, Agent.name, Agent.status).where(Agent.id.in_(agent_ids))
+            )
+        ).all()
+        for target_id, name, status in rows:
+            out[target_id] = (
+                name,
+                TargetStatus.active if status == "active" else TargetStatus.archived,
+            )
+    if group_ids:
+        rows = (
+            await db.execute(
+                select(AgentGroup.id, AgentGroup.name, AgentGroup.status).where(
+                    AgentGroup.id.in_(group_ids)
+                )
+            )
+        ).all()
+        for target_id, name, status in rows:
+            out[target_id] = (
+                name,
+                TargetStatus.active if status == "active" else TargetStatus.archived,
+            )
+    return out
+
+
+async def _owner_emails_for(db: AsyncSession, owner_ids: set[str]) -> dict[str, str]:
+    """批量取 owner 邮箱（admin 列表用，一次 IN 查询）。"""
+    if not owner_ids:
+        return {}
+    rows = (
+        await db.execute(select(User.id, User.email).where(User.id.in_(owner_ids)))
+    ).all()
+    return {user_id: email for user_id, email in rows}
+
+
+def _to_out_fast(
+    schedule: Schedule,
+    user: User,
+    *,
+    name: str | None,
+    status: TargetStatus,
+    owner_email: str | None = None,
+) -> ScheduleOut:
+    """纯组装（无 IO）。目标是 `_load_target_display` 或 `_targets_for` 取好的值。
+
+    `owner_email` 由调用方按视角传入：member 看自己时应当留 None（不泄露也不
+    多查一次），admin 看别人时由批量查询填入。
+    """
     return ScheduleOut(
         id=schedule.id,
         owner_id=schedule.owner_id,
@@ -424,7 +509,31 @@ async def list_schedules(
         .limit(page_size)
     )
     rows = (await db.execute(stmt)).scalars().all()
-    return [await _to_out(db, s, user) for s in rows], total
+    if not rows:
+        return [], total
+
+    # 批量预取：目标名/状态 + （admin 视角）owner 邮箱，各一次 IN 查询。
+    # 逐条 _to_out 是 page_size 次（admin 最多两倍）串行往返。
+    targets = await _targets_for(db, rows)
+    owner_emails: dict[str, str] = {}
+    if user.role == "admin":
+        owner_emails = await _owner_emails_for(
+            db, {s.owner_id for s in rows if s.owner_id != user.id}
+        )
+
+    out: list[ScheduleOut] = []
+    for schedule in rows:
+        name, status = targets.get(schedule.target_id, (None, TargetStatus.missing))
+        out.append(
+            _to_out_fast(
+                schedule,
+                user,
+                name=name,
+                status=status,
+                owner_email=owner_emails.get(schedule.owner_id),
+            )
+        )
+    return out, total
 
 
 # =====================================================================
