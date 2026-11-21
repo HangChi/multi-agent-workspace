@@ -731,15 +731,15 @@ async def _fire_and_assign(
         # 009 依赖门禁（FR-009/R-07）：前置未完成 → **建单但不分配**。
         # 刻意不 rollback（下面的 failed 路径会连需求一起回滚），也不记
         # failed（会累积连续失败、最终 auto-disable 规则）——一个正常的
-        # 「前置还没好」不该丢需求、不该停规则。需求已 flush 在事务里，
-        # 直接落地 + 记 fired + reason 注明。
-        await db.commit()
-        logger.info(
-            "schedule_gate_skipped_assign",
-            schedule_id=schedule.id,
-            request_id=request.id,
-        )
-        return await _finish_trigger(
+        # 「前置还没好」不该丢需求、不该停规则。
+        #
+        # 提交顺序：必须先 `_finish_trigger`（改触发记录 + 推进 next_run_at）
+        # 再 commit。反过来写会留下「需求已提交、next_run_at 推进未提交」的
+        # 中间态——一旦外层 run_due_schedules 的 write_audit 失败并 rollback，
+        # 该规则的 next_run_at 就永远停在过去：下一轮扫描仍到期，但
+        # `_insert_placeholder` 撞占位行唯一键返回 None，从此再也不触发
+        # （需求建了、规则静默死亡）。见 docs/code-audit-2026-11-21.md D4。
+        trigger = await _finish_trigger(
             db,
             schedule,
             planned,
@@ -752,6 +752,13 @@ async def _fire_and_assign(
             ),
             reason="前置未完成，未自动分配",
         )
+        await db.commit()
+        logger.info(
+            "schedule_gate_skipped_assign",
+            schedule_id=schedule.id,
+            request_id=request.id,
+        )
+        return trigger
     except AppError as exc:
         # assign 失败 → 整个事务（含占位行）回滚 → 换新事务写失败记录。
         # 不换新事务的话，那条 failed 记录会跟着回滚一起消失，
