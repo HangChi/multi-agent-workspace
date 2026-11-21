@@ -68,6 +68,46 @@ docker compose -p aw -f deploy/docker-compose.yml --profile mock up -d --build
 # 并把 .env 的 LLM_BASE_URL 指向 http://llm-gateway:4000
 ```
 
+## 受限网络下的构建（走代理）
+
+有公网的机器直接 `up -d --build` 即可。若构建机只能通过代理出网，`uv sync` /
+`npm ci` 会在**容器内**报 DNS 解析失败：
+
+```
+uv sync ... failed to lookup address information: Name does not resolve
+```
+
+此时把宿主代理传给 buildkit（`HTTP_PROXY` / `HTTPS_PROXY` 是 Docker 的**预定义
+build-arg**，不需要在 Dockerfile 里声明）：
+
+```bash
+# 后端（compose 里 api/worker/beat 共用同一个镜像 aw-api）
+docker build --build-arg HTTP_PROXY=http://host.docker.internal:7897 \
+             --build-arg HTTPS_PROXY=http://host.docker.internal:7897 \
+             -t aw-api:latest backend
+
+# 前端
+docker build --build-arg HTTP_PROXY=http://host.docker.internal:7897 \
+             --build-arg HTTPS_PROXY=http://host.docker.internal:7897 \
+             -t aw-frontend:latest frontend
+
+# 镜像变了，compose up 会自动重建容器（不需要再 --build）
+docker compose -p aw -f deploy/docker-compose.yml up -d api worker beat frontend
+```
+
+三个前提：
+
+1. **代理要能被 Docker VM 访问**。只绑 `127.0.0.1` 的代理在 macOS 上通常可以通过
+   `host.docker.internal` 访问（Docker Desktop 的 vpnkit 转发）；Linux 上需要让代理
+   监听网桥地址（如 `0.0.0.0:7897`）或改用 `--network=host` 构建。
+2. **`docker compose build` 不接受 `--build-arg`**，所以用 `docker build` 直接产出
+   同名镜像（`aw-api:latest` / `aw-frontend:latest`），compose 只负责起容器。
+3. 构建 args 不进镜像层历史，也不该写进 `.env`（那是运行时配置，两者不是一回事）。
+
+实测（2026-11-21，macOS + Docker Desktop，宿主 mihomo 代理 127.0.0.1:7897）：
+后端 `uv sync` 装 102 包 31.8s、前端全量构建 38s，两者一次通过；
+构建出的镜像上 `s14` 5/5、`e2e` 19/19 全绿。
+
 ## 接一个 LLM 端点
 
 三个变量，都在 `deploy/.env`：
