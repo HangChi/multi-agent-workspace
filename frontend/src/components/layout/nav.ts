@@ -87,6 +87,14 @@ export const SETTINGS_NAV: NavItem[] = [
     description: '浏览并安装已审核的第三方 MCP 工具',
   },
   {
+    to: '/settings/organization',
+    label: '组织架构',
+    shortLabel: '组织',
+    icon: 'users',
+    adminOnly: true,
+    description: '部门树与分派范围：谁能把需求派给谁',
+  },
+  {
     to: '/settings/admin',
     label: '管理后台',
     shortLabel: '管理',

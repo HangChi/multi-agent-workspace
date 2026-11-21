@@ -20,7 +20,7 @@
 
 ## 功能规格（Spec Kit，`../specs/`）
 
-十八个特性都按 SDD + TDD 走完，每个目录结构一致：
+二十个特性都按 SDD + TDD 走完，每个目录结构一致：
 `spec.md`（WHAT/WHY）→ `plan.md` / `research.md` / `data-model.md` /
 `contracts/api.md` → `checklists/requirements.md` → `tasks.md`（逐条勾选 + 实测记录）
 → `quickstart.md`（真实栈验收）。
@@ -45,6 +45,8 @@
 | [016-error-code-unification](../specs/016-error-code-unification/spec.md) | 错误码语义统一：非相关人 403 → 404（防存在性枚举），参与者缺权限仍 403 | ✅ 14/14（2004 例 + 覆盖率 95.00%） |
 | [017-project-ownership-transfer](../specs/017-project-ownership-transfer/spec.md) | 所有权移交：交给现有成员、`keep_as_member` 决定去留、六步校验、同名冲突回滚 | ✅（后端 2024 例 / 前端 148 例 / e2e 17 例 + 真实栈 10/10） |
 | [018-external-notification-channels](../specs/018-external-notification-channels/spec.md) | 外部通知：Webhook 通道、事件订阅、HMAC 签名、退避重试、投递记录、SSRF 守卫 | ✅（后端 2053 例 / 前端 150 例 / e2e 19 例 + 真实栈 5/5） |
+| [019-project-member-roles](../specs/019-project-member-roles/spec.md) | 成员角色：editor / viewer 两档，只读成员能看不能改（改需求/分配 403） | ✅（后端 2063 例 / 前端 152 例 + 真实栈 4/4） |
+| [020-departments](../specs/020-departments/spec.md) | 部门与分派范围：部门树（物化路径）+ 三档 scope + 人员归属，默认不收紧 | ✅（后端 2074 例 / 前端 154 例 + 真实栈 4/4） |
 
 > `research.md` 是每个特性里最值得先读的文件：它记录每个关键决策「为什么更简单的做法不行」，
 > 例如 005 的「内置模板唯一性必须用部分唯一索引」（PostgreSQL 唯一约束遇 NULL 不生效）。

@@ -108,6 +108,12 @@ PROJECT_TRANSFER = "project_transfer"
 # 真要审计追溯可以在需要时补——避免审计表被「改了个开关」淹没。
 NOTIFICATION_CHANNEL_CREATE = "notification_channel_create"
 
+# ===== 组织架构（020）=====
+# 建/删部门要留痕：它们直接改变「谁能把活派给谁」，属于权限面变更。
+# 改名与改 scope 不单独记（可从当前状态看出），避免审计被高频配置淹没。
+ORG_DEPARTMENT_CREATE = "department_create"
+ORG_DEPARTMENT_DELETE = "department_delete"
+
 
 async def write_audit(
     db: AsyncSession,

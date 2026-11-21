@@ -16,7 +16,8 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.get("/options", response_model=UserOptionList)
 async def list_user_options(user: CurrentUser, _m: MemberUser, db: DB):
     """在职用户列表（分派选人用）。"""
-    users = await user_service.list_options(db)
+    # 020：按调用者的组织范围收窄（受限用户看不到范围外的人）
+    users = await user_service.list_options(db, user.id)
     return {
         "items": [UserOption.model_validate(u) for u in users],
         "total": len(users),

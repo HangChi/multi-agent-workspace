@@ -58,7 +58,9 @@ async def _request(db, owner: User, project: Project) -> Request:
     return request
 
 
-async def _member(db, project: Project, user: User, role: str = "editor") -> ProjectMember:
+async def _member(
+    db, project: Project, user: User, role: str = "editor"
+) -> ProjectMember:
     edge = ProjectMember(project_id=project.id, user_id=user.id, role=role)
     db.add(edge)
     await db.commit()
@@ -165,12 +167,16 @@ async def test_viewer_can_read_project_and_request(
     await _member(db_session, project, viewer, "viewer")
     headers = await make_headers(viewer)
 
-    assert (await client.get(f"{PROJECTS_URL}/{project.id}", headers=headers)).status_code == 200
+    assert (
+        await client.get(f"{PROJECTS_URL}/{project.id}", headers=headers)
+    ).status_code == 200
     detail = await client.get(f"{REQUESTS_URL}/{request.id}", headers=headers)
     assert detail.status_code == 200
     assert detail.json()["title"] == request.title
 
-    listed = await client.get(f"{REQUESTS_URL}?project_id={project.id}", headers=headers)
+    listed = await client.get(
+        f"{REQUESTS_URL}?project_id={project.id}", headers=headers
+    )
     assert listed.status_code == 200
     assert any(r["id"] == request.id for r in listed.json()["items"])
 
@@ -252,9 +258,10 @@ async def test_owner_is_not_blocked_by_role_check(
     project = await _project(db_session, owner)
     request = await _request(db_session, owner, project)
 
-    assert await project_member_service.member_role(
-        db_session, project.id, owner.id
-    ) == "owner"
+    assert (
+        await project_member_service.member_role(db_session, project.id, owner.id)
+        == "owner"
+    )
     assert await project_member_service.can_write_in_project(
         db_session, project.id, owner.id
     )

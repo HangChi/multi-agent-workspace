@@ -4,6 +4,7 @@ from app.models.agent import Agent
 from app.models.agent_template import AgentTemplate
 from app.models.artifact import Artifact
 from app.models.audit_log import AuditLog
+from app.models.department import Department
 from app.models.egress import EgressAccess, EgressRule
 from app.models.external_credential import ExternalCredential
 from app.models.external_invocation import ExternalToolInvocation
@@ -39,6 +40,7 @@ __all__ = [
     "AgentTemplate",
     "Artifact",
     "AuditLog",
+    "Department",
     "EgressAccess",
     "EgressRule",
     "ExternalCredential",

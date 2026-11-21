@@ -22,6 +22,7 @@ from app.api.v1.agent_egress import router as agent_egress_router
 from app.api.v1.agent_templates import router as agent_templates_router
 from app.api.v1.agents import router as agents_router
 from app.api.v1.auth import router as auth_router
+from app.api.v1.departments import router as departments_router
 from app.api.v1.dependencies import router as dependencies_router
 from app.api.v1.external_observability import router as external_observability_router
 from app.api.v1.external_tool_grants import router as external_tool_grants_router
@@ -112,6 +113,7 @@ def create_app() -> FastAPI:
     api_v1.include_router(project_members_router)
     api_v1.include_router(notifications_router)
     api_v1.include_router(notification_channels_router)
+    api_v1.include_router(departments_router)
     api_v1.include_router(admin_router)
     api_v1.include_router(admin_egress_router)
     api_v1.include_router(admin_invite_codes_router)

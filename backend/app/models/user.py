@@ -36,6 +36,10 @@ class User(Base):
     invite_code_id: Mapped[str | None] = mapped_column(
         ForeignKey("invite_codes.id"), nullable=True
     )
+    # 020：所属部门（可空 = 未归属）。删部门只清空归属，不删人（SET NULL）。
+    department_id: Mapped[str | None] = mapped_column(
+        ForeignKey("departments.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

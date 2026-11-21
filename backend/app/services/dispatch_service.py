@@ -166,6 +166,14 @@ async def dispatch_request(
 
     target = await _load_active_user(db, target_user_id)
 
+    # 020：组织范围门禁——「别让隔壁部门把活派过来」。
+    # 放在目标存在性之后（404 先于 403，不暴露「这个人存不存在」之外的判断），
+    # 放在状态迁移之前（失败不留任何副作用）。
+    from app.services import org_service
+
+    if not await org_service.can_assign_to(db, actor_id, target_user_id):
+        raise AppError("FORBIDDEN", "你的部门无权把需求指派给该用户")
+
     action = "reassign" if request.assignee_id else "dispatch"
     previous_assignee = request.assignee_id
 

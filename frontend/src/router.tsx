@@ -55,6 +55,10 @@ const SchedulesPage = lazy(() =>
 const MarketplacePage = lazy(() =>
   import('./pages/MarketplacePage').then((m) => ({ default: m.MarketplacePage }))
 )
+/** 组织架构（020）：admin 专属，懒加载。 */
+const OrganizationPage = lazy(() =>
+  import('./pages/OrganizationPage').then((m) => ({ default: m.OrganizationPage }))
+)
 /** 通知渠道（018）：懒加载，设置页里的低频入口。 */
 const NotificationChannelsPage = lazy(() =>
   import('./pages/NotificationChannelsPage').then((m) => ({
@@ -125,6 +129,7 @@ const ROUTE_TITLES: [RegExp, string][] = [
   [/^\/settings\/schedules$/, '定时调度'],
   [/^\/settings\/notifications$/, '通知渠道'],
   [/^\/settings\/marketplace$/, '工具市场'],
+  [/^\/settings\/organization$/, '组织架构'],
   [/^\/settings\/admin$/, '管理后台'],
   [/^\/settings$/, '设置'],
   [/^\/$/, '需求看板'],
@@ -232,6 +237,14 @@ export function AppRouter() {
             <Route
               path="notifications"
               element={<Suspended element={<NotificationChannelsPage />} />}
+            />
+            <Route
+              path="organization"
+              element={
+                <RequireAdmin>
+                  <Suspended element={<OrganizationPage />} />
+                </RequireAdmin>
+              }
             />
             <Route
               path="admin"

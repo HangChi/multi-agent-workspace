@@ -20,6 +20,7 @@ migration is a pure widening, no data backfill needed.
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -47,7 +48,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_constraint(
-        "ck_project_members_role", "project_members", type_="check"
-    )
+    op.drop_constraint("ck_project_members_role", "project_members", type_="check")
     op.drop_column("project_members", "role")
