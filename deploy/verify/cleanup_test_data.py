@@ -28,7 +28,15 @@ import asyncio
 
 import asyncpg
 
-DEFAULT_PATTERNS = ["w-%", "dep-%", "disp-%", "verify-%", "proj-%", "share-%", "strategy-%"]
+DEFAULT_PATTERNS = [
+    "w-%",
+    "dep-%",
+    "disp-%",
+    "verify-%",
+    "proj-%",
+    "share-%",
+    "strategy-%",
+]
 DEFAULT_PROTECTED = ["owner@example.com"]
 DSN = "postgresql://aw:test-password-123@127.0.0.1:5432/agent_workbench"
 
@@ -69,8 +77,12 @@ async def primary_key(conn: asyncpg.Connection, table: str) -> str | None:
 async def main() -> int:
     parser = argparse.ArgumentParser(description="清理验收脚本攒下的测试账号")
     parser.add_argument("--execute", action="store_true", help="真删（默认 dry-run）")
-    parser.add_argument("--pattern", action="append", default=None, help="邮箱 LIKE 模式（可多次）")
-    parser.add_argument("--protect", action="append", default=None, help="保护名单（可多次）")
+    parser.add_argument(
+        "--pattern", action="append", default=None, help="邮箱 LIKE 模式（可多次）"
+    )
+    parser.add_argument(
+        "--protect", action="append", default=None, help="保护名单（可多次）"
+    )
     parser.add_argument(
         "--force",
         action="store_true",
@@ -88,7 +100,9 @@ async def main() -> int:
         if protected:
             where += f" AND email <> ALL(${len(params) + 1}::text[])"
             params.append(protected)
-        victims = await conn.fetch(f"SELECT id, email FROM users WHERE {where}", *params)
+        victims = await conn.fetch(
+            f"SELECT id, email FROM users WHERE {where}", *params
+        )
         print(f"命中测试账号：{len(victims)} 个（模式 {patterns}，保护 {protected}）")
         if not victims:
             return 0
@@ -100,7 +114,7 @@ async def main() -> int:
 
         edges = await fk_edges(conn)
         # 子表 → [(列, 父表), ...]；破环：去掉 users → invite_codes 边
-        #（users.invite_code_id → invite_codes.id 与 created_by → users 成环，
+        # （users.invite_code_id → invite_codes.id 与 created_by → users 成环，
         #  执行阶段会把受害者该列置 NULL，这里同步断边让污染传播可终止）
         refs: dict[str, list[tuple[str, str]]] = {}
         for child, col, parent in edges:
@@ -165,7 +179,9 @@ async def main() -> int:
                         queue.append(parent)
             queue.sort()
         if len(delete_order) != len(non_empty):
-            raise RuntimeError(f"删除序不完整，疑似有环：{non_empty - set(delete_order)}")
+            raise RuntimeError(
+                f"删除序不完整，疑似有环：{non_empty - set(delete_order)}"
+            )
         print(f"污染传播涉及 {len(non_empty) + 1} 张表；删除序（子先）：")
         print("  " + " → ".join(delete_order + ["users"]))
 
@@ -199,6 +215,36 @@ async def main() -> int:
                     "UPDATE users SET invite_code_id = NULL WHERE id = ANY($1::uuid[])",
                     victim_ids,
                 )
+
+                # ---------- 破环：把「待删的码」的 created_by 转给保留用户 ----------
+                # `users.invite_code_id → invite_codes.id` 与
+                # `invite_codes.created_by → users.id` 是一个二元环。只把受害者的
+                # invite_code_id 置 NULL 只破了一半。
+                #
+                # 实测（2026-11-22）：VERIFY-012-MEMBER 由 owner@example.com 创建，
+                # 却被 90 个**同样待删**的账号使用。删码那一步因为「仍被用户引用」
+                # 排除了它；等删 users 时它还在，created_by 指向待删用户 → FK 违例，
+                # 整笔事务回滚（两次都是这个错，数据无损但白跑）。
+                #
+                # 解法：在删用户之前，把「created_by 是待删用户」的码转交给一个
+                # 保留用户。码因此活下来（那些账号本来也是用这个码注册的，语义上
+                # 更合理），created_by 也不再悬空。
+                keeper = await conn.fetchval(
+                    "SELECT id FROM users WHERE NOT (id = ANY($1::uuid[])) ORDER BY created_at LIMIT 1",
+                    victim_ids,
+                )
+                if keeper:
+                    moved = await conn.fetchval(
+                        "WITH moved AS ("
+                        "  UPDATE invite_codes SET created_by = $2"
+                        "  WHERE created_by = ANY($1::uuid[]) RETURNING 1"
+                        ") SELECT count(*) FROM moved",
+                        victim_ids,
+                        keeper,
+                    )
+                    if moved:
+                        print(f"  invite_codes（created_by 转交保留用户）: {moved} 行")
+
             for table in delete_order:
                 pk = await primary_key(conn, table)
                 ids = list(tainted[table])
@@ -214,7 +260,9 @@ async def main() -> int:
                 )
                 if n == 0:
                     continue
-                print(f"  {table}: {n} 行" + ("" if args.execute else "（dry-run，不删）"))
+                print(
+                    f"  {table}: {n} 行" + ("" if args.execute else "（dry-run，不删）")
+                )
                 total += n
                 if args.execute:
                     await conn.execute(
@@ -225,10 +273,15 @@ async def main() -> int:
                 n_users = await conn.fetchval(
                     "SELECT count(*) FROM users WHERE id = ANY($1::uuid[])", victim_ids
                 )
-                await conn.execute("DELETE FROM users WHERE id = ANY($1::uuid[])", victim_ids)
+                await conn.execute(
+                    "DELETE FROM users WHERE id = ANY($1::uuid[])", victim_ids
+                )
                 print(f"  users: {n_users} 行")
                 total += n_users
-        print(f"\n合计触及 {total} 行" + ("，已删除。" if args.execute else "（dry-run）。"))
+        print(
+            f"\n合计触及 {total} 行"
+            + ("，已删除。" if args.execute else "（dry-run）。")
+        )
         if args.execute:
             print(f"剩余用户：{await conn.fetchval('SELECT count(*) FROM users')}")
             for t in ("requests", "projects", "agents", "runs", "audit_logs"):
