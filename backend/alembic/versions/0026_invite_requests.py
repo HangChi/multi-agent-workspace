@@ -14,6 +14,7 @@ the requester's view simple.
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0026_invite_requests"

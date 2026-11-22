@@ -18,6 +18,7 @@ No enum: ``transport`` is a varchar + CHECK, so adding a future transport
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0025_stdio_transport"
