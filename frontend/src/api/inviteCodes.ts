@@ -65,7 +65,6 @@ export async function revokeInviteCode(codeId: string): Promise<InviteCodeItem> 
   return data
 }
 
-
 // ---------- 运营统计（022）----------
 
 export interface InviteStatsByRole {

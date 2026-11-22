@@ -195,7 +195,6 @@ export function attachmentDownloadUrl(requestId: string, key: string): string {
   return `/api/v1/requests/${requestId}/attachments/${encodeURIComponent(key)}`
 }
 
-
 // ---------- 依赖图谱（021）----------
 
 export interface DependencyGraphNode {

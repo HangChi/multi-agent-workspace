@@ -77,7 +77,8 @@ export function ProjectTransferDialog({ project, open, onClose }: Props) {
       title="移交项目所有权"
       description={
         <>
-          「{project.name}」移交后，<strong className="font-semibold text-ink">对方将获得全部管理权限</strong>
+          「{project.name}」移交后，
+          <strong className="font-semibold text-ink">对方将获得全部管理权限</strong>
           （改名、管成员、归档、删除）。此操作不可撤销，如需还原要由对方再移交回来。
         </>
       }

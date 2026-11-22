@@ -15,7 +15,7 @@ const builtin: AgentTemplate = {
   id: 'tpl-builtin',
   owner_id: null,
   is_builtin: true,
-    visibility: 'team',
+  visibility: 'team',
   name: '资料检索助手',
   description: '先搜再读、交叉核对',
   system_prompt: 'p',

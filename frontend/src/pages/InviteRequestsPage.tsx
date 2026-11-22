@@ -59,8 +59,7 @@ export function InviteRequestsPage() {
   }
 
   const createMut = useMutation({
-    mutationFn: () =>
-      createInviteRequest({ role, count: Number(count), reason }),
+    mutationFn: () => createInviteRequest({ role, count: Number(count), reason }),
     onSuccess: () => {
       setReason('')
       setCount('1')
@@ -116,9 +115,7 @@ export function InviteRequestsPage() {
         }
       />
 
-      {error && (
-        <ErrorBanner error={error} onDismiss={() => setError(null)} className="mt-4" />
-      )}
+      {error && <ErrorBanner error={error} onDismiss={() => setError(null)} className="mt-4" />}
 
       <Card className="mt-4" padding="md">
         <p className="mb-3 text-ui font-medium text-ink-soft">提交申请</p>
@@ -199,10 +196,19 @@ export function InviteRequestsPage() {
                     </span>
                     {isAdmin && row.status === 'pending' && (
                       <span className="flex items-center gap-1">
-                        <Button size="sm" loading={approveMut.isPending} onClick={() => approveMut.mutate(row.id)}>
+                        <Button
+                          size="sm"
+                          loading={approveMut.isPending}
+                          onClick={() => approveMut.mutate(row.id)}
+                        >
                           批准并生成
                         </Button>
-                        <Button size="sm" variant="ghost" tone="danger" onClick={() => void onReject(row)}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          tone="danger"
+                          onClick={() => void onReject(row)}
+                        >
                           拒绝
                         </Button>
                       </span>

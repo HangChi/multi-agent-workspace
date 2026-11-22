@@ -192,8 +192,8 @@ export function InviteCodes() {
               {stats.by_department.map((row) => (
                 <li key={row.department_id}>
                   {row.department_name}：本月 {row.issued_seats_this_month}
-                  {row.quota === null ? ' / 不限' : ` / ${row.quota}`}
-                  {' '}（已用 {row.used_seats_this_month}）
+                  {row.quota === null ? ' / 不限' : ` / ${row.quota}`} （已用{' '}
+                  {row.used_seats_this_month}）
                 </li>
               ))}
             </ul>

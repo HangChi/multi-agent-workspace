@@ -187,9 +187,7 @@ export function Board({
   const visibleColumns = useMemo(
     () =>
       filter === 'all'
-        ? COLUMNS.filter(
-            (c) => c.status !== 'cancelled' || (counts['cancelled'] ?? 0) > 0
-          )
+        ? COLUMNS.filter((c) => c.status !== 'cancelled' || (counts['cancelled'] ?? 0) > 0)
         : COLUMNS.filter((c) => c.status === filter),
     [filter, counts]
   )

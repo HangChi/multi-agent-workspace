@@ -30,10 +30,7 @@ export interface TemplateImportButtonProps {
   onError: (message: string) => void
 }
 
-export function TemplateImportButton({
-  onImported,
-  onError,
-}: TemplateImportButtonProps) {
+export function TemplateImportButton({ onImported, onError }: TemplateImportButtonProps) {
   const toast = useToast()
   const inputRef = useRef<HTMLInputElement>(null)
 

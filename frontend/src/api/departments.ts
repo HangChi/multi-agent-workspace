@@ -49,9 +49,7 @@ export async function deleteDepartment(id: string): Promise<void> {
 }
 
 export async function fetchDepartmentMembers(): Promise<DepartmentMemberRow[]> {
-  const { data } = await apiClient.get<{ items: DepartmentMemberRow[] }>(
-    '/departments/members'
-  )
+  const { data } = await apiClient.get<{ items: DepartmentMemberRow[] }>('/departments/members')
   return data.items
 }
 

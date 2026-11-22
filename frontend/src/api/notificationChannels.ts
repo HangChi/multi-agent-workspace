@@ -60,7 +60,10 @@ export async function updateChannel(
   id: string,
   payload: { url?: string; event_types?: string[]; enabled?: boolean }
 ): Promise<NotificationChannel> {
-  const { data } = await apiClient.patch<NotificationChannel>(`/notification-channels/${id}`, payload)
+  const { data } = await apiClient.patch<NotificationChannel>(
+    `/notification-channels/${id}`,
+    payload
+  )
   return data
 }
 

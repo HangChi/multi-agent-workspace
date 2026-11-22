@@ -41,9 +41,7 @@ import { useBoardStore } from '../stores/boardStore'
  */
 function isListCache(data: unknown): data is { items: WorkRequest[] } {
   return (
-    typeof data === 'object' &&
-    data !== null &&
-    Array.isArray((data as { items?: unknown }).items)
+    typeof data === 'object' && data !== null && Array.isArray((data as { items?: unknown }).items)
   )
 }
 

@@ -139,9 +139,7 @@ export function OrganizationPage() {
         description="部门树 + 分派范围：决定「谁能把需求派给谁」。未归属部门的成员不受限制（便于渐进启用）。"
       />
 
-      {error && (
-        <ErrorBanner error={error} onDismiss={() => setError(null)} className="mt-4" />
-      )}
+      {error && <ErrorBanner error={error} onDismiss={() => setError(null)} className="mt-4" />}
 
       <Card className="mt-4" padding="md">
         <p className="mb-3 text-ui font-medium text-ink-soft">新建部门</p>
@@ -177,7 +175,11 @@ export function OrganizationPage() {
             <option value="subtree">本部门及下级</option>
             <option value="self">仅本部门</option>
           </Select>
-          <Button loading={createMut.isPending} disabled={!name.trim()} onClick={() => createMut.mutate()}>
+          <Button
+            loading={createMut.isPending}
+            disabled={!name.trim()}
+            onClick={() => createMut.mutate()}
+          >
             创建
           </Button>
         </div>

@@ -20,8 +20,7 @@ vi.mock('../../../api/endpoints', () => ({
 }))
 
 vi.mock('../../../api/client', () => ({
-  extractError: (err: unknown) =>
-    err instanceof Error ? err.message : '未知错误',
+  extractError: (err: unknown) => (err instanceof Error ? err.message : '未知错误'),
 }))
 
 const mockedImport = vi.mocked(importAgentTemplate)
@@ -43,7 +42,7 @@ function renderButton() {
   const view = render(
     <ToastProvider>
       <TemplateImportButton onImported={onImported} onError={onError} />
-    </ToastProvider>,
+    </ToastProvider>
   )
   return { ...view, onImported, onError }
 }

@@ -286,7 +286,7 @@ export function AgentTemplatesPage() {
               </span>
             </h2>
             <TemplateImportButton onImported={invalidate} onError={setError} />
-        <p className="text-micro text-ink-faint">
+            <p className="text-micro text-ink-faint">
               内置模板不可修改：需要改就先「用这个模板」创建 Agent，再另存为自己的模板。
             </p>
           </div>
@@ -530,7 +530,6 @@ function TemplateCard({
   )
 }
 
-
 /**
  * 模板的「历史 / 共享 / 导出」弹层（023）。
  *
@@ -640,9 +639,7 @@ function TemplateInspector({
             </span>
           </p>
           {versions.length === 0 ? (
-            <p className="text-xs text-ink-faint">
-              还没有版本——每次编辑会在保存前记一份快照。
-            </p>
+            <p className="text-xs text-ink-faint">还没有版本——每次编辑会在保存前记一份快照。</p>
           ) : (
             <ul className="space-y-1">
               {versions.map((v: TemplateVersion) => (

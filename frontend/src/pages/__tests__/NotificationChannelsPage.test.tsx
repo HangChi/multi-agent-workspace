@@ -60,9 +60,7 @@ describe('NotificationChannelsPage', () => {
     await screen.findByText('还没有通知渠道')
 
     fireEvent.click(screen.getByRole('button', { name: '新建通道' }))
-    expect(
-      await screen.findByText(/全不勾 = 订阅全部事件/)
-    ).toBeInTheDocument()
+    expect(await screen.findByText(/全不勾 = 订阅全部事件/)).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('Webhook 地址'), {
       target: { value: 'https://hooks.example.com/aw' },

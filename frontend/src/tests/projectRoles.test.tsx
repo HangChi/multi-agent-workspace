@@ -61,8 +61,20 @@ describe('MemberSection 角色', () => {
   it('只读成员显示「只读」徽章', async () => {
     fetchMock.mockResolvedValue({
       items: [
-        { user_id: 'u-owner', user_email: 'owner@example.test', is_owner: true, role: 'owner', joined_at: '' },
-        { user_id: 'u-viewer', user_email: 'viewer@example.test', is_owner: false, role: 'viewer', joined_at: '' },
+        {
+          user_id: 'u-owner',
+          user_email: 'owner@example.test',
+          is_owner: true,
+          role: 'owner',
+          joined_at: '',
+        },
+        {
+          user_id: 'u-viewer',
+          user_email: 'viewer@example.test',
+          is_owner: false,
+          role: 'viewer',
+          joined_at: '',
+        },
       ],
       total: 2,
     })
@@ -80,7 +92,13 @@ describe('MemberSection 角色', () => {
   it('添加时选「只读」，传给后端的 role 是 viewer', async () => {
     fetchMock.mockResolvedValue({
       items: [
-        { user_id: 'u-owner', user_email: 'owner@example.test', is_owner: true, role: 'owner', joined_at: '' },
+        {
+          user_id: 'u-owner',
+          user_email: 'owner@example.test',
+          is_owner: true,
+          role: 'owner',
+          joined_at: '',
+        },
       ],
       total: 1,
     })

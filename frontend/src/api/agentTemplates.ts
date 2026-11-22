@@ -129,7 +129,6 @@ export async function saveAgentAsTemplate(
   return data
 }
 
-
 // ---------- 版本历史 / 导入导出（023）----------
 
 export interface TemplateVersion {
@@ -176,13 +175,10 @@ export async function exportAgentTemplate(id: string): Promise<TemplateExportPay
 }
 
 /** 从导出的 JSON 建一份新模板（重名 409）。 */
-export async function importAgentTemplate(
-  payload: TemplateExportPayload
-): Promise<AgentTemplate> {
+export async function importAgentTemplate(payload: TemplateExportPayload): Promise<AgentTemplate> {
   const { data } = await apiClient.post<AgentTemplate>('/agent-templates/import', payload)
   return data
 }
-
 
 /** 把可见的模板复制成自己的私有副本（026 模板市场）。 */
 export async function duplicateAgentTemplate(id: string): Promise<AgentTemplate> {
