@@ -574,3 +574,40 @@ transition(run, RunStatus.FAILED); run.error = ...; await set_status(...); await
 `_authorize_tool_now(db, *, name, agent, run, external_executors)` 并补 10 条，
 把四条规则逐条钉住（快照 ∧ 当前、外部工具短路、无 Agent 拒绝、None 快照按无授权）。
 三个方向的反向验证都先红后绿：只信快照红 3 条、只看当前红 2 条、去掉外部工具短路红 1 条。
+
+## 六、合并前发现：CI 与本地门禁跑的不是同一套命令
+
+准备合并 `fix/audit-2026-11-21` 时先看了一眼 `gh run list`，master 最新一次
+（`bff73ed`）是红的，失败在 `后端 py3.12` 与 `前端 node22` 两个作业上。逐条比对
+CI 的步骤与本地一直在跑的命令，两者**范围不同**：
+
+| 检查项 | CI 实际执行 | 本地一直执行 | 后果 |
+|---|---|---|---|
+| `ruff check` | `app tests alembic` | `app tests` | `0025`/`0026` 的 I001 只在 CI 红 |
+| `ruff format --check` | `.`（407 文件） | `app tests` | `0025` 的折行只在 CI 红 |
+| `prettier --check` | `src/**/*.{ts,tsx,css}` | **完全没跑** | 18 个文件长期不合规 |
+| `npm run build` | 有（含 CSS 产物 >5KB 断言） | 偶尔 | — |
+
+这不是工具版本漂移。`docs/audit-followup-2026-11-20.md` 第四节把上一次「本地绿 CI 红」
+归因于 `>=` 让 CI 装到更新的 lint 版本，并给出了「先比对工具版本」的排查法——方向
+对，但不是这次的根因。**范围差异比版本漂移更隐蔽**：版本漂移至少两边跑的是同一条
+命令，肉眼比对 `--version` 就能发现；范围差异下，本地那条命令永远会绿。
+
+四笔修复：
+
+| 提交 | 修什么 |
+|---|---|
+| `605eec6` | `ruff check --fix app tests alembic`，两处 import 排序 |
+| `4d6554d` | `ruff format .`，`0025` 的折行（同一漏项的另一半） |
+| `b683223` | `npm run format`，18 个文件的排版 |
+| — | 本轮起，本地门禁按 CI 的命令原样跑，不再用简化版 |
+
+四条经验：
+
+1. **本地门禁命令必须从 workflow 文件抄，不能凭印象写。** 报告里写的「复现命令」
+   如果与 CI 不一致，它就不是复现命令，而是另一套检查。
+2. **`alembic/` 是交付代码。** 迁移文件长期不在 lint 范围内，等于这部分代码
+   从没被检查过——而它们恰恰是要在生产库上跑的。
+3. **prettier 不跑就不会有人遵守。** 配置文件存在 ≠ 规范被执行；`format` 与
+   `format:check` 两个脚本都在，但没有任何环节调用 `format:check`。
+4. **合并前先看远端状态。** 只看本地全绿就合并，会把一轮红直接从 master 继承过来。
