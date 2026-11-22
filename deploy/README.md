@@ -68,6 +68,39 @@ docker compose -p aw -f deploy/docker-compose.yml --profile mock up -d --build
 # 并把 .env 的 LLM_BASE_URL 指向 http://llm-gateway:4000
 ```
 
+### 前端三种启动方式
+
+前端的 API 请求走相对路径（`src/api/client.ts` 的 `baseURL: '/api/v1'`），
+所以它总是"从当前页面的 host"取接口，三种方式都不需要配 baseURL：
+
+| 方式 | 命令 | 地址 | 适用 |
+|---|---|---|---|
+| 容器（推荐） | `docker compose -p aw -f deploy/docker-compose.yml up -d frontend` | http://127.0.0.1:8080 | 日常使用 / 验收，与生产同构 |
+| 开发服务器 | `cd frontend && npm run dev` | http://127.0.0.1:5173 | 改前端代码，热更新 |
+| 静态预览 | `cd frontend && npm run build && npm run preview` | http://127.0.0.1:4173 | 验证**构建产物**（而非源码），无热更新 |
+
+（三者都实测过：`vite preview` 会复用 `server.proxy` 配置，所以 4173 下
+`/api/v1/health` 同样返回真实 JSON，不是 SPA fallback。）
+
+**开发服务器依赖后端已经在跑**。它把 `/api` 与 `/ws` 代理到 `AW_DEV_API`
+（默认 `http://127.0.0.1:8080`，即 nginx 入口）：
+
+```bash
+# 1) 起后端（api/worker/beat + nginx）——只需一次
+docker compose -p aw -f deploy/docker-compose.yml up -d --build
+
+# 2) 起前端热更新
+cd frontend && npm run dev          # → http://127.0.0.1:5173
+
+# 若后端是用 uvicorn 直接起在宿主机（不经 compose），覆盖代理目标：
+cd frontend && AW_DEV_API=http://127.0.0.1:8000 npm run dev
+```
+
+> ⚠️ 不要在 `deploy/.env` 里给 `api` 加 `ports: 8000:8000` 来"让 dev 能代理"。
+> 容器里该服务刻意只 `expose` 不 `publish`（见 compose 该服务末尾注释），
+> 后端只该经 nginx 暴露——把 8000 放出来等于凭空多一个绕过 nginx
+> 安全头（CSP / X-Frame-Options）的入口。
+
 ## 受限网络下的构建（走代理）
 
 有公网的机器直接 `up -d --build` 即可。若构建机只能通过代理出网，`uv sync` /
