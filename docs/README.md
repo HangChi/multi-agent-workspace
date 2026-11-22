@@ -48,9 +48,9 @@
 | [019-project-member-roles](../specs/019-project-member-roles/spec.md) | 成员角色：editor / viewer 两档，只读成员能看不能改（改需求/分配 403） | ✅（后端 2063 例 / 前端 152 例 + 真实栈 4/4） |
 | [020-departments](../specs/020-departments/spec.md) | 部门与分派范围：部门树（物化路径）+ 三档 scope + 人员归属，默认不收紧 | ✅（后端 2074 例 / 前端 154 例 + 真实栈 4/4） |
 | [021-dependency-graph](../specs/021-dependency-graph/spec.md) | 依赖图谱：下游子图 + 拓扑序 + 关键路径 + 自动启动（默认关，三道幂等校验） | ✅（后端 2084 例 / e2e 21 例 + 真实栈 4/4） |
-| [022-invite-ops](../specs/022-invite-ops/spec.md) | 邀请码运营：部门月度名额配额 + 运营统计；**申请-审批流明确未做** | ⏳ 部分（后端 2091 例 + 真实栈 3/3） |
-| [023-template-sharing](../specs/023-template-sharing/spec.md) | 模板团队共享 + 版本历史（改前快照/回滚）+ 导入导出；**模板市场未做** | ✅（后端 2098 例 / 前端 155 例 + 真实栈 3/3） |
-| [024-mcp-stdio](../specs/024-mcp-stdio/spec.md) | MCP stdio 传输：协议 + 常驻进程池 + 丝全底线，已接进 003 链路 | ✅（后端 2115 例 + 真实栈 3/3） |
+| [022-invite-ops](../specs/022-invite-ops/spec.md) | 邀请码运营：部门月度名额配额 + 运营统计；申请-审批流当时未做，**已由 027 补上** | ✅（后端 2091 例 + 真实栈 3/3） |
+| [023-template-sharing](../specs/023-template-sharing/spec.md) | 模板团队共享 + 版本历史（改前快照/回滚）+ 导入导出；模板市场当时未做，**已由 026 补上** | ✅（后端 2098 例 / 前端 155 例 + 真实栈 3/3） |
+| [024-mcp-stdio](../specs/024-mcp-stdio/spec.md) | MCP stdio 传输：协议 + 常驻进程池 + 三条安全底线，已接进 003 链路 | ✅（后端 2115 例 + 真实栈 3/3） |
 | [025-visual-baseline](../specs/025-visual-baseline/spec.md) | 视觉回归基线：三页 + Pillow 像素比对（2% 容差），回勾 015 T024 | ✅（e2e 24 例） |
 | [026-template-market](../specs/026-template-market/spec.md) | 模板市场：团队模板浏览（带作者）+ 复制为私有副本 | ✅（后端 2119 例 + 真实栈 3/3） |
 | [027-invite-approval](../specs/027-invite-approval/spec.md) | 邀请码申请与审批：申请 → 批准即发码（继承部门配额）→ 通知 | ✅（后端 2123 例 + 真实栈 4/4） |
