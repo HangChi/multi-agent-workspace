@@ -35,7 +35,8 @@ def upgrade() -> None:
         ),
     )
     op.add_column(
-        "external_tool_servers", sa.Column("command", sa.String(length=200), nullable=True)
+        "external_tool_servers",
+        sa.Column("command", sa.String(length=200), nullable=True),
     )
     op.add_column(
         "external_tool_servers",
